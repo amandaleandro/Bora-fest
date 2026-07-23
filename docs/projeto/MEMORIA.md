@@ -40,7 +40,9 @@ KYC do produtor ser aprovado.
 
 - pnpm workspaces + Turborepo. Node >= 20. TypeScript em tudo.
 - `apps/api` — NestJS + adaptador Fastify. Módulos: identity, organizations,
-  events, catalog, inventory, reservations, orders (+ payments/tickets na Fase 4).
+  events, catalog, inventory, reservations, orders, payments, webhooks,
+  tickets, notifications, validator, checkins, dashboard (Fase 8 — painel do
+  produtor), admin (Fase 8 — backoffice BoraFest).
 - `apps/worker` — processos BullMQ (tsx em dev, tsc em build). Hoje: expiração de
   reservas + reconciliação a cada 60s.
 - `packages/database` — Prisma (client singleton em `src/index.ts`, re-exporta `@prisma/client`).
@@ -61,6 +63,10 @@ KYC do produtor ser aprovado.
 - Autenticação: `SessionGuard` + `@CurrentUserId()` quando obrigatória;
   `@OptionalUserId()` em rotas públicas/convidado.
 - Autorização por organização: `OrgAccessService.assertPermission(orgId, userId, PERMISSIONS.X)`.
+- Autorização de equipe BoraFest (backoffice, sem escopo de organização):
+  `PlatformAccessService.assertStaff(userId)` / `.assertAdmin(userId)`, lendo
+  `User.platformRole` (`SUPPORT`/`ADMIN`, null = usuário comum). Mesma ideia do
+  `OrgAccessService`, chamado dentro do service, não guard.
 - Operações críticas de estoque/contadores: SQL bruto atômico via `Prisma.sql`,
   aceitando `TransactionClient` para compor transações.
 - Rotas REST com prefixo `v1/` (ex.: `@Controller("v1/orders")`), nomes da seção 13 da arquitetura.
@@ -118,6 +124,30 @@ KYC do produtor ser aprovado.
 - **TODO antes de produção**: configurar a autenticação do webhook no dashboard,
   validar débito/Apple Pay com o comercial, e negociar Plano Customizado.
 
+## Regras da Fase 8 (dashboard + backoffice) — aprendidas na implementação
+
+- Dashboard do produtor é autorizado por `PERMISSIONS.FINANCE_VIEW` (owner,
+  admin e finance têm; operator não) — mesma permissão usada no resto da API
+  para dados financeiros, não criamos uma nova.
+- Backoffice NUNCA muta status de pagamento/pedido diretamente — o estorno
+  controlado chama `getGateway(payment.provider).refund()` e depois
+  `applyGatewayStatus()`, o MESMO caminho do webhook (ver regra da Fase 4
+  acima: único caminho para aplicar status de gateway). Antes de chamar o
+  gateway, o pagamento é marcado `REFUND_PENDING` via `updateMany` com guarda
+  de status `PAID` — evita disparo duplo se o estorno for clicado 2x rápido.
+- Reenvio de ingresso pelo backoffice reaproveita
+  `NotificationsService.resendTickets(publicToken)` — mesmo limite de 3/hora
+  do reenvio pelo comprador; não duplicamos a lógica.
+- Toda ação do backoffice (taxa, bloqueio, reenvio, estorno) grava `AuditLog`
+  com `actorUserId` e metadata da ação.
+- Taxa por organização é override opcional (`pixFeeBps`/`pixFeeFloorCents`/
+  `cardFeeBps` em `Organization`, todos nullable = usa o padrão da
+  plataforma). Ainda não há um lugar que LEIA esse override para calcular
+  `feeCents` de fato — isso é trabalho da Fase 9 (ledger/taxas); a Fase 8 só
+  criou onde guardar e como configurar.
+- "Bloquear evento" pelo backoffice reaproveita `EventStatus.CANCELED` (não
+  existe um status `BLOCKED` dedicado) — o motivo vai só no `AuditLog`.
+
 ## Pendências e cuidados conhecidos
 
 - `.env` local a partir de `.env.example` (`SESSION_JWT_SECRET` precisa ser definido;
@@ -130,3 +160,6 @@ KYC do produtor ser aprovado.
   Fase 9 (ledger/estornos) junto com estorno parcial.
 - Seed de desenvolvimento: `pnpm --filter @borafest/database seed:dev` cria
   evento demo publicado com lote ativo.
+- Backoffice (Fase 8): nenhum usuário tem `platformRole` por padrão (nem o
+  seed). Para testar localmente, promova via Prisma Studio/SQL:
+  `UPDATE users SET platform_role = 'ADMIN' WHERE email = '...'`.

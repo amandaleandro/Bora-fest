@@ -17,10 +17,10 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fases 6/7 — check-in (lado servidor concluído; app RN fica p/ etapa mobile) |
-| **Status da fase** | 🟢 Backend do check-in pronto e testado de ponta a ponta |
+| **Fase em andamento** | Fase 8 — painel do produtor + backoffice mínimo |
+| **Status da fase** | 🟢 Concluída e testada de ponta a ponta |
 | **Última atualização** | 2026-07-23 |
-| **Atualizado por** | Arthur + Claude |
+| **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
 
 ### Onde paramos
@@ -118,17 +118,46 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
   conflito, reenvio de lote idêntico sem duplicar, reversão devolvendo o
   ingresso a ACTIVE com auditoria, bloqueio remoto cortando o scan (401).
 
+### Fase 8 — CONCLUÍDA ✅
+
+- Schema: `User.platformRole` (`SUPPORT`/`ADMIN` — equipe interna BoraFest,
+  independente das roles de organização) e overrides de taxa por organização
+  (`Organization.pixFeeBps/pixFeeFloorCents/cardFeeBps`, null = padrão da
+  plataforma) — migration `20260723122219_platform_role_and_org_fees`.
+- **Dashboard do produtor** (`apps/api/src/dashboard`, autorizado por
+  `PERMISSIONS.FINANCE_VIEW` via `OrgAccessService`, igual ao resto da API):
+  `GET /v1/events/:id/dashboard` (receita, pedidos por status, ingressos por
+  status, lotes com capacidade/vendido/reservado), `GET /v1/events/:id/orders`
+  (paginado), `GET /v1/events/:id/participants` e
+  `GET /v1/events/:id/participants/export` (CSV).
+- **Backoffice mínimo** (`apps/api/src/admin`, novo `PlatformAccessService`
+  em `common/` — `assertStaff`/`assertAdmin`, mesmo padrão do
+  `OrgAccessService` mas sem escopo de organização): `GET/POST
+  /v1/admin/organizations(/:id/fee|/block|/unblock)`, `GET /v1/admin/events`
+  e `POST /v1/admin/events/:id/block`, `GET /v1/admin/orders` (busca por
+  publicToken/email/evento), `POST /v1/admin/orders/:publicToken/resend`
+  (reaproveita `NotificationsService.resendTickets`), `POST
+  /v1/admin/orders/:publicToken/refund` (estorno controlado — reaproveita
+  `getGateway().refund()` + `applyGatewayStatus`, o MESMO caminho idempotente
+  do webhook, nunca muta status à parte), `GET /v1/admin/webhooks`
+  (`WebhookDelivery`) e `GET /v1/admin/queues` (job counts das 5 filas BullMQ
+  e contagem do `outbox_events`). Toda ação sensível grava `AuditLog`.
+- Testado de ponta a ponta: dashboard/participantes/CSV com pedido real
+  `FULFILLED` (reserva → pedido → Pix mock → webhook assinado → ticket
+  emitido); backoffice com usuário `platformRole=ADMIN`: taxa configurada,
+  evento/pedido listados, reenvio, estorno controlado (pedido foi a
+  `REFUNDED`, pagamento `REFUNDED` via gateway mock), webhook e filas visíveis.
+- Fora do escopo (nota já em MEMORIA.md): estorno ainda não devolve estoque
+  ao lote para revenda — fica para a Fase 9.
+
 ### Próximo passo
 
-1. **Fase 8 (backend)**: painel do produtor — vendas/pedidos/participantes por
-   evento, `GET /v1/events/:id/dashboard`, exportações mínimas + backoffice
-   mínimo (§17): listar organizadores/eventos, configurar taxa, consultar
-   pedidos/webhooks/filas, reenviar ingresso, estorno controlado, bloqueios.
+1. **Fase 9**: ledger, taxas (aplicar os overrides já configuráveis desde a
+   Fase 8), estornos com devolução de estoque e repasses — aí entra o split
+   Pagar.me com recebedores/KYC e a taxa decidida (4,99%/6,99%).
 2. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
-3. Depois da Fase 8: Fase 9 (ledger, taxas, estornos e repasses) — aí entra o
-   split Pagar.me com recebedores/KYC e a taxa decidida (4,99%/6,99%).
 
 ---
 
@@ -143,7 +172,7 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
 | 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | `ed79eb6` |
 | 6 | App React Native de check-in online | 🟢 Backend concluído (app RN fica p/ etapa mobile) | (este commit) |
 | 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente) | (este commit) |
-| 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ⬜ Não iniciada | — |
+| 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída | (este commit) |
 | 9 | Ledger, taxas, estornos e repasses | ⬜ Não iniciada | — |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
 | 11 | Evento-piloto, testes de carga e hardening | ⬜ Não iniciada | — |
@@ -161,6 +190,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Fase 8**: dashboard do produtor (receita, pedidos, participantes, export CSV) e backoffice mínimo (organizações, taxa configurável por org, eventos, busca de pedidos, reenvio, estorno controlado via gateway, webhooks, saúde das filas), com `PlatformRole` (SUPPORT/ADMIN) novo no schema e auditoria em toda ação sensível. Testado de ponta a ponta com um pedido real pago via mock gateway até `FULFILLED` e depois estornado pelo backoffice. | Fase 8 concluída. Próximo: Fase 9 (ledger, taxas, estornos com devolução de estoque e repasses). |
 | 2026-07-23 | Arthur + Claude | **Fases 6/7 (backend do check-in)**: portões e PIN pelo produtor, sessão do validador por PIN + registro/refresh/bloqueio de dispositivo, manifesto completo/delta com chave pública Ed25519, check-in atômico "primeiro vence" com verificação criptográfica do QR, sync offline idempotente por lote com trilha de conflito, reversão auditada e painel ao vivo. 8 cenários E2E passando. | Backend do check-in pronto. Próximo: Fase 8 (dashboard produtor + backoffice mínimo). |
 | 2026-07-23 | Arthur + Claude | **Fase 5 (backend)**: package notifications (e-mail/WhatsApp por adapter + templates pt-BR), fila persistente `notifications` com retry, entrega disparada na mesma transação do FULFILLED, link profundo da carteira, endpoint de reenvio com limite. Testado de ponta a ponta (SENT nos 2 canais, link ok, limite ok). | Backend da F5 pronto. Próximo: backend do check-in (Fases 6/7 — sessões de validador, manifesto, checkins/sync). |
 | 2026-07-23 | Arthur | **Decisões**: taxa BoraFest confirmada (Pix 4,99% piso R$2,49 / cartão 6,99%, parcelamento no comprador) e **Pagar.me confirmado como gateway primário** (fácil de trocar via adapter/env). MP descartado (sem custódia própria) e Celcoin (não é mais barato em ticket baixo + escrow manual). | — |

@@ -18,14 +18,22 @@ enum IdentityProvider {
   PHONE
 }
 
+/// Papel de equipe interna da BoraFest (backoffice), independente das roles
+/// de organização (owner/admin/finance/operator). null = usuário comum.
+enum PlatformRole {
+  SUPPORT
+  ADMIN
+}
+
 model User {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String?
-  email     String?  @unique
-  phone     String?  @unique
-  cpf       String?  @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String?
+  email        String?       @unique
+  phone        String?       @unique
+  cpf          String?       @unique
+  platformRole PlatformRole? @map("platform_role")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
   identities            UserIdentity[]
   otpChallenges         OtpChallenge[]
@@ -96,6 +104,10 @@ model Organization {
   kind      OrganizationKind
   document  String             @unique
   status    OrganizationStatus @default(PENDING_VERIFICATION)
+  /// Overrides de taxa (basis points; 499 = 4,99%). null = usa o padrão da plataforma.
+  pixFeeBps        Int?      @map("pix_fee_bps")
+  pixFeeFloorCents Int?      @map("pix_fee_floor_cents")
+  cardFeeBps       Int?      @map("card_fee_bps")
   createdAt DateTime           @default(now()) @map("created_at")
   updatedAt DateTime           @updatedAt @map("updated_at")
 

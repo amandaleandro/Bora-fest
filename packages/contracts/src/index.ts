@@ -6,3 +6,4 @@ export * from "./reservations";
 export * from "./orders";
 export * from "./payments";
 export * from "./checkin";
+export * from "./admin";
