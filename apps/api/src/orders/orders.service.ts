@@ -2,13 +2,17 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { prisma } from "@borafest/database";
 import { createReservationExpirationQueue } from "@borafest/queues";
 import type { CreateOrderInput } from "@borafest/contracts";
-import { InventoryService } from "../inventory/inventory.service";
+
+/**
+ * Janela para pagar depois de criar o pedido. O estoque permanece em
+ * `reserved_count` até o pagamento aprovar (aí vira `sold_count`) ou a janela
+ * expirar (aí é liberado pelo worker de expiração de pedidos).
+ */
+const ORDER_PAYMENT_WINDOW_MINUTES = 15;
 
 @Injectable()
 export class OrdersService {
   private readonly expirationQueue = createReservationExpirationQueue();
-
-  constructor(private readonly inventory: InventoryService) {}
 
   async createFromReservation(userId: string | undefined, input: CreateOrderInput) {
     const reservation = await prisma.reservation.findUnique({
@@ -29,16 +33,20 @@ export class OrdersService {
       0,
     );
 
-    const order = await prisma.$transaction(async (tx) => {
-      for (const item of reservation.items) {
-        await this.inventory.confirmSale(item.ticketLotId, item.quantity, tx);
-      }
+    const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
 
-      await tx.reservation.update({
-        where: { id: reservation.id },
+    const order = await prisma.$transaction(async (tx) => {
+      // guarda de corrida contra o worker de expiração: só converte se ainda ACTIVE
+      const converted = await tx.reservation.updateMany({
+        where: { id: reservation.id, status: "ACTIVE" },
         data: { status: "CONVERTED" },
       });
+      if (converted.count === 0) {
+        throw new BadRequestException("Reserva não está mais ativa");
+      }
 
+      // o estoque já está seguro em reserved_count; a venda (sold_count) só se
+      // confirma quando o pagamento aprovar — nunca na criação do pedido
       return tx.order.create({
         data: {
           eventId: reservation.eventId,
@@ -48,6 +56,7 @@ export class OrdersService {
           contactName: input.contactName,
           status: "PAYMENT_PENDING",
           totalCents,
+          expiresAt,
           items: {
             create: reservation.items.map((item) => ({
               ticketLotId: item.ticketLotId,
@@ -61,6 +70,7 @@ export class OrdersService {
       });
     });
 
+    // a reserva virou pedido: o job de expiração da reserva não é mais necessário
     await this.expirationQueue.remove(reservation.id);
 
     return order;
@@ -69,7 +79,24 @@ export class OrdersService {
   async findByPublicToken(publicToken: string) {
     const order = await prisma.order.findUnique({
       where: { publicToken },
-      include: { items: true },
+      include: {
+        items: true,
+        payments: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            method: true,
+            status: true,
+            amountCents: true,
+            pixQrCodeText: true,
+            installments: true,
+            failReason: true,
+            expiresAt: true,
+            paidAt: true,
+          },
+        },
+        tickets: { select: { id: true, code: true, status: true } },
+      },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     return order;

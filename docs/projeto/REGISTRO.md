@@ -18,35 +18,56 @@
 | Campo | Valor |
 |---|---|
 | **Fase em andamento** | Fase 4 — Gateway, webhooks, pagamentos e emissão de ingressos |
-| **Status da fase** | 🟡 Em preparação (pesquisa de gateway em andamento; código ainda não iniciado) |
+| **Status da fase** | 🟢 Núcleo implementado e testado com gateway mock; falta o adapter do provedor real |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
 
 ### Onde paramos
 
-- Fases 1–3 concluídas e commitadas (ver tabela abaixo).
-- Pesquisa comparativa de gateways/adquirentes BR (Pix, cartão, split/marketplace)
-  em execução para escolher o provedor primário + fallback com a melhor taxa.
-- Decisão pendente: **qual gateway será o primário** (critério: split/marketplace
-  com liberação condicional de repasse, menor custo de Pix, cartão competitivo,
-  DX/webhooks, negociabilidade). A taxa BoraFest ao produtor deve ficar **abaixo**
-  das ticketeiras concorrentes (Sympla, Ingresse etc.).
+- **Núcleo da Fase 4 pronto e testado a nível de código** (tudo backend):
+  - Schema: `payments`, `payment_events`, `webhook_deliveries`, `tickets`,
+    `event_signing_keys` + janela de pagamento no pedido
+    (migration `20260723054509_payments_tickets_webhooks`).
+  - `packages/payments`: interface `PaymentGateway` (§11) + `MockGateway`
+    (webhook HMAC) + registry + `applyGatewayStatus` (transições idempotentes,
+    compartilhado por API e worker).
+  - `packages/tickets`: QR Ed25519 (`BF1.<payload>.<assinatura>`) + código humano.
+  - API: `POST /v1/orders/:id/payments/pix|card` (Idempotency-Key),
+    `POST /v1/webhooks/payments/:provider` (assinatura verificada, payload bruto
+    salvo, dedupe por evento), `GET /v1/orders/:token/tickets`, `GET /v1/me/tickets`.
+  - Worker: outbox (emissão exatamente-uma-vez, estorno automático de pagamento
+    órfão, revogação por estorno/chargeback), reconciliação de pagamentos,
+    expiração de pedidos (libera estoque reservado).
+  - **Mudança de semântica**: pedido não confirma mais venda na criação; estoque
+    fica em `reserved_count` até o pagamento aprovar (webhook) — `sold_count` só
+    no PAID. Janela de pagamento: 15 min.
+- **Testes executados e passando** (ver §22 da arquitetura):
+  fluxo Pix completo até FULFILLED com 2 tickets; webhook duplicado (no-op);
+  assinatura inválida (401); cartão aprovado/recusado; replay de Idempotency-Key
+  (mesma resposta, 1 pagamento só) e key reusada com payload diferente (422);
+  pagamento aprovado APÓS pedido expirar → estorno automático (bug real
+  encontrado e corrigido no teste); QR verificado criptograficamente e
+  adulteração rejeitada; 10 compradores concorrentes em lote de 3 → exatamente
+  3 reservas, zero overselling.
+- **Pesquisa de gateways concluída** — ver
+  [`pesquisa-gateways-2026-07.md`](pesquisa-gateways-2026-07.md).
+  Recomendação: **Pagar.me primário** (split nativo com hold-até-KYC via status
+  do recebedor; Pix 1,19%; crédito 4,39%) + **Asaas fallback** (Pix fixo R$1,99,
+  cartão 2,99%+R$0,49; limites de onboarding no começo). Taxa BoraFest sugerida:
+  **Pix 4,99% (piso R$2,49) / cartão 6,99%**, blended ~5,6% — abaixo de Sympla
+  (~12%), Even3/Ingresse (10%) e challengers (7,99%).
+  **⏳ Aguardando o OK do Arthur para fechar o provedor e escrever o adapter real.**
 
 ### Próximo passo
 
-1. Definir gateway primário e fallback (com Arthur).
-2. Implementar Fase 4 (backend only — sem frontend por enquanto):
-   - Tabelas: `payments`, `payment_attempts`, `payment_events`, `tickets`,
-     `webhook_deliveries` (schema já tem `outbox_events` e `idempotency_keys`).
-   - Interface `PaymentGateway` + adapter do provedor escolhido + adapter mock p/ testes.
-   - `POST /v1/orders/:id/payments/pix` e `/card` com idempotency key.
-   - `POST /v1/webhooks/payments/:provider` — assinatura verificada, payload bruto
-     salvo, idempotente, tolerante a eventos fora de ordem.
-   - Order → `PAID` → outbox → worker emite tickets exatamente-uma-vez (QR Ed25519).
-   - Fila `payment-reconciliation`.
-3. Testar a nível de código (build, typecheck, fluxo completo, webhook duplicado).
-4. Atualizar este REGISTRO + commit, e só então seguir para a Fase 5.
+1. **Decisão pendente**: confirmar Pagar.me (primário) + Asaas (fallback) e a
+   estrutura de taxa. Registrar a decisão aqui.
+2. Escrever o `PagarmeAdapter` real (recebedores/KYC, split, webhooks
+   `X-Hub-Signature`, tokenizecard.js) atrás da mesma interface — o mock continua
+   nos testes.
+3. Abrir conta PSP Pagar.me + negociar Plano Customizado por volume (comercial).
+4. Seguir para a Fase 5 (carteira web, e-mail, WhatsApp e links profundos).
 
 ---
 
@@ -57,7 +78,7 @@
 | 1 | Monorepo, autenticação, organizações, RBAC, banco e observabilidade | ✅ Concluída | `1f46fa0`, `7ea634d` |
 | 2 | Eventos, tipos, lotes, estoque e publicação | ✅ Concluída | `05ff2f3` |
 | 3 | Checkout web, reserva e pedidos (checkout mínimo via API) | ✅ Concluída | `277e684` |
-| 4 | Gateway, webhooks, pagamentos e emissão de ingressos | 🟡 Em preparação | — |
+| 4 | Gateway, webhooks, pagamentos e emissão de ingressos | 🟢 Núcleo testado; falta adapter real | (este commit) |
 | 5 | Carteira web, e-mail, WhatsApp e links profundos | ⬜ Não iniciada | — |
 | 6 | App React Native de check-in online | ⬜ Não iniciada | — |
 | 7 | Manifesto, SQLite, assinatura local e sincronização offline | ⬜ Não iniciada | — |
@@ -79,6 +100,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Arthur + Claude | **Fase 4 (núcleo)**: pagamentos Pix/cartão atrás da interface `PaymentGateway` (mock por ora), webhooks idempotentes com payload bruto e assinatura, outbox → emissão exatamente-uma-vez com QR Ed25519, estorno automático de pagamento órfão, expiração de pedidos, reconciliação. Testes §22 executados (concorrência, duplicado, atrasado, adulteração) — 1 bug real achado e corrigido (PAID pós-expiração não estornava). Pesquisa de 13 gateways concluída e salva em `pesquisa-gateways-2026-07.md`. | Falta: Arthur confirmar Pagar.me+Asaas e taxa; escrever adapter real; depois Fase 5. |
 | 2026-07-23 | Arthur + Claude | Criada estrutura de docs (`docs/projeto` com memória/registro, `docs/arquitetura`), scripts de conveniência na raiz, README corrigido. Pesquisa de gateways disparada. | Aguardando definição do gateway para iniciar o código da Fase 4. |
 | 2026-07-23 | Amanda + Claude | Fase 3: reservas com TTL, checkout mínimo e worker de expiração (`277e684`). | Fase 3 concluída. |
 | 2026-07-23 | Amanda + Claude | Fase 2: eventos, catálogo e estoque atômico (`05ff2f3`). | Fase 2 concluída. |

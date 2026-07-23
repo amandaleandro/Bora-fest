@@ -76,11 +76,35 @@ KYC do produtor ser aprovado.
 - Cada fase concluída deve ser testada a nível de código antes de avançar
   (build + typecheck + teste do fluxo; testes bloqueantes: seção 22 da arquitetura).
 
+## Regras da Fase 4 (pagamentos) — aprendidas nos testes
+
+- `applyGatewayStatus` (`packages/payments/src/apply-status.ts`) é o ÚNICO caminho
+  para aplicar status de gateway (webhook, cartão síncrono e reconciliação usam o
+  mesmo código). Nunca criar caminho paralelo.
+- **PAID do gateway vence estados locais não-monetários** (EXPIRED/FAILED/CANCELED):
+  o dinheiro se moveu; se o pedido não puder ser honrado, gera `payment.orphaned`
+  e o worker estorna automaticamente. Só estados monetários (PAID/REFUND_*/
+  CHARGEBACK) não regridem. Bug real corrigido em 2026-07-23.
+- Transições de pedido/pagamento sempre com `updateMany` + guarda de status
+  (nunca `update` cego) — é o que serializa corridas webhook × worker.
+- Emissão exatamente-uma-vez = guarda de status (`PAID`→`FULFILLED`) + unique
+  `(order_item_id, seq)` no banco. Reprocessar outbox é sempre no-op.
+- Operações de estoque: usar `reserveInventory`/`releaseInventory`/
+  `confirmSaleInventory` de `@borafest/database` (compartilhadas API+worker).
+- Webhook: payload bruto SEMPRE persistido em `webhook_deliveries` (mesmo
+  rejeitado); dedupe por unique `(provider, external_event_id)` em `payment_events`.
+- Chave Ed25519 por evento em `event_signing_keys` (privada no banco por ora —
+  **TODO produção: KMS**). QR: `BF1.<payload b64url>.<assinatura b64url>`.
+
 ## Pendências e cuidados conhecidos
 
-- `.env` local a partir de `.env.example` (`SESSION_JWT_SECRET` precisa ser definido).
-- `README.md` tinha encoding quebrado (UTF-16 colado) — corrigido em 2026-07-23.
-- Reservas: TTL de 10 min hardcoded em `reservations.service.ts` (`RESERVATION_TTL_MINUTES`).
-- `orders.service.ts` hoje confirma venda (`confirmSale`) na criação do pedido —
-  na Fase 4 isso será revisto: venda só se confirma com pagamento aprovado
-  (pedido `PAYMENT_PENDING` não pode segurar estoque para sempre).
+- `.env` local a partir de `.env.example` (`SESSION_JWT_SECRET` precisa ser definido;
+  `PAYMENTS_PROVIDER=mock` até o adapter real).
+- Reservas: TTL de 10 min (`reservations.service.ts`); janela de pagamento do
+  pedido: 15 min (`orders.service.ts`).
+- Gateway real: recomendação Pagar.me (primário) + Asaas (fallback) em
+  `docs/projeto/pesquisa-gateways-2026-07.md` — aguardando confirmação do Arthur.
+- Estorno/chargeback ainda NÃO devolve estoque ao lote (revenda) — tratar na
+  Fase 9 (ledger/estornos) junto com estorno parcial.
+- Seed de desenvolvimento: `pnpm --filter @borafest/database seed:dev` cria
+  evento demo publicado com lote ativo.

@@ -7,6 +7,8 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: false }),
+    // rawBody: necessário para verificar assinatura de webhooks de pagamento
+    { rawBody: true },
   );
 
   app.enableCors({ origin: true, credentials: true });

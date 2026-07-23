@@ -11,7 +11,9 @@
   "dependencies": {
     "@borafest/database": "workspace:*",
     "@borafest/observability": "workspace:*",
-    "@borafest/queues": "workspace:*"
+    "@borafest/payments": "workspace:*",
+    "@borafest/queues": "workspace:*",
+    "@borafest/tickets": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

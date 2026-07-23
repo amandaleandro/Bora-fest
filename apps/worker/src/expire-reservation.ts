@@ -1,6 +1,5 @@
-import { prisma } from "@borafest/database";
+import { prisma, releaseInventory } from "@borafest/database";
 import { withContext } from "@borafest/observability";
-import { releaseInventory } from "./inventory";
 
 const log = withContext({ module: "reservation-expiration" });
 
@@ -25,7 +24,7 @@ export async function expireReservation(reservationId: string): Promise<void> {
 
   await prisma.$transaction(async (tx) => {
     for (const item of reservation.items) {
-      await releaseInventory(item.ticketLotId, item.quantity, tx);
+      await releaseInventory(tx, item.ticketLotId, item.quantity);
     }
     await tx.reservation.update({ where: { id: reservationId }, data: { status: "EXPIRED" } });
   });
