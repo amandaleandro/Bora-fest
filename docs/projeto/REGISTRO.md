@@ -300,13 +300,13 @@ fluxo manualmente uma vez.
 |---|---|---|---|
 | 1 | Monorepo, autenticação, organizações, RBAC, banco e observabilidade | ✅ Concluída | `1f46fa0`, `7ea634d` |
 | 2 | Eventos, tipos, lotes, estoque e publicação | ✅ Concluída | `05ff2f3` |
-| 3 | Checkout web, reserva e pedidos | ✅ Concluída (backend `277e684` + frontend `apps/checkout`, este commit) | `277e684` |
+| 3 | Checkout web, reserva e pedidos | ✅ Concluída (backend + frontend `apps/checkout`) | `277e684` (backend), `7724d55`, `9c3e02c` (frontend) |
 | 4 | Gateway, webhooks, pagamentos e emissão de ingressos | ✅ Concluída | `9f362ff`, `ab18e51` |
 | 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | `ed79eb6` |
-| 6 | App React Native de check-in online | 🟡 Código escrito, não testado em aparelho real | (este commit) |
-| 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente) | (este commit) |
-| 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída | (este commit) |
-| 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | (este commit) |
+| 6 | App React Native de check-in online | 🟡 Código escrito, não testado em aparelho real | `578a20a` |
+| 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente); cliente RN em `578a20a` | `59fe647`, `578a20a` |
+| 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída | `7288370`, `cabfb6f` |
+| 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | `c3cd744` |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
 | 11 | Evento-piloto, testes de carga e hardening | ⬜ Não iniciada | — |
 | 12 | App público BoraFest (carteira, descoberta, notificações) | ⬜ Não iniciada | — |
