@@ -415,6 +415,7 @@ model Order {
   items       OrderItem[]
   payments    Payment[]
   tickets     Ticket[]
+  refundRequests RefundRequest[]
 
   @@index([eventId])
   @@index([status])
@@ -457,6 +458,34 @@ enum PaymentStatus {
   REFUND_PENDING
   REFUNDED
   CHARGEBACK
+}
+
+enum RefundRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Pedido de reembolso feito pelo comprador (arquitetura §13) — não executa o
+/// estorno sozinho; fica pendente até um admin aprovar (aí reusa o mesmo
+/// fluxo de `AdminService.refundOrder`, gateway real) ou rejeitar.
+model RefundRequest {
+  id               String              @id @default(uuid()) @db.Uuid
+  orderId          String              @map("order_id") @db.Uuid
+  reason           String
+  status           RefundRequestStatus @default(PENDING)
+  requestedAt      DateTime            @default(now()) @map("requested_at")
+  resolvedAt       DateTime?           @map("resolved_at")
+  resolvedByUserId String?             @map("resolved_by_user_id") @db.Uuid
+  resolutionNote   String?             @map("resolution_note")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([status])
+  @@map("refund_requests")
 }
 
 model Payment {

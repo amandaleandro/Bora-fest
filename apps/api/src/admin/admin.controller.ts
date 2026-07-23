@@ -1,8 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
 import {
+  approveRefundRequestSchema,
   blockReasonSchema,
   markPayoutPaidSchema,
   refundOrderSchema,
+  rejectRefundRequestSchema,
   setOrganizationFeeSchema,
 } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
@@ -89,6 +91,29 @@ export class AdminController {
     @Body(ZodBody(refundOrderSchema)) body: unknown,
   ) {
     return this.adminService.refundOrder(publicToken, userId, body as any);
+  }
+
+  @Get("refund-requests")
+  listRefundRequests(@CurrentUserId() userId: string, @Query("status") status: string | undefined) {
+    return this.adminService.listRefundRequests(userId, { status });
+  }
+
+  @Post("refund-requests/:id/approve")
+  approveRefundRequest(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(approveRefundRequestSchema)) body: unknown,
+  ) {
+    return this.adminService.approveRefundRequest(id, userId, body as any);
+  }
+
+  @Post("refund-requests/:id/reject")
+  rejectRefundRequest(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(rejectRefundRequestSchema)) body: unknown,
+  ) {
+    return this.adminService.rejectRefundRequest(id, userId, body as any);
   }
 
   @Get("webhooks")

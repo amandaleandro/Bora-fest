@@ -18,6 +18,7 @@ import { CheckinsModule } from "./checkins/checkins.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { AdminModule } from "./admin/admin.module";
 import { FinanceModule } from "./finance/finance.module";
+import { RefundRequestsModule } from "./refund-requests/refund-requests.module";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
@@ -40,6 +41,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     DashboardModule,
     AdminModule,
     FinanceModule,
+    RefundRequestsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

@@ -9,8 +9,10 @@ import {
   createReservationExpirationQueue,
 } from "@borafest/queues";
 import type {
+  ApproveRefundRequestInput,
   BlockReasonInput,
   RefundOrderInput,
+  RejectRefundRequestInput,
   SetOrganizationFeeInput,
 } from "@borafest/contracts";
 import { PlatformAccessService } from "../common/platform-access.service";
@@ -289,6 +291,76 @@ export class AdminService {
       where: { id: order.id },
       include: { payments: true },
     });
+  }
+
+  async listRefundRequests(userId: string, filters: { status?: string }) {
+    await this.platformAccess.assertStaff(userId);
+
+    return prisma.refundRequest.findMany({
+      where: filters.status ? { status: filters.status as any } : undefined,
+      orderBy: { requestedAt: "desc" },
+      include: {
+        order: {
+          select: { id: true, publicToken: true, contactEmail: true, contactName: true, totalCents: true, status: true },
+        },
+      },
+    });
+  }
+
+  /** Aprovação: dispara o estorno de verdade reusando `refundOrder` (mesmo gateway). */
+  async approveRefundRequest(id: string, userId: string, input: ApproveRefundRequestInput) {
+    const request = await prisma.refundRequest.findUnique({
+      where: { id },
+      include: { order: { select: { publicToken: true } } },
+    });
+    if (!request) throw new NotFoundException("Pedido de reembolso não encontrado");
+    if (request.status !== "PENDING") {
+      throw new BadRequestException("Este pedido de reembolso já foi resolvido");
+    }
+
+    const order = await this.refundOrder(request.order.publicToken, userId, {
+      amountCents: input.amountCents,
+      reason: request.reason,
+    });
+
+    await prisma.refundRequest.update({
+      where: { id },
+      data: { status: "APPROVED", resolvedAt: new Date(), resolvedByUserId: userId },
+    });
+
+    return order;
+  }
+
+  async rejectRefundRequest(id: string, userId: string, input: RejectRefundRequestInput) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+
+    const request = await prisma.refundRequest.findUnique({ where: { id } });
+    if (!request) throw new NotFoundException("Pedido de reembolso não encontrado");
+    if (request.status !== "PENDING") {
+      throw new BadRequestException("Este pedido de reembolso já foi resolvido");
+    }
+
+    const updated = await prisma.refundRequest.update({
+      where: { id },
+      data: {
+        status: "REJECTED",
+        resolvedAt: new Date(),
+        resolvedByUserId: userId,
+        resolutionNote: input.note,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "admin.refund-request.reject",
+        entityType: "refund_request",
+        entityId: id,
+        metadata: { note: input.note },
+      },
+    });
+
+    return updated;
   }
 
   async listWebhooks(

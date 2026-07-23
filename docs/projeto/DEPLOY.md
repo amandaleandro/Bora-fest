@@ -54,12 +54,45 @@ docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.productio
 
 - Logs: `docker compose -f ... logs -f api worker`
 - Saúde: `https://API_DOMAIN/health`; filas/webhooks no backoffice (`/filas`, `/webhooks`)
-- **Backup do Postgres** (obrigatório antes do piloto — §15):
-  `docker compose -f ... exec postgres pg_dump -U $POSTGRES_USER $POSTGRES_DB | gzip > backup-$(date +%F).sql.gz`
-  Agendar no cron do host + copiar para fora do servidor. Testar restauração.
+
+### Backup e restauração (obrigatório antes do piloto — §15)
+
+- `infra/scripts/backup.sh`: `pg_dump` + gzip pra `backups/borafest-<data>.sql.gz`,
+  com retenção configurável (`RETENTION_DAYS`, padrão 14 dias). Lê `.env.production`
+  (ou `ENV_FILE`/`BACKUP_DIR` customizados). Cron sugerido (diário às 3h):
+
+  ```cron
+  0 3 * * * cd /caminho/do/repo && infra/scripts/backup.sh >> /var/log/borafest-backup.log 2>&1
+  ```
+
+  **Copie os arquivos gerados pra fora do servidor** (ex.: rsync/S3) — um backup que só
+  existe no mesmo disco não protege contra a falha mais comum (disco corrompido/apagado).
+- `infra/scripts/restore.sh <arquivo.sql.gz>`: derruba o banco atual (dropdb/createdb) e
+  restaura do backup indicado, pedindo confirmação explícita antes. **Testado** (2026-07-23):
+  round-trip completo contra o Postgres de dev — `pg_dump` → gzip → `dropdb`/`createdb` →
+  restore, contagem de linhas de `events`/`orders` idêntica antes e depois. Recomendado
+  repetir esse "restore drill" periodicamente contra um banco de teste (nunca a primeira
+  vez direto em produção).
+
+### Alerta de disponibilidade
+
+- `infra/scripts/healthcheck-alert.sh`: consulta `$HEALTH_URL` (default
+  `https://$API_DOMAIN/health`) e dispara um POST em `$WEBHOOK_URL` (compatível com
+  Slack/Discord incoming webhook) só quando o estado muda (up→down ou down→up) — não
+  reenvia alerta a cada execução enquanto o problema persiste. Cron sugerido (a cada 2 min):
+
+  ```cron
+  */2 * * * * cd /caminho/do/repo && WEBHOOK_URL=https://... HEALTH_URL=https://API_DOMAIN/health infra/scripts/healthcheck-alert.sh >> /var/log/borafest-healthcheck.log 2>&1
+  ```
+
+  **Testado** (2026-07-23) contra a API local: subida→queda→subida de verdade (API
+  derrubada/religada), confirmado que o alerta dispara exatamente nas transições de
+  estado e fica em silêncio enquanto o estado não muda. Sem `WEBHOOK_URL`, só loga.
 
 ## Pendências conhecidas desta configuração
 
-- Sem observabilidade externa ainda (Sentry/Prometheus — §16); os logs são JSON no stdout.
+- Sem observabilidade externa tipo Sentry/Prometheus ainda (§16) — os logs continuam
+  JSON no stdout; o `healthcheck-alert.sh` acima é o mínimo de alerta de disponibilidade,
+  não substitui uma solução de observabilidade de verdade pra escala maior.
 - Chave privada Ed25519 dos eventos vive no banco (TODO produção: KMS).
 - Rate limiting de borda (WAF/bots — §15) não configurado; avaliar Cloudflare na frente.

@@ -121,6 +121,36 @@ KYC do produtor ser aprovado.
 - App de check-in verifica assinatura Ed25519 LOCALMENTE
   (`src/qr/verifyTicketToken.ts`, `@noble/curves` — JS puro p/ Hermes);
   compatibilidade servidor↔app coberta no CI (`.github/workflows/ci.yml`).
+- **Backup/restore testados de verdade** (2026-07-23): `infra/scripts/backup.sh`
+  (pg_dump+gzip, retenção configurável) e `restore.sh` (dropdb/createdb + restore,
+  com confirmação) — não é só documentação, um restore drill completo rodou contra
+  o Postgres de dev e bateu a contagem de linhas antes/depois. **Copiar os backups
+  pra fora do servidor é responsabilidade de quem opera** (rsync/S3), o script só
+  gera o arquivo local.
+- **Alerta de disponibilidade sem Sentry/Prometheus** (2026-07-23):
+  `infra/scripts/healthcheck-alert.sh` faz polling de `/health` e só dispara webhook
+  (Slack/Discord-compatível) na MUDANÇA de estado (up↔down), guardando o último
+  estado em arquivo (`STATE_FILE`) — evita spam de alerta repetido a cada execução
+  de cron enquanto o problema persiste. Testado ao vivo (API derrubada/religada).
+
+## Transferência de ingresso e pedido de reembolso (arquitetura §13, 2026-07-23)
+
+- **Transferência é self-service, sem exigir conta**: `POST /v1/tickets/:id/transfer`
+  prova posse via `orderPublicToken` no corpo (mesmo segredo de ver/reenviar
+  ingressos do pedido) — não por login. Atualiza `attendeeName`/`attendeeEmail` e
+  **reassina o QR com nonce novo** (mesmo padrão de `apps/worker/src/issue-tickets.ts`),
+  invalidando qualquer QR antigo impresso/salvo. Sem tabela de versionamento
+  (`ticket_transfers`/`ticket_versions` mencionadas na arquitetura como evolução
+  futura) — a auditoria fica só no `AuditLog` genérico (`action: "ticket.transfer"`),
+  suficiente pro MVP.
+- **Pedido de reembolso NÃO estorna sozinho** — só cria um `RefundRequest` PENDING
+  (bloqueia duplicata pendente pro mesmo pedido, exige pedido PAID/FULFILLED).
+  Quem executa o estorno de verdade é o admin, via `POST /v1/admin/refund-requests/
+  :id/approve`, que **reusa `AdminService.refundOrder`** (mesmo gateway real,
+  mesmo idempotency key pattern) — não duplica a lógica de estorno.
+- `RefundRequest.resolvedByUserId` é `String?` solto (sem relation Prisma pro
+  `User`), igual ao `AuditLog.actorUserId` — convenção do projeto pra evitar inflar
+  o schema com relations só de auditoria/rastreamento.
 
 ## Convenções de código
 

@@ -17,7 +17,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + plano de testes (rascunho) + Fase 12 (app público do comprador, `apps/mobile-public`) 🟡 |
+| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + backup/restore + alerta ✅ + transferência/reembolso ✅ + plano de testes (rascunho) + Fase 12 (app público do comprador, `apps/mobile-public`) 🟡 |
 | **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado; Fase 12 com código escrito e bundle validado nas 2 plataformas, não testado em aparelho real |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
@@ -557,11 +557,14 @@ neste ambiente.
 4. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
-5. Fase 10: publicação dos dois apps nas lojas (só depois de testados em
-   aparelho). Resto da Fase 11 (backup/restore testado, alertas de
-   observabilidade) e o que ficou de fora da Fase 12 (push, transferência,
-   reembolso, cartão) são as próximas frentes que dá pra avançar sem
-   depender de device físico ou decisão comercial.
+5. ~~Backup/restore testado + alerta de disponibilidade~~ ✅ e
+   ~~transferência de ingresso + pedido de reembolso~~ ✅ FEITOS em
+   2026-07-23 (ver diário abaixo). Falta ainda: **push notifications**
+   (Fase 12) e **pagamento por cartão** no app público — ambos exigem
+   decisão/infra externa (Expo push tokens + endpoint de registro;
+   tokenização client-side do Pagar.me).
+6. Fase 10: publicação dos dois apps nas lojas (só depois de testados em
+   aparelho de verdade).
 
 ---
 
@@ -594,6 +597,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Transferência de ingresso + pedido de reembolso (§13) e hardening (backup/restore + alerta, §15)**: `POST /v1/tickets/:id/transfer` (self-service, sem conta — prova posse via `orderPublicToken` no corpo; atualiza titular e reassina o QR com nonce novo, invalidando o QR antigo; audita em `AuditLog`). Novo model `RefundRequest` (migration `refund_requests`) + `POST /v1/orders/:publicToken/refund-requests` (cria PENDING, bloqueia duplicata, exige pedido PAID/FULFILLED) + admin `GET/POST /v1/admin/refund-requests` (listar, aprovar — reusa `AdminService.refundOrder`, mesmo gateway — e rejeitar com justificativa). 7 testes de integração novos (`tsx --test`), todos passando junto com os já existentes. Hardening: `infra/scripts/backup.sh` (pg_dump+gzip com retenção) e `restore.sh` (dropdb/createdb + restore, com confirmação) — **restore drill testado de verdade** contra o Postgres de dev (dump → drop/create → restore, contagem de linhas de `events`/`orders` idêntica antes/depois); `infra/scripts/healthcheck-alert.sh` (polling de `/health`, alerta só na mudança de estado, webhook estilo Slack/Discord) — **testado ao vivo** subindo a API, derrubando (porta trocada) e religando, confirmado que só alerta nas transições e fica em silêncio quando o estado não muda. `docs/projeto/DEPLOY.md` e `API-REFERENCE.md` atualizados com os crons sugeridos e as novas rotas. | Transferência/reembolso e hardening de backup/alerta prontos e testados. Falta: push notifications e pagamento por cartão no app público (Fase 12), teste em aparelho real dos 2 apps RN, split real com Pagar.me, Fase 10 (lojas). |
 | 2026-07-23 | Amanda + Claude | **Fase 12 (app público do comprador)**: novo `apps/mobile-public` (Expo/RN), reaproveitando o fix de bundling pnpm+Metro do `mobile-checkin` (metro.config.js + index.js como entry point próprio) — bundlou limpo nas 2 plataformas de primeira (Android 834 módulos/2.35MB, iOS 835/2.34MB). Telas: descoberta de eventos (home), evento + reserva, checkout (Pix + QR + polling), carteira (ingressos + reenvio), "meus ingressos" opcional via login OTP (`expo-secure-store`) — compra nunca exige conta. Gap real encontrado construindo a home: não existia endpoint de listagem de eventos públicos, só busca por slug — criado `GET /v1/public/events` (`CatalogService.listPublicEvents` + `PublicCatalogController`), testado ao vivo sem colisão de rota com `:slug`. Fora do escopo (documentado no README do app): push notifications, transferência de ingresso e pedido de reembolso (rotas não existem no backend ainda), pagamento por cartão (só Pix), teste em aparelho real (sem emulador/celular neste ambiente). | Fase 12: código escrito e validado via `expo export`, não testado em aparelho real. Próximo: testar as 2 apps RN (check-in + público) em dispositivo de verdade; split real com Pagar.me; itens comerciais; Fase 10 (lojas) e resto do hardening da Fase 11. |
 | 2026-07-23 | Amanda + Claude | **Fase 11 (rate limit)**: `RateLimitGuard` global (Redis `INCR`+`EXPIRE`, fallback 120/min/IP) com `@RateLimit` em `otp/request` (5/15min por destino), `otp/verify` (10/15min por IP) e `POST /v1/reservations` (20/min por IP) — item do §15 que não existia. Testado ao vivo: 429 na 6ª tentativa de OTP pro mesmo destino, destino diferente não afetado, 429 na 21ª reserva do mesmo IP. Ajustei o `load-test-reservations.ts` pra mandar `x-forwarded-for` diferente por tentativa (senão o próprio rate limit atrapalhava o teste de estoque) — ficou mais realista de quebra (simula compradores distintos). | Rate limit no ar em OTP e checkout. Próximo: resto do hardening (backup/restore, alertas) ou Fase 12 (app público). |
 | 2026-07-23 | Amanda + Claude | **Fase 11 (teste de carga)**: `apps/api/scripts/load-test-reservations.ts` (`pnpm --filter @borafest/api load-test`) dispara N reservas HTTP concorrentes de verdade contra um lote recém-criado — o teste bloqueante da arquitetura §22, agora repetível a qualquer momento em vez de manual. Rodado em 2 escalas contra a API real: 100 tentativas/capacidade 5 (133 req/s) e 500 tentativas/capacidade 20 (139 req/s, escala de evento-piloto) — zero overselling e zero erro de rede nas duas. | Teste de carga do estoque pronto. Falta o resto do checklist de hardening (backup/restore, rate limit, alertas) antes de fechar a Fase 11 de vez. Próximo: Fase 12 (app público) ou completar o hardening. |

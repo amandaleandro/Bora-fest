@@ -95,6 +95,15 @@ internamente por Reservations/Catalog. Não expõe controller.
 |---|---|---|---|
 | GET | `/v1/orders/:publicToken/tickets` | nenhum | — |
 | GET | `/v1/me/tickets` | SessionGuard | — |
+| POST | `/v1/tickets/:id/transfer` | nenhum (prova posse via `orderPublicToken` no corpo) | `transferTicketSchema` |
+
+## Refund requests (`apps/api/src/refund-requests`)
+
+Self-service: só cria o pedido `PENDING`, não estorna sozinho — quem aprova/rejeita é o admin (ver seção Admin).
+
+| Verbo | Rota | Guard | Corpo/Query |
+|---|---|---|---|
+| POST | `/v1/orders/:publicToken/refund-requests` | nenhum | `createRefundRequestSchema` |
 
 ## Notifications (`apps/api/src/notifications`)
 
@@ -256,6 +265,9 @@ dentro do service (não há guard dedicado — só `SessionGuard` no controller)
 | GET | `/v1/admin/orders` | staff | query: `publicToken`, `email`, `eventId` |
 | POST | `/v1/admin/orders/:publicToken/resend` | staff | — |
 | POST | `/v1/admin/orders/:publicToken/refund` | admin | `refundOrderSchema` |
+| GET | `/v1/admin/refund-requests` | staff | query: `status` |
+| POST | `/v1/admin/refund-requests/:id/approve` | admin (dispara estorno real via gateway, reusa `refundOrder`) | `approveRefundRequestSchema` |
+| POST | `/v1/admin/refund-requests/:id/reject` | admin | `rejectRefundRequestSchema` |
 | GET | `/v1/admin/webhooks` | staff | query: `provider`, `status` |
 | GET | `/v1/admin/queues` | staff | — |
 | POST | `/v1/admin/tickets/:id/block` | admin | `blockReasonSchema` |

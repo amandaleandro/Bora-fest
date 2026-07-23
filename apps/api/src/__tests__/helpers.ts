@@ -59,6 +59,7 @@ export async function cleanupFixtureEvent(organizationId: string) {
     await prisma.validatorDevice.deleteMany({ where: { eventId: event.id } });
     await prisma.validatorCredential.deleteMany({ where: { eventId: event.id } });
     await prisma.ticket.deleteMany({ where: { eventId: event.id } });
+    await prisma.refundRequest.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.orderItem.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.payment.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.order.deleteMany({ where: { eventId: event.id } });
