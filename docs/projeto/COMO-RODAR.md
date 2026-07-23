@@ -62,6 +62,32 @@ curl http://localhost:3333/health
 # fluxo: POST /v1/reservations → POST /v1/orders → GET /v1/orders/:publicToken/status
 ```
 
+## Testes automatizados
+
+```bash
+pnpm --filter @borafest/api test
+```
+
+Roda os testes de integração em `apps/api/src/__tests__` (Node test
+runner, `tsx --test`) contra o Postgres/Redis de dev — não precisa da API
+rodando, os services são instanciados direto. Cobre os 3 pontos mais
+críticos: concorrência de estoque, fluxo pedido→pagamento→ledger com
+webhook duplicado, e corrida de check-in.
+
+## Teste de carga (arquitetura §22)
+
+Com a API rodando (`pnpm --filter @borafest/api dev` ou `dist/main.js`):
+
+```bash
+pnpm --filter @borafest/api load-test
+# ou escolher a escala:
+LOAD_TEST_CAPACITY=20 LOAD_TEST_ATTEMPTS=500 pnpm --filter @borafest/api load-test
+```
+
+Dispara N reservas HTTP concorrentes contra um lote recém-criado de
+capacidade C e falha (`exit 1`) se vender mais que C. Valida o caminho
+inteiro (Fastify → Nest → Postgres), não só o service.
+
 ## Problemas comuns
 
 - **`REDIS_URL is not set` / `SESSION_JWT_SECRET is not set`** → faltou `.env` (a API e o worker leem do ambiente; use `dotenv` do shell ou exporte antes de rodar).
