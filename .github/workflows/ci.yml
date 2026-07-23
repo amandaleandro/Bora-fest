@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Gerar Prisma Client
+        run: pnpm --filter @borafest/database exec prisma generate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Testes unitários
+        run: pnpm test
+
+      - name: Typecheck do app mobile
+        run: pnpm --filter @borafest/mobile-checkin typecheck
+
+      # compatibilidade criptográfica servidor ↔ app de check-in
+      - name: Verificação cruzada do QR (node assina, app verifica)
+        run: |
+          cd packages/tickets && npx tsx -e "
+          import { generateEventKeyPair, signTicketToken } from './src/qr-token';
+          import { verifyTicketTokenSignature } from '../../apps/mobile-checkin/src/qr/verifyTicketToken';
+          const pair = generateEventKeyPair();
+          const token = signTicketToken({ v: 1, eid: 'e', tid: 't', lid: 'l', n: 'n', iat: 1 }, pair.privateKeyPem);
+          if (!verifyTicketTokenSignature(token, pair.publicKeyPem)) { throw new Error('token válido não verificou'); }
+          if (verifyTicketTokenSignature(token.slice(0, -4) + 'AAAA', pair.publicKeyPem)) { throw new Error('token adulterado passou'); }
+          console.log('verificação cruzada OK');
+          "

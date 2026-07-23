@@ -3,11 +3,13 @@ import type { CheckinResponse } from "../api/types";
 import {
   findTicketById,
   findTicketByCode,
+  getMeta,
   markLocalCheckedIn,
   queuePendingCheckin,
   recordConfirmedCheckin,
 } from "../db/database";
 import { looksLikeTicketToken, parseTicketToken } from "../qr/parseTicketToken";
+import { verifyTicketTokenSignature } from "../qr/verifyTicketToken";
 
 export interface CheckinAttemptResult {
   outcome: CheckinResponse["result"];
@@ -62,6 +64,17 @@ function attemptCheckinOffline(
       ticketId = parseTicketToken(scanned.qrToken).tid;
     } catch {
       return { outcome: "INVALID", offline: true, message: "QR não reconhecido (offline)" };
+    }
+
+    // verificação criptográfica LOCAL (§12): com a chave pública do evento
+    // baixada no manifesto, um QR forjado/adulterado é recusado mesmo sem rede
+    const publicKeyPem = getMeta("signingKeyPublicKeyPem");
+    if (publicKeyPem && !verifyTicketTokenSignature(scanned.qrToken, publicKeyPem)) {
+      return {
+        outcome: "INVALID",
+        offline: true,
+        message: "Assinatura do QR inválida — ingresso não autêntico",
+      };
     }
   }
 

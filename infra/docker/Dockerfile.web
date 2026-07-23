@@ -1,0 +1,54 @@
+# Frontends Next.js (checkout, producer, admin) — parametrizado por APP.
+# Build (na raiz do repo):
+#   docker build -f infra/docker/Dockerfile.web --build-arg APP=checkout -t borafest-checkout .
+#   docker build -f infra/docker/Dockerfile.web --build-arg APP=producer -t borafest-producer .
+#   docker build -f infra/docker/Dockerfile.web --build-arg APP=admin    -t borafest-admin .
+#
+# NEXT_PUBLIC_API_URL é embutida no bundle em build-time — passe no build:
+#   --build-arg NEXT_PUBLIC_API_URL=https://api.seudominio.com.br
+
+FROM node:20-alpine AS builder
+ARG APP=checkout
+ARG NEXT_PUBLIC_API_URL=http://localhost:3333
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+RUN corepack enable
+WORKDIR /repo
+
+# manifests de TODO o workspace (o lockfile congelado exige todos)
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
+COPY apps/checkout/package.json apps/checkout/
+COPY apps/producer/package.json apps/producer/
+COPY apps/admin/package.json apps/admin/
+COPY apps/mobile-checkin/package.json apps/mobile-checkin/
+COPY packages/auth/package.json packages/auth/
+COPY packages/config/package.json packages/config/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/database/package.json packages/database/
+COPY packages/notifications/package.json packages/notifications/
+COPY packages/observability/package.json packages/observability/
+COPY packages/payments/package.json packages/payments/
+COPY packages/queues/package.json packages/queues/
+COPY packages/tickets/package.json packages/tickets/
+RUN pnpm install --frozen-lockfile --filter "@borafest/${APP}"
+
+COPY apps/${APP} apps/${APP}
+RUN pnpm --filter "@borafest/${APP}" run build
+
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS runner
+ARG APP=checkout
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+WORKDIR /app
+
+# saída standalone: server.js próprio + só as deps necessárias
+COPY --from=builder /repo/apps/${APP}/.next/standalone ./
+COPY --from=builder /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
+
+EXPOSE 3000
+# o server.js fica no caminho do app dentro do standalone do monorepo
+ENV APP_DIR=apps/${APP}
+CMD ["sh", "-c", "node ${APP_DIR}/server.js"]

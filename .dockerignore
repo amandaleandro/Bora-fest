@@ -1,0 +1,18 @@
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/.expo
+.git
+.env
+.env.*
+!.env.example
+!.env.production.example
+*.log
+coverage
+docs
+# o app mobile não entra nas imagens, mas o lockfile congelado do pnpm
+# exige o manifest de todos os projetos do workspace
+apps/mobile-checkin
+!apps/mobile-checkin/package.json

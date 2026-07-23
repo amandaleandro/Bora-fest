@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.25.0",
+    "@noble/curves": "^1.6.0",
     "expo": "~51.0.28",
     "expo-camera": "~15.0.16",
     "expo-crypto": "~13.0.2",

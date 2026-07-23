@@ -17,11 +17,36 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Testes automatizados de regressão (`apps/api/src/__tests__`) |
-| **Status da fase** | 🟢 3 testes de integração cobrindo os pontos mais críticos, todos passando |
+| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + plano de testes (rascunho) |
+| **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
+
+### Sessão de pré-lançamento (2026-07-23, Arthur + Claude)
+
+- **Verificação Ed25519 REAL no app de check-in** (fecha a limitação assumida
+  da 1ª entrega): novo `src/qr/verifyTicketToken.ts` com `@noble/curves`
+  (JS puro, roda no Hermes) — extrai a chave crua do PEM SPKI do manifesto e
+  verifica a assinatura localmente; QR forjado é recusado **mesmo offline**.
+  Compatibilidade cruzada provada (servidor assina com node:crypto → app
+  verifica com noble; adulterado/chave errada rejeitados) e virou passo do CI.
+- **Infra de produção** (`infra/docker/`): `Dockerfile.backend` (targets
+  api/worker, prisma generate no build), `Dockerfile.web` (parametrizado por
+  APP, Next standalone — `output: "standalone"` adicionado aos 3 apps),
+  `docker-compose.prod.yml` (postgres+redis com healthcheck, serviço
+  `migrate` one-shot antes de api/worker, 3 fronts, **Caddy com HTTPS
+  automático** por domínio), `Caddyfile`, `.env.production.example`,
+  `.dockerignore`. Compose validado com `config`.
+- **CI GitHub Actions** (`.github/workflows/ci.yml`): install → prisma
+  generate → build → testes unitários → typecheck do mobile → verificação
+  cruzada do QR.
+- **`docs/projeto/DEPLOY.md`**: passo a passo de VPS (DNS, subir, atualizar,
+  seed, webhook Pagar.me, backup/restauração) + pendências conhecidas.
+- **`docs/projeto/PLANO-DE-TESTES.md` (RASCUNHO para revisar com o Arthur)**:
+  §22 completo mapeado em 6 blocos com status real (o que já passou em
+  2026-07-23, o que é parcial, o que trava em celular/VPS/conta PSP) e ordem
+  sugerida de execução.
 
 ### Validação em navegador real (2026-07-23, Arthur + Claude)
 
@@ -541,6 +566,7 @@ Adicionar sempre a linha nova NO TOPO.
 | 2026-07-23 | Amanda + Claude | **Fase 11 (rate limit)**: `RateLimitGuard` global (Redis `INCR`+`EXPIRE`, fallback 120/min/IP) com `@RateLimit` em `otp/request` (5/15min por destino), `otp/verify` (10/15min por IP) e `POST /v1/reservations` (20/min por IP) — item do §15 que não existia. Testado ao vivo: 429 na 6ª tentativa de OTP pro mesmo destino, destino diferente não afetado, 429 na 21ª reserva do mesmo IP. Ajustei o `load-test-reservations.ts` pra mandar `x-forwarded-for` diferente por tentativa (senão o próprio rate limit atrapalhava o teste de estoque) — ficou mais realista de quebra (simula compradores distintos). | Rate limit no ar em OTP e checkout. Próximo: resto do hardening (backup/restore, alertas) ou Fase 12 (app público). |
 | 2026-07-23 | Amanda + Claude | **Fase 11 (teste de carga)**: `apps/api/scripts/load-test-reservations.ts` (`pnpm --filter @borafest/api load-test`) dispara N reservas HTTP concorrentes de verdade contra um lote recém-criado — o teste bloqueante da arquitetura §22, agora repetível a qualquer momento em vez de manual. Rodado em 2 escalas contra a API real: 100 tentativas/capacidade 5 (133 req/s) e 500 tentativas/capacidade 20 (139 req/s, escala de evento-piloto) — zero overselling e zero erro de rede nas duas. | Teste de carga do estoque pronto. Falta o resto do checklist de hardening (backup/restore, rate limit, alertas) antes de fechar a Fase 11 de vez. Próximo: Fase 12 (app público) ou completar o hardening. |
 | 2026-07-23 | Amanda + Claude | **Testes automatizados de regressão** (`apps/api/src/__tests__`, Node test runner via `tsx --test`): concorrência de estoque (10 tentativas vs. capacidade 3 → exatamente 3), fluxo pedido→pagamento→ledger com webhook duplicado (no-op, sem duplicar lançamento) e corrida de check-in (8 aparelhos, 1 `VALID`). 2 bugs achados NOS TESTES (não no app): conexão Redis/BullMQ pendurada travando o test runner (resolvido com `closeRedisConnection()` novo em `packages/queues`) e um fixture de teste gerando código de ingresso em minúsculo que nunca batia com a busca `toUpperCase()` do `CheckinsService` (corrigido usando o gerador de código de verdade). `pnpm --filter @borafest/api test` roda os 3, todos passando, dados de teste limpos automaticamente. | Primeira leva de testes de regressão pronta. Próximo: Fase 11 (evento-piloto/hardening) ou Fase 12 (app público) — as frentes que dão pra avançar sem device físico nem decisão comercial. |
+| 2026-07-23 | Arthur + Claude | **Pré-lançamento (construção sem dependências)**: verificação Ed25519 real no app de check-in (@noble/curves, compatibilidade cruzada com o servidor provada e no CI); infra de produção completa (Dockerfiles api/worker/web standalone, compose com migrate one-shot + Caddy HTTPS, .env.production.example, DEPLOY.md); CI GitHub Actions; rascunho do PLANO-DE-TESTES.md com o §22 mapeado por status e donos. | Falta revisar o plano de testes junto, testar app no celular, subir homolog num VPS e conta Pagar.me p/ split real. |
 | 2026-07-23 | Arthur + Claude | **Validação em navegador real dos 3 frontends**: compra completa clicada no checkout (Pix mock → carteira avançando sozinha), painel do produtor via OTP (dashboard, participantes, portaria, financeiro com a taxa 4,99% ao vivo) e backoffice ADMIN (pedidos, filas, auditoria). Bug real corrigido nos 3 `lib/api.ts`: Content-Type em POST sem corpo causava 400 do Fastify em toda ação sem payload (reenvio/estorno/bloqueio/marcar-pago). | Frontends web aprovados. Falta: app RN em aparelho físico (Expo Go) e split real Pagar.me. |
 | 2026-07-23 | Amanda + Claude | **Validação extra do app de check-in** sem aparelho físico: `expo-doctor` (16/17 ok) e, principalmente, `expo export --platform android/ios` rodando o bundler Metro de verdade — achou 3 erros reais em cascata por falta de `metro.config.js` configurado pra pnpm (resolução de symlink, `@babel/runtime` não hoisted, e o próprio `AppEntry.js` do pacote `expo` fazendo um import relativo que quebra sob symlink). Corrigido com `metro.config.js` + `@babel/runtime` como dependência direta + `index.js` próprio como entry point (mais robusto que depender do `AppEntry.js` do pacote). Bundle final: Android 583 módulos/1.62MB, iOS 584/1.61MB, ambos sem erro — prova bem mais forte que typecheck de que o app resolve de ponta a ponta. | Bundle valida limpo nas duas plataformas. Ainda falta abrir de verdade num aparelho/Expo Go pra validar UI, câmera e fluxo offline na prática. |
 | 2026-07-23 | Amanda + Claude | **Backoffice web** (`apps/admin`, Next.js/TS/Tailwind, mesmo padrão de OTP+localStorage do painel, mas o `AuthGuard` também barra quem não tem `platformRole`): organizações (taxa, bloqueio, repasse), eventos (bloqueio), pedidos (busca/reenvio/estorno), payouts (marcar pago), webhooks, filas (job counts das 5 filas + outbox) e auditoria. Todos os contratos bateram exatamente com as interfaces TS do frontend sem precisar de ajuste no backend desta vez. `next build`/`tsc` limpos, validado via curl com o mesmo token/contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva de sempre). Com isso as 3 frentes de frontend web que só dependiam da API existente (checkout, painel do produtor, backoffice) estão prontas. | Backoffice web pronto. Próximo: alguém abrir os 3 frontends num navegador de verdade, testar o app RN em aparelho, ou avançar pro split real com Pagar.me. |

@@ -1,0 +1,52 @@
+# API e Worker da BoraFest — imagem única com dois targets.
+# Build (na raiz do repo):
+#   docker build -f infra/docker/Dockerfile.backend --target api    -t borafest-api .
+#   docker build -f infra/docker/Dockerfile.backend --target worker -t borafest-worker .
+
+FROM node:20-alpine AS builder
+RUN apk add --no-cache openssl && corepack enable
+WORKDIR /repo
+
+# manifests de TODO o workspace primeiro (o lockfile congelado exige todos),
+# instalando só o que o backend precisa via --filter
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
+COPY apps/checkout/package.json apps/checkout/
+COPY apps/producer/package.json apps/producer/
+COPY apps/admin/package.json apps/admin/
+COPY apps/mobile-checkin/package.json apps/mobile-checkin/
+COPY packages/auth/package.json packages/auth/
+COPY packages/config/package.json packages/config/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/database/package.json packages/database/
+COPY packages/notifications/package.json packages/notifications/
+COPY packages/observability/package.json packages/observability/
+COPY packages/payments/package.json packages/payments/
+COPY packages/queues/package.json packages/queues/
+COPY packages/tickets/package.json packages/tickets/
+RUN pnpm install --frozen-lockfile --filter '@borafest/api...' --filter '@borafest/worker...'
+
+COPY apps/api apps/api
+COPY apps/worker apps/worker
+COPY packages packages
+RUN pnpm --filter @borafest/database exec prisma generate \
+  && pnpm --filter '@borafest/api...' --filter '@borafest/worker...' run build
+
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS api
+RUN apk add --no-cache openssl
+ENV NODE_ENV=production
+WORKDIR /repo
+COPY --from=builder /repo .
+EXPOSE 3333
+# migrations rodam pelo serviço "migrate" do compose, não aqui
+CMD ["node", "apps/api/dist/main.js"]
+
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS worker
+RUN apk add --no-cache openssl
+ENV NODE_ENV=production
+WORKDIR /repo
+COPY --from=builder /repo .
+CMD ["node", "apps/worker/dist/main.js"]

@@ -93,6 +93,22 @@ KYC do produtor ser aprovado.
 - `packages/config` — env tipado com Zod. `packages/observability` — pino (`withContext`).
 - `infra/docker/docker-compose.yml` — Postgres em `localhost:5443`, Redis em `localhost:6380`.
 
+## Infra de produção (pré-lançamento, 2026-07-23)
+
+- `infra/docker/Dockerfile.backend` (targets `api`/`worker`) e
+  `Dockerfile.web` (ARG `APP`, Next `output: "standalone"`); com
+  `--frozen-lockfile` os Dockerfiles precisam copiar o `package.json` de
+  TODOS os projetos do workspace (o pnpm confere os importers do lockfile).
+- `infra/docker/docker-compose.prod.yml`: serviço `migrate` one-shot
+  (`prisma migrate deploy`) roda ANTES de api/worker; Caddy faz HTTPS
+  automático por domínio (`Caddyfile` + envs `*_DOMAIN`).
+- `NEXT_PUBLIC_API_URL` é embutida no bundle em BUILD-time — trocar a URL da
+  API exige rebuild das imagens web.
+- Deploy: `docs/projeto/DEPLOY.md`. Testes: `docs/projeto/PLANO-DE-TESTES.md`.
+- App de check-in verifica assinatura Ed25519 LOCALMENTE
+  (`src/qr/verifyTicketToken.ts`, `@noble/curves` — JS puro p/ Hermes);
+  compatibilidade servidor↔app coberta no CI (`.github/workflows/ci.yml`).
+
 ## Convenções de código
 
 - Mensagens de erro/log em **português**; código (identificadores) em inglês.

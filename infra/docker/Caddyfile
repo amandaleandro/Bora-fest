@@ -1,0 +1,18 @@
+# Reverse proxy com HTTPS automático (Let's Encrypt).
+# Os domínios vêm das variáveis de ambiente do serviço caddy no compose.
+
+{$API_DOMAIN} {
+	reverse_proxy api:3333
+}
+
+{$CHECKOUT_DOMAIN} {
+	reverse_proxy checkout:3000
+}
+
+{$PRODUCER_DOMAIN} {
+	reverse_proxy producer:3000
+}
+
+{$ADMIN_DOMAIN} {
+	reverse_proxy admin:3000
+}
