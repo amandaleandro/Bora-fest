@@ -29,4 +29,17 @@ export interface WhatsAppSender {
   send(message: WhatsAppMessage): Promise<void>;
 }
 
+export interface PushMessage {
+  /** Expo push token (`ExponentPushToken[...]`) — é o que fica em `Notification.recipient` */
+  to: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+}
+
+export interface PushSender {
+  readonly provider: string;
+  send(message: PushMessage): Promise<void>;
+}
+
 export class NotificationSendError extends Error {}

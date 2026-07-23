@@ -95,6 +95,12 @@ export interface PixPayment {
   expiresAt: string | null;
 }
 
+export interface CardPayment {
+  id: string;
+  status: string;
+  failReason: string | null;
+}
+
 export interface OrderTicket {
   id: string;
   code: string;

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import type { RegisterPushTokenInput } from "@borafest/contracts";
 
 const RESEND_LIMIT_PER_HOUR = 3;
 
@@ -85,6 +86,40 @@ export class NotificationsService {
       });
     }
 
-    return { queued: true, channels: order.contactPhone ? ["EMAIL", "WHATSAPP"] : ["EMAIL"] };
+    const channels = order.contactPhone ? ["EMAIL", "WHATSAPP"] : ["EMAIL"];
+
+    const pushTokens = await prisma.pushToken.findMany({ where: { orderId: order.id } });
+    for (const pushToken of pushTokens) {
+      await prisma.notification.create({
+        data: {
+          channel: "PUSH",
+          recipient: pushToken.token,
+          template: "ticket_delivery",
+          payload,
+          orderId: order.id,
+        },
+      });
+    }
+    if (pushTokens.length > 0) channels.push("PUSH");
+
+    return { queued: true, channels };
+  }
+
+  /**
+   * Registro de push (Expo) pra este pedido — sem exigir conta (arquitetura
+   * §12): o app registra o token assim que cria o pedido, pra ser avisado
+   * quando os ingressos ficarem prontos em vez de só fazer polling.
+   */
+  async registerPushToken(publicToken: string, input: RegisterPushTokenInput) {
+    const order = await prisma.order.findUnique({ where: { publicToken } });
+    if (!order) throw new NotFoundException("Pedido não encontrado");
+
+    await prisma.pushToken.upsert({
+      where: { token: input.token },
+      update: { orderId: order.id, platform: input.platform },
+      create: { orderId: order.id, token: input.token, platform: input.platform },
+    });
+
+    return { registered: true };
   }
 }

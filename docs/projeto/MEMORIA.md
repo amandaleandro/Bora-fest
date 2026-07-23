@@ -69,11 +69,12 @@ KYC do produtor ser aprovado.
   existia antes só busca por slug), evento + reserva, checkout (Pix + QR
   `react-native-qrcode-svg` + `expo-clipboard` + polling), carteira
   (ingressos + reenvio), "meus ingressos" opcional (login por OTP,
-  `expo-secure-store`) — a compra em si nunca exige conta. Sem push
-  notifications, transferência de ingresso, pedido de reembolso (rotas não
-  existem no backend) nem pagamento por cartão (só Pix, mesma decisão do
-  `apps/checkout`). Não testado em aparelho real (sem emulador/celular
-  neste ambiente), só via `expo export` (bundle real do Metro).
+  `expo-secure-store`) — a compra em si nunca exige conta. **Pix e cartão de
+  crédito** (2026-07-23, ver seção própria abaixo) e **push notifications**
+  (idem) já implementados. Transferência de ingresso e pedido de reembolso
+  existem no backend (§13) mas ainda não têm tela no app. Não testado em
+  aparelho real (sem emulador/celular neste ambiente), só via `expo export`
+  (bundle real do Metro) e smoke tests via curl contra a API local.
 - `apps/checkout` — checkout web do comprador (Fase 3), Next.js 14 (App
   Router) + TypeScript + Tailwind. Sem TanStack Query por ora (fetch direto
   com `useState`/`useEffect` e polling manual de status) — simplificação
@@ -151,6 +152,37 @@ KYC do produtor ser aprovado.
 - `RefundRequest.resolvedByUserId` é `String?` solto (sem relation Prisma pro
   `User`), igual ao `AuditLog.actorUserId` — convenção do projeto pra evitar inflar
   o schema com relations só de auditoria/rastreamento.
+
+## Push notifications e pagamento por cartão no app público (2026-07-23)
+
+- **Push NÃO é uma decisão comercial pendente, ao contrário de e-mail/WhatsApp**:
+  Expo Push API (`https://exp.host/--/api/v2/push/send`) é gratuita e não exige
+  conta pra funcionar — por isso `getPushSender()` (`packages/notifications`)
+  usa `ExpoPushSender` como DEFAULT (não `devlog`), diferente de
+  `getEmailSender()`/`getWhatsAppSender()`. `PUSH_PROVIDER=devlog` derruba pra
+  só logar, se precisar. Testado ao vivo contra a API real do Expo (token fake
+  → erro `DeviceNotRegistered` da própria Expo, prova que bate no servidor de
+  verdade).
+- **Token de push é escopado ao PEDIDO, não ao usuário** (`PushToken.orderId`,
+  não `userId`) — coerente com "compra nunca exige conta": o app registra o
+  token assim que cria o pedido (`POST /v1/orders/:publicToken/push-token`,
+  upsert por token) e é avisado quando os ingressos ficam prontos, com ou sem
+  login. `apps/worker/src/issue-tickets.ts` e
+  `apps/api/src/notifications/notifications.service.ts` (resend) criam a
+  `Notification` canal `PUSH` do mesmo jeito que EMAIL/WHATSAPP.
+- **Cartão no app público**: `apps/mobile-public/src/payments/tokenizeCard.ts`
+  tokeniza SEM passar o PAN pelo nosso backend, chamando direto o endpoint
+  público de tokenização do Pagar.me (`POST https://api.pagar.me/core/v5/
+  tokens?appId=<chave pública>`) — não precisa de SDK, é só REST, funciona de
+  qualquer client HTTP (mesmo princípio do `tokenizecard.js` do checkout web,
+  mas não é código copiado dele). Sem `EXPO_PUBLIC_PAGARME_PUBLIC_KEY`
+  configurada (gateway real ainda pendente de conta comercial — ver
+  REGISTRO.md), cai num token mock reconhecido só pelo `MockGateway` (número
+  terminado em `0002` simula recusa). O backend (`POST /v1/orders/:orderId/
+  payments/card`) já existia antes desta entrega — só faltava um cliente que
+  o chamasse. **Testado ao vivo** contra a API real com `MockGateway`: token
+  aprovado vira `PAID` na hora, token de recusa vira `FAILED` com
+  `failReason`.
 
 ## Convenções de código
 

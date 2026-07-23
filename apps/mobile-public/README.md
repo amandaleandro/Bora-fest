@@ -22,29 +22,35 @@ rede local, ou `http://10.0.2.2:3333` no emulador Android).
   entrega, não existia antes; só havia busca por slug de um evento
   específico).
 - **Compra sem conta**: seleção de ingressos → reserva → dados de contato
-  → Pix (QR via `react-native-qrcode-svg` + copiar código) → a tela avança
-  sozinha quando o pagamento é aprovado (polling do status do pedido).
+  → escolha de Pix ou cartão de crédito → a tela avança sozinha quando o
+  pagamento é aprovado (polling do status do pedido).
+  - **Pix**: QR via `react-native-qrcode-svg` + copiar código.
+  - **Cartão de crédito**: formulário (número, nome, validade, CVV,
+    parcelas) → tokenizado direto pelo app (`src/payments/tokenizeCard.ts`,
+    sem passar o PAN pelo nosso backend) → `POST /v1/orders/:id/payments/card`.
+    Sem `EXPO_PUBLIC_PAGARME_PUBLIC_KEY` configurada (gateway real ainda
+    pendente de conta comercial), usa um token mock que só o `MockGateway`
+    reconhece — **não é dinheiro de verdade** até essa chave existir.
 - **Carteira**: ingressos com QR assinado, reenvio por e-mail/WhatsApp.
+- **Push notifications**: o app pede permissão e registra o token Expo
+  (`POST /v1/orders/:publicToken/push-token`) assim que o pedido é criado —
+  best-effort, não bloqueia a compra se o aparelho recusar/não suportar.
+  Avisa quando os ingressos ficam prontos, com ou sem conta.
 - **"Meus ingressos" opcional**: login por OTP (`expo-secure-store` guarda
   o token) só pra quem quer ver o histórico de compras
   (`GET /v1/me/tickets`) — a compra em si nunca exige login.
 
 ## O que ainda falta (fora do escopo desta entrega)
 
-- **Push notifications**: a arquitetura menciona "notificações" como parte
-  da Fase 12; isso não foi implementado (exigiria configurar Expo push
-  tokens + endpoint de registro no backend, que também não existe ainda).
-- **Transferência de ingresso** e **pedido de reembolso pelo app**: a API
-  já tem `POST /v1/tickets/:id/transfer` e `POST /v1/orders/:id/refund-requests`
-  na arquitetura original (§13), mas não foram implementados no backend
-  ainda — não dá pra construir a tela sem a rota existir.
-- **Pagamento por cartão**: só Pix está implementado na tela (mesma
-  decisão de escopo do checkout web `apps/checkout`) — cartão exigiria
-  tokenização client-side (`tokenizecard.js` do Pagar.me), mais complexo
-  de fazer direito num app RN.
+- **Transferência de ingresso** e **pedido de reembolso pelo app**: a API já
+  tem `POST /v1/tickets/:id/transfer` e `POST /v1/orders/:publicToken/
+  refund-requests` implementados no backend (§13), mas ainda não têm tela
+  neste app.
 - **Ícones/splash reais, publicação nas lojas**: nada disso foi feito;
   este app não passou de testes manuais.
 - **Teste em dispositivo real**: mesma limitação do `apps/mobile-checkin`
   — este ambiente de desenvolvimento não tem emulador nem celular físico.
-  Validado via `expo export` (bundle real do Metro, ver
-  `docs/projeto/REGISTRO.md`), mas nunca aberto numa tela de verdade.
+  Validado via `expo export` (bundle real do Metro) e via smoke tests reais
+  contra a API local (push token registrado, cartão aprovado/recusado via
+  `MockGateway`), mas nunca aberto numa tela de verdade — push em particular
+  só pode ser confirmado de ponta a ponta num aparelho real.

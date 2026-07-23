@@ -1,5 +1,5 @@
 import { withContext } from "@borafest/observability";
-import type { EmailMessage, EmailSender, WhatsAppMessage, WhatsAppSender } from "./types";
+import type { EmailMessage, EmailSender, PushMessage, PushSender, WhatsAppMessage, WhatsAppSender } from "./types";
 
 const log = withContext({ module: "notifications-dev" });
 
@@ -28,6 +28,17 @@ export class DevLogWhatsAppSender implements WhatsAppSender {
     log.info(
       { channel: "whatsapp", to: message.to, template: message.template, variables: message.variables },
       "whatsapp (dev) enviado para o log",
+    );
+  }
+}
+
+export class DevLogPushSender implements PushSender {
+  readonly provider = DEVLOG_PROVIDER;
+
+  async send(message: PushMessage): Promise<void> {
+    log.info(
+      { channel: "push", to: message.to, title: message.title, body: message.body },
+      "push (dev) enviado para o log",
     );
   }
 }

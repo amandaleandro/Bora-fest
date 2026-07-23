@@ -83,6 +83,13 @@ internamente por Reservations/Catalog. Não expõe controller.
 | POST | `/v1/orders/:orderId/payments/pix` | nenhum (lê header `Idempotency-Key`) | `createPixPaymentSchema` |
 | POST | `/v1/orders/:orderId/payments/card` | nenhum (lê header `Idempotency-Key`) | `createCardPaymentSchema` |
 
+`createCardPaymentSchema.cardToken` é sempre pré-tokenizado no CLIENTE (nunca o
+PAN chega no nosso backend) — `apps/mobile-public/src/payments/tokenizeCard.ts`
+implementa isso chamando o endpoint público de tokenização do Pagar.me
+(`POST https://api.pagar.me/core/v5/tokens?appId=<chave pública>`) direto do
+app, sem SDK. Sem `EXPO_PUBLIC_PAGARME_PUBLIC_KEY` configurada, cai num token
+mock reconhecido só pelo `MockGateway` (dev/teste).
+
 ## Webhooks (`apps/api/src/webhooks`)
 
 | Verbo | Rota | Guard | Corpo/Query |
@@ -110,6 +117,7 @@ Self-service: só cria o pedido `PENDING`, não estorna sozinho — quem aprova/
 | Verbo | Rota | Guard | Corpo/Query |
 |---|---|---|---|
 | POST | `/v1/orders/:publicToken/resend` | nenhum (limite de 3/hora por pedido) | — (`HttpCode 202`) |
+| POST | `/v1/orders/:publicToken/push-token` | nenhum | `registerPushTokenSchema` (upsert por token; app público, Fase 12) |
 
 ## Dashboard do produtor (`apps/api/src/dashboard`)
 

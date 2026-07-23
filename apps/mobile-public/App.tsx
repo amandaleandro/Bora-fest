@@ -8,6 +8,7 @@ import { CheckoutScreen } from "./src/screens/CheckoutScreen";
 import { WalletScreen } from "./src/screens/WalletScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MyTicketsScreen } from "./src/screens/MyTicketsScreen";
+import "./src/push"; // registra o handler de notificação em foreground assim que o app abre
 
 type Screen =
   | { name: "home" }

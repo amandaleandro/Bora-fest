@@ -2,6 +2,7 @@ import { API_BASE_URL } from "../config";
 import { ApiError } from "./types";
 import type {
   AvailabilityItem,
+  CardPayment,
   EventListResponse,
   MyTicket,
   Order,
@@ -14,11 +15,12 @@ import type {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string } = {},
+  options: { method?: string; body?: unknown; token?: string; idempotencyKey?: string } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
@@ -58,11 +60,28 @@ export const api = {
   createPixPayment: (orderId: string, input: { payerDocument?: string; payerPhone?: string }) =>
     request<PixPayment>(`/v1/orders/${orderId}/payments/pix`, { method: "POST", body: input }),
 
+  createCardPayment: (
+    orderId: string,
+    input: { cardToken: string; installments: number; payerDocument?: string },
+    idempotencyKey: string,
+  ) =>
+    request<CardPayment>(`/v1/orders/${orderId}/payments/card`, {
+      method: "POST",
+      body: input,
+      idempotencyKey,
+    }),
+
   getOrderTickets: (publicToken: string) =>
     request<OrderTicketsResponse>(`/v1/orders/${publicToken}/tickets`),
 
   resendTickets: (publicToken: string) =>
     request<{ queued: boolean; channels: string[] }>(`/v1/orders/${publicToken}/resend`, { method: "POST" }),
+
+  registerPushToken: (publicToken: string, token: string, platform: "ios" | "android") =>
+    request<{ registered: boolean }>(`/v1/orders/${publicToken}/push-token`, {
+      method: "POST",
+      body: { token, platform },
+    }),
 
   requestOtp: (destination: string) =>
     request<{ sent: boolean }>("/v1/identity/otp/request", {

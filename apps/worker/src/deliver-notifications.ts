@@ -1,8 +1,10 @@
 import { prisma } from "@borafest/database";
 import {
   getEmailSender,
+  getPushSender,
   getWhatsAppSender,
   renderTicketDeliveryEmail,
+  renderTicketDeliveryPush,
   renderTicketDeliveryWhatsApp,
   type TicketDeliveryPayload,
 } from "@borafest/notifications";
@@ -84,6 +86,10 @@ async function send(
   if (channel === "WHATSAPP") {
     const message = renderTicketDeliveryWhatsApp(data);
     await getWhatsAppSender().send({ to: recipient, ...message });
+    return;
+  }
+  if (channel === "PUSH") {
+    await getPushSender().send(renderTicketDeliveryPush(recipient, data));
     return;
   }
   throw new Error(`Canal de notificação desconhecido: ${channel}`);

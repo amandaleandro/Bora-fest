@@ -1,4 +1,4 @@
-import type { EmailMessage } from "./types";
+import type { EmailMessage, PushMessage } from "./types";
 
 /**
  * Templates de mensagem (puros e testáveis). O link profundo abre a carteira
@@ -76,6 +76,16 @@ export function renderTicketDeliveryWhatsApp(payload: TicketDeliveryPayload) {
       order_url: payload.orderUrl,
       ticket_count: String(payload.tickets.length),
     },
+  };
+}
+
+export function renderTicketDeliveryPush(to: string, payload: TicketDeliveryPayload): PushMessage {
+  const plural = payload.tickets.length > 1;
+  return {
+    to,
+    title: "Seus ingressos estão prontos! 🎉",
+    body: `${payload.eventTitle} — ${payload.tickets.length} ingresso${plural ? "s" : ""} liberado${plural ? "s" : ""}`,
+    data: { orderUrl: payload.orderUrl },
   };
 }
 

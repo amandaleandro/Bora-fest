@@ -106,6 +106,19 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
         },
       });
     }
+
+    const pushTokens = await tx.pushToken.findMany({ where: { orderId } });
+    for (const pushToken of pushTokens) {
+      await tx.notification.create({
+        data: {
+          channel: "PUSH",
+          recipient: pushToken.token,
+          template: "ticket_delivery",
+          payload,
+          orderId,
+        },
+      });
+    }
   });
 
   log.info({ orderId, tickets: tickets.length }, "ingressos emitidos e entrega enfileirada");

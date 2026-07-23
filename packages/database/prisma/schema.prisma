@@ -416,6 +416,7 @@ model Order {
   payments    Payment[]
   tickets     Ticket[]
   refundRequests RefundRequest[]
+  pushTokens  PushToken[]
 
   @@index([eventId])
   @@index([status])
@@ -727,6 +728,7 @@ model CheckinSyncBatch {
 enum NotificationChannel {
   EMAIL
   WHATSAPP
+  PUSH
 }
 
 enum NotificationStatus {
@@ -754,6 +756,22 @@ model Notification {
   @@index([status, availableAt])
   @@index([orderId])
   @@map("notifications")
+}
+
+/// Token de push (Expo) registrado por um pedido — app público (Fase 12)
+/// pede notificação de "ingressos prontos" sem precisar de conta. Não é
+/// por usuário porque a compra não exige login; escopo é o pedido mesmo.
+model PushToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@map("push_tokens")
 }
 
 /// Par de chaves Ed25519 por evento para assinar o QR dos ingressos.
