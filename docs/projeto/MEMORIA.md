@@ -42,9 +42,17 @@ KYC do produtor ser aprovado.
 - `apps/api` — NestJS + adaptador Fastify. Módulos: identity, organizations,
   events, catalog, inventory, reservations, orders, payments, webhooks,
   tickets, notifications, validator, checkins, dashboard (Fase 8 — painel do
-  produtor), admin (Fase 8 — backoffice BoraFest).
-- `apps/worker` — processos BullMQ (tsx em dev, tsc em build). Hoje: expiração de
-  reservas + reconciliação a cada 60s.
+  produtor), admin (Fase 8 — backoffice BoraFest), finance (Fase 9 — saldo/
+  ledger do produtor). Rotas completas: `docs/projeto/API-REFERENCE.md`.
+- `apps/worker` — processos BullMQ (tsx em dev, tsc em build). Hoje: expiração
+  de reservas, outbox (emissão de ingressos), reconciliação de pagamentos,
+  expiração de pedidos, entrega de notificações.
+- `apps/mobile-checkin` — app de portaria (Fase 6), Expo + React Native +
+  TypeScript. Sem framework de navegação (troca de tela por estado simples
+  em `App.tsx` — só 3 telas, não precisava de mais). SQLite local
+  (`expo-sqlite`) cacheia o manifesto e a fila offline; `expo-secure-store`
+  guarda o token do aparelho. **Não tem app.build no turbo, só `typecheck`**
+  (roda via `expo start`, não `tsc`/`nest build`).
 - `packages/database` — Prisma (client singleton em `src/index.ts`, re-exporta `@prisma/client`).
   Migrations em `prisma/migrations`. Seed de roles em `src/seed.ts`.
 - `packages/contracts` — schemas Zod + tipos compartilhados (1 arquivo por domínio,
@@ -197,10 +205,25 @@ KYC do produtor ser aprovado.
   pedido: 15 min (`orders.service.ts`).
 - Gateway real: recomendação Pagar.me (primário) + Asaas (fallback) em
   `docs/projeto/pesquisa-gateways-2026-07.md` — aguardando confirmação do Arthur.
-- Estorno/chargeback ainda NÃO devolve estoque ao lote (revenda) — tratar na
-  Fase 9 (ledger/estornos) junto com estorno parcial.
+- ~~Estorno/chargeback ainda NÃO devolve estoque ao lote~~ — **resolvido na
+  Fase 9** (`returnSaleInventory`, ver regras da Fase 9 acima). O que falta
+  é só o estorno PARCIAL (hoje `refundOrderSchema.amountCents` existe no
+  contrato mas `reverseOrganizationLedgerAndStock` sempre reverte o
+  pagamento inteiro, não uma fração — se for cobrar isso, tratar na Fase 9.1
+  junto com o split real do Pagar.me).
 - Seed de desenvolvimento: `pnpm --filter @borafest/database seed:dev` cria
   evento demo publicado com lote ativo.
 - Backoffice (Fase 8): nenhum usuário tem `platformRole` por padrão (nem o
   seed). Para testar localmente, promova via Prisma Studio/SQL:
   `UPDATE users SET platform_role = 'ADMIN' WHERE email = '...'`.
+- App de check-in (Fase 6): código em `apps/mobile-checkin` nunca rodou de
+  fato — este ambiente de trabalho não tem emulador Android/iOS nem celular
+  físico. Antes de confiar nele, testar via Expo Go
+  (`docs/projeto/API-REFERENCE.md` + `apps/mobile-checkin/README.md` têm o
+  que já é sabido/faltando). Verificação de assinatura do QR no aparelho
+  (offline) não foi implementada de propósito — ver README do app.
+- `docs/projeto/API-REFERENCE.md` é gerado a partir do código; ao adicionar/
+  mudar uma rota, atualize essa tabela na mesma sessão (mesma regra do
+  REGISTRO.md) — senão ela fica desatualizada rápido, como o restante deste
+  arquivo às vezes fica (ver a correção do estorno acima, que só foi
+  atualizada agora, uma fase depois).

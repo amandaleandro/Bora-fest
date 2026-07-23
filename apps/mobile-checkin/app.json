@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "BoraFest Check-in",
+    "slug": "borafest-checkin",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#111827"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.borafest.checkin",
+      "infoPlist": {
+        "NSCameraUsageDescription": "A câmera é usada para ler o QR code dos ingressos na portaria."
+      }
+    },
+    "android": {
+      "package": "com.borafest.checkin",
+      "permissions": ["CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "A câmera é usada para ler o QR code dos ingressos na portaria."
+        }
+      ]
+    ]
+  }
+}

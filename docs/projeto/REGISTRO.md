@@ -17,8 +17,8 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 9 — ledger, taxas e repasses (núcleo) |
-| **Status da fase** | 🟢 Concluída e testada de ponta a ponta (execução bancária real ainda pendente) |
+| **Fase em andamento** | Fase 6 — App React Native de check-in (código escrito) |
+| **Status da fase** | 🟡 Implementado e com typecheck limpo; **não testado em dispositivo real** (sem emulador/celular neste ambiente) |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
@@ -193,17 +193,63 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
   payout → estoque devolvido (disponibilidade voltou a 1) e saldo foi a
   -5226 (`availableForPayoutCents` corretamente travado em 0, não negativo).
 
+### Fase 6 (app RN de check-in) — CÓDIGO ESCRITO 🟡, não testado em aparelho
+
+Criado `apps/mobile-checkin` (Expo + React Native + TypeScript):
+
+- Login por PIN (`POST /v1/validator/sessions`) — registra o aparelho e
+  guarda `deviceId`/`deviceToken` em `expo-secure-store`.
+- Manifesto sincronizado (completo na 1ª vez, delta depois) e cacheado em
+  SQLite local (`expo-sqlite`) — tabelas `tickets`, `pending_checkins`,
+  `confirmed_checkins`, `meta`.
+- Scanner de QR (`expo-camera`) → `POST /v1/checkins` online por padrão;
+  se a rede falhar, cai para pré-check local contra o manifesto cacheado
+  (`src/checkin/attemptCheckin.ts`) e enfileira o check-in.
+- Busca manual por código (o manifesto não traz nome/CPF — só o caminho
+  online devolve isso, então a busca offline é só por código).
+- Fila offline com sincronização em lote (`POST /v1/checkins/sync`,
+  `batchKey` novo por tentativa, idempotente do lado do servidor).
+- Contador local (confirmados/pendentes) — **não é o contador oficial do
+  produtor**: descobrimos ao mapear os contratos que
+  `GET /v1/events/:id/checkin-live` e `POST /v1/checkins/:id/reverse`
+  exigem `SessionGuard` (sessão de usuário do produtor), não
+  `ValidatorDeviceGuard` (token de aparelho) — o app de portaria não
+  consegue chamar essas duas rotas. Isso é esperado (reversão é ação do
+  painel, não do celular na portaria), então o app mantém seu próprio
+  contador a partir do que ele mesmo confirmou/sincronizou.
+- **Simplificação assumida e documentada** (`apps/mobile-checkin/README.md`):
+  o parser local do QR (`src/qr/parseTicketToken.ts`) decodifica o payload
+  mas **não verifica a assinatura Ed25519** — isso exigiria uma lib de
+  crypto compatível com React Native (`node:crypto` não roda lá), fora do
+  escopo desta entrega. A verificação de assinatura de verdade continua
+  sendo sempre do servidor, tanto no scan online quanto na sincronização do
+  lote; o pré-check offline é só uma conveniência de UX/gating local.
+- `pnpm --filter @borafest/mobile-checkin typecheck` limpo. **Não rodado em
+  emulador/celular real** — este ambiente de trabalho não tem Android
+  Studio/Xcode nem um dispositivo físico conectado. Falta validar na prática
+  (Expo Go) antes de confiar no app em produção.
+
+Criado também `docs/projeto/API-REFERENCE.md`: tabela de toda rota da API
+(verbo, path, guard, schema do corpo), organizada por módulo — não existia
+um lugar único para consultar isso antes (só dava pra achar lendo
+controller por controller).
+
 ### Próximo passo
 
-1. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
+1. **Testar o app de check-in em dispositivo real** (Expo Go, depois
+   development build) — validar câmera, fluxo offline/online de verdade,
+   antes de qualquer publicação em loja.
+2. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
    organização, hold-até-aprovação de fato (hoje é só o gate de
    `Organization.status`), execução automática do repasse via API do
    gateway em vez de confirmação manual.
-2. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
+3. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
-3. Fase 10/11/12: publicação do BoraFest Check-in nas lojas, evento-piloto
-   com testes de carga/hardening, app público (carteira, descoberta).
+4. Fase 10: publicação do BoraFest Check-in nas lojas (só depois do app
+   testado em aparelho — contas Google Play/Apple Developer, ícones/splash
+   reais, EAS Build). Fase 11/12: evento-piloto com testes de carga/
+   hardening, app público (carteira, descoberta).
 
 ---
 
@@ -216,7 +262,7 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
 | 3 | Checkout web, reserva e pedidos (checkout mínimo via API) | ✅ Concluída | `277e684` |
 | 4 | Gateway, webhooks, pagamentos e emissão de ingressos | ✅ Concluída | `9f362ff`, `ab18e51` |
 | 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | `ed79eb6` |
-| 6 | App React Native de check-in online | 🟢 Backend concluído (app RN fica p/ etapa mobile) | (este commit) |
+| 6 | App React Native de check-in online | 🟡 Código escrito, não testado em aparelho real | (este commit) |
 | 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente) | (este commit) |
 | 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída | (este commit) |
 | 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | (este commit) |
@@ -236,6 +282,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Fase 6 (app RN de check-in)** + **doc de referência da API**: `apps/mobile-checkin` (Expo/RN/TS) com login por PIN, manifesto em SQLite local, scanner de QR com fallback offline (fila + sync em lote), busca manual por código e contador local. Mapeamos os contratos exatos de validator/checkins antes de codar e achamos duas pegadinhas: `checkin-live`/`reverse` exigem sessão de usuário (não token de aparelho — o app não pode chamá-las), e `syncCheckinsSchema` só aceita `ticketId` (não `qrToken`), então o parser local do QR (sem verificar assinatura Ed25519 — isso ficou documentado como limitação assumida) é obrigatório para o caminho offline. `pnpm typecheck` limpo em tudo, mas **não testado em aparelho real** (sem emulador/celular neste ambiente). Criado também `docs/projeto/API-REFERENCE.md` com todas as rotas da API por módulo — lacuna que não existia antes. | Fase 6 com código pronto, falta testar em Expo Go antes de qualquer publicação em loja (Fase 10). |
 | 2026-07-23 | Amanda + Claude | **Fase 9 (núcleo)**: ledger append-only (`ledger_accounts`/`ledger_entries`) e `payouts`, cálculo de comissão configurável por organização (`computePlatformFeeCents`), tudo pendurado direto no `applyGatewayStatus` (PAID credita venda+comissão e confirma estoque; estorno/chargeback reverte o ledger a zero E devolve o estoque vendido — fechando a lacuna aberta desde a Fase 4). API de saldo/ledger para o produtor e backoffice de repasse (bloqueado sem KYC aprovado, confirmação manual da transferência até o split real do Pagar.me). Testado de ponta a ponta: venda → saldo líquido correto → payout bloqueado sem KYC → aprovado → payout pago → saldo zera → estorno pós-payout devolve estoque e deixa saldo negativo (repasse futuro descontado), disponível-para-repasse travado em zero. | Fase 9 (núcleo) concluída. Split real com Pagar.me (recebedores/KYC) fica para quando o comercial fechar a conta PSP. |
 | 2026-07-23 | Amanda + Claude | **Fase 8**: dashboard do produtor (receita, pedidos, participantes, export CSV) e backoffice mínimo (organizações, taxa configurável por org, eventos, busca de pedidos, reenvio, estorno controlado via gateway, webhooks, saúde das filas), com `PlatformRole` (SUPPORT/ADMIN) novo no schema e auditoria em toda ação sensível. Testado de ponta a ponta com um pedido real pago via mock gateway até `FULFILLED` e depois estornado pelo backoffice. | Fase 8 concluída. Próximo: Fase 9 (ledger, taxas, estornos com devolução de estoque e repasses). |
 | 2026-07-23 | Arthur + Claude | **Fases 6/7 (backend do check-in)**: portões e PIN pelo produtor, sessão do validador por PIN + registro/refresh/bloqueio de dispositivo, manifesto completo/delta com chave pública Ed25519, check-in atômico "primeiro vence" com verificação criptográfica do QR, sync offline idempotente por lote com trilha de conflito, reversão auditada e painel ao vivo. 8 cenários E2E passando. | Backend do check-in pronto. Próximo: Fase 8 (dashboard produtor + backoffice mínimo). |
