@@ -66,6 +66,7 @@ export class DashboardService {
       lots: lots.map((lot) => ({
         id: lot.id,
         name: lot.name,
+        ticketTypeId: lot.ticketType.id,
         typeName: lot.ticketType.name,
         priceCents: lot.priceCents,
         feeCents: lot.feeCents,

@@ -17,7 +17,7 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 3 (frontend) — checkout web (`apps/checkout`) |
+| **Fase em andamento** | Fase 8 (frontend) — painel do produtor (`apps/producer`) |
 | **Status da fase** | 🟢 Implementado e testado de ponta a ponta contra a API real |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
@@ -271,16 +271,66 @@ tem ferramenta de browser/screenshot; a validação foi por contrato de API
 de confiar 100%, abrir `pnpm --filter @borafest/checkout dev` e navegar o
 fluxo manualmente uma vez.
 
+### Painel do produtor (Fase 8, frontend) — CONCLUÍDO ✅
+
+Criado `apps/producer` (Next.js 14 + TypeScript + Tailwind). Diferente do
+checkout (que não precisa de login), aqui todo mundo autentica por OTP e o
+token de sessão fica em `localStorage` (`lib/auth.tsx`, `AuthProvider` +
+`AuthGuard` client-side — sem middleware/servidor, é tudo SPA-like dentro
+do App Router). Páginas:
+
+- `/login` — OTP por e-mail (reaproveita `POST /v1/identity/otp/*`).
+- `/organizacoes` — lista as organizações do usuário e cria novas.
+- `/organizacoes/:id` — lista/cria eventos da organização; link pro financeiro.
+- `/organizacoes/:id/financeiro` — saldo e extrato do ledger (Fase 9).
+- `/eventos/:id` — publica o evento, cria tipo de ingresso e lote (ativa
+  automaticamente), lista os lotes com vendido/disponível.
+- `/eventos/:id/dashboard` — receita, pedidos/ingressos por status, lotes.
+- `/eventos/:id/participantes` — lista + export CSV (via fetch+blob, não
+  `<a href>` — o endpoint exige `Authorization`, um link puro não manda o
+  header).
+- `/eventos/:id/portaria` — cria portão, gera PIN de validador (mostrado
+  uma vez), lista/bloqueia dispositivos.
+
+**Duas lacunas reais de backend encontradas e corrigidas ao construir o
+painel** (não só suposição — vieram de tentar montar a tela e faltar dado):
+
+1. **Não existia `GET /v1/organizations`** para listar as organizações do
+   usuário logado (só `POST` de criar existia). Adicionado
+   `OrganizationsService.listForUser` + rota, testado retornando a org
+   existente com `roleKey`.
+2. **`GET /v1/events/:id/dashboard` não expunha o `ticketTypeId` de cada
+   lote** (só `typeName`) — sem isso, a tela não tinha como saber em qual
+   tipo de ingresso criar um lote novo sem o produtor digitar um UUID à
+   mão. Adicionado `ticketTypeId` no mapeamento do dashboard.
+
+Ambas registradas em `docs/projeto/API-REFERENCE.md`.
+
+**Limitação assumida**: tipos de ingresso sem nenhum lote ainda não aparecem
+em lugar nenhum da API (só o dashboard, que só devolve lotes) — o painel
+contorna isso guardando os tipos criados na sessão atual em memória; se a
+página for recarregada antes de criar o lote, o tipo "some" da tela (ele
+continua existindo no banco, só não tem como listar). Documentado no
+código (`knownTypes` em `eventos/[eventId]/page.tsx`).
+
+Testado de ponta a ponta contra a API real: login por OTP → listar
+organização → dashboard do evento com `ticketTypeId` novo → criar tipo de
+ingresso → criar portão → gerar PIN de validador (PIN de verdade
+devolvido) → exportar CSV de participantes com o header `Authorization`
+correto. `next build`/`tsc --noEmit` limpos. **Não aberto num navegador de
+verdade** — mesma ressalva do checkout, sem ferramenta de browser neste
+ambiente.
+
 ### Próximo passo
 
-1. **Abrir o checkout num navegador de verdade** e navegar o fluxo manual
-   uma vez (este ambiente não tem ferramenta de screenshot/browser).
-2. **Testar o app de check-in em dispositivo real** (Expo Go, depois
+1. **Abrir checkout e painel do produtor num navegador de verdade** e
+   navegar os fluxos manualmente (este ambiente não tem ferramenta de
+   screenshot/browser).
+2. **Backoffice web** (`apps/admin`) — mesma ideia: consumir a API que já
+   existe (`/v1/admin/*`).
+3. **Testar o app de check-in em dispositivo real** (Expo Go, depois
    development build) — validar câmera, fluxo offline/online de verdade,
    antes de qualquer publicação em loja.
-3. **Painel do produtor** (`apps/producer`) e **backoffice web**
-   (`apps/admin`) — mesma ideia do checkout: consumir a API que já existe
-   (dashboard, admin) sem precisar de rota nova.
 4. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
    organização, hold-até-aprovação de fato (hoje é só o gate de
    `Organization.status`), execução automática do repasse via API do
@@ -305,7 +355,7 @@ fluxo manualmente uma vez.
 | 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | `ed79eb6` |
 | 6 | App React Native de check-in online | 🟡 Código escrito, não testado em aparelho real | `578a20a` |
 | 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente); cliente RN em `578a20a` | `59fe647`, `578a20a` |
-| 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída | `7288370`, `cabfb6f` |
+| 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída (backend + painel do produtor `apps/producer`; backoffice web ainda falta) | `7288370`, `cabfb6f` |
 | 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | `c3cd744` |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
 | 11 | Evento-piloto, testes de carga e hardening | ⬜ Não iniciada | — |
@@ -323,6 +373,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Painel do produtor** (`apps/producer`, Next.js/TS/Tailwind, login por OTP com token em localStorage): organizações, eventos (criar/publicar), catálogo (tipo+lote com ativação), dashboard, participantes+export CSV (via fetch+blob por causa do header Authorization), financeiro (saldo/ledger) e portaria (portões, PIN de validador, dispositivos). Achadas e corrigidas 2 lacunas reais no backend testando de verdade: faltava `GET /v1/organizations` (listar orgs do usuário) e o dashboard não expunha `ticketTypeId` por lote (impossível criar lote sem digitar UUID à mão). `next build`/`tsc` limpos, fluxo validado via curl com os mesmos contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva do checkout). | Painel do produtor pronto. Próximo: backoffice web (`apps/admin`), depois testar tudo (checkout+painel+app RN) numa sessão com navegador/aparelho de verdade. |
 | 2026-07-23 | Amanda + Claude | **Checkout web** (`apps/checkout`, Next.js/TS/Tailwind): página do evento, checkout com Pix (QR via `react-qr-code`) e carteira com os ingressos, tudo consumindo a API que já existia. Achado um bug real testando contra a API de verdade (não só typecheck): `GET /v1/orders/:publicToken/tickets` devolve um objeto `{event, tickets}`, não um array — o cliente HTTP assumia array errado, corrigido antes de commitar. `next build`/`tsc` limpos; fluxo validado via curl simulando as chamadas do frontend (reserva → pedido → Pix mock → webhook → `FULFILLED`), mas **não aberto num navegador de verdade** (sem ferramenta de browser neste ambiente). | Checkout web pronto, falta alguém abrir no navegador uma vez. Próximo: painel do produtor/backoffice web (mesma ideia, consumir API existente) ou testar o app de check-in em aparelho. |
 | 2026-07-23 | Amanda + Claude | **Fase 6 (app RN de check-in)** + **doc de referência da API**: `apps/mobile-checkin` (Expo/RN/TS) com login por PIN, manifesto em SQLite local, scanner de QR com fallback offline (fila + sync em lote), busca manual por código e contador local. Mapeamos os contratos exatos de validator/checkins antes de codar e achamos duas pegadinhas: `checkin-live`/`reverse` exigem sessão de usuário (não token de aparelho — o app não pode chamá-las), e `syncCheckinsSchema` só aceita `ticketId` (não `qrToken`), então o parser local do QR (sem verificar assinatura Ed25519 — isso ficou documentado como limitação assumida) é obrigatório para o caminho offline. `pnpm typecheck` limpo em tudo, mas **não testado em aparelho real** (sem emulador/celular neste ambiente). Criado também `docs/projeto/API-REFERENCE.md` com todas as rotas da API por módulo — lacuna que não existia antes. | Fase 6 com código pronto, falta testar em Expo Go antes de qualquer publicação em loja (Fase 10). |
 | 2026-07-23 | Amanda + Claude | **Fase 9 (núcleo)**: ledger append-only (`ledger_accounts`/`ledger_entries`) e `payouts`, cálculo de comissão configurável por organização (`computePlatformFeeCents`), tudo pendurado direto no `applyGatewayStatus` (PAID credita venda+comissão e confirma estoque; estorno/chargeback reverte o ledger a zero E devolve o estoque vendido — fechando a lacuna aberta desde a Fase 4). API de saldo/ledger para o produtor e backoffice de repasse (bloqueado sem KYC aprovado, confirmação manual da transferência até o split real do Pagar.me). Testado de ponta a ponta: venda → saldo líquido correto → payout bloqueado sem KYC → aprovado → payout pago → saldo zera → estorno pós-payout devolve estoque e deixa saldo negativo (repasse futuro descontado), disponível-para-repasse travado em zero. | Fase 9 (núcleo) concluída. Split real com Pagar.me (recebedores/KYC) fica para quando o comercial fechar a conta PSP. |

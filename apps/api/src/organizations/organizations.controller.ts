@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { createOrganizationSchema, inviteMemberSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
@@ -13,6 +13,11 @@ export class OrganizationsController {
   @Post()
   create(@CurrentUserId() userId: string, @Body(ZodBody(createOrganizationSchema)) body: unknown) {
     return this.organizationsService.create(userId, body as any);
+  }
+
+  @Get()
+  listForUser(@CurrentUserId() userId: string) {
+    return this.organizationsService.listForUser(userId);
   }
 
   @Post(":id/members")

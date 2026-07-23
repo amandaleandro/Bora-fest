@@ -34,6 +34,7 @@ Convenções gerais (ver `docs/projeto/MEMORIA.md` para detalhes):
 | Verbo | Rota | Guard | Corpo/Query |
 |---|---|---|---|
 | POST | `/v1/organizations` | SessionGuard | `createOrganizationSchema` |
+| GET | `/v1/organizations` | SessionGuard | — (lista as organizações onde o usuário logado é membro ACTIVE) |
 | POST | `/v1/organizations/:id/members` | SessionGuard | `inviteMemberSchema` |
 
 ## Events (`apps/api/src/events`)

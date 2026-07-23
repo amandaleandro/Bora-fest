@@ -61,6 +61,13 @@ KYC do produtor ser aprovado.
   renderiza o QR do Pix e o QR do ingresso client-side, sem dependência de
   imagem gerada no servidor. `NEXT_PUBLIC_API_URL` aponta pra API (default
   `http://localhost:3333`).
+- `apps/producer` — painel do produtor (Fase 8), mesma stack do checkout.
+  Autenticado (diferente do checkout): `lib/auth.tsx` guarda o token de
+  sessão em `localStorage` e `AuthGuard` redireciona pra `/login` se não
+  tiver token — tudo client-side, sem middleware/cookie de servidor (não
+  precisa para um painel interno, mas não serve como padrão de segurança
+  para algo público). Export de CSV usa fetch+blob, nunca `<a href>` puro,
+  porque o endpoint exige `Authorization` que um link normal não manda.
 - `packages/database` — Prisma (client singleton em `src/index.ts`, re-exporta `@prisma/client`).
   Migrations em `prisma/migrations`. Seed de roles em `src/seed.ts`.
 - `packages/contracts` — schemas Zod + tipos compartilhados (1 arquivo por domínio,
@@ -235,3 +242,9 @@ KYC do produtor ser aprovado.
   REGISTRO.md) — senão ela fica desatualizada rápido, como o restante deste
   arquivo às vezes fica (ver a correção do estorno acima, que só foi
   atualizada agora, uma fase depois).
+- Tipo de ingresso sem lote ainda não aparece em nenhuma listagem da API
+  (só o dashboard, que só devolve lotes) — se algum frontend precisar
+  listar tipos "vazios" (sem lote criado ainda), vai faltar um endpoint
+  `GET /v1/events/:id/ticket-types`. O painel do produtor contorna isso
+  guardando os tipos criados na própria sessão do navegador (`apps/
+  producer/app/eventos/[eventId]/page.tsx`, `knownTypes`).

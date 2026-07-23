@@ -41,6 +41,23 @@ export class OrganizationsService {
     });
   }
 
+  async listForUser(userId: string) {
+    const memberships = await prisma.organizationMember.findMany({
+      where: { userId, status: "ACTIVE" },
+      include: { organization: true, role: true },
+      orderBy: { joinedAt: "asc" },
+    });
+
+    return memberships.map((membership) => ({
+      id: membership.organization.id,
+      name: membership.organization.name,
+      slug: membership.organization.slug,
+      kind: membership.organization.kind,
+      status: membership.organization.status,
+      roleKey: membership.role.key,
+    }));
+  }
+
   async inviteMember(organizationId: string, actorUserId: string, input: InviteMemberInput) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
 
