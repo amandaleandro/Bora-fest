@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: borafest
       POSTGRES_DB: borafest
     ports:
-      - "5432:5432"
+      - "5443:5432"
     volumes:
       - borafest_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - borafest_redis_data:/data
     healthcheck:
