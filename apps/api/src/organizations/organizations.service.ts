@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
-import { PERMISSIONS, roleHasPermission } from "@borafest/auth";
+import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrganizationInput, InviteMemberInput } from "@borafest/contracts";
+import { OrgAccessService } from "../common/org-access.service";
 
 function slugify(name: string): string {
   return name
@@ -14,6 +15,8 @@ function slugify(name: string): string {
 
 @Injectable()
 export class OrganizationsService {
+  constructor(private readonly orgAccess: OrgAccessService) {}
+
   async create(userId: string, input: CreateOrganizationInput) {
     const ownerRole = await prisma.role.findUniqueOrThrow({ where: { key: "owner" } });
     const baseSlug = slugify(input.name);
@@ -39,14 +42,7 @@ export class OrganizationsService {
   }
 
   async inviteMember(organizationId: string, actorUserId: string, input: InviteMemberInput) {
-    const actorMembership = await prisma.organizationMember.findUnique({
-      where: { organizationId_userId: { organizationId, userId: actorUserId } },
-      include: { role: true },
-    });
-
-    if (!actorMembership || !roleHasPermission(actorMembership.role.key, PERMISSIONS.ORG_MANAGE_MEMBERS)) {
-      throw new ForbiddenException("Sem permissao para convidar membros");
-    }
+    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
 
     const role = await prisma.role.findUnique({ where: { key: input.roleKey } });
     if (!role) throw new NotFoundException("Papel invalido");
