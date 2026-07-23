@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { prisma, Prisma } from "@borafest/database";
 
+export type DbClient = typeof prisma | Prisma.TransactionClient;
+
 export class InsufficientStockError extends Error {
   constructor(lotId: string) {
     super(`Estoque insuficiente para o lote ${lotId}`);
@@ -13,10 +15,12 @@ export class InventoryService {
    * Decremento atômico de estoque: só reserva se
    * vendidos + reservados + quantidade <= capacidade,
    * checado e atualizado em uma única instrução no Postgres
-   * para não haver overselling sob concorrência.
+   * para não haver overselling sob concorrência. Aceita um
+   * client de transação para ser combinado com a criação da
+   * reserva em uma única unidade atômica.
    */
-  async tryReserve(lotId: string, quantity: number): Promise<void> {
-    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+  async tryReserve(lotId: string, quantity: number, client: DbClient = prisma): Promise<void> {
+    const rows = await client.$queryRaw<{ id: string }[]>(Prisma.sql`
       UPDATE ticket_lots
       SET reserved_count = reserved_count + ${quantity}, updated_at = now()
       WHERE id = ${lotId}::uuid
@@ -30,16 +34,16 @@ export class InventoryService {
     }
   }
 
-  async release(lotId: string, quantity: number): Promise<void> {
-    await prisma.$executeRaw(Prisma.sql`
+  async release(lotId: string, quantity: number, client: DbClient = prisma): Promise<void> {
+    await client.$executeRaw(Prisma.sql`
       UPDATE ticket_lots
       SET reserved_count = GREATEST(reserved_count - ${quantity}, 0), updated_at = now()
       WHERE id = ${lotId}::uuid
     `);
   }
 
-  async confirmSale(lotId: string, quantity: number): Promise<void> {
-    await prisma.$executeRaw(Prisma.sql`
+  async confirmSale(lotId: string, quantity: number, client: DbClient = prisma): Promise<void> {
+    await client.$executeRaw(Prisma.sql`
       UPDATE ticket_lots
       SET reserved_count = GREATEST(reserved_count - ${quantity}, 0),
           sold_count = sold_count + ${quantity},
@@ -48,8 +52,8 @@ export class InventoryService {
     `);
   }
 
-  async getAvailability(lotId: string) {
-    const lot = await prisma.ticketLot.findUnique({ where: { id: lotId } });
+  async getAvailability(lotId: string, client: DbClient = prisma) {
+    const lot = await client.ticketLot.findUnique({ where: { id: lotId } });
     if (!lot) return null;
 
     return {

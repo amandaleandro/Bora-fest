@@ -1,0 +1,21 @@
+{
+  "name": "@borafest/worker",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@borafest/database": "workspace:*",
+    "@borafest/observability": "workspace:*",
+    "@borafest/queues": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

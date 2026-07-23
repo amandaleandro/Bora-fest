@@ -30,6 +30,8 @@ model User {
   identities            UserIdentity[]
   otpChallenges         OtpChallenge[]
   organizationMemberships OrganizationMember[]
+  reservations          Reservation[]
+  orders                Order[]
 
   @@map("users")
 }
@@ -253,9 +255,11 @@ model Event {
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   venue        Venue?       @relation(fields: [venueId], references: [id])
   ticketTypes  TicketType[]
+  reservations Reservation[]
+  orders       Order[]
 
   @@index([organizationId])
   @@index([status])
@@ -302,11 +306,109 @@ model TicketLot {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  ticketType       TicketType        @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  reservationItems ReservationItem[]
+  orderItems       OrderItem[]
 
   @@index([ticketTypeId])
   @@index([status])
   @@map("ticket_lots")
+}
+
+// ---------------------------------------------------------------------------
+// Reservas e pedidos (venda)
+// ---------------------------------------------------------------------------
+
+enum ReservationStatus {
+  ACTIVE
+  CONVERTED
+  EXPIRED
+  CANCELED
+}
+
+model Reservation {
+  id        String            @id @default(uuid()) @db.Uuid
+  eventId   String            @map("event_id") @db.Uuid
+  userId    String?           @map("user_id") @db.Uuid
+  status    ReservationStatus @default(ACTIVE)
+  expiresAt DateTime          @map("expires_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  event Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items ReservationItem[]
+  order Order?
+
+  @@index([status, expiresAt])
+  @@index([eventId])
+  @@map("reservations")
+}
+
+model ReservationItem {
+  id            String @id @default(uuid()) @db.Uuid
+  reservationId String @map("reservation_id") @db.Uuid
+  ticketLotId   String @map("ticket_lot_id") @db.Uuid
+  quantity      Int
+  priceCents    Int    @map("price_cents")
+  feeCents      Int    @map("fee_cents")
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  ticketLot   TicketLot   @relation(fields: [ticketLotId], references: [id])
+
+  @@index([reservationId])
+  @@map("reservation_items")
+}
+
+enum OrderStatus {
+  CREATED
+  PAYMENT_PENDING
+  PAID
+  FULFILLED
+  EXPIRED
+  CANCELED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CHARGEBACK
+}
+
+model Order {
+  id            String      @id @default(uuid()) @db.Uuid
+  publicToken   String      @unique @default(uuid()) @map("public_token")
+  eventId       String      @map("event_id") @db.Uuid
+  reservationId String      @unique @map("reservation_id") @db.Uuid
+  userId        String?     @map("user_id") @db.Uuid
+  contactEmail  String      @map("contact_email")
+  contactName   String?     @map("contact_name")
+  status        OrderStatus @default(CREATED)
+  totalCents    Int         @map("total_cents")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  event       Event        @relation(fields: [eventId], references: [id])
+  reservation Reservation  @relation(fields: [reservationId], references: [id])
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items       OrderItem[]
+
+  @@index([eventId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String @id @default(uuid()) @db.Uuid
+  orderId     String @map("order_id") @db.Uuid
+  ticketLotId String @map("ticket_lot_id") @db.Uuid
+  quantity    Int
+  priceCents  Int    @map("price_cents")
+  feeCents    Int    @map("fee_cents")
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketLot TicketLot @relation(fields: [ticketLotId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
 }
 
 // ---------------------------------------------------------------------------
