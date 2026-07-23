@@ -70,12 +70,75 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
     }
   }
 
-  await prisma.order.updateMany({
-    where: { id: orderId, status: "PAID" },
-    data: { status: "FULFILLED" },
+  // FULFILLED + notificações na MESMA transação: reprocessar o outbox nunca
+  // duplica e-mail/WhatsApp (a guarda de status decide exatamente uma vez)
+  const tickets = await prisma.ticket.findMany({
+    where: { orderId },
+    orderBy: [{ orderItemId: "asc" }, { seq: "asc" }],
+    include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
   });
 
-  log.info({ orderId }, "ingressos emitidos");
+  await prisma.$transaction(async (tx) => {
+    const fulfilled = await tx.order.updateMany({
+      where: { id: orderId, status: "PAID" },
+      data: { status: "FULFILLED" },
+    });
+    if (fulfilled.count === 0) return;
+
+    const payload = buildDeliveryPayload(order, tickets);
+    await tx.notification.create({
+      data: {
+        channel: "EMAIL",
+        recipient: order.contactEmail,
+        template: "ticket_delivery",
+        payload,
+        orderId,
+      },
+    });
+    if (order.contactPhone) {
+      await tx.notification.create({
+        data: {
+          channel: "WHATSAPP",
+          recipient: order.contactPhone,
+          template: "ticket_delivery",
+          payload,
+          orderId,
+        },
+      });
+    }
+  });
+
+  log.info({ orderId, tickets: tickets.length }, "ingressos emitidos e entrega enfileirada");
+}
+
+export function buildDeliveryPayload(
+  order: {
+    publicToken: string;
+    contactName: string | null;
+    event: { title: string; startsAt: Date; timezone: string };
+  },
+  tickets: Array<{
+    code: string;
+    ticketLot: { name: string; ticketType: { name: string } };
+  }>,
+) {
+  const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+  return {
+    contactName: order.contactName ?? undefined,
+    eventTitle: order.event.title,
+    eventStartsAt: new Intl.DateTimeFormat("pt-BR", {
+      timeZone: order.event.timezone,
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(order.event.startsAt),
+    // link profundo: abre a carteira do pedido sem conta nem aplicativo
+    orderUrl: `${webBaseUrl}/pedido/${order.publicToken}`,
+    tickets: tickets.map((t) => ({
+      code: t.code,
+      typeName: t.ticketLot.ticketType.name,
+      lotName: t.ticketLot.name,
+    })),
+  };
 }
 
 async function ensureSigningKey(

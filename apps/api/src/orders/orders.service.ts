@@ -54,6 +54,7 @@ export class OrdersService {
           userId: userId ?? reservation.userId,
           contactEmail: input.contactEmail,
           contactName: input.contactName,
+          contactPhone: input.contactPhone?.replace(/\D/g, ""),
           status: "PAYMENT_PENDING",
           totalCents,
           expiresAt,

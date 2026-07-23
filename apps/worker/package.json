@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@borafest/database": "workspace:*",
+    "@borafest/notifications": "workspace:*",
     "@borafest/observability": "workspace:*",
     "@borafest/payments": "workspace:*",
     "@borafest/queues": "workspace:*",

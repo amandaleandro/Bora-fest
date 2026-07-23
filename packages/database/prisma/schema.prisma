@@ -384,6 +384,7 @@ model Order {
   userId        String?     @map("user_id") @db.Uuid
   contactEmail  String      @map("contact_email")
   contactName   String?     @map("contact_name")
+  contactPhone  String?     @map("contact_phone")
   status        OrderStatus @default(CREATED)
   totalCents    Int         @map("total_cents")
   expiresAt     DateTime?   @map("expires_at")
@@ -551,6 +552,42 @@ model Ticket {
   @@index([eventId, status])
   @@index([orderId])
   @@map("tickets")
+}
+
+// ---------------------------------------------------------------------------
+// Notificações (Fase 5 — entrega de ingressos e avisos)
+// ---------------------------------------------------------------------------
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// Fila persistente de notificações: linhas PENDING são processadas pelo
+/// worker de entrega (retry com backoff; nunca perde mensagem por queda de fila).
+model Notification {
+  id          String              @id @default(uuid()) @db.Uuid
+  channel     NotificationChannel
+  recipient   String
+  template    String
+  payload     Json
+  status      NotificationStatus  @default(PENDING)
+  attempts    Int                 @default(0)
+  error       String?
+  availableAt DateTime            @default(now()) @map("available_at")
+  sentAt      DateTime?           @map("sent_at")
+  orderId     String?             @map("order_id") @db.Uuid
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  @@index([status, availableAt])
+  @@index([orderId])
+  @@map("notifications")
 }
 
 /// Par de chaves Ed25519 por evento para assinar o QR dos ingressos.

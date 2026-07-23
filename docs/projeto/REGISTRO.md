@@ -17,8 +17,8 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 4 — Gateway, webhooks, pagamentos e emissão de ingressos |
-| **Status da fase** | 🟢 Núcleo implementado e testado com gateway mock; falta o adapter do provedor real |
+| **Fase em andamento** | Fase 5 — Carteira web, e-mail, WhatsApp e links profundos (backend concluído) |
+| **Status da fase** | 🟢 Backend da Fase 5 pronto e testado; UI da carteira fica para a etapa de front |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
@@ -75,14 +75,38 @@
   sobre faturamento bruto) e Celcoin (não é mais barato em ticket baixo — Pix
   fixo R$1,50 vs 1,19% — e exige orquestrar a trava de KYC na mão).
 
+### Fase 4 — CONCLUÍDA ✅
+
+`PagarmeGateway` real implementado com fatos verificados na doc oficial v5
+(auth Basic, `Idempotency-key` literal, QR em `last_transaction.qr_code`,
+`card_token`, `DELETE /charges` p/ estorno, webhook SEM HMAC — autenticação
+Basic do dashboard, fail-closed). 10 testes unitários com fetch stubado.
+Troca de provedor = env `PAYMENTS_PROVIDER`.
+
+### Fase 5 (backend) — CONCLUÍDA ✅
+
+- `packages/notifications`: interfaces `EmailSender`/`WhatsAppSender` +
+  adapters devlog + registry por env (mesmo padrão dos gateways) + templates
+  puros pt-BR testados.
+- Tabela `notifications` = fila persistente (PENDING→SENT/FAILED, retry com
+  backoff, migration `20260723061545_notifications_contact_phone`).
+- Emissão → notificações na MESMA transação do FULFILLED (entrega
+  exatamente-uma-vez; e-mail sempre, WhatsApp se houver `contactPhone`).
+- Link profundo `WEB_BASE_URL/pedido/:publicToken` (carteira sem conta/app).
+- `POST /v1/orders/:publicToken/resend` com limite de 3 notificações/hora.
+- Testado de ponta a ponta: fluxo Pix → SENT nos 2 canais no log do adapter,
+  link presente, reenvio bloqueado após limite.
+
 ### Próximo passo
 
-1. Escrever o `PagarmeAdapter` real atrás da interface — o mock continua nos
-   testes (`PAYMENTS_PROVIDER=mock` em dev).
-2. Comercial: abrir conta PSP Pagar.me + negociar Plano Customizado por volume.
-3. Seguir para a Fase 5 — **somente backend** (entrega de ingresso por e-mail/
-   WhatsApp, notificações, links profundos); carteira web/UI fica para a etapa
-   de front.
+1. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
+   configurar autenticação do webhook no dashboard; escolher provedor real de
+   e-mail (Resend/SES/Postmark) e BSP de WhatsApp — cada um vira um adapter.
+2. **Fase 6/7 (parte backend do check-in)**: endpoints de validação da §13 —
+   sessões de validador por PIN, registro/autorização de dispositivo,
+   manifesto (usa a chave pública Ed25519 já criada por evento), `POST
+   /v1/checkins` + `/sync` idempotente com resolução de conflito offline.
+3. Depois: Fase 8 (painel de vendas/pedidos/participantes + backoffice mínimo).
 
 ---
 
@@ -93,8 +117,8 @@
 | 1 | Monorepo, autenticação, organizações, RBAC, banco e observabilidade | ✅ Concluída | `1f46fa0`, `7ea634d` |
 | 2 | Eventos, tipos, lotes, estoque e publicação | ✅ Concluída | `05ff2f3` |
 | 3 | Checkout web, reserva e pedidos (checkout mínimo via API) | ✅ Concluída | `277e684` |
-| 4 | Gateway, webhooks, pagamentos e emissão de ingressos | 🟢 Núcleo testado; falta adapter real | (este commit) |
-| 5 | Carteira web, e-mail, WhatsApp e links profundos | ⬜ Não iniciada | — |
+| 4 | Gateway, webhooks, pagamentos e emissão de ingressos | ✅ Concluída | `9f362ff`, `ab18e51` |
+| 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | (este commit) |
 | 6 | App React Native de check-in online | ⬜ Não iniciada | — |
 | 7 | Manifesto, SQLite, assinatura local e sincronização offline | ⬜ Não iniciada | — |
 | 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ⬜ Não iniciada | — |
@@ -115,6 +139,9 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Arthur + Claude | **Fase 5 (backend)**: package notifications (e-mail/WhatsApp por adapter + templates pt-BR), fila persistente `notifications` com retry, entrega disparada na mesma transação do FULFILLED, link profundo da carteira, endpoint de reenvio com limite. Testado de ponta a ponta (SENT nos 2 canais, link ok, limite ok). | Backend da F5 pronto. Próximo: backend do check-in (Fases 6/7 — sessões de validador, manifesto, checkins/sync). |
+| 2026-07-23 | Arthur | **Decisões**: taxa BoraFest confirmada (Pix 4,99% piso R$2,49 / cartão 6,99%, parcelamento no comprador) e **Pagar.me confirmado como gateway primário** (fácil de trocar via adapter/env). MP descartado (sem custódia própria) e Celcoin (não é mais barato em ticket baixo + escrow manual). | — |
+| 2026-07-23 | Arthur + Claude | **Fase 4 (fechamento)**: `PagarmeGateway` real com fatos verificados na doc oficial v5 (webhook v5 sem HMAC → Basic; header `Idempotency-key`; customer completo p/ Pix) + 13 testes unitários. | Fase 4 concluída. |
 | 2026-07-23 | Arthur + Claude | **Fase 4 (núcleo)**: pagamentos Pix/cartão atrás da interface `PaymentGateway` (mock por ora), webhooks idempotentes com payload bruto e assinatura, outbox → emissão exatamente-uma-vez com QR Ed25519, estorno automático de pagamento órfão, expiração de pedidos, reconciliação. Testes §22 executados (concorrência, duplicado, atrasado, adulteração) — 1 bug real achado e corrigido (PAID pós-expiração não estornava). Pesquisa de 13 gateways concluída e salva em `pesquisa-gateways-2026-07.md`. | Falta: Arthur confirmar Pagar.me+Asaas e taxa; escrever adapter real; depois Fase 5. |
 | 2026-07-23 | Arthur + Claude | Criada estrutura de docs (`docs/projeto` com memória/registro, `docs/arquitetura`), scripts de conveniência na raiz, README corrigido. Pesquisa de gateways disparada. | Aguardando definição do gateway para iniciar o código da Fase 4. |
 | 2026-07-23 | Amanda + Claude | Fase 3: reservas com TTL, checkout mínimo e worker de expiração (`277e684`). | Fase 3 concluída. |

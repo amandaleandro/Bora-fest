@@ -1,4 +1,6 @@
 import {
+  createNotificationDeliveryQueue,
+  createNotificationDeliveryWorker,
   createOrderExpirationQueue,
   createOrderExpirationWorker,
   createOutboxDispatchQueue,
@@ -7,6 +9,7 @@ import {
   createPaymentReconciliationWorker,
   createReservationExpirationQueue,
   createReservationExpirationWorker,
+  NOTIFICATION_DELIVERY_JOB_ID,
   ORDER_EXPIRATION_JOB_ID,
   OUTBOX_DISPATCH_JOB_ID,
   PAYMENT_RECONCILIATION_JOB_ID,
@@ -17,6 +20,7 @@ import { expireReservation, reconcileExpiredReservations } from "./expire-reserv
 import { processOutboxBatch } from "./process-outbox";
 import { reconcilePendingPayments } from "./reconcile-payments";
 import { expireStaleOrders } from "./expire-orders";
+import { deliverPendingNotifications } from "./deliver-notifications";
 
 const log = withContext({ module: "worker" });
 
@@ -65,18 +69,29 @@ async function main() {
     { name: "expire", data: {} },
   );
 
+  // --- notificações: entrega de e-mail/WhatsApp ----------------------------
+  const notificationWorker = createNotificationDeliveryWorker(async () => {
+    await deliverPendingNotifications();
+  });
+  await createNotificationDeliveryQueue().upsertJobScheduler(
+    NOTIFICATION_DELIVERY_JOB_ID,
+    { every: 5_000 },
+    { name: "deliver", data: {} },
+  );
+
   for (const [name, worker] of [
     ["reservas", reservationWorker],
     ["outbox", outboxWorker],
     ["pagamentos", paymentWorker],
     ["pedidos", orderWorker],
+    ["notificações", notificationWorker],
   ] as const) {
     worker.on("failed", (job, error) => {
       log.error({ queue: name, jobId: job?.id, error: error.message }, "job falhou");
     });
   }
 
-  log.info("workers iniciados: reservas, outbox, pagamentos e pedidos");
+  log.info("workers iniciados: reservas, outbox, pagamentos, pedidos e notificações");
 }
 
 main().catch((error) => {
