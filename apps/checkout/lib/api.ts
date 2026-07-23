@@ -12,7 +12,8 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
-    headers: { "Content-Type": "application/json" },
+    // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });

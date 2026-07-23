@@ -13,7 +13,9 @@ async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string | null } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
+  const headers: Record<string, string> = {};
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {

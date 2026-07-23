@@ -17,11 +17,36 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 8 (frontend) — backoffice web (`apps/admin`) |
-| **Status da fase** | 🟢 Implementado e testado de ponta a ponta contra a API real |
+| **Fase em andamento** | Frontends web validados em NAVEGADOR REAL ✅ — falta só o app RN em aparelho |
+| **Status da fase** | 🟢 Checkout, painel e backoffice navegados e aprovados de ponta a ponta; 1 bug real achado e corrigido |
 | **Última atualização** | 2026-07-23 |
-| **Atualizado por** | Amanda + Claude |
+| **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
+
+### Validação em navegador real (2026-07-23, Arthur + Claude)
+
+A pendência "abrir os 3 frontends num navegador de verdade" foi executada:
+
+- **Checkout** (`:3000`): compra completa CLICADA — página do evento (taxa
+  transparente) → +2 ingressos → checkout convidado → QR Pix na tela →
+  webhook mock aprovado → **a página avançou sozinha para a carteira** com os
+  2 ingressos (QR, código, lote). Reenvio funcionando com rate-limit exibido
+  ao usuário.
+- **Painel do produtor** (`:3001`): login OTP real (código do log da API) →
+  organizações → evento → catálogo (6/100 vendidos, consistente) → dashboard
+  (R$ 528, 4 FULFILLED/2 EXPIRED, 1 CHECKED_IN) → participantes → portaria
+  (portão, gerar PIN, aparelho BLOCKED do teste de bloqueio remoto) →
+  financeiro (SALE_CREDIT R$ 176,00 + PLATFORM_FEE −R$ 8,78 = **4,99%
+  aplicado ao vivo**).
+- **Backoffice** (`:3002`): login OTP com `platformRole=ADMIN` → organizações
+  → busca de pedidos por e-mail com ações reenviar/estornar → saúde das filas
+  (contadores reais das 5 filas + outbox) → auditoria (checkin.reverse do
+  teste E2E visível).
+- **🐛 Bug real encontrado e corrigido nos 3 apps**: os helpers `lib/api.ts`
+  mandavam `Content-Type: application/json` SEMPRE, inclusive em POST sem
+  corpo (resend, estorno, bloqueio, marcar pago…) — o Fastify rejeita JSON
+  declarado e vazio com 400 antes de chegar ao controller. Corrigido: o
+  header só vai quando há corpo. Provado antes/depois via curl.
 
 ### Onde paramos
 
@@ -385,10 +410,8 @@ tentar abrir o app.
 
 ### Próximo passo
 
-1. **Abrir checkout, painel do produtor e backoffice num navegador de
-   verdade** e navegar os fluxos manualmente — nenhum dos três foi clicado
-   de verdade ainda, só validado por contrato de API + build (este
-   ambiente não tem ferramenta de screenshot/browser).
+1. ~~Abrir checkout, painel e backoffice num navegador de verdade~~ ✅
+   FEITO em 2026-07-23 (ver "Validação em navegador real" acima).
 2. **Testar o app de check-in em dispositivo real** (Expo Go, depois
    development build) — agora que o bundle resolve de verdade, falta
    validar câmera, fluxo offline/online e UI na prática.
@@ -434,6 +457,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Arthur + Claude | **Validação em navegador real dos 3 frontends**: compra completa clicada no checkout (Pix mock → carteira avançando sozinha), painel do produtor via OTP (dashboard, participantes, portaria, financeiro com a taxa 4,99% ao vivo) e backoffice ADMIN (pedidos, filas, auditoria). Bug real corrigido nos 3 `lib/api.ts`: Content-Type em POST sem corpo causava 400 do Fastify em toda ação sem payload (reenvio/estorno/bloqueio/marcar-pago). | Frontends web aprovados. Falta: app RN em aparelho físico (Expo Go) e split real Pagar.me. |
 | 2026-07-23 | Amanda + Claude | **Validação extra do app de check-in** sem aparelho físico: `expo-doctor` (16/17 ok) e, principalmente, `expo export --platform android/ios` rodando o bundler Metro de verdade — achou 3 erros reais em cascata por falta de `metro.config.js` configurado pra pnpm (resolução de symlink, `@babel/runtime` não hoisted, e o próprio `AppEntry.js` do pacote `expo` fazendo um import relativo que quebra sob symlink). Corrigido com `metro.config.js` + `@babel/runtime` como dependência direta + `index.js` próprio como entry point (mais robusto que depender do `AppEntry.js` do pacote). Bundle final: Android 583 módulos/1.62MB, iOS 584/1.61MB, ambos sem erro — prova bem mais forte que typecheck de que o app resolve de ponta a ponta. | Bundle valida limpo nas duas plataformas. Ainda falta abrir de verdade num aparelho/Expo Go pra validar UI, câmera e fluxo offline na prática. |
 | 2026-07-23 | Amanda + Claude | **Backoffice web** (`apps/admin`, Next.js/TS/Tailwind, mesmo padrão de OTP+localStorage do painel, mas o `AuthGuard` também barra quem não tem `platformRole`): organizações (taxa, bloqueio, repasse), eventos (bloqueio), pedidos (busca/reenvio/estorno), payouts (marcar pago), webhooks, filas (job counts das 5 filas + outbox) e auditoria. Todos os contratos bateram exatamente com as interfaces TS do frontend sem precisar de ajuste no backend desta vez. `next build`/`tsc` limpos, validado via curl com o mesmo token/contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva de sempre). Com isso as 3 frentes de frontend web que só dependiam da API existente (checkout, painel do produtor, backoffice) estão prontas. | Backoffice web pronto. Próximo: alguém abrir os 3 frontends num navegador de verdade, testar o app RN em aparelho, ou avançar pro split real com Pagar.me. |
 | 2026-07-23 | Amanda + Claude | **Painel do produtor** (`apps/producer`, Next.js/TS/Tailwind, login por OTP com token em localStorage): organizações, eventos (criar/publicar), catálogo (tipo+lote com ativação), dashboard, participantes+export CSV (via fetch+blob por causa do header Authorization), financeiro (saldo/ledger) e portaria (portões, PIN de validador, dispositivos). Achadas e corrigidas 2 lacunas reais no backend testando de verdade: faltava `GET /v1/organizations` (listar orgs do usuário) e o dashboard não expunha `ticketTypeId` por lote (impossível criar lote sem digitar UUID à mão). `next build`/`tsc` limpos, fluxo validado via curl com os mesmos contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva do checkout). | Painel do produtor pronto. Próximo: backoffice web (`apps/admin`), depois testar tudo (checkout+painel+app RN) numa sessão com navegador/aparelho de verdade. |
