@@ -73,6 +73,52 @@ export class CatalogService {
     return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "ACTIVE" } });
   }
 
+  /** Descoberta de eventos (Fase 12): lista eventos publicados, futuros primeiro. */
+  async listPublicEvents(options: { page: number; pageSize: number }) {
+    const where = { status: "PUBLISHED" as const, endsAt: { gt: new Date() } };
+
+    const [total, events] = await Promise.all([
+      prisma.event.count({ where }),
+      prisma.event.findMany({
+        where,
+        orderBy: { startsAt: "asc" },
+        skip: (options.page - 1) * options.pageSize,
+        take: options.pageSize,
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          bannerUrl: true,
+          startsAt: true,
+          timezone: true,
+          venue: { select: { name: true, city: true, state: true } },
+          ticketTypes: {
+            select: { lots: { where: { status: "ACTIVE" }, select: { priceCents: true } } },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      total,
+      page: options.page,
+      pageSize: options.pageSize,
+      events: events.map((event) => {
+        const prices = event.ticketTypes.flatMap((type) => type.lots.map((lot) => lot.priceCents));
+        return {
+          id: event.id,
+          title: event.title,
+          slug: event.slug,
+          bannerUrl: event.bannerUrl,
+          startsAt: event.startsAt,
+          timezone: event.timezone,
+          venue: event.venue,
+          fromPriceCents: prices.length > 0 ? Math.min(...prices) : null,
+        };
+      }),
+    };
+  }
+
   async getPublicEvent(slug: string) {
     const event = await prisma.event.findFirst({
       where: { slug, status: "PUBLISHED" },

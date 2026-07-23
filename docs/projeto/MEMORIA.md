@@ -59,8 +59,21 @@ KYC do produtor ser aprovado.
   pra monorepo pnpm (`nodeModulesPaths` incluindo a raiz do workspace +
   `unstable_enableSymlinks: true`) — **sem isso o Metro não builda em
   monorepo pnpm de jeito nenhum**, é a config mínima pra qualquer app
-  Expo/RN novo aqui dentro (`apps/mobile-public` vai precisar da mesma
-  coisa quando existir).
+  Expo/RN novo aqui dentro.
+- `apps/mobile-public` — app público do comprador (Fase 12), Expo + React
+  Native + TypeScript. Reaproveita o mesmo fix de bundling do
+  `mobile-checkin` (metro.config.js + `index.js` como entry point próprio)
+  verbatim — bundlou limpo nas 2 plataformas de primeira, confirma que a
+  config generaliza pra qualquer app Expo/RN novo aqui. Telas: descoberta
+  de eventos (home, via `GET /v1/public/events` — endpoint novo, não
+  existia antes só busca por slug), evento + reserva, checkout (Pix + QR
+  `react-native-qrcode-svg` + `expo-clipboard` + polling), carteira
+  (ingressos + reenvio), "meus ingressos" opcional (login por OTP,
+  `expo-secure-store`) — a compra em si nunca exige conta. Sem push
+  notifications, transferência de ingresso, pedido de reembolso (rotas não
+  existem no backend) nem pagamento por cartão (só Pix, mesma decisão do
+  `apps/checkout`). Não testado em aparelho real (sem emulador/celular
+  neste ambiente), só via `expo export` (bundle real do Metro).
 - `apps/checkout` — checkout web do comprador (Fase 3), Next.js 14 (App
   Router) + TypeScript + Tailwind. Sem TanStack Query por ora (fetch direto
   com `useState`/`useEffect` e polling manual de status) — simplificação

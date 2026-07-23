@@ -53,6 +53,7 @@ Convenções gerais (ver `docs/projeto/MEMORIA.md` para detalhes):
 | POST | `/v1/events/:eventId/ticket-types` | SessionGuard | `createTicketTypeSchema` |
 | POST | `/v1/ticket-types/:ticketTypeId/lots` | SessionGuard | `createTicketLotSchema` |
 | POST | `/v1/ticket-lots/:lotId/activate` | SessionGuard | — |
+| GET | `/v1/public/events` | nenhum | query: `page`, `pageSize` (descoberta — Fase 12) |
 | GET | `/v1/public/events/:slug` | nenhum | — |
 | GET | `/v1/public/events/:slug/availability` | nenhum | — |
 

@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "BoraFest",
+    "slug": "borafest",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#111827"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.borafest.app"
+    },
+    "android": {
+      "package": "com.borafest.app"
+    }
+  }
+}

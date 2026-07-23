@@ -17,8 +17,8 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + plano de testes (rascunho) |
-| **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado |
+| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + plano de testes (rascunho) + Fase 12 (app público do comprador, `apps/mobile-public`) 🟡 |
+| **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado; Fase 12 com código escrito e bundle validado nas 2 plataformas, não testado em aparelho real |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
@@ -512,13 +512,44 @@ também (simula compradores distintos, não um bot de um IP), e o teste
 voltou a passar limpo (100 tentativas, 5 reservadas, zero interferência
 do rate limit).
 
+### Fase 12 (app público do comprador) — CÓDIGO ESCRITO 🟡
+
+Criado `apps/mobile-public` (Expo + React Native + TypeScript), mesmo
+esqueleto do `apps/mobile-checkin` (já resolvido: `metro.config.js` +
+`index.js` como entry point próprio — ver Fase 6). Telas: descoberta de
+eventos (home), evento + seleção de ingressos + reserva, checkout (dados
++ Pix via `react-native-qrcode-svg` + polling), carteira (ingressos com
+QR + reenvio), e "meus ingressos" opcional (login por OTP,
+`expo-secure-store`) — a compra em si nunca exige conta.
+
+**Lacuna real de backend encontrada e corrigida**: não existia nenhum
+endpoint de listagem de eventos publicados — só busca por slug de um
+evento específico (`GET /v1/public/events/:slug`). Sem isso não tem como
+existir uma tela de "descoberta". Adicionado `GET /v1/public/events`
+(paginado, `fromPriceCents` calculado a partir dos lotes ativos),
+registrado em `docs/projeto/API-REFERENCE.md`.
+
+Testado contra a API real: descoberta lista o evento de teste com preço
+correto; `GET /v1/me/tickets` responde `[]` corretamente pra um usuário
+sem compras feitas logado (as compras de teste anteriores foram como
+convidado). `pnpm typecheck`/`build` limpos em todo o monorepo (15
+packages). Bundle real do Metro (`expo export`) sem erro nas duas
+plataformas: **Android 834 módulos/2.35MB**, **iOS 835/2.34MB**.
+
+**Fora do escopo desta entrega** (documentado no README do app): push
+notifications, transferência de ingresso e pedido de reembolso pelo app
+(rotas da arquitetura §13 que não existem no backend ainda), pagamento
+por cartão (só Pix, mesma decisão do checkout web). **Não testado em
+dispositivo real** — mesma limitação de sempre, sem emulador/celular
+neste ambiente.
+
 ### Próximo passo
 
 1. ~~Abrir checkout, painel e backoffice num navegador de verdade~~ ✅
    FEITO em 2026-07-23 (ver "Validação em navegador real" acima).
-2. **Testar o app de check-in em dispositivo real** (Expo Go, depois
-   development build) — agora que o bundle resolve de verdade, falta
-   validar câmera, fluxo offline/online e UI na prática.
+2. **Testar os dois apps RN em dispositivo real** (Expo Go, depois
+   development build) — check-in e público, ambos com bundle validado
+   mas nunca abertos numa tela de verdade.
 3. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
    organização, hold-até-aprovação de fato (hoje é só o gate de
    `Organization.status`), execução automática do repasse via API do
@@ -526,11 +557,11 @@ do rate limit).
 4. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
-5. Fase 10: publicação do BoraFest Check-in nas lojas (só depois do app
-   testado em aparelho). Resto da Fase 11 (backup/restore testado,
-   alertas de observabilidade) e Fase 12 (app público do comprador,
-   `apps/mobile-public`, ainda vazio) são as próximas frentes que dá pra
-   avançar sem depender de device físico ou decisão comercial.
+5. Fase 10: publicação dos dois apps nas lojas (só depois de testados em
+   aparelho). Resto da Fase 11 (backup/restore testado, alertas de
+   observabilidade) e o que ficou de fora da Fase 12 (push, transferência,
+   reembolso, cartão) são as próximas frentes que dá pra avançar sem
+   depender de device físico ou decisão comercial.
 
 ---
 
@@ -549,7 +580,7 @@ do rate limit).
 | 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | `c3cd744` |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
 | 11 | Evento-piloto, testes de carga e hardening | 🟡 Teste de carga do estoque (500 concorrentes, zero overselling) + rate limit em OTP/reservas; backup/restore e alertas ainda não iniciados | (este commit) |
-| 12 | App público BoraFest (carteira, descoberta, notificações) | ⬜ Não iniciada | — |
+| 12 | App público BoraFest (carteira, descoberta, notificações) | 🟡 Código escrito, bundle validado (Android/iOS), sem teste em aparelho real; sem push/transferência/reembolso/cartão | (pendente commit) |
 
 > Decisão de produto: **backend primeiro**. O frontend já foi prototipado e será
 > encaixado por cima depois que toda a base de backend estiver estruturada.
@@ -563,6 +594,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Fase 12 (app público do comprador)**: novo `apps/mobile-public` (Expo/RN), reaproveitando o fix de bundling pnpm+Metro do `mobile-checkin` (metro.config.js + index.js como entry point próprio) — bundlou limpo nas 2 plataformas de primeira (Android 834 módulos/2.35MB, iOS 835/2.34MB). Telas: descoberta de eventos (home), evento + reserva, checkout (Pix + QR + polling), carteira (ingressos + reenvio), "meus ingressos" opcional via login OTP (`expo-secure-store`) — compra nunca exige conta. Gap real encontrado construindo a home: não existia endpoint de listagem de eventos públicos, só busca por slug — criado `GET /v1/public/events` (`CatalogService.listPublicEvents` + `PublicCatalogController`), testado ao vivo sem colisão de rota com `:slug`. Fora do escopo (documentado no README do app): push notifications, transferência de ingresso e pedido de reembolso (rotas não existem no backend ainda), pagamento por cartão (só Pix), teste em aparelho real (sem emulador/celular neste ambiente). | Fase 12: código escrito e validado via `expo export`, não testado em aparelho real. Próximo: testar as 2 apps RN (check-in + público) em dispositivo de verdade; split real com Pagar.me; itens comerciais; Fase 10 (lojas) e resto do hardening da Fase 11. |
 | 2026-07-23 | Amanda + Claude | **Fase 11 (rate limit)**: `RateLimitGuard` global (Redis `INCR`+`EXPIRE`, fallback 120/min/IP) com `@RateLimit` em `otp/request` (5/15min por destino), `otp/verify` (10/15min por IP) e `POST /v1/reservations` (20/min por IP) — item do §15 que não existia. Testado ao vivo: 429 na 6ª tentativa de OTP pro mesmo destino, destino diferente não afetado, 429 na 21ª reserva do mesmo IP. Ajustei o `load-test-reservations.ts` pra mandar `x-forwarded-for` diferente por tentativa (senão o próprio rate limit atrapalhava o teste de estoque) — ficou mais realista de quebra (simula compradores distintos). | Rate limit no ar em OTP e checkout. Próximo: resto do hardening (backup/restore, alertas) ou Fase 12 (app público). |
 | 2026-07-23 | Amanda + Claude | **Fase 11 (teste de carga)**: `apps/api/scripts/load-test-reservations.ts` (`pnpm --filter @borafest/api load-test`) dispara N reservas HTTP concorrentes de verdade contra um lote recém-criado — o teste bloqueante da arquitetura §22, agora repetível a qualquer momento em vez de manual. Rodado em 2 escalas contra a API real: 100 tentativas/capacidade 5 (133 req/s) e 500 tentativas/capacidade 20 (139 req/s, escala de evento-piloto) — zero overselling e zero erro de rede nas duas. | Teste de carga do estoque pronto. Falta o resto do checklist de hardening (backup/restore, rate limit, alertas) antes de fechar a Fase 11 de vez. Próximo: Fase 12 (app público) ou completar o hardening. |
 | 2026-07-23 | Amanda + Claude | **Testes automatizados de regressão** (`apps/api/src/__tests__`, Node test runner via `tsx --test`): concorrência de estoque (10 tentativas vs. capacidade 3 → exatamente 3), fluxo pedido→pagamento→ledger com webhook duplicado (no-op, sem duplicar lançamento) e corrida de check-in (8 aparelhos, 1 `VALID`). 2 bugs achados NOS TESTES (não no app): conexão Redis/BullMQ pendurada travando o test runner (resolvido com `closeRedisConnection()` novo em `packages/queues`) e um fixture de teste gerando código de ingresso em minúsculo que nunca batia com a busca `toUpperCase()` do `CheckinsService` (corrigido usando o gerador de código de verdade). `pnpm --filter @borafest/api test` roda os 3, todos passando, dados de teste limpos automaticamente. | Primeira leva de testes de regressão pronta. Próximo: Fase 11 (evento-piloto/hardening) ou Fase 12 (app público) — as frentes que dão pra avançar sem device físico nem decisão comercial. |
