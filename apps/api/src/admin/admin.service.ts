@@ -324,4 +324,49 @@ export class AdminService {
       outboxEvents: Object.fromEntries(outboxRows.map((r) => [r.status, r._count._all])),
     };
   }
+
+  async blockTicket(ticketId: string, userId: string, input: BlockReasonInput) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException("Ingresso não encontrado");
+    if (ticket.status === "CANCELED" || ticket.status === "REFUNDED") {
+      throw new BadRequestException("Ingresso já está cancelado");
+    }
+
+    const updated = await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { status: "CANCELED", canceledAt: new Date() },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "admin.ticket.block",
+        entityType: "ticket",
+        entityId: ticketId,
+        metadata: { reason: input.reason, previousStatus: ticket.status },
+      },
+    });
+
+    return updated;
+  }
+
+  async listAuditLogs(
+    userId: string,
+    filters: { entityType?: string; entityId?: string; organizationId?: string },
+    limit = 50,
+  ): Promise<any> {
+    await this.platformAccess.assertStaff(userId);
+
+    return prisma.auditLog.findMany({
+      where: {
+        entityType: filters.entityType,
+        entityId: filters.entityId,
+        organizationId: filters.organizationId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(limit, 200),
+    });
+  }
 }

@@ -99,4 +99,23 @@ export class AdminController {
   getQueuesHealth(@CurrentUserId() userId: string) {
     return this.adminService.getQueuesHealth(userId);
   }
+
+  @Post("tickets/:id/block")
+  blockTicket(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(blockReasonSchema)) body: unknown,
+  ) {
+    return this.adminService.blockTicket(id, userId, body as any);
+  }
+
+  @Get("audit-logs")
+  listAuditLogs(
+    @CurrentUserId() userId: string,
+    @Query("entityType") entityType: string | undefined,
+    @Query("entityId") entityId: string | undefined,
+    @Query("organizationId") organizationId: string | undefined,
+  ) {
+    return this.adminService.listAuditLogs(userId, { entityType, entityId, organizationId });
+  }
 }

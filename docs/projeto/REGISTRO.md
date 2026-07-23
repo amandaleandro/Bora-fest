@@ -142,13 +142,22 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
   do webhook, nunca muta status à parte), `GET /v1/admin/webhooks`
   (`WebhookDelivery`) e `GET /v1/admin/queues` (job counts das 5 filas BullMQ
   e contagem do `outbox_events`). Toda ação sensível grava `AuditLog`.
+- Completando o §17 (revisão pós-primeira entrega): `POST
+  /v1/admin/tickets/:id/block` (bloqueio de ingresso individual — status
+  `CANCELED`, idempotente contra ingresso já cancelado/reembolsado) e
+  `GET /v1/admin/audit-logs` (visualizar auditoria, filtro por
+  entityType/entityId/organizationId).
 - Testado de ponta a ponta: dashboard/participantes/CSV com pedido real
   `FULFILLED` (reserva → pedido → Pix mock → webhook assinado → ticket
   emitido); backoffice com usuário `platformRole=ADMIN`: taxa configurada,
   evento/pedido listados, reenvio, estorno controlado (pedido foi a
-  `REFUNDED`, pagamento `REFUNDED` via gateway mock), webhook e filas visíveis.
-- Fora do escopo (nota já em MEMORIA.md): estorno ainda não devolve estoque
-  ao lote para revenda — fica para a Fase 9.
+  `REFUNDED`, pagamento `REFUNDED` via gateway mock — e o worker já revoga o
+  ingresso sozinho nesse caso, achado ao testar: `payment_reversed` cancela o
+  ticket, mas não devolve estoque), webhook e filas visíveis, bloqueio de
+  ingresso ativo (segunda compra completa só para este teste) e consulta de
+  auditoria filtrada por `entityType=ticket`.
+- Fora do escopo (nota já em MEMORIA.md): estorno/revogação ainda não devolve
+  estoque ao lote para revenda — fica para a Fase 9.
 
 ### Próximo passo
 

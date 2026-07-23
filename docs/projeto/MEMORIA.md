@@ -147,6 +147,14 @@ KYC do produtor ser aprovado.
   criou onde guardar e como configurar.
 - "Bloquear evento" pelo backoffice reaproveita `EventStatus.CANCELED` (não
   existe um status `BLOCKED` dedicado) — o motivo vai só no `AuditLog`.
+- Bloquear ingresso individual (`POST /v1/admin/tickets/:id/block`) marca
+  `TicketStatus.CANCELED`; idempotente (rejeita se já CANCELED/REFUNDED).
+  Descoberto ao testar: o worker já revoga ingresso automaticamente quando o
+  pagamento é estornado/chargeback (`order.payment_reversed` no outbox) — o
+  bloqueio manual é só para o caso de fraude/decisão humana, não duplica essa
+  lógica.
+- `GET /v1/admin/audit-logs` (filtros opcionais entityType/entityId/
+  organizationId) fecha o item "visualizar auditoria" do §17.
 
 ## Pendências e cuidados conhecidos
 
