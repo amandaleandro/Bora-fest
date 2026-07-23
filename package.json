@@ -10,7 +10,14 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "infra:up": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "db:generate": "pnpm --filter @borafest/database generate",
+    "db:migrate": "pnpm --filter @borafest/database migrate:dev",
+    "db:deploy": "pnpm --filter @borafest/database migrate:deploy",
+    "db:studio": "pnpm --filter @borafest/database studio",
+    "db:seed": "pnpm --filter @borafest/database seed"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
