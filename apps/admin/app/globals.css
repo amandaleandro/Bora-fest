@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0b1120;
+  color: #f3f4f6;
+}
+
+input,
+select,
+textarea {
+  background-color: #1f2937;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.9rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #1f2937;
+  font-size: 0.875rem;
+}

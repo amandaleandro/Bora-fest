@@ -68,6 +68,12 @@ KYC do produtor ser aprovado.
   precisa para um painel interno, mas não serve como padrão de segurança
   para algo público). Export de CSV usa fetch+blob, nunca `<a href>` puro,
   porque o endpoint exige `Authorization` que um link normal não manda.
+- `apps/admin` — backoffice interno (Fase 8), mesma stack/padrão de auth do
+  `apps/producer`. Diferença: o `AuthGuard` também exige `user.platformRole`
+  (senão redireciona com `?erro=sem-acesso`), e as telas escondem/desabilitam
+  ações de `ADMIN` (taxa, bloqueio, estorno, repasse) se o usuário só é
+  `SUPPORT` — só UX; a autorização de verdade é sempre o
+  `PlatformAccessService` no backend, o frontend nunca é a única barreira.
 - `packages/database` — Prisma (client singleton em `src/index.ts`, re-exporta `@prisma/client`).
   Migrations em `prisma/migrations`. Seed de roles em `src/seed.ts`.
 - `packages/contracts` — schemas Zod + tipos compartilhados (1 arquivo por domínio,
