@@ -96,6 +96,28 @@ KYC do produtor ser aprovado.
 - Chave Ed25519 por evento em `event_signing_keys` (privada no banco por ora —
   **TODO produção: KMS**). QR: `BF1.<payload b64url>.<assinatura b64url>`.
 
+## Pagar.me v5 — fatos verificados na doc oficial (2026-07-23)
+
+- Auth: Basic com `sk_...:` (senha vazia). Idempotência: header literal
+  `Idempotency-key` (case-sensitive), dedupe 24h em produção / 5min sandbox.
+- Pix: `POST /core/v5/orders` com `payments[].payment_method="pix"` +
+  `pix.expires_in`; QR copia-e-cola em `charges[0].last_transaction.qr_code`.
+  Pix pede `customer` completo (nome, e-mail, documento, **telefone**) — por
+  isso o checkout aceita `payerPhone`.
+- Cartão: token client-side (`tokenizecard.js` / `POST /tokens?appId=pk_...`,
+  expira em 60s) → campo `credit_card.card_token`. `statement_descriptor`
+  máx. 13 chars p/ PSP ("BORAFEST" ok).
+- Estorno: `DELETE /charges/{id}` (body `amount` p/ parcial); charge vai para
+  `canceled` (não existe status `refunded` na charge, só na transação).
+- **Webhook v5 NÃO tem HMAC/X-Hub-Signature** (isso era v4): o oficial é
+  autenticação Basic opcional configurada no dashboard →
+  `PAGARME_WEBHOOK_BASIC_USER/PASSWORD`. Adapter falha-fechado sem config.
+  Defesa em profundidade: reconciliação consulta `GET /charges/{id}`.
+- Evento `charge.chargedback` será substituído por `chargeback.received`
+  (migração até 30/09/2026) — adapter mapeia os dois.
+- **TODO antes de produção**: configurar a autenticação do webhook no dashboard,
+  validar débito/Apple Pay com o comercial, e negociar Plano Customizado.
+
 ## Pendências e cuidados conhecidos
 
 - `.env` local a partir de `.env.example` (`SESSION_JWT_SECRET` precisa ser definido;

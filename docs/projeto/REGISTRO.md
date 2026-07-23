@@ -66,17 +66,23 @@
   COMPRADOR, boleto R$3,49 repassado ao comprador. Headline: "a partir de 4,99%
   no Pix, teto de 6,99%". Estrutura híbrida (%+piso fixo) também por prudência
   jurídica (entendimento Procon-SP vs. taxa percentual pura).
-- ⏳ **Gateway primário EM DISCUSSÃO** (Arthur quer avaliar antes de fechar).
-  Recomendação na mesa: Pagar.me primário + Asaas fallback.
+- ✅ **Gateway primário CONFIRMADO pelo Arthur: Pagar.me** (2026-07-23), com a
+  condição de ficar **fácil de trocar** — atendida pela interface
+  `PaymentGateway` + registry (`PAYMENTS_PROVIDER` escolhe o adapter; mock,
+  pagarme, e futuros asaas/celcoin convivem). Alternativas descartadas na
+  discussão: Mercado Pago (sem custódia própria — repasse direto ao vendedor;
+  workaround de "cair na nossa conta" reprovado por risco regulatório e imposto
+  sobre faturamento bruto) e Celcoin (não é mais barato em ticket baixo — Pix
+  fixo R$1,50 vs 1,19% — e exige orquestrar a trava de KYC na mão).
 
 ### Próximo passo
 
-1. **Fechar o gateway primário com o Arthur** (discussão em andamento) e
-   registrar aqui.
-2. Escrever o adapter real do provedor escolhido atrás da interface
-   `PaymentGateway` — o mock continua nos testes.
-3. Abrir conta/negociar taxas por volume com o comercial do provedor.
-4. Seguir para a Fase 5 (carteira web, e-mail, WhatsApp e links profundos).
+1. Escrever o `PagarmeAdapter` real atrás da interface — o mock continua nos
+   testes (`PAYMENTS_PROVIDER=mock` em dev).
+2. Comercial: abrir conta PSP Pagar.me + negociar Plano Customizado por volume.
+3. Seguir para a Fase 5 — **somente backend** (entrega de ingresso por e-mail/
+   WhatsApp, notificações, links profundos); carteira web/UI fica para a etapa
+   de front.
 
 ---
 

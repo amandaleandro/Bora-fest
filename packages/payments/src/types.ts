@@ -20,6 +20,8 @@ export interface GatewayCustomer {
   name?: string;
   email: string;
   document?: string;
+  /** celular com DDD, só dígitos (ex.: 11999998888) — exigido p/ Pix em alguns PSPs */
+  phone?: string;
 }
 
 export interface CreatePixChargeInput {

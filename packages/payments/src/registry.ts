@@ -1,4 +1,5 @@
 import { MockGateway, MOCK_PROVIDER } from "./mock";
+import { PagarmeGateway, PAGARME_PROVIDER } from "./pagarme";
 import type { PaymentGateway } from "./types";
 
 const gateways = new Map<string, PaymentGateway>();
@@ -7,8 +8,11 @@ function ensureBuiltins(): void {
   if (!gateways.has(MOCK_PROVIDER)) {
     gateways.set(MOCK_PROVIDER, new MockGateway());
   }
-  // O adapter do provedor real (definido na pesquisa de gateways — ver
-  // docs/projeto/REGISTRO.md) é registrado aqui quando implementado.
+  if (!gateways.has(PAGARME_PROVIDER)) {
+    // primário (decisão 2026-07-23) — env lida por chamada, troca é só
+    // PAYMENTS_PROVIDER; futuros adapters (asaas, celcoin...) entram aqui
+    gateways.set(PAGARME_PROVIDER, new PagarmeGateway());
+  }
 }
 
 export function registerGateway(gateway: PaymentGateway): void {

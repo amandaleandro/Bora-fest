@@ -54,6 +54,7 @@ export class PaymentsService {
             name: order.contactName ?? undefined,
             email: order.contactEmail,
             document: input.payerDocument,
+            phone: input.payerPhone,
           },
           expiresInSeconds,
           idempotencyKey: payment.id,
