@@ -16,6 +16,7 @@ import { ValidatorModule } from "./validator/validator.module";
 import { CheckinsModule } from "./checkins/checkins.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { AdminModule } from "./admin/admin.module";
+import { FinanceModule } from "./finance/finance.module";
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AdminModule } from "./admin/admin.module";
     CheckinsModule,
     DashboardModule,
     AdminModule,
+    FinanceModule,
   ],
 })
 export class AppModule {}

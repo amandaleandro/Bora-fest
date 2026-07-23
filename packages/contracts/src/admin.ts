@@ -17,3 +17,8 @@ export const refundOrderSchema = z.object({
   reason: z.string().min(3),
 });
 export type RefundOrderInput = z.infer<typeof refundOrderSchema>;
+
+export const markPayoutPaidSchema = z.object({
+  notes: z.string().min(3).optional(),
+});
+export type MarkPayoutPaidInput = z.infer<typeof markPayoutPaidSchema>;

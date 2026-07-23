@@ -156,6 +156,39 @@ KYC do produtor ser aprovado.
 - `GET /v1/admin/audit-logs` (filtros opcionais entityType/entityId/
   organizationId) fecha o item "visualizar auditoria" do §17.
 
+## Regras da Fase 9 (ledger e repasses) — aprendidas na implementação
+
+- Ledger é append-only de verdade: nunca há `UPDATE` num `LedgerEntry`, só
+  novos lançamentos. Saldo é SEMPRE `SUM(amountCents)` calculado na hora
+  (`apps/api/src/common/ledger.ts`), nunca um campo de saldo mutável.
+- Os lançamentos de venda/comissão e a reversão vivem dentro de
+  `applyGatewayStatus`/`apply-status.ts` (PAID → `creditOrganizationLedger`;
+  REFUNDED/CHARGEBACK → `reverseOrganizationLedgerAndStock`) — é o único
+  lugar que mexe em pagamento/pedido, então é o único lugar que pode mexer
+  em ledger/estoque decorrente disso. Não criar um segundo caminho.
+- Reversão de estorno é sempre "tudo ou nada": debita o líquido exato do que
+  foi creditado (SALE_CREDIT + PLATFORM_FEE daquele pagamento específico,
+  buscados por `referenceType/referenceId`), nunca um valor recalculado na
+  hora — evita divergência se a taxa da organização mudar entre a venda e o
+  estorno.
+- Estorno DEVOLVE estoque (`returnSaleInventory` decrementa `sold_count`) —
+  fecha a lacuna que ficava documentada aqui desde a Fase 4. Isso pode deixar
+  o saldo da organização negativo se o repasse já tiver sido pago antes do
+  estorno — é o comportamento correto (desconta do próximo repasse);
+  `availableForPayoutCents` trava em zero (nunca pede repasse negativo).
+- Repasse (`Payout`) é uma promessa (`PENDING`) até alguém confirmar a
+  transferência bancária manualmente (`mark-paid`) — só aí nasce o
+  `PAYOUT_DEBIT` no ledger. Pedir repasse não debita nada sozinho, só reserva
+  o valor (`getAvailableForPayoutCents` desconta payouts `PENDING`+`PAID`).
+- Repasse é bloqueado por `Organization.status !== 'ACTIVE'` (KYC pendente)
+  — é o hold-até-aprovação do diferencial de produto (§19 da arquitetura).
+  Ainda não há split/recebedor real no Pagar.me; isso é a Fase 9.1 quando o
+  comercial fechar a conta PSP.
+- Taxa efetiva: `computePlatformFeeCents` (`packages/payments/src/fees.ts`)
+  usa os overrides de `Organization` (Fase 8) e cai no padrão via env
+  (`PLATFORM_PIX_FEE_BPS`/`_FLOOR_CENTS`/`PLATFORM_CARD_FEE_BPS` — default
+  499/249/699, a decisão de 2026-07-23).
+
 ## Pendências e cuidados conhecidos
 
 - `.env` local a partir de `.env.example` (`SESSION_JWT_SECRET` precisa ser definido;

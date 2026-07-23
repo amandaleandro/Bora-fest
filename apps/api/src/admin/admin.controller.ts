@@ -1,5 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
-import { blockReasonSchema, refundOrderSchema, setOrganizationFeeSchema } from "@borafest/contracts";
+import {
+  blockReasonSchema,
+  markPayoutPaidSchema,
+  refundOrderSchema,
+  setOrganizationFeeSchema,
+} from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -117,5 +122,37 @@ export class AdminController {
     @Query("organizationId") organizationId: string | undefined,
   ) {
     return this.adminService.listAuditLogs(userId, { entityType, entityId, organizationId });
+  }
+
+  @Get("organizations/:id/ledger")
+  getOrganizationLedger(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Query("limit") limit: string | undefined,
+  ) {
+    return this.adminService.getOrganizationLedger(id, userId, limit ? Number(limit) : 50);
+  }
+
+  @Get("payouts")
+  listPayouts(
+    @CurrentUserId() userId: string,
+    @Query("organizationId") organizationId: string | undefined,
+    @Query("status") status: string | undefined,
+  ) {
+    return this.adminService.listPayouts(userId, { organizationId, status });
+  }
+
+  @Post("organizations/:id/payouts")
+  createPayout(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.adminService.createPayout(id, userId);
+  }
+
+  @Post("payouts/:id/mark-paid")
+  markPayoutPaid(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(markPayoutPaidSchema)) body: unknown,
+  ) {
+    return this.adminService.markPayoutPaid(id, userId, (body as any)?.notes);
   }
 }

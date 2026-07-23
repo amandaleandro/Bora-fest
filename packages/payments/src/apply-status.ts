@@ -1,9 +1,13 @@
 import {
   confirmSaleInventory,
+  returnSaleInventory,
   prisma,
+  Prisma,
+  type PaymentMethod as DbPaymentMethod,
   type PaymentStatus as DbPaymentStatus,
 } from "@borafest/database";
 import type { GatewayPaymentStatus } from "./types";
+import { computePlatformFeeCents } from "./fees";
 
 /**
  * Aplica um status vindo do gateway (webhook, cartão síncrono ou reconciliação)
@@ -123,6 +127,8 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
       await confirmSaleInventory(tx, item.ticketLotId, item.quantity);
     }
 
+    await creditOrganizationLedger(tx, payment);
+
     await tx.outboxEvent.create({
       data: {
         aggregateType: "order",
@@ -135,6 +141,90 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
     result.orderPaid = true;
     return result;
   });
+}
+
+/** SALE_CREDIT (bruto) + PLATFORM_FEE (comissão) no ledger da organização do evento. */
+async function creditOrganizationLedger(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string; amountCents: number; method: DbPaymentMethod },
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: { event: { select: { organizationId: true } } },
+  });
+  if (!order) return;
+
+  const organizationId = order.event.organizationId;
+  const organization = await tx.organization.findUniqueOrThrow({ where: { id: organizationId } });
+
+  const ledgerAccount = await tx.ledgerAccount.upsert({
+    where: { organizationId },
+    update: {},
+    create: { organizationId },
+  });
+
+  const feeCents = computePlatformFeeCents(payment.method, payment.amountCents, organization);
+
+  await tx.ledgerEntry.createMany({
+    data: [
+      {
+        ledgerAccountId: ledgerAccount.id,
+        type: "SALE_CREDIT",
+        amountCents: payment.amountCents,
+        referenceType: "payment",
+        referenceId: payment.id,
+      },
+      {
+        ledgerAccountId: ledgerAccount.id,
+        type: "PLATFORM_FEE",
+        amountCents: -feeCents,
+        referenceType: "payment",
+        referenceId: payment.id,
+      },
+    ],
+  });
+}
+
+/** Reverte SALE_CREDIT + PLATFORM_FEE (líquido zero) e devolve o estoque vendido. */
+async function reverseOrganizationLedgerAndStock(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string; amountCents: number },
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: { event: { select: { organizationId: true } } },
+  });
+  if (!order) return;
+
+  const ledgerAccount = await tx.ledgerAccount.findUnique({
+    where: { organizationId: order.event.organizationId },
+  });
+
+  if (ledgerAccount) {
+    const [previousCredit, previousFee] = await Promise.all([
+      tx.ledgerEntry.findFirst({
+        where: { referenceType: "payment", referenceId: payment.id, type: "SALE_CREDIT" },
+      }),
+      tx.ledgerEntry.findFirst({
+        where: { referenceType: "payment", referenceId: payment.id, type: "PLATFORM_FEE" },
+      }),
+    ]);
+
+    await tx.ledgerEntry.create({
+      data: {
+        ledgerAccountId: ledgerAccount.id,
+        type: "REFUND_DEBIT",
+        amountCents: -(previousCredit?.amountCents ?? payment.amountCents) - (previousFee?.amountCents ?? 0),
+        referenceType: "payment",
+        referenceId: payment.id,
+      },
+    });
+  }
+
+  const items = await tx.orderItem.findMany({ where: { orderId: payment.orderId } });
+  for (const item of items) {
+    await returnSaleInventory(tx, item.ticketLotId, item.quantity);
+  }
 }
 
 async function applyReversal(
@@ -160,6 +250,8 @@ async function applyReversal(
     });
 
     if (updatedOrder.count > 0) {
+      await reverseOrganizationLedgerAndStock(tx, payment);
+
       await tx.outboxEvent.create({
         data: {
           aggregateType: "order",

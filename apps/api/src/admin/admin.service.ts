@@ -15,6 +15,7 @@ import type {
 } from "@borafest/contracts";
 import { PlatformAccessService } from "../common/platform-access.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { getAvailableForPayoutCents, getOrganizationBalanceCents } from "../common/ledger";
 
 @Injectable()
 export class AdminService {
@@ -368,5 +369,118 @@ export class AdminService {
       orderBy: { createdAt: "desc" },
       take: Math.min(limit, 200),
     });
+  }
+
+  async getOrganizationLedger(organizationId: string, userId: string, limit = 50): Promise<any> {
+    await this.platformAccess.assertStaff(userId);
+
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+
+    const ledgerAccount = await prisma.ledgerAccount.findUnique({ where: { organizationId } });
+    const [balanceCents, availableForPayoutCents, entries] = await Promise.all([
+      getOrganizationBalanceCents(organizationId),
+      getAvailableForPayoutCents(organizationId),
+      ledgerAccount
+        ? prisma.ledgerEntry.findMany({
+            where: { ledgerAccountId: ledgerAccount.id },
+            orderBy: { createdAt: "desc" },
+            take: Math.min(limit, 200),
+          })
+        : Promise.resolve([]),
+    ]);
+
+    return { organizationId, balanceCents, availableForPayoutCents, entries };
+  }
+
+  async listPayouts(userId: string, filters: { organizationId?: string; status?: string }) {
+    await this.platformAccess.assertStaff(userId);
+
+    return prisma.payout.findMany({
+      where: {
+        organizationId: filters.organizationId,
+        status: filters.status as never,
+      },
+      orderBy: { requestedAt: "desc" },
+      take: 100,
+    });
+  }
+
+  async createPayout(organizationId: string, userId: string) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+    if (organization.status !== "ACTIVE") {
+      throw new BadRequestException(
+        "Repasse bloqueado: organização precisa estar com KYC aprovado (status ACTIVE)",
+      );
+    }
+
+    const availableCents = await getAvailableForPayoutCents(organizationId);
+    if (availableCents <= 0) {
+      throw new BadRequestException("Sem saldo disponível para repasse");
+    }
+
+    const payout = await prisma.payout.create({
+      data: { organizationId, amountCents: availableCents, status: "PENDING" },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        organizationId,
+        action: "admin.payout.create",
+        entityType: "payout",
+        entityId: payout.id,
+        metadata: { amountCents: availableCents },
+      },
+    });
+
+    return payout;
+  }
+
+  async markPayoutPaid(payoutId: string, userId: string, notes?: string) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+
+    const payout = await prisma.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) throw new NotFoundException("Repasse não encontrado");
+
+    const updated = await prisma.payout.updateMany({
+      where: { id: payoutId, status: "PENDING" },
+      data: { status: "PAID", paidAt: new Date(), notes },
+    });
+    if (updated.count === 0) {
+      throw new BadRequestException("Repasse não está pendente");
+    }
+
+    const ledgerAccount = await prisma.ledgerAccount.upsert({
+      where: { organizationId: payout.organizationId },
+      update: {},
+      create: { organizationId: payout.organizationId },
+    });
+
+    await prisma.ledgerEntry.create({
+      data: {
+        ledgerAccountId: ledgerAccount.id,
+        type: "PAYOUT_DEBIT",
+        amountCents: -payout.amountCents,
+        referenceType: "payout",
+        referenceId: payout.id,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        organizationId: payout.organizationId,
+        action: "admin.payout.mark_paid",
+        entityType: "payout",
+        entityId: payout.id,
+        metadata: { amountCents: payout.amountCents, notes },
+      },
+    });
+
+    return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
   }
 }

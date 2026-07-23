@@ -3,3 +3,4 @@ export * from "./mock";
 export * from "./pagarme";
 export * from "./registry";
 export * from "./apply-status";
+export * from "./fees";

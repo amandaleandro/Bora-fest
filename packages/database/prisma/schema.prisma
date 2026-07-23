@@ -116,6 +116,8 @@ model Organization {
   bankAccounts  BankAccount[]
   venues        Venue[]
   events        Event[]
+  ledgerAccount LedgerAccount?
+  payouts       Payout[]
 
   @@map("organizations")
 }
@@ -739,6 +741,74 @@ model EventSigningKey {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@map("event_signing_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Ledger e repasses (Fase 9)
+// ---------------------------------------------------------------------------
+
+/// Conta financeira 1:1 com a organização. Saldo = soma dos lançamentos
+/// (nunca um campo mutável — sempre recalculado a partir do ledger).
+model LedgerAccount {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @unique @map("organization_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries      LedgerEntry[]
+
+  @@map("ledger_accounts")
+}
+
+enum LedgerEntryType {
+  SALE_CREDIT
+  PLATFORM_FEE
+  REFUND_DEBIT
+  PAYOUT_DEBIT
+}
+
+/// Lançamento append-only. amountCents é assinado (positivo = crédito,
+/// negativo = débito) — nunca editar ou apagar uma linha, só lançar a
+/// reversão como um novo lançamento.
+model LedgerEntry {
+  id              String          @id @default(uuid()) @db.Uuid
+  ledgerAccountId String          @map("ledger_account_id") @db.Uuid
+  type            LedgerEntryType
+  amountCents     Int             @map("amount_cents")
+  referenceType   String          @map("reference_type")
+  referenceId     String          @map("reference_id")
+  description     String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  ledgerAccount LedgerAccount @relation(fields: [ledgerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([ledgerAccountId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("ledger_entries")
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+/// Repasse ao produtor. Execução do envio bancário real ainda é manual
+/// (aguarda integração de recebedores/KYC do gateway) — aqui só o controle.
+model Payout {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  amountCents    Int          @map("amount_cents")
+  status         PayoutStatus @default(PENDING)
+  requestedAt    DateTime     @default(now()) @map("requested_at")
+  paidAt         DateTime?    @map("paid_at")
+  notes          String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, status])
+  @@map("payouts")
 }
 
 // ---------------------------------------------------------------------------

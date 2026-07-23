@@ -17,8 +17,8 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 8 — painel do produtor + backoffice mínimo |
-| **Status da fase** | 🟢 Concluída e testada de ponta a ponta |
+| **Fase em andamento** | Fase 9 — ledger, taxas e repasses (núcleo) |
+| **Status da fase** | 🟢 Concluída e testada de ponta a ponta (execução bancária real ainda pendente) |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
@@ -159,14 +159,51 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
 - Fora do escopo (nota já em MEMORIA.md): estorno/revogação ainda não devolve
   estoque ao lote para revenda — fica para a Fase 9.
 
+### Fase 9 (núcleo) — CONCLUÍDA ✅
+
+- Schema: `ledger_accounts` (1:1 com organização), `ledger_entries`
+  (append-only, `amountCents` assinado: positivo=crédito/negativo=débito;
+  tipos `SALE_CREDIT`/`PLATFORM_FEE`/`REFUND_DEBIT`/`PAYOUT_DEBIT`) e
+  `payouts` (`PENDING`/`PAID`/`FAILED`) — migration
+  `20260723125445_ledger_and_payouts`.
+- `packages/payments/src/fees.ts`: `computePlatformFeeCents(method,
+  amountCents, org)` — usa os overrides de `Organization` (Fase 8) e cai no
+  padrão da plataforma (env `PLATFORM_PIX_FEE_BPS`/`_FLOOR_CENTS`/
+  `PLATFORM_CARD_FEE_BPS`, default 499/249/699 = decisão de 2026-07-23).
+- **Ganchos direto no `applyGatewayStatus`** (único caminho, nunca duplicado):
+  `PAID` → `creditOrganizationLedger` (SALE_CREDIT bruto + PLATFORM_FEE da
+  comissão, na mesma transação que confirma o estoque vendido);
+  `REFUNDED`/`CHARGEBACK` → `reverseOrganizationLedgerAndStock` (REFUND_DEBIT
+  que zera os dois lançamentos anteriores + `returnSaleInventory` devolve
+  `sold_count` ao lote — fecha a lacuna que ficou registrada desde a Fase 4).
+- API produtor: `GET /v1/organizations/:id/balance` e `/ledger`
+  (`PERMISSIONS.FINANCE_VIEW`, mesmo padrão do dashboard).
+- Backoffice: `GET /v1/admin/organizations/:id/ledger`, `GET
+  /v1/admin/payouts`, `POST /v1/admin/organizations/:id/payouts` (cria
+  repasse do saldo disponível — **bloqueado se `Organization.status !==
+  'ACTIVE'`**, ou seja, sem KYC aprovado não sai repasse) e `POST
+  /v1/admin/payouts/:id/mark-paid` (confirma transferência bancária manual,
+  lança `PAYOUT_DEBIT`). Execução bancária real (split/recebedores Pagar.me)
+  continua fora do escopo — depende de KYC comercial, por isso o repasse é
+  confirmado manualmente por enquanto.
+- Testado de ponta a ponta: venda nova → `SALE_CREDIT` 5500 + `PLATFORM_FEE`
+  -274 (4,99% de R$55,00) → saldo R$52,26; **payout bloqueado com KYC
+  pendente** (org `PENDING_VERIFICATION`); org aprovada (`ACTIVE`) → payout
+  criado → marcado pago → saldo zera; estorno do mesmo pedido DEPOIS do
+  payout → estoque devolvido (disponibilidade voltou a 1) e saldo foi a
+  -5226 (`availableForPayoutCents` corretamente travado em 0, não negativo).
+
 ### Próximo passo
 
-1. **Fase 9**: ledger, taxas (aplicar os overrides já configuráveis desde a
-   Fase 8), estornos com devolução de estoque e repasses — aí entra o split
-   Pagar.me com recebedores/KYC e a taxa decidida (4,99%/6,99%).
+1. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
+   organização, hold-até-aprovação de fato (hoje é só o gate de
+   `Organization.status`), execução automática do repasse via API do
+   gateway em vez de confirmação manual.
 2. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
+3. Fase 10/11/12: publicação do BoraFest Check-in nas lojas, evento-piloto
+   com testes de carga/hardening, app público (carteira, descoberta).
 
 ---
 
@@ -182,7 +219,7 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
 | 6 | App React Native de check-in online | 🟢 Backend concluído (app RN fica p/ etapa mobile) | (este commit) |
 | 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente) | (este commit) |
 | 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída | (este commit) |
-| 9 | Ledger, taxas, estornos e repasses | ⬜ Não iniciada | — |
+| 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | (este commit) |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
 | 11 | Evento-piloto, testes de carga e hardening | ⬜ Não iniciada | — |
 | 12 | App público BoraFest (carteira, descoberta, notificações) | ⬜ Não iniciada | — |
@@ -199,6 +236,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Fase 9 (núcleo)**: ledger append-only (`ledger_accounts`/`ledger_entries`) e `payouts`, cálculo de comissão configurável por organização (`computePlatformFeeCents`), tudo pendurado direto no `applyGatewayStatus` (PAID credita venda+comissão e confirma estoque; estorno/chargeback reverte o ledger a zero E devolve o estoque vendido — fechando a lacuna aberta desde a Fase 4). API de saldo/ledger para o produtor e backoffice de repasse (bloqueado sem KYC aprovado, confirmação manual da transferência até o split real do Pagar.me). Testado de ponta a ponta: venda → saldo líquido correto → payout bloqueado sem KYC → aprovado → payout pago → saldo zera → estorno pós-payout devolve estoque e deixa saldo negativo (repasse futuro descontado), disponível-para-repasse travado em zero. | Fase 9 (núcleo) concluída. Split real com Pagar.me (recebedores/KYC) fica para quando o comercial fechar a conta PSP. |
 | 2026-07-23 | Amanda + Claude | **Fase 8**: dashboard do produtor (receita, pedidos, participantes, export CSV) e backoffice mínimo (organizações, taxa configurável por org, eventos, busca de pedidos, reenvio, estorno controlado via gateway, webhooks, saúde das filas), com `PlatformRole` (SUPPORT/ADMIN) novo no schema e auditoria em toda ação sensível. Testado de ponta a ponta com um pedido real pago via mock gateway até `FULFILLED` e depois estornado pelo backoffice. | Fase 8 concluída. Próximo: Fase 9 (ledger, taxas, estornos com devolução de estoque e repasses). |
 | 2026-07-23 | Arthur + Claude | **Fases 6/7 (backend do check-in)**: portões e PIN pelo produtor, sessão do validador por PIN + registro/refresh/bloqueio de dispositivo, manifesto completo/delta com chave pública Ed25519, check-in atômico "primeiro vence" com verificação criptográfica do QR, sync offline idempotente por lote com trilha de conflito, reversão auditada e painel ao vivo. 8 cenários E2E passando. | Backend do check-in pronto. Próximo: Fase 8 (dashboard produtor + backoffice mínimo). |
 | 2026-07-23 | Arthur + Claude | **Fase 5 (backend)**: package notifications (e-mail/WhatsApp por adapter + templates pt-BR), fila persistente `notifications` com retry, entrega disparada na mesma transação do FULFILLED, link profundo da carteira, endpoint de reenvio com limite. Testado de ponta a ponta (SENT nos 2 canais, link ok, limite ok). | Backend da F5 pronto. Próximo: backend do check-in (Fases 6/7 — sessões de validador, manifesto, checkins/sync). |

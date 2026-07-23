@@ -59,3 +59,16 @@ export async function confirmSaleInventory(
     WHERE id = ${lotId}::uuid
   `);
 }
+
+/** Devolve unidades vendidas ao estoque disponível (estorno/chargeback). */
+export async function returnSaleInventory(
+  client: DbClient,
+  lotId: string,
+  quantity: number,
+): Promise<void> {
+  await client.$executeRaw(Prisma.sql`
+    UPDATE ticket_lots
+    SET sold_count = GREATEST(sold_count - ${quantity}, 0), updated_at = now()
+    WHERE id = ${lotId}::uuid
+  `);
+}
