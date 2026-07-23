@@ -17,10 +17,10 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Frontends web validados em NAVEGADOR REAL ✅ — falta só o app RN em aparelho |
-| **Status da fase** | 🟢 Checkout, painel e backoffice navegados e aprovados de ponta a ponta; 1 bug real achado e corrigido |
+| **Fase em andamento** | Testes automatizados de regressão (`apps/api/src/__tests__`) |
+| **Status da fase** | 🟢 3 testes de integração cobrindo os pontos mais críticos, todos passando |
 | **Última atualização** | 2026-07-23 |
-| **Atualizado por** | Arthur + Claude |
+| **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
 
 ### Validação em navegador real (2026-07-23, Arthur + Claude)
@@ -408,6 +408,48 @@ de verdade mostra), mas elimina uma categoria inteira de erro
 ("funciona no `tsc`, quebra no `expo start`") antes mesmo de alguém
 tentar abrir o app.
 
+### Testes automatizados de regressão — CRIADOS ✅
+
+Até aqui, tudo que foi "testado de ponta a ponta" nas fases anteriores foi
+validação manual (curl, scripts ad-hoc) — nunca virou proteção contra
+regressão. Criado `apps/api/src/__tests__/` (Node test runner nativo via
+`tsx --test`, mesmo padrão já usado em `packages/payments`/`packages/
+tickets`/`packages/notifications` — não introduzi Jest):
+
+- `inventory-concurrency.test.ts` — 10 tentativas concorrentes contra um
+  lote de capacidade 3: exatamente 3 reservam, 7 recebem
+  `InsufficientStockError`, disponibilidade final bate.
+- `order-payment-flow.test.ts` — reserva → pedido → Pix mock →
+  `applyGatewayStatus(..., "PAID")`: pedido vai a `PAID`, ledger recebe
+  exatamente `SALE_CREDIT`+`PLATFORM_FEE` (2 lançamentos), estoque confirma
+  venda; **webhook duplicado é no-op** (reaplica `PAID`, `paymentChanged
+  === false`, ledger continua com 2 lançamentos, não 4).
+- `checkin-race.test.ts` — 8 aparelhos escaneando o mesmo ingresso (por
+  código, sem depender de assinatura de QR) ao mesmo tempo: exatamente 1
+  `VALID`, os outros 7 `ALREADY_USED`, só 1 `Checkin` `CONFIRMED` no banco.
+
+Cada teste cria sua própria organização/evento/lote (`__tests__/
+helpers.ts`, nomes com sufixo aleatório) e limpa tudo no fim — rodam
+contra o Postgres de dev sem sujar dados nem colidir entre execuções.
+`pnpm --filter @borafest/api test` roda os 3.
+
+**Dois bugs reais achados escrevendo os testes** (nenhum no app, mas
+documentando porque valem a pena saber):
+
+1. `ReservationsService`/`OrdersService` abrem uma conexão Redis/BullMQ
+   persistente no construtor (correto pra uma API de vida longa) — num
+   script de teste de vida curta isso mantém o processo vivo pra sempre e
+   trava o test runner mesmo com todos os testes passando. Resolvido
+   expondo `closeRedisConnection()` em `packages/queues` e chamando num
+   hook `after()` do Node test runner.
+2. No fixture do teste de check-in, gerei o código do ingresso com hex
+   minúsculo (`randomBytes(...).toString('hex')`) — `resolveTicket` no
+   `CheckinsService` busca por `code.toUpperCase()`, e o Postgres compara
+   string por igualdade exata (sem `COLLATE NOCASE` como o SQLite do app
+   RN), então nunca batia. Bug do teste, não do app; corrigido usando
+   `generateTicketCode()` de `@borafest/tickets` (o gerador de verdade,
+   sempre maiúsculo) em vez de inventar um formato de código no teste.
+
 ### Próximo passo
 
 1. ~~Abrir checkout, painel e backoffice num navegador de verdade~~ ✅
@@ -423,8 +465,10 @@ tentar abrir o app.
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
 5. Fase 10: publicação do BoraFest Check-in nas lojas (só depois do app
-   testado em aparelho). Fase 11/12: evento-piloto com testes de carga/
-   hardening, app público do comprador (`apps/mobile-public`, ainda vazio).
+   testado em aparelho). Fase 11 (evento-piloto/testes de carga/
+   hardening) e Fase 12 (app público do comprador, `apps/mobile-public`,
+   ainda vazio) são as próximas frentes que dá pra avançar sem depender de
+   device físico ou decisão comercial.
 
 ---
 
@@ -457,6 +501,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Testes automatizados de regressão** (`apps/api/src/__tests__`, Node test runner via `tsx --test`): concorrência de estoque (10 tentativas vs. capacidade 3 → exatamente 3), fluxo pedido→pagamento→ledger com webhook duplicado (no-op, sem duplicar lançamento) e corrida de check-in (8 aparelhos, 1 `VALID`). 2 bugs achados NOS TESTES (não no app): conexão Redis/BullMQ pendurada travando o test runner (resolvido com `closeRedisConnection()` novo em `packages/queues`) e um fixture de teste gerando código de ingresso em minúsculo que nunca batia com a busca `toUpperCase()` do `CheckinsService` (corrigido usando o gerador de código de verdade). `pnpm --filter @borafest/api test` roda os 3, todos passando, dados de teste limpos automaticamente. | Primeira leva de testes de regressão pronta. Próximo: Fase 11 (evento-piloto/hardening) ou Fase 12 (app público) — as frentes que dão pra avançar sem device físico nem decisão comercial. |
 | 2026-07-23 | Arthur + Claude | **Validação em navegador real dos 3 frontends**: compra completa clicada no checkout (Pix mock → carteira avançando sozinha), painel do produtor via OTP (dashboard, participantes, portaria, financeiro com a taxa 4,99% ao vivo) e backoffice ADMIN (pedidos, filas, auditoria). Bug real corrigido nos 3 `lib/api.ts`: Content-Type em POST sem corpo causava 400 do Fastify em toda ação sem payload (reenvio/estorno/bloqueio/marcar-pago). | Frontends web aprovados. Falta: app RN em aparelho físico (Expo Go) e split real Pagar.me. |
 | 2026-07-23 | Amanda + Claude | **Validação extra do app de check-in** sem aparelho físico: `expo-doctor` (16/17 ok) e, principalmente, `expo export --platform android/ios` rodando o bundler Metro de verdade — achou 3 erros reais em cascata por falta de `metro.config.js` configurado pra pnpm (resolução de symlink, `@babel/runtime` não hoisted, e o próprio `AppEntry.js` do pacote `expo` fazendo um import relativo que quebra sob symlink). Corrigido com `metro.config.js` + `@babel/runtime` como dependência direta + `index.js` próprio como entry point (mais robusto que depender do `AppEntry.js` do pacote). Bundle final: Android 583 módulos/1.62MB, iOS 584/1.61MB, ambos sem erro — prova bem mais forte que typecheck de que o app resolve de ponta a ponta. | Bundle valida limpo nas duas plataformas. Ainda falta abrir de verdade num aparelho/Expo Go pra validar UI, câmera e fluxo offline na prática. |
 | 2026-07-23 | Amanda + Claude | **Backoffice web** (`apps/admin`, Next.js/TS/Tailwind, mesmo padrão de OTP+localStorage do painel, mas o `AuthGuard` também barra quem não tem `platformRole`): organizações (taxa, bloqueio, repasse), eventos (bloqueio), pedidos (busca/reenvio/estorno), payouts (marcar pago), webhooks, filas (job counts das 5 filas + outbox) e auditoria. Todos os contratos bateram exatamente com as interfaces TS do frontend sem precisar de ajuste no backend desta vez. `next build`/`tsc` limpos, validado via curl com o mesmo token/contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva de sempre). Com isso as 3 frentes de frontend web que só dependiam da API existente (checkout, painel do produtor, backoffice) estão prontas. | Backoffice web pronto. Próximo: alguém abrir os 3 frontends num navegador de verdade, testar o app RN em aparelho, ou avançar pro split real com Pagar.me. |

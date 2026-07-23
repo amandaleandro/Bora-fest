@@ -10,3 +10,11 @@ export function getRedisConnection(): IORedis {
   }
   return connection;
 }
+
+/** Só pra scripts de vida curta (testes) — a API/worker mantêm a conexão aberta pra sempre. */
+export async function closeRedisConnection(): Promise<void> {
+  if (connection) {
+    await connection.quit();
+    connection = undefined;
+  }
+}

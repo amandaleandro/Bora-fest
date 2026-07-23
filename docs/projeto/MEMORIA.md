@@ -108,6 +108,16 @@ KYC do produtor ser aprovado.
   aceitando `TransactionClient` para compor transações.
 - Rotas REST com prefixo `v1/` (ex.: `@Controller("v1/orders")`), nomes da seção 13 da arquitetura.
 - Commits: convencionais em português (`feat: ...`, `fix: ...`), um commit por fase/entrega coesa.
+- Testes: Node test runner nativo via `tsx --test` (não Jest), 1 arquivo
+  `*.test.ts` por caso — já era o padrão em `packages/payments`/`tickets`/
+  `notifications`; `apps/api/src/__tests__/` segue o mesmo padrão pra testes
+  de integração (banco real, sem mock). Services podem ser instanciados
+  direto (`new XService(...)`) sem precisar do container de DI do Nest — os
+  decorators `@Injectable()` são no-ops fora dele. Serviços que abrem fila
+  BullMQ no construtor (`ReservationsService`, `OrdersService`) precisam de
+  `closeRedisConnection()` (`@borafest/queues`) num hook `after()`, senão o
+  test runner nunca sai (a conexão fica viva pra sempre, correto numa API
+  mas não num script de teste).
 
 ## Fluxo de trabalho combinado
 
