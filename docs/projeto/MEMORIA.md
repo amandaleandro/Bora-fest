@@ -53,6 +53,14 @@ KYC do produtor ser aprovado.
   (`expo-sqlite`) cacheia o manifesto e a fila offline; `expo-secure-store`
   guarda o token do aparelho. **Não tem app.build no turbo, só `typecheck`**
   (roda via `expo start`, não `tsc`/`nest build`).
+- `apps/checkout` — checkout web do comprador (Fase 3), Next.js 14 (App
+  Router) + TypeScript + Tailwind. Sem TanStack Query por ora (fetch direto
+  com `useState`/`useEffect` e polling manual de status) — simplificação
+  aceita pelo escopo do MVP, pode entrar TanStack Query depois se a
+  duplicação de lógica de fetch/polling começar a incomodar. `react-qr-code`
+  renderiza o QR do Pix e o QR do ingresso client-side, sem dependência de
+  imagem gerada no servidor. `NEXT_PUBLIC_API_URL` aponta pra API (default
+  `http://localhost:3333`).
 - `packages/database` — Prisma (client singleton em `src/index.ts`, re-exporta `@prisma/client`).
   Migrations em `prisma/migrations`. Seed de roles em `src/seed.ts`.
 - `packages/contracts` — schemas Zod + tipos compartilhados (1 arquivo por domínio,

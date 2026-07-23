@@ -17,8 +17,8 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 6 — App React Native de check-in (código escrito) |
-| **Status da fase** | 🟡 Implementado e com typecheck limpo; **não testado em dispositivo real** (sem emulador/celular neste ambiente) |
+| **Fase em andamento** | Fase 3 (frontend) — checkout web (`apps/checkout`) |
+| **Status da fase** | 🟢 Implementado e testado de ponta a ponta contra a API real |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
@@ -234,22 +234,63 @@ Criado também `docs/projeto/API-REFERENCE.md`: tabela de toda rota da API
 um lugar único para consultar isso antes (só dava pra achar lendo
 controller por controller).
 
+### Checkout web (Fase 3, frontend) — CONCLUÍDO ✅
+
+Criado `apps/checkout` (Next.js 14 App Router + TypeScript + Tailwind),
+consumindo direto a API que já existia desde a Fase 3 (backend) — nenhuma
+rota nova precisou ser criada. Três páginas:
+
+- `/evento/[slug]` — página pública (server component, busca
+  `GET /v1/public/events/:slug` + `/availability`), seletor de quantidade
+  por lote e botão "Continuar" que cria a reserva (`POST /v1/reservations`).
+- `/checkout/[reservationId]` — formulário de contato (e-mail obrigatório,
+  nome e WhatsApp opcionais, sem exigir conta) → cria o pedido
+  (`POST /v1/orders`) → gera cobrança Pix (`POST /v1/orders/:id/payments/pix`)
+  → mostra QR code (via `react-qr-code`) + código copia-e-cola → faz polling
+  do status do pedido a cada 3s e redireciona pra carteira quando `FULFILLED`.
+- `/pedido/[publicToken]` — carteira: lista os ingressos com QR (o token
+  assinado, não o código curto) e botão de reenvio
+  (`POST /v1/orders/:publicToken/resend`).
+
+**Bug real encontrado testando contra a API de verdade** (não só typecheck):
+`GET /v1/orders/:publicToken/tickets` NÃO devolve um array direto — devolve
+`{ orderId, orderStatus, event, tickets: [...] }`. O cliente HTTP do app
+(`lib/api.ts`) assumia array; corrigido antes de commitar. Isso reforça por
+que testar contra a API real importa mesmo com typecheck limpo (o tipo era
+só uma suposição minha até eu testar).
+
+Testado de ponta a ponta com o event/lote de teste já usado nas fases
+anteriores: página do evento renderiza preço+taxa corretos via SSR, reserva
+→ pedido → Pix mock → webhook assinado → `FULFILLED` com ticket emitido,
+tudo com os MESMOS contratos que o app usa (validado via curl simulando as
+chamadas que o frontend faz). `next build` e `tsc --noEmit` limpos.
+
+**Não testado visualmente num navegador** — este ambiente de trabalho não
+tem ferramenta de browser/screenshot; a validação foi por contrato de API
+(request/response reais) e build/typecheck, não por "clicar e ver". Antes
+de confiar 100%, abrir `pnpm --filter @borafest/checkout dev` e navegar o
+fluxo manualmente uma vez.
+
 ### Próximo passo
 
-1. **Testar o app de check-in em dispositivo real** (Expo Go, depois
+1. **Abrir o checkout num navegador de verdade** e navegar o fluxo manual
+   uma vez (este ambiente não tem ferramenta de screenshot/browser).
+2. **Testar o app de check-in em dispositivo real** (Expo Go, depois
    development build) — validar câmera, fluxo offline/online de verdade,
    antes de qualquer publicação em loja.
-2. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
+3. **Painel do produtor** (`apps/producer`) e **backoffice web**
+   (`apps/admin`) — mesma ideia do checkout: consumir a API que já existe
+   (dashboard, admin) sem precisar de rota nova.
+4. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
    organização, hold-até-aprovação de fato (hoje é só o gate de
    `Organization.status`), execução automática do repasse via API do
    gateway em vez de confirmação manual.
-3. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
+5. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
-4. Fase 10: publicação do BoraFest Check-in nas lojas (só depois do app
-   testado em aparelho — contas Google Play/Apple Developer, ícones/splash
-   reais, EAS Build). Fase 11/12: evento-piloto com testes de carga/
-   hardening, app público (carteira, descoberta).
+6. Fase 10: publicação do BoraFest Check-in nas lojas (só depois do app
+   testado em aparelho). Fase 11/12: evento-piloto com testes de carga/
+   hardening, app público do comprador (`apps/mobile-public`, ainda vazio).
 
 ---
 
@@ -259,7 +300,7 @@ controller por controller).
 |---|---|---|---|
 | 1 | Monorepo, autenticação, organizações, RBAC, banco e observabilidade | ✅ Concluída | `1f46fa0`, `7ea634d` |
 | 2 | Eventos, tipos, lotes, estoque e publicação | ✅ Concluída | `05ff2f3` |
-| 3 | Checkout web, reserva e pedidos (checkout mínimo via API) | ✅ Concluída | `277e684` |
+| 3 | Checkout web, reserva e pedidos | ✅ Concluída (backend `277e684` + frontend `apps/checkout`, este commit) | `277e684` |
 | 4 | Gateway, webhooks, pagamentos e emissão de ingressos | ✅ Concluída | `9f362ff`, `ab18e51` |
 | 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | `ed79eb6` |
 | 6 | App React Native de check-in online | 🟡 Código escrito, não testado em aparelho real | (este commit) |
@@ -282,6 +323,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Checkout web** (`apps/checkout`, Next.js/TS/Tailwind): página do evento, checkout com Pix (QR via `react-qr-code`) e carteira com os ingressos, tudo consumindo a API que já existia. Achado um bug real testando contra a API de verdade (não só typecheck): `GET /v1/orders/:publicToken/tickets` devolve um objeto `{event, tickets}`, não um array — o cliente HTTP assumia array errado, corrigido antes de commitar. `next build`/`tsc` limpos; fluxo validado via curl simulando as chamadas do frontend (reserva → pedido → Pix mock → webhook → `FULFILLED`), mas **não aberto num navegador de verdade** (sem ferramenta de browser neste ambiente). | Checkout web pronto, falta alguém abrir no navegador uma vez. Próximo: painel do produtor/backoffice web (mesma ideia, consumir API existente) ou testar o app de check-in em aparelho. |
 | 2026-07-23 | Amanda + Claude | **Fase 6 (app RN de check-in)** + **doc de referência da API**: `apps/mobile-checkin` (Expo/RN/TS) com login por PIN, manifesto em SQLite local, scanner de QR com fallback offline (fila + sync em lote), busca manual por código e contador local. Mapeamos os contratos exatos de validator/checkins antes de codar e achamos duas pegadinhas: `checkin-live`/`reverse` exigem sessão de usuário (não token de aparelho — o app não pode chamá-las), e `syncCheckinsSchema` só aceita `ticketId` (não `qrToken`), então o parser local do QR (sem verificar assinatura Ed25519 — isso ficou documentado como limitação assumida) é obrigatório para o caminho offline. `pnpm typecheck` limpo em tudo, mas **não testado em aparelho real** (sem emulador/celular neste ambiente). Criado também `docs/projeto/API-REFERENCE.md` com todas as rotas da API por módulo — lacuna que não existia antes. | Fase 6 com código pronto, falta testar em Expo Go antes de qualquer publicação em loja (Fase 10). |
 | 2026-07-23 | Amanda + Claude | **Fase 9 (núcleo)**: ledger append-only (`ledger_accounts`/`ledger_entries`) e `payouts`, cálculo de comissão configurável por organização (`computePlatformFeeCents`), tudo pendurado direto no `applyGatewayStatus` (PAID credita venda+comissão e confirma estoque; estorno/chargeback reverte o ledger a zero E devolve o estoque vendido — fechando a lacuna aberta desde a Fase 4). API de saldo/ledger para o produtor e backoffice de repasse (bloqueado sem KYC aprovado, confirmação manual da transferência até o split real do Pagar.me). Testado de ponta a ponta: venda → saldo líquido correto → payout bloqueado sem KYC → aprovado → payout pago → saldo zera → estorno pós-payout devolve estoque e deixa saldo negativo (repasse futuro descontado), disponível-para-repasse travado em zero. | Fase 9 (núcleo) concluída. Split real com Pagar.me (recebedores/KYC) fica para quando o comercial fechar a conta PSP. |
 | 2026-07-23 | Amanda + Claude | **Fase 8**: dashboard do produtor (receita, pedidos, participantes, export CSV) e backoffice mínimo (organizações, taxa configurável por org, eventos, busca de pedidos, reenvio, estorno controlado via gateway, webhooks, saúde das filas), com `PlatformRole` (SUPPORT/ADMIN) novo no schema e auditoria em toda ação sensível. Testado de ponta a ponta com um pedido real pago via mock gateway até `FULFILLED` e depois estornado pelo backoffice. | Fase 8 concluída. Próximo: Fase 9 (ledger, taxas, estornos com devolução de estoque e repasses). |
