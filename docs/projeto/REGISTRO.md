@@ -59,14 +59,23 @@
   (~12%), Even3/Ingresse (10%) e challengers (7,99%).
   **⏳ Aguardando o OK do Arthur para fechar o provedor e escrever o adapter real.**
 
+### Decisões tomadas (2026-07-23)
+
+- ✅ **Taxa BoraFest ao produtor CONFIRMADA pelo Arthur**: Pix **4,99%**
+  (piso R$2,49/ingresso), cartão **6,99%**, juros de parcelamento repassados ao
+  COMPRADOR, boleto R$3,49 repassado ao comprador. Headline: "a partir de 4,99%
+  no Pix, teto de 6,99%". Estrutura híbrida (%+piso fixo) também por prudência
+  jurídica (entendimento Procon-SP vs. taxa percentual pura).
+- ⏳ **Gateway primário EM DISCUSSÃO** (Arthur quer avaliar antes de fechar).
+  Recomendação na mesa: Pagar.me primário + Asaas fallback.
+
 ### Próximo passo
 
-1. **Decisão pendente**: confirmar Pagar.me (primário) + Asaas (fallback) e a
-   estrutura de taxa. Registrar a decisão aqui.
-2. Escrever o `PagarmeAdapter` real (recebedores/KYC, split, webhooks
-   `X-Hub-Signature`, tokenizecard.js) atrás da mesma interface — o mock continua
-   nos testes.
-3. Abrir conta PSP Pagar.me + negociar Plano Customizado por volume (comercial).
+1. **Fechar o gateway primário com o Arthur** (discussão em andamento) e
+   registrar aqui.
+2. Escrever o adapter real do provedor escolhido atrás da interface
+   `PaymentGateway` — o mock continua nos testes.
+3. Abrir conta/negociar taxas por volume com o comercial do provedor.
 4. Seguir para a Fase 5 (carteira web, e-mail, WhatsApp e links profundos).
 
 ---
