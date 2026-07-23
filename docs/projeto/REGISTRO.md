@@ -465,6 +465,28 @@ capacidade 20** (escala mais realista de evento-piloto) → exatamente 20
 reservadas, 480 recusadas, 0 erro de rede, 139 req/s. Zero overselling nas
 duas, no processo real da API (não um script isolado).
 
+### Fase 11 (rate limit) — CRIADO ✅
+
+`RateLimitGuard` (`apps/api/src/common/rate-limit.guard.ts`), guard global
+via `APP_GUARD`, contando requisições no Redis (`INCR`+`EXPIRE`). Fallback
+de 120/min/IP em toda rota sem anotação; rotas sensíveis anotadas com
+`@RateLimit`: `POST /v1/identity/otp/request` (5/15min, por **destino**
+— não só IP, senão dá pra spammar um e-mail alheio de vários IPs),
+`POST /v1/identity/otp/verify` (10/15min por IP — defesa em profundidade;
+o limite de 5 tentativas por código já existia por challenge desde a
+Fase 1) e `POST /v1/reservations` (20/min por IP — trava bot de scalping
+sem incomodar compra legítima).
+
+Testado ao vivo contra a API rodando: 6ª tentativa de OTP pro mesmo
+destino em 15min → `429`; destino diferente não é afetado (chave por
+destino, não só IP); 21ª reserva do mesmo IP em 1min → `429`.
+**Ajuste no teste de carga**: o rate limit por IP começou a interferir no
+`load-test-reservations.ts` (que dispara tudo de um processo só); corrigido
+mandando um `x-forwarded-for` diferente por tentativa — mais realista
+também (simula compradores distintos, não um bot de um IP), e o teste
+voltou a passar limpo (100 tentativas, 5 reservadas, zero interferência
+do rate limit).
+
 ### Próximo passo
 
 1. ~~Abrir checkout, painel e backoffice num navegador de verdade~~ ✅
@@ -480,11 +502,10 @@ duas, no processo real da API (não um script isolado).
    autenticação do webhook no dashboard; provedor real de e-mail e BSP de
    WhatsApp (cada um vira adapter).
 5. Fase 10: publicação do BoraFest Check-in nas lojas (só depois do app
-   testado em aparelho). Resto da Fase 11 (checklist de hardening —
-   backup/restore, rate limit em rotas públicas, alertas) e Fase 12 (app
-   público do comprador, `apps/mobile-public`, ainda vazio) são as próximas
-   frentes que dá pra avançar sem depender de device físico ou decisão
-   comercial.
+   testado em aparelho). Resto da Fase 11 (backup/restore testado,
+   alertas de observabilidade) e Fase 12 (app público do comprador,
+   `apps/mobile-public`, ainda vazio) são as próximas frentes que dá pra
+   avançar sem depender de device físico ou decisão comercial.
 
 ---
 
@@ -502,7 +523,7 @@ duas, no processo real da API (não um script isolado).
 | 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ✅ Concluída (backend + `apps/producer` + `apps/admin`) | `7288370`, `cabfb6f` |
 | 9 | Ledger, taxas, estornos e repasses | 🟢 Núcleo concluído (split real com Pagar.me fica p/ quando o KYC comercial estiver pronto) | `c3cd744` |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
-| 11 | Evento-piloto, testes de carga e hardening | 🟡 Teste de carga do estoque criado e passando (500 concorrentes, zero overselling); resto do hardening/evento-piloto não iniciado | (este commit) |
+| 11 | Evento-piloto, testes de carga e hardening | 🟡 Teste de carga do estoque (500 concorrentes, zero overselling) + rate limit em OTP/reservas; backup/restore e alertas ainda não iniciados | (este commit) |
 | 12 | App público BoraFest (carteira, descoberta, notificações) | ⬜ Não iniciada | — |
 
 > Decisão de produto: **backend primeiro**. O frontend já foi prototipado e será
@@ -517,6 +538,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Fase 11 (rate limit)**: `RateLimitGuard` global (Redis `INCR`+`EXPIRE`, fallback 120/min/IP) com `@RateLimit` em `otp/request` (5/15min por destino), `otp/verify` (10/15min por IP) e `POST /v1/reservations` (20/min por IP) — item do §15 que não existia. Testado ao vivo: 429 na 6ª tentativa de OTP pro mesmo destino, destino diferente não afetado, 429 na 21ª reserva do mesmo IP. Ajustei o `load-test-reservations.ts` pra mandar `x-forwarded-for` diferente por tentativa (senão o próprio rate limit atrapalhava o teste de estoque) — ficou mais realista de quebra (simula compradores distintos). | Rate limit no ar em OTP e checkout. Próximo: resto do hardening (backup/restore, alertas) ou Fase 12 (app público). |
 | 2026-07-23 | Amanda + Claude | **Fase 11 (teste de carga)**: `apps/api/scripts/load-test-reservations.ts` (`pnpm --filter @borafest/api load-test`) dispara N reservas HTTP concorrentes de verdade contra um lote recém-criado — o teste bloqueante da arquitetura §22, agora repetível a qualquer momento em vez de manual. Rodado em 2 escalas contra a API real: 100 tentativas/capacidade 5 (133 req/s) e 500 tentativas/capacidade 20 (139 req/s, escala de evento-piloto) — zero overselling e zero erro de rede nas duas. | Teste de carga do estoque pronto. Falta o resto do checklist de hardening (backup/restore, rate limit, alertas) antes de fechar a Fase 11 de vez. Próximo: Fase 12 (app público) ou completar o hardening. |
 | 2026-07-23 | Amanda + Claude | **Testes automatizados de regressão** (`apps/api/src/__tests__`, Node test runner via `tsx --test`): concorrência de estoque (10 tentativas vs. capacidade 3 → exatamente 3), fluxo pedido→pagamento→ledger com webhook duplicado (no-op, sem duplicar lançamento) e corrida de check-in (8 aparelhos, 1 `VALID`). 2 bugs achados NOS TESTES (não no app): conexão Redis/BullMQ pendurada travando o test runner (resolvido com `closeRedisConnection()` novo em `packages/queues`) e um fixture de teste gerando código de ingresso em minúsculo que nunca batia com a busca `toUpperCase()` do `CheckinsService` (corrigido usando o gerador de código de verdade). `pnpm --filter @borafest/api test` roda os 3, todos passando, dados de teste limpos automaticamente. | Primeira leva de testes de regressão pronta. Próximo: Fase 11 (evento-piloto/hardening) ou Fase 12 (app público) — as frentes que dão pra avançar sem device físico nem decisão comercial. |
 | 2026-07-23 | Arthur + Claude | **Validação em navegador real dos 3 frontends**: compra completa clicada no checkout (Pix mock → carteira avançando sozinha), painel do produtor via OTP (dashboard, participantes, portaria, financeiro com a taxa 4,99% ao vivo) e backoffice ADMIN (pedidos, filas, auditoria). Bug real corrigido nos 3 `lib/api.ts`: Content-Type em POST sem corpo causava 400 do Fastify em toda ação sem payload (reenvio/estorno/bloqueio/marcar-pago). | Frontends web aprovados. Falta: app RN em aparelho físico (Expo Go) e split real Pagar.me. |

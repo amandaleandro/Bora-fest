@@ -118,6 +118,18 @@ KYC do produtor ser aprovado.
   `closeRedisConnection()` (`@borafest/queues`) num hook `after()`, senão o
   test runner nunca sai (a conexão fica viva pra sempre, correto numa API
   mas não num script de teste).
+- Rate limit (§15, Fase 11): `RateLimitGuard` (`apps/api/src/common/`),
+  guard global (`APP_GUARD`) que conta requisições no Redis (`INCR`+
+  `EXPIRE`), com fallback de 120/min/IP pra rotas sem anotação. Anotar
+  rotas sensíveis com `@RateLimit({ limit, windowSeconds, keyPrefix, by })`
+  — `by: "body:<campo>"` combina IP + um campo do corpo (usado no
+  `otp/request` pra travar por `destination`, não só por IP, senão um
+  atacante distribuído ainda spamaria um único e-mail). Hoje aplicado em
+  `otp/request` (5/15min por destino), `otp/verify` (10/15min por IP) e
+  `POST /v1/reservations` (20/min por IP). **Importante pra quem for medir
+  carga**: o `load-test-reservations.ts` manda um `x-forwarded-for`
+  diferente por tentativa de propósito, senão o próprio rate limit
+  atrapalha o teste de estoque (o guard lê o header antes do `request.ip`).
 
 ## Fluxo de trabalho combinado
 

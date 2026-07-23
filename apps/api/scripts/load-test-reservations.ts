@@ -60,11 +60,18 @@ async function main() {
     console.log(`Disparando ${ATTEMPTS} reservas concorrentes de 1 unidade contra a API HTTP...`);
     const startedAt = Date.now();
 
+    // X-Forwarded-For distinto por tentativa: simula compradores reais e
+    // diferentes (o cenário do §22), e também evita que o rate limit por IP
+    // (Fase 11) confunda "um script disparando rápido" com "flood de um
+    // usuário só" — aqui queremos testar o estoque, não o rate limiter.
     const results = await Promise.allSettled(
-      Array.from({ length: ATTEMPTS }, () =>
+      Array.from({ length: ATTEMPTS }, (_, i) =>
         fetch(`${API_BASE_URL}/v1/reservations`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": `203.0.113.${i % 254}`,
+          },
           body: JSON.stringify({ eventId: event.id, items: [{ ticketLotId: lot.id, quantity: 1 }] }),
         }).then(async (res) => ({ status: res.status, body: await res.json() })),
       ),

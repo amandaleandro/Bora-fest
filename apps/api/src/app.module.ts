@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { HealthModule } from "./health/health.module";
 import { IdentityModule } from "./identity/identity.module";
@@ -17,6 +18,7 @@ import { CheckinsModule } from "./checkins/checkins.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { AdminModule } from "./admin/admin.module";
 import { FinanceModule } from "./finance/finance.module";
+import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
   imports: [
@@ -39,5 +41,6 @@ import { FinanceModule } from "./finance/finance.module";
     AdminModule,
     FinanceModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
 export class AppModule {}
