@@ -349,6 +349,40 @@ sempre, sem ferramenta de browser neste ambiente.
 Com isso, as três frentes de frontend web que dependiam só da API
 existente estão prontas: checkout, painel do produtor e backoffice.
 
+### App de check-in — bug real de bundling encontrado e corrigido ✅
+
+Sem emulador/celular neste ambiente, tentei uma validação mais forte que
+`tsc` para o `apps/mobile-checkin`: `expo-doctor` (16/17 checks — só
+`typescript` numa versão mais nova que o esperado pelo SDK, inofensivo) e,
+principalmente, `npx expo export --platform android|ios`, que roda o
+bundler Metro de verdade. **Isso pegou um bug real que o typecheck nunca
+pegaria**: faltava `metro.config.js` configurado pra monorepo pnpm —
+Metro tem resolução de módulos própria (não usa `require.resolve` do
+Node) e quebrava de três formas em cascata sob os symlinks do pnpm:
+
+1. Não achava `./node_modules/expo/AppEntry.js` (o `main` default do
+   Expo) a partir do symlink do app.
+2. Depois de apontar `nodeModulesPaths` pro workspace root, não achava
+   `@babel/runtime` (dependência transitiva do `expo`, não hoisted pelo
+   pnpm) — resolvido adicionando `@babel/runtime` como dependência direta
+   do app.
+3. O próprio `expo/AppEntry.js` faz `import App from '../../App'` — um
+   caminho relativo que, seguido a partir do destino REAL do symlink
+   (dentro de `node_modules/.pnpm/expo@.../`), aponta pro lugar errado.
+   Resolvido trocando o entry point: `index.js` próprio na raiz do app
+   (`registerRootComponent` direto, sem depender do `AppEntry.js` do
+   pacote) + `"main": "index.js"` no `package.json`.
+
+Com os três ajustes, `expo export` gerou o bundle de verdade pras duas
+plataformas: **Android, 583 módulos, 1.62 MB** e **iOS, 584 módulos,
+1.61 MB**, ambos sem erro. Isso é uma prova bem mais forte que "os tipos
+batem" — o grafo de dependências inteiro do app resolve e o código
+transpila de ponta a ponta. Ainda não prova que a UI renderiza certo ou
+que a câmera/SQLite funcionam em runtime (isso só um aparelho/emulador
+de verdade mostra), mas elimina uma categoria inteira de erro
+("funciona no `tsc`, quebra no `expo start`") antes mesmo de alguém
+tentar abrir o app.
+
 ### Próximo passo
 
 1. **Abrir checkout, painel do produtor e backoffice num navegador de
@@ -356,8 +390,8 @@ existente estão prontas: checkout, painel do produtor e backoffice.
    de verdade ainda, só validado por contrato de API + build (este
    ambiente não tem ferramenta de screenshot/browser).
 2. **Testar o app de check-in em dispositivo real** (Expo Go, depois
-   development build) — validar câmera, fluxo offline/online de verdade,
-   antes de qualquer publicação em loja.
+   development build) — agora que o bundle resolve de verdade, falta
+   validar câmera, fluxo offline/online e UI na prática.
 3. **Split real com Pagar.me** (comercial + código): recebedores/KYC por
    organização, hold-até-aprovação de fato (hoje é só o gate de
    `Organization.status`), execução automática do repasse via API do
@@ -400,6 +434,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Amanda + Claude | **Validação extra do app de check-in** sem aparelho físico: `expo-doctor` (16/17 ok) e, principalmente, `expo export --platform android/ios` rodando o bundler Metro de verdade — achou 3 erros reais em cascata por falta de `metro.config.js` configurado pra pnpm (resolução de symlink, `@babel/runtime` não hoisted, e o próprio `AppEntry.js` do pacote `expo` fazendo um import relativo que quebra sob symlink). Corrigido com `metro.config.js` + `@babel/runtime` como dependência direta + `index.js` próprio como entry point (mais robusto que depender do `AppEntry.js` do pacote). Bundle final: Android 583 módulos/1.62MB, iOS 584/1.61MB, ambos sem erro — prova bem mais forte que typecheck de que o app resolve de ponta a ponta. | Bundle valida limpo nas duas plataformas. Ainda falta abrir de verdade num aparelho/Expo Go pra validar UI, câmera e fluxo offline na prática. |
 | 2026-07-23 | Amanda + Claude | **Backoffice web** (`apps/admin`, Next.js/TS/Tailwind, mesmo padrão de OTP+localStorage do painel, mas o `AuthGuard` também barra quem não tem `platformRole`): organizações (taxa, bloqueio, repasse), eventos (bloqueio), pedidos (busca/reenvio/estorno), payouts (marcar pago), webhooks, filas (job counts das 5 filas + outbox) e auditoria. Todos os contratos bateram exatamente com as interfaces TS do frontend sem precisar de ajuste no backend desta vez. `next build`/`tsc` limpos, validado via curl com o mesmo token/contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva de sempre). Com isso as 3 frentes de frontend web que só dependiam da API existente (checkout, painel do produtor, backoffice) estão prontas. | Backoffice web pronto. Próximo: alguém abrir os 3 frontends num navegador de verdade, testar o app RN em aparelho, ou avançar pro split real com Pagar.me. |
 | 2026-07-23 | Amanda + Claude | **Painel do produtor** (`apps/producer`, Next.js/TS/Tailwind, login por OTP com token em localStorage): organizações, eventos (criar/publicar), catálogo (tipo+lote com ativação), dashboard, participantes+export CSV (via fetch+blob por causa do header Authorization), financeiro (saldo/ledger) e portaria (portões, PIN de validador, dispositivos). Achadas e corrigidas 2 lacunas reais no backend testando de verdade: faltava `GET /v1/organizations` (listar orgs do usuário) e o dashboard não expunha `ticketTypeId` por lote (impossível criar lote sem digitar UUID à mão). `next build`/`tsc` limpos, fluxo validado via curl com os mesmos contratos do frontend. **Não aberto num navegador de verdade** (mesma ressalva do checkout). | Painel do produtor pronto. Próximo: backoffice web (`apps/admin`), depois testar tudo (checkout+painel+app RN) numa sessão com navegador/aparelho de verdade. |
 | 2026-07-23 | Amanda + Claude | **Checkout web** (`apps/checkout`, Next.js/TS/Tailwind): página do evento, checkout com Pix (QR via `react-qr-code`) e carteira com os ingressos, tudo consumindo a API que já existia. Achado um bug real testando contra a API de verdade (não só typecheck): `GET /v1/orders/:publicToken/tickets` devolve um objeto `{event, tickets}`, não um array — o cliente HTTP assumia array errado, corrigido antes de commitar. `next build`/`tsc` limpos; fluxo validado via curl simulando as chamadas do frontend (reserva → pedido → Pix mock → webhook → `FULFILLED`), mas **não aberto num navegador de verdade** (sem ferramenta de browser neste ambiente). | Checkout web pronto, falta alguém abrir no navegador uma vez. Próximo: painel do produtor/backoffice web (mesma ideia, consumir API existente) ou testar o app de check-in em aparelho. |

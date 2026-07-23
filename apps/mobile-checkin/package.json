@@ -2,7 +2,7 @@
   "name": "@borafest/mobile-checkin",
   "version": "0.0.1",
   "private": true,
-  "main": "node_modules/expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@babel/runtime": "^7.25.0",
     "expo": "~51.0.28",
     "expo-camera": "~15.0.16",
     "expo-crypto": "~13.0.2",

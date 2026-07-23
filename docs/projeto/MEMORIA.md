@@ -52,7 +52,15 @@ KYC do produtor ser aprovado.
   em `App.tsx` — só 3 telas, não precisava de mais). SQLite local
   (`expo-sqlite`) cacheia o manifesto e a fila offline; `expo-secure-store`
   guarda o token do aparelho. **Não tem app.build no turbo, só `typecheck`**
-  (roda via `expo start`, não `tsc`/`nest build`).
+  (roda via `expo start`, não `tsc`/`nest build`). Entry point é `index.js`
+  próprio (`registerRootComponent` direto), NÃO `node_modules/expo/
+  AppEntry.js` (o default do Expo) — esse arquivo faz um import relativo
+  que quebra sob os symlinks do pnpm. Tem `metro.config.js` configurado
+  pra monorepo pnpm (`nodeModulesPaths` incluindo a raiz do workspace +
+  `unstable_enableSymlinks: true`) — **sem isso o Metro não builda em
+  monorepo pnpm de jeito nenhum**, é a config mínima pra qualquer app
+  Expo/RN novo aqui dentro (`apps/mobile-public` vai precisar da mesma
+  coisa quando existir).
 - `apps/checkout` — checkout web do comprador (Fase 3), Next.js 14 (App
   Router) + TypeScript + Tailwind. Sem TanStack Query por ora (fetch direto
   com `useState`/`useEffect` e polling manual de status) — simplificação
@@ -237,9 +245,11 @@ KYC do produtor ser aprovado.
 - Backoffice (Fase 8): nenhum usuário tem `platformRole` por padrão (nem o
   seed). Para testar localmente, promova via Prisma Studio/SQL:
   `UPDATE users SET platform_role = 'ADMIN' WHERE email = '...'`.
-- App de check-in (Fase 6): código em `apps/mobile-checkin` nunca rodou de
-  fato — este ambiente de trabalho não tem emulador Android/iOS nem celular
-  físico. Antes de confiar nele, testar via Expo Go
+- App de check-in (Fase 6): o bundle (`expo export`, Metro de verdade) já
+  passa limpo nas duas plataformas — ver `metro.config.js` acima — mas
+  ainda nunca rodou numa tela de verdade, porque este ambiente de trabalho
+  não tem emulador Android/iOS nem celular físico. Antes de confiar nele,
+  testar via Expo Go
   (`docs/projeto/API-REFERENCE.md` + `apps/mobile-checkin/README.md` têm o
   que já é sabido/faltando). Verificação de assinatura do QR no aparelho
   (offline) não foi implementada de propósito — ver README do app.
