@@ -17,8 +17,8 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Fase 5 — Carteira web, e-mail, WhatsApp e links profundos (backend concluído) |
-| **Status da fase** | 🟢 Backend da Fase 5 pronto e testado; UI da carteira fica para a etapa de front |
+| **Fase em andamento** | Fases 6/7 — check-in (lado servidor concluído; app RN fica p/ etapa mobile) |
+| **Status da fase** | 🟢 Backend do check-in pronto e testado de ponta a ponta |
 | **Última atualização** | 2026-07-23 |
 | **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
@@ -97,16 +97,38 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
 - Testado de ponta a ponta: fluxo Pix → SENT nos 2 canais no log do adapter,
   link presente, reenvio bloqueado após limite.
 
+### Fases 6/7 (backend do check-in) — CONCLUÍDAS ✅ (lado servidor)
+
+- Schema: `checkin_points`, `validator_credentials` (PIN hasheado),
+  `validator_devices` (token hasheado + bloqueio remoto), `checkins`
+  (CONFIRMED/CONFLICT/REVERSED, unique device+localSeq), `checkin_sync_batches`
+  (idempotência por lote); `Ticket.updatedAt` p/ manifesto delta
+  (migration `checkin_validators`).
+- Produtor (RBAC): criar/listar portões, gerar credencial PIN (PIN mostrado
+  uma única vez, só hash no banco), listar/bloquear dispositivos.
+- App validador: `POST /v1/validator/sessions` (PIN → registra aparelho e
+  devolve token de dispositivo), refresh de token, manifesto completo e delta
+  (`?since=`) com a chave pública Ed25519 do evento.
+- `POST /v1/checkins`: QR verificado criptograficamente no servidor, transição
+  atômica "primeiro vence" (VALID/ALREADY_USED/INVALID/CANCELED + quem validou
+  antes); `POST /v1/checkins/sync` idempotente por (device, batchKey) com
+  CONFLICT auditável; reversão com permissão + audit_log; `checkin-live`.
+- Testado de ponta a ponta (8 cenários §22): PIN errado 401, QR válido,
+  duplicado com identificação do 1º aparelho, QR adulterado, sync com
+  conflito, reenvio de lote idêntico sem duplicar, reversão devolvendo o
+  ingresso a ACTIVE com auditoria, bloqueio remoto cortando o scan (401).
+
 ### Próximo passo
 
-1. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
-   configurar autenticação do webhook no dashboard; escolher provedor real de
-   e-mail (Resend/SES/Postmark) e BSP de WhatsApp — cada um vira um adapter.
-2. **Fase 6/7 (parte backend do check-in)**: endpoints de validação da §13 —
-   sessões de validador por PIN, registro/autorização de dispositivo,
-   manifesto (usa a chave pública Ed25519 já criada por evento), `POST
-   /v1/checkins` + `/sync` idempotente com resolução de conflito offline.
-3. Depois: Fase 8 (painel de vendas/pedidos/participantes + backoffice mínimo).
+1. **Fase 8 (backend)**: painel do produtor — vendas/pedidos/participantes por
+   evento, `GET /v1/events/:id/dashboard`, exportações mínimas + backoffice
+   mínimo (§17): listar organizadores/eventos, configurar taxa, consultar
+   pedidos/webhooks/filas, reenviar ingresso, estorno controlado, bloqueios.
+2. Comercial (não bloqueia código): conta PSP Pagar.me + Plano Customizado;
+   autenticação do webhook no dashboard; provedor real de e-mail e BSP de
+   WhatsApp (cada um vira adapter).
+3. Depois da Fase 8: Fase 9 (ledger, taxas, estornos e repasses) — aí entra o
+   split Pagar.me com recebedores/KYC e a taxa decidida (4,99%/6,99%).
 
 ---
 
@@ -118,9 +140,9 @@ Troca de provedor = env `PAYMENTS_PROVIDER`.
 | 2 | Eventos, tipos, lotes, estoque e publicação | ✅ Concluída | `05ff2f3` |
 | 3 | Checkout web, reserva e pedidos (checkout mínimo via API) | ✅ Concluída | `277e684` |
 | 4 | Gateway, webhooks, pagamentos e emissão de ingressos | ✅ Concluída | `9f362ff`, `ab18e51` |
-| 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | (este commit) |
-| 6 | App React Native de check-in online | ⬜ Não iniciada | — |
-| 7 | Manifesto, SQLite, assinatura local e sincronização offline | ⬜ Não iniciada | — |
+| 5 | Carteira web, e-mail, WhatsApp e links profundos | 🟢 Backend concluído (UI fica p/ etapa de front) | `ed79eb6` |
+| 6 | App React Native de check-in online | 🟢 Backend concluído (app RN fica p/ etapa mobile) | (este commit) |
+| 7 | Manifesto, SQLite, assinatura local e sincronização offline | 🟢 Backend concluído (manifesto/delta, sync idempotente) | (este commit) |
 | 8 | Painel de vendas, pedidos, participantes e backoffice mínimo | ⬜ Não iniciada | — |
 | 9 | Ledger, taxas, estornos e repasses | ⬜ Não iniciada | — |
 | 10 | Publicação do BoraFest Check-in nas lojas | ⬜ Não iniciada | — |
@@ -139,6 +161,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-23 | Arthur + Claude | **Fases 6/7 (backend do check-in)**: portões e PIN pelo produtor, sessão do validador por PIN + registro/refresh/bloqueio de dispositivo, manifesto completo/delta com chave pública Ed25519, check-in atômico "primeiro vence" com verificação criptográfica do QR, sync offline idempotente por lote com trilha de conflito, reversão auditada e painel ao vivo. 8 cenários E2E passando. | Backend do check-in pronto. Próximo: Fase 8 (dashboard produtor + backoffice mínimo). |
 | 2026-07-23 | Arthur + Claude | **Fase 5 (backend)**: package notifications (e-mail/WhatsApp por adapter + templates pt-BR), fila persistente `notifications` com retry, entrega disparada na mesma transação do FULFILLED, link profundo da carteira, endpoint de reenvio com limite. Testado de ponta a ponta (SENT nos 2 canais, link ok, limite ok). | Backend da F5 pronto. Próximo: backend do check-in (Fases 6/7 — sessões de validador, manifesto, checkins/sync). |
 | 2026-07-23 | Arthur | **Decisões**: taxa BoraFest confirmada (Pix 4,99% piso R$2,49 / cartão 6,99%, parcelamento no comprador) e **Pagar.me confirmado como gateway primário** (fácil de trocar via adapter/env). MP descartado (sem custódia própria) e Celcoin (não é mais barato em ticket baixo + escrow manual). | — |
 | 2026-07-23 | Arthur + Claude | **Fase 4 (fechamento)**: `PagarmeGateway` real com fatos verificados na doc oficial v5 (webhook v5 sem HMAC → Basic; header `Idempotency-key`; customer completo p/ Pix) + 13 testes unitários. | Fase 4 concluída. |

@@ -12,6 +12,8 @@ import { PaymentsModule } from "./payments/payments.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { TicketsModule } from "./tickets/tickets.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { ValidatorModule } from "./validator/validator.module";
+import { CheckinsModule } from "./checkins/checkins.module";
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { NotificationsModule } from "./notifications/notifications.module";
     WebhooksModule,
     TicketsModule,
     NotificationsModule,
+    ValidatorModule,
+    CheckinsModule,
   ],
 })
 export class AppModule {}
