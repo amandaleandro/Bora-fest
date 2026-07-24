@@ -1,88 +1,59 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { identityApi, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+import { passwordAuth } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { AuthShell, inputCls, labelCls, primaryBtn } from "../../components/AuthShell";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
-  const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function handleRequestCode() {
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
     setError(null);
-    setSubmitting(true);
     try {
-      await identityApi.requestOtp(email);
-      setStep("code");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível enviar o código");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleVerifyCode() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const response = await identityApi.verifyOtp(email, code);
-      login(response.token, response.user);
+      const res = await passwordAuth.login(email, password);
+      login(res.token, res.user);
       router.push("/organizacoes");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Código inválido");
-    } finally {
-      setSubmitting(false);
+      setError(err instanceof Error ? err.message : "E-mail ou senha inválidos");
+      setBusy(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center">
-      <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold">Painel do produtor</h1>
-        <p className="mt-1 text-gray-400">Entre com o e-mail cadastrado — sem senha.</p>
-
-        <div className="mt-8 space-y-4">
-          <div>
-            <label className="mb-1 block text-sm text-gray-300">E-mail</label>
-            <input
-              type="email"
-              className="w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={step === "code"}
-            />
-          </div>
-
-          {step === "code" ? (
-            <div>
-              <label className="mb-1 block text-sm text-gray-300">Código recebido por e-mail</label>
-              <input
-                className="w-full"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                maxLength={6}
-              />
-            </div>
-          ) : null}
-
-          {error ? <p className="text-sm text-red-400">{error}</p> : null}
-
-          <button
-            type="button"
-            className="w-full rounded-lg bg-brand px-6 py-3 font-semibold text-brand-dark disabled:opacity-40"
-            onClick={step === "email" ? handleRequestCode : handleVerifyCode}
-            disabled={submitting || (step === "email" ? !email.includes("@") : code.length !== 6)}
-          >
-            {submitting ? "Aguarde..." : step === "email" ? "Enviar código" : "Entrar"}
-          </button>
+    <AuthShell>
+      <h1 className="text-[26px] font-extrabold">Entrar no painel</h1>
+      <p className="mt-1 text-[13px] font-medium text-muted">Gerencie eventos, vendas e repasses.</p>
+      <form onSubmit={submit} className="mt-6 space-y-4">
+        <div>
+          <label className={labelCls}>E-mail</label>
+          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="voce@produtora.com" />
         </div>
-      </div>
-    </main>
+        <div>
+          <label className={labelCls}>Senha</label>
+          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
+          <div className="mt-1 text-right">
+            <Link href="/recuperar" className="text-[12px] font-bold text-primary">Esqueci minha senha</Link>
+          </div>
+        </div>
+        {error && <p className="text-[12px] font-semibold text-danger">{error}</p>}
+        <button type="submit" disabled={busy} className={primaryBtn}>{busy ? "Entrando…" : "Entrar"}</button>
+      </form>
+      <button disabled className="mt-3 h-12 w-full rounded-xl border-[1.5px] border-line-input text-[13px] font-bold text-muted-3">
+        Entrar com Google · em breve
+      </button>
+      <p className="mt-6 text-center text-[13px] font-semibold text-muted">
+        Novo por aqui? <Link href="/cadastro" className="font-extrabold text-primary">Criar conta de produtor</Link>
+      </p>
+    </AuthShell>
   );
 }

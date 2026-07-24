@@ -33,7 +33,7 @@
 
 | # | Tela | Status |
 |---|---|---|
-| C1 | Auth split-screen (login senha, cadastro, recuperar) | ⬜ |
+| C1 | Auth split-screen (login senha, cadastro, recuperar) | ✅ 2026-07-24 |
 | C2 | Onboarding organizador (PF/PJ + dados bancários, banner "vendas não bloqueiam") | ⬜ |
 | C3 | Meus eventos (tabela, vazio) | ⬜ |
 | C4 | Criar evento — wizard 3 etapas (dados/ingressos/publicar, modal de ingresso) | ⬜ |

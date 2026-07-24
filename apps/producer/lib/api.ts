@@ -265,3 +265,50 @@ export const validatorConfigApi = {
   blockDevice: (token: string, eventId: string, deviceId: string) =>
     request(`/v1/events/${eventId}/validator-devices/${deviceId}/block`, { method: "POST", token }),
 };
+
+export const passwordAuth = {
+  register: (input: { name: string; email: string; password: string }) =>
+    request<{ token: string; user: SessionUser }>("/v1/identity/register", {
+      method: "POST",
+      body: { ...input, acceptTerms: true },
+    }),
+  login: (email: string, password: string) =>
+    request<{ token: string; user: SessionUser }>("/v1/identity/login", {
+      method: "POST",
+      body: { email, password },
+    }),
+  recover: (email: string) =>
+    request<{ sent: boolean }>("/v1/identity/recover", { method: "POST", body: { email } }),
+  reset: (token: string, password: string) =>
+    request<{ token: string; user: SessionUser }>("/v1/identity/reset-password", {
+      method: "POST",
+      body: { token, password },
+    }),
+};
+
+export const eventControls = {
+  unpublish: (eventId: string, token: string) =>
+    request(`/v1/events/${eventId}/unpublish`, { method: "POST", token }),
+  republish: (eventId: string, token: string) =>
+    request(`/v1/events/${eventId}/republish`, { method: "POST", token }),
+  update: (eventId: string, body: Record<string, unknown>, token: string) =>
+    request(`/v1/events/${eventId}`, { method: "PATCH", body, token }),
+};
+
+export const couponsApi = {
+  list: (eventId: string, token: string) =>
+    request<Array<{ id: string; code: string; discountType: string; discountValue: number; redeemedCount: number; maxRedemptions: number | null; active: boolean }>>(
+      `/v1/events/${eventId}/coupons`, { token }),
+  create: (eventId: string, body: Record<string, unknown>, token: string) =>
+    request(`/v1/events/${eventId}/coupons`, { method: "POST", body, token }),
+  deactivate: (couponId: string, token: string) =>
+    request(`/v1/coupons/${couponId}/deactivate`, { method: "POST", token }),
+};
+
+export const complimentaryApi = {
+  list: (eventId: string, token: string) =>
+    request<Array<{ id: string; publicToken: string; contactName: string | null; contactEmail: string; status: string; createdAt: string; items: Array<{ quantity: number; ticketLot: { name: string } }> }>>(
+      `/v1/events/${eventId}/complimentary-tickets`, { token }),
+  issue: (eventId: string, body: Record<string, unknown>, token: string) =>
+    request(`/v1/events/${eventId}/complimentary-tickets`, { method: "POST", body, token }),
+};

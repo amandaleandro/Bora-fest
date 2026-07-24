@@ -37,4 +37,14 @@ export class EventsController {
   publish(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.eventsService.publish(id, userId);
   }
+
+  @Post("v1/events/:id/unpublish")
+  unpublish(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.eventsService.unpublish(id, userId);
+  }
+
+  @Post("v1/events/:id/republish")
+  republish(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.eventsService.republish(id, userId);
+  }
 }

@@ -80,4 +80,38 @@ export class EventsService {
       data: { status: "PUBLISHED", publishedAt: new Date() },
     });
   }
+
+  /** Despublicar = pausar vendas (máquina de estados §9: PUBLISHED → SALES_PAUSED). */
+  async unpublish(eventId: string, actorUserId: string) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+
+    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_PUBLISH);
+
+    if (event.status !== "PUBLISHED") {
+      return event;
+    }
+
+    return prisma.event.update({
+      where: { id: eventId },
+      data: { status: "SALES_PAUSED" },
+    });
+  }
+
+  /** Republicar depois de pausar (SALES_PAUSED → PUBLISHED). */
+  async republish(eventId: string, actorUserId: string) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+
+    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_PUBLISH);
+
+    if (event.status !== "SALES_PAUSED") {
+      return event;
+    }
+
+    return prisma.event.update({
+      where: { id: eventId },
+      data: { status: "PUBLISHED" },
+    });
+  }
 }
