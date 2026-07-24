@@ -123,6 +123,36 @@ export function renderOtpWhatsApp(payload: OtpCodePayload) {
   };
 }
 
+
+export interface PasswordResetPayload {
+  resetUrl: string;
+  ttlMinutes: number;
+}
+
+export function renderPasswordResetEmail(to: string, payload: PasswordResetPayload): EmailMessage {
+  const text = [
+    "Recebemos um pedido para redefinir sua senha do painel BoraFest.",
+    "",
+    `Redefina aqui (válido por ${payload.ttlMinutes} minutos): ${payload.resetUrl}`,
+    "",
+    "Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.",
+    "",
+    "Equipe BoraFest",
+  ].join("\n");
+
+  const html = `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p>Recebemos um pedido para redefinir sua senha do painel BoraFest.</p>
+  <p style="margin:24px 0">
+    <a href="${escapeHtml(payload.resetUrl)}" style="background:#6d28d9;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none">Redefinir senha</a>
+  </p>
+  <p style="color:#666;font-size:13px">O link vale por ${payload.ttlMinutes} minutos. Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim();
+
+  return { to, subject: "Redefinição de senha — BoraFest", html, text };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

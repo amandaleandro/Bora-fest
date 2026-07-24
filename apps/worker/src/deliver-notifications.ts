@@ -8,6 +8,8 @@ import {
   renderOtpEmail,
   renderOtpWhatsApp,
   type OtpCodePayload,
+  renderPasswordResetEmail,
+  type PasswordResetPayload,
   renderTicketDeliveryWhatsApp,
   type TicketDeliveryPayload,
 } from "@borafest/notifications";
@@ -89,6 +91,14 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para otp_code: ${channel}`);
+  }
+
+  if (template === "password_reset") {
+    if (channel === "EMAIL") {
+      await getEmailSender().send(renderPasswordResetEmail(recipient, payload as PasswordResetPayload));
+      return;
+    }
+    throw new Error(`Canal não suportado para password_reset: ${channel}`);
   }
 
   if (template !== "ticket_delivery") {

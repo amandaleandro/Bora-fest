@@ -9,7 +9,7 @@
 |---|---|---|---|
 | A1 | OTP enviado de verdade via fila de notificações (template `otp_code`) | pedir OTP → notification SENT com o código no adapter | ✅ 2026-07-24 |
 | A2 | Corrigir estorno parcial (hoje aplicado como total) | estorno parcial → ledger debita só o valor, ingressos intactos, order PARTIALLY_REFUNDED; total → fluxo atual | ✅ 2026-07-24 |
-| A3 | Auth por senha do produtor (protótipo: login/cadastro/recuperar) | register→login→recover por curl; senha errada 401; rate limit | ⬜ |
+| A3 | Auth por senha do produtor (protótipo: login/cadastro/recuperar) | register→login→recover por curl; senha errada 401; rate limit | ✅ 2026-07-24 |
 | A4 | Cupons (tabela+API: criar, validar no checkout) — tela Ingressos do painel | criar cupom, aplicar no checkout, desconto no total | ⬜ |
 | A5 | Cortesias (emitir ingresso grátis) | emitir → ticket ISSUED sem pagamento, aparece em participantes | ⬜ |
 | A6 | Meia-entrada na reserva (flag por item, preço/2, taxa cheia) | reservar com meia → total correto | ⬜ |

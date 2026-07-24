@@ -32,11 +32,15 @@ model User {
   phone        String?       @unique
   cpf          String?       @unique
   platformRole PlatformRole? @map("platform_role")
+  /// login por senha (painel do produtor); compradores seguem sem senha (OTP)
+  passwordHash    String?   @map("password_hash")
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
   identities            UserIdentity[]
   otpChallenges         OtpChallenge[]
+  passwordResetTokens   PasswordResetToken[]
   organizationMemberships OrganizationMember[]
   reservations          Reservation[]
   orders                Order[]
@@ -56,6 +60,22 @@ model UserIdentity {
   @@unique([provider, providerId])
   @@index([userId])
   @@map("user_identities")
+}
+
+
+/// Redefinição de senha do painel (validade curta, uso único).
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 enum OtpChannel {
