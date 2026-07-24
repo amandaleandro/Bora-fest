@@ -6,6 +6,8 @@ import { applyGatewayStatus } from "@borafest/payments";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { randomBytes, randomUUID } from "crypto";
 import { ReservationsService } from "../reservations/reservations.service";
+import { CouponsService } from "../coupons/coupons.service";
+import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { PaymentsService } from "../payments/payments.service";
 import { InventoryService } from "../inventory/inventory.service";
@@ -19,7 +21,7 @@ after(async () => {
 
 async function buildPaidOrderWithTicket(eventId: string, lotId: string) {
   const reservations = new ReservationsService(new InventoryService());
-  const orders = new OrdersService();
+  const orders = new OrdersService(new CouponsService(new OrgAccessService()));
   const payments = new PaymentsService(new IdempotencyService());
 
   const reservation = await reservations.create(undefined, {

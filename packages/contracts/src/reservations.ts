@@ -7,6 +7,8 @@ export const createReservationSchema = z.object({
       z.object({
         ticketLotId: z.string().uuid(),
         quantity: z.number().int().min(1).max(20),
+        /** meia-entrada (Lei 12.933/2013): preço/2, taxa de serviço cheia */
+        halfPrice: z.boolean().optional(),
       }),
     )
     .min(1),

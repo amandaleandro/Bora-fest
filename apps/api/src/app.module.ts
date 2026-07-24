@@ -15,6 +15,7 @@ import { TicketsModule } from "./tickets/tickets.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { ValidatorModule } from "./validator/validator.module";
 import { CheckinsModule } from "./checkins/checkins.module";
+import { CouponsModule } from "./coupons/coupons.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { AdminModule } from "./admin/admin.module";
 import { FinanceModule } from "./finance/finance.module";
@@ -38,6 +39,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     NotificationsModule,
     ValidatorModule,
     CheckinsModule,
+    CouponsModule,
     DashboardModule,
     AdminModule,
     FinanceModule,

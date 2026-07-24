@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { prisma } from "@borafest/database";
 import { createReservationExpirationQueue } from "@borafest/queues";
 import type { CreateOrderInput } from "@borafest/contracts";
+import { CouponsService } from "../coupons/coupons.service";
 
 /**
  * Janela para pagar depois de criar o pedido. O estoque permanece em
@@ -13,6 +14,8 @@ const ORDER_PAYMENT_WINDOW_MINUTES = 15;
 @Injectable()
 export class OrdersService {
   private readonly expirationQueue = createReservationExpirationQueue();
+
+  constructor(private readonly coupons: CouponsService) {}
 
   async createFromReservation(userId: string | undefined, input: CreateOrderInput) {
     const reservation = await prisma.reservation.findUnique({
@@ -28,10 +31,16 @@ export class OrdersService {
       throw new BadRequestException("Reserva expirada");
     }
 
-    const totalCents = reservation.items.reduce(
+    const itemsTotalCents = reservation.items.reduce(
       (sum, item) => sum + (item.priceCents + item.feeCents) * item.quantity,
       0,
     );
+
+    const coupon = input.couponCode
+      ? await this.coupons.findUsable(reservation.eventId, input.couponCode)
+      : null;
+    const discountCents = coupon ? CouponsService.discountFor(coupon, itemsTotalCents) : 0;
+    const totalCents = itemsTotalCents - discountCents;
 
     const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
 
@@ -47,7 +56,7 @@ export class OrdersService {
 
       // o estoque já está seguro em reserved_count; a venda (sold_count) só se
       // confirma quando o pagamento aprovar — nunca na criação do pedido
-      return tx.order.create({
+      const created = await tx.order.create({
         data: {
           eventId: reservation.eventId,
           reservationId: reservation.id,
@@ -57,6 +66,7 @@ export class OrdersService {
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
           status: "PAYMENT_PENDING",
           totalCents,
+          discountCents,
           expiresAt,
           items: {
             create: reservation.items.map((item) => ({
@@ -64,11 +74,35 @@ export class OrdersService {
               quantity: item.quantity,
               priceCents: item.priceCents,
               feeCents: item.feeCents,
+              halfPrice: item.halfPrice,
             })),
           },
         },
         include: { items: true },
       });
+
+      if (coupon) {
+        // resgate atômico: só conta se ainda houver saldo de usos
+        const redeemed = await tx.coupon.updateMany({
+          where: {
+            id: coupon.id,
+            active: true,
+            OR: [
+              { maxRedemptions: null },
+              { redeemedCount: { lt: coupon.maxRedemptions ?? undefined } },
+            ],
+          },
+          data: { redeemedCount: { increment: 1 } },
+        });
+        if (redeemed.count === 0) {
+          throw new BadRequestException("Cupom esgotado");
+        }
+        await tx.couponRedemption.create({
+          data: { couponId: coupon.id, orderId: created.id, amountCents: discountCents },
+        });
+      }
+
+      return created;
     });
 
     // a reserva virou pedido: o job de expiração da reserva não é mais necessário

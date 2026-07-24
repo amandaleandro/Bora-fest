@@ -4,6 +4,8 @@ import { prisma } from "@borafest/database";
 import { closeRedisConnection } from "@borafest/queues";
 import { applyGatewayStatus } from "@borafest/payments";
 import { ReservationsService } from "../reservations/reservations.service";
+import { CouponsService } from "../coupons/coupons.service";
+import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { PaymentsService } from "../payments/payments.service";
 import { InventoryService } from "../inventory/inventory.service";
@@ -26,7 +28,7 @@ test("pedido pago credita o ledger (venda + comissão) e webhook duplicado é no
 
   try {
     const reservations = new ReservationsService(new InventoryService());
-    const orders = new OrdersService();
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()));
     const payments = new PaymentsService(new IdempotencyService());
 
     const reservation = await reservations.create(undefined, {

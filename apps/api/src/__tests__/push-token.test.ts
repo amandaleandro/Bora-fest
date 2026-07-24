@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { prisma } from "@borafest/database";
 import { closeRedisConnection } from "@borafest/queues";
 import { ReservationsService } from "../reservations/reservations.service";
+import { CouponsService } from "../coupons/coupons.service";
+import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { InventoryService } from "../inventory/inventory.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -17,7 +19,7 @@ test("registro de push token fica atrelado ao pedido (upsert por token)", async 
 
   try {
     const reservations = new ReservationsService(new InventoryService());
-    const orders = new OrdersService();
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()));
     const notifications = new NotificationsService();
 
     const reservation = await reservations.create(undefined, {

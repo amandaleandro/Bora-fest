@@ -296,6 +296,7 @@ model Event {
   orders       Order[]
   tickets      Ticket[]
   signingKey   EventSigningKey?
+  coupons              Coupon[]
   checkinPoints        CheckinPoint[]
   validatorCredentials ValidatorCredential[]
   validatorDevices     ValidatorDevice[]
@@ -392,6 +393,7 @@ model ReservationItem {
   quantity      Int
   priceCents    Int    @map("price_cents")
   feeCents      Int    @map("fee_cents")
+  halfPrice     Boolean @default(false) @map("half_price")
 
   reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   ticketLot   TicketLot   @relation(fields: [ticketLotId], references: [id])
@@ -424,6 +426,7 @@ model Order {
   contactPhone  String?     @map("contact_phone")
   status        OrderStatus @default(CREATED)
   totalCents    Int         @map("total_cents")
+  discountCents Int         @default(0) @map("discount_cents")
   expiresAt     DateTime?   @map("expires_at")
   paidAt        DateTime?   @map("paid_at")
   createdAt     DateTime    @default(now()) @map("created_at")
@@ -434,6 +437,7 @@ model Order {
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   items       OrderItem[]
   payments    Payment[]
+  couponRedemption CouponRedemption?
   tickets     Ticket[]
   refundRequests RefundRequest[]
   pushTokens  PushToken[]
@@ -451,6 +455,7 @@ model OrderItem {
   quantity    Int
   priceCents  Int    @map("price_cents")
   feeCents    Int    @map("fee_cents")
+  halfPrice   Boolean @default(false) @map("half_price")
 
   order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   ticketLot TicketLot @relation(fields: [ticketLotId], references: [id])
@@ -876,6 +881,50 @@ model Payout {
 
   @@index([organizationId, status])
   @@map("payouts")
+}
+
+
+// ---------------------------------------------------------------------------
+// Cupons (protótipo: painel Ingressos > Cupons; aplicado no checkout)
+// ---------------------------------------------------------------------------
+
+enum CouponDiscountType {
+  PERCENT
+  FIXED
+}
+
+model Coupon {
+  id             String             @id @default(uuid()) @db.Uuid
+  eventId        String             @map("event_id") @db.Uuid
+  code           String
+  discountType   CouponDiscountType @map("discount_type")
+  /// PERCENT: 1–100 (%); FIXED: centavos
+  discountValue  Int                @map("discount_value")
+  maxRedemptions Int?               @map("max_redemptions")
+  redeemedCount  Int                @default(0) @map("redeemed_count")
+  active         Boolean            @default(true)
+  expiresAt      DateTime?          @map("expires_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  event       Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  redemptions CouponRedemption[]
+
+  @@unique([eventId, code])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id          String   @id @default(uuid()) @db.Uuid
+  couponId    String   @map("coupon_id") @db.Uuid
+  orderId     String   @unique @map("order_id") @db.Uuid
+  amountCents Int      @map("amount_cents")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@map("coupon_redemptions")
 }
 
 // ---------------------------------------------------------------------------

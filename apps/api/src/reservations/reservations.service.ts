@@ -51,8 +51,11 @@ export class ReservationsService {
               return {
                 ticketLotId: item.ticketLotId,
                 quantity: item.quantity,
-                priceCents: lot.priceCents,
+                // meia-entrada (Lei 12.933/2013): metade do preço, taxa cheia;
+                // documento é conferido na portaria
+                priceCents: item.halfPrice ? Math.round(lot.priceCents / 2) : lot.priceCents,
                 feeCents: lot.feeCents,
+                halfPrice: item.halfPrice ?? false,
               };
             }),
           },
