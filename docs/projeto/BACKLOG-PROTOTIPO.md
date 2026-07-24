@@ -51,7 +51,7 @@
 | D2 | Evento & portão + priming de câmera | ✅ 2026-07-24 |
 | D3 | Scanner (mira, scanline, chip conexão, lanterna) | ✅ 2026-07-24 |
 | D4 | Resultados full-screen (válido/inválido/já usado) | ✅ 2026-07-24 |
-| D5 | Busca manual / Offline+fila / Resumo com reverter / Privacidade | 🟡 2026-07-24 (resumo+privacidade prontos; "reverter" só explica que exige o painel do produtor — `POST /v1/checkins/:id/reverse` usa `SessionGuard`, não token de dispositivo, e o controller de check-ins está fora de escopo desta sessão) |
+| D5 | Busca manual / Offline+fila / Resumo com reverter / Privacidade | ✅ 2026-07-24 (reverter pelo aparelho: POST /v1/validator/checkins/:id/reverse com token de dispositivo, escopo do evento, auditado) |
 
 > Ordem de execução: A1→A3 (destravam login/entrega) → B inteiro (jornada de compra é o coração) →
 > A4–A6 junto com C6/B4 (precisam um do outro) → C → D. Compliance do README (Apple/LGPD/CDC) é

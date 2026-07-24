@@ -212,6 +212,44 @@ export class CheckinsService {
     return { reversed: true };
   }
 
+  /**
+   * Reversão PELO APARELHO da portaria (protótipo: Resumo → Reverter).
+   * Só check-ins do próprio evento do dispositivo; auditada com o deviceId.
+   */
+  async reverseFromDevice(device: ValidatorDevice, checkinId: string) {
+    const checkin = await prisma.checkin.findFirst({
+      where: { id: checkinId, eventId: device.eventId },
+      include: { ticket: { include: { event: { select: { organizationId: true } } } } },
+    });
+    if (!checkin) throw new NotFoundException("Check-in não encontrado neste evento");
+    if (checkin.status !== "CONFIRMED") {
+      throw new BadRequestException("Só check-ins confirmados podem ser revertidos");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const reversed = await tx.checkin.updateMany({
+        where: { id: checkinId, status: "CONFIRMED" },
+        data: { status: "REVERSED", reversedAt: new Date() },
+      });
+      if (reversed.count === 0) throw new BadRequestException("Check-in já revertido");
+      await tx.ticket.updateMany({
+        where: { id: checkin.ticketId, status: "CHECKED_IN" },
+        data: { status: "ACTIVE", checkedInAt: null },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: checkin.ticket.event.organizationId,
+          action: "checkin.reverse.device",
+          entityType: "checkin",
+          entityId: checkinId,
+          metadata: { deviceId: device.id, deviceName: device.name, eventId: device.eventId },
+        },
+      });
+    });
+
+    return { reversed: true };
+  }
+
   /** Painel ao vivo do produtor (§13): totais e ritmo de entrada. */
   async live(userId: string, eventId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });

@@ -22,6 +22,12 @@ export class CheckinsController {
     return this.checkinsService.sync(req.validatorDevice, body as any);
   }
 
+  @Post("validator/checkins/:id/reverse")
+  @UseGuards(ValidatorDeviceGuard)
+  reverseFromDevice(@Req() req: any, @Param("id") checkinId: string) {
+    return this.checkinsService.reverseFromDevice(req.validatorDevice, checkinId);
+  }
+
   @Post("checkins/:id/reverse")
   @UseGuards(SessionGuard)
   reverse(@CurrentUserId() userId: string, @Param("id") checkinId: string) {
