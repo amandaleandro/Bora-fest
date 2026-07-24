@@ -34,10 +34,21 @@ export interface ApplyStatusResult {
 const PAYABLE_ORDER_STATUSES = ["CREATED", "PAYMENT_PENDING"] as const;
 const OPEN_PAYMENT_STATUSES: DbPaymentStatus[] = ["PENDING", "AUTHORIZED"];
 
+export interface ApplyStatusOptions {
+  /**
+   * Valor estornado quando conhecido (fluxo admin). Menor que o valor do
+   * pagamento → estorno PARCIAL: só debita o ledger e marca o pedido como
+   * PARTIALLY_REFUNDED — ingressos e estoque ficam intactos. Ausente ou
+   * igual ao total → estorno total (comportamento de sempre).
+   */
+  refundAmountCents?: number;
+}
+
 export async function applyGatewayStatus(
   paymentId: string,
   status: GatewayPaymentStatus,
   occurredAt?: Date,
+  options?: ApplyStatusOptions,
 ): Promise<ApplyStatusResult> {
   const result: ApplyStatusResult = { paymentChanged: false, orderPaid: false, orphaned: false };
 
@@ -68,7 +79,15 @@ export async function applyGatewayStatus(
       return result;
     }
 
-    case "REFUNDED":
+    case "REFUNDED": {
+      if (options?.refundAmountCents !== undefined) {
+        const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+        if (payment && options.refundAmountCents < payment.amountCents) {
+          return applyPartialRefund(paymentId, options.refundAmountCents);
+        }
+      }
+      return applyReversal(paymentId, "REFUNDED");
+    }
     case "CHARGEBACK":
       return applyReversal(paymentId, status);
 
@@ -185,6 +204,63 @@ async function creditOrganizationLedger(
   });
 }
 
+/**
+ * Estorno PARCIAL: debita só o valor devolvido no ledger da organização e
+ * marca o pedido como PARTIALLY_REFUNDED. Ingressos continuam válidos e o
+ * estoque vendido não volta — a comissão da plataforma não é ajustada
+ * (decisão registrada: taxa é sobre a transação original).
+ */
+async function applyPartialRefund(
+  paymentId: string,
+  amountCents: number,
+): Promise<ApplyStatusResult> {
+  return prisma.$transaction(async (tx) => {
+    const result: ApplyStatusResult = { paymentChanged: false, orderPaid: false, orphaned: false };
+
+    const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) return result;
+
+    // o dinheiro parcial voltou; o pagamento permanece PAID (não é terminal)
+    const normalized = await tx.payment.updateMany({
+      where: { id: paymentId, status: { in: ["PAID", "REFUND_PENDING"] } },
+      data: { status: "PAID" },
+    });
+    result.paymentChanged = normalized.count > 0;
+    if (!result.paymentChanged) return result;
+
+    await tx.order.updateMany({
+      where: {
+        id: payment.orderId,
+        status: { in: ["PAID", "FULFILLED", "PARTIALLY_REFUNDED"] },
+      },
+      data: { status: "PARTIALLY_REFUNDED" },
+    });
+
+    const order = await tx.order.findUnique({
+      where: { id: payment.orderId },
+      select: { event: { select: { organizationId: true } } },
+    });
+    if (order) {
+      const ledgerAccount = await tx.ledgerAccount.upsert({
+        where: { organizationId: order.event.organizationId },
+        update: {},
+        create: { organizationId: order.event.organizationId },
+      });
+      await tx.ledgerEntry.create({
+        data: {
+          ledgerAccountId: ledgerAccount.id,
+          type: "REFUND_DEBIT",
+          amountCents: -amountCents,
+          referenceType: "payment",
+          referenceId: payment.id,
+        },
+      });
+    }
+
+    return result;
+  });
+}
+
 /** Reverte SALE_CREDIT + PLATFORM_FEE (líquido zero) e devolve o estoque vendido. */
 async function reverseOrganizationLedgerAndStock(
   tx: Prisma.TransactionClient,
@@ -201,24 +277,37 @@ async function reverseOrganizationLedgerAndStock(
   });
 
   if (ledgerAccount) {
-    const [previousCredit, previousFee] = await Promise.all([
+    const [previousCredit, previousFee, partialDebits] = await Promise.all([
       tx.ledgerEntry.findFirst({
         where: { referenceType: "payment", referenceId: payment.id, type: "SALE_CREDIT" },
       }),
       tx.ledgerEntry.findFirst({
         where: { referenceType: "payment", referenceId: payment.id, type: "PLATFORM_FEE" },
       }),
+      // estornos parciais anteriores deste pagamento já debitados
+      tx.ledgerEntry.aggregate({
+        where: { referenceType: "payment", referenceId: payment.id, type: "REFUND_DEBIT" },
+        _sum: { amountCents: true },
+      }),
     ]);
 
-    await tx.ledgerEntry.create({
-      data: {
-        ledgerAccountId: ledgerAccount.id,
-        type: "REFUND_DEBIT",
-        amountCents: -(previousCredit?.amountCents ?? payment.amountCents) - (previousFee?.amountCents ?? 0),
-        referenceType: "payment",
-        referenceId: payment.id,
-      },
-    });
+    const alreadyDebited = partialDebits._sum.amountCents ?? 0; // negativo
+    const remaining =
+      -(previousCredit?.amountCents ?? payment.amountCents) -
+      (previousFee?.amountCents ?? 0) -
+      alreadyDebited;
+
+    if (remaining !== 0) {
+      await tx.ledgerEntry.create({
+        data: {
+          ledgerAccountId: ledgerAccount.id,
+          type: "REFUND_DEBIT",
+          amountCents: remaining,
+          referenceType: "payment",
+          referenceId: payment.id,
+        },
+      });
+    }
   }
 
   const items = await tx.orderItem.findMany({ where: { orderId: payment.orderId } });
@@ -245,7 +334,11 @@ async function applyReversal(
     if (!result.paymentChanged) return result;
 
     const updatedOrder = await tx.order.updateMany({
-      where: { id: payment.orderId, status: { in: ["PAID", "FULFILLED", "REFUND_PENDING"] } },
+      where: {
+        id: payment.orderId,
+        // PARTIALLY_REFUNDED entra: estorno total depois de parciais completa a reversão
+        status: { in: ["PAID", "FULFILLED", "REFUND_PENDING", "PARTIALLY_REFUNDED"] },
+      },
       data: { status: status === "CHARGEBACK" ? "CHARGEBACK" : "REFUNDED" },
     });
 

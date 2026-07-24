@@ -20,16 +20,28 @@ export class IdentityService {
     const codeHash = hashOtpCode(code, input.destination);
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
-    await prisma.otpChallenge.create({
-      data: {
-        destination: input.destination,
-        channel: input.channel,
-        codeHash,
-        expiresAt,
-      },
-    });
+    await prisma.$transaction([
+      prisma.otpChallenge.create({
+        data: {
+          destination: input.destination,
+          channel: input.channel,
+          codeHash,
+          expiresAt,
+        },
+      }),
+      // envio real via fila persistente de notificações (worker entrega pelo
+      // adapter configurado — devlog em dev, provedor real em produção)
+      prisma.notification.create({
+        data: {
+          // SMS não tem sender próprio ainda — destino telefônico vai pelo WhatsApp
+          channel: input.channel === "EMAIL" ? "EMAIL" : "WHATSAPP",
+          recipient: input.destination,
+          template: "otp_code",
+          payload: { code, ttlMinutes: OTP_TTL_MINUTES },
+        },
+      }),
+    ]);
 
-    // TODO: enfileirar envio real via notification-delivery worker (e-mail/SMS/WhatsApp)
     log.info({ destination: input.destination, channel: input.channel }, "otp requested");
     if (process.env.NODE_ENV !== "production") {
       log.info({ code }, "otp code (dev only)");

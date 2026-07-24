@@ -242,6 +242,9 @@ export class AdminService {
     if (!payment || !payment.externalId) {
       throw new BadRequestException("Pedido não tem pagamento aprovado para estornar");
     }
+    if (input.amountCents !== undefined && input.amountCents > payment.amountCents) {
+      throw new BadRequestException("Valor do estorno maior que o pagamento");
+    }
 
     const marked = await prisma.payment.updateMany({
       where: { id: payment.id, status: "PAID" },
@@ -275,7 +278,9 @@ export class AdminService {
       throw new BadRequestException("Gateway recusou o estorno");
     }
 
-    await applyGatewayStatus(payment.id, result.status);
+    await applyGatewayStatus(payment.id, result.status, undefined, {
+      refundAmountCents: input.amountCents,
+    });
 
     await prisma.auditLog.create({
       data: {

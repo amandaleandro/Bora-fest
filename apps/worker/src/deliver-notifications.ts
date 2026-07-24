@@ -5,6 +5,9 @@ import {
   getWhatsAppSender,
   renderTicketDeliveryEmail,
   renderTicketDeliveryPush,
+  renderOtpEmail,
+  renderOtpWhatsApp,
+  type OtpCodePayload,
   renderTicketDeliveryWhatsApp,
   type TicketDeliveryPayload,
 } from "@borafest/notifications";
@@ -74,6 +77,20 @@ async function send(
   template: string,
   payload: unknown,
 ): Promise<void> {
+  if (template === "otp_code") {
+    const otp = payload as OtpCodePayload;
+    if (channel === "EMAIL") {
+      await getEmailSender().send(renderOtpEmail(recipient, otp));
+      return;
+    }
+    if (channel === "WHATSAPP") {
+      const message = renderOtpWhatsApp(otp);
+      await getWhatsAppSender().send({ to: recipient, ...message });
+      return;
+    }
+    throw new Error(`Canal não suportado para otp_code: ${channel}`);
+  }
+
   if (template !== "ticket_delivery") {
     throw new Error(`Template de notificação desconhecido: ${template}`);
   }

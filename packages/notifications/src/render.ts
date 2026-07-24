@@ -89,6 +89,40 @@ export function renderTicketDeliveryPush(to: string, payload: TicketDeliveryPayl
   };
 }
 
+
+export interface OtpCodePayload {
+  code: string;
+  /** minutos de validade */
+  ttlMinutes: number;
+}
+
+export function renderOtpEmail(to: string, payload: OtpCodePayload): EmailMessage {
+  const text = [
+    `Seu código de acesso BoraFest: ${payload.code}`,
+    "",
+    `Ele vale por ${payload.ttlMinutes} minutos. Se você não pediu este código, ignore este e-mail.`,
+    "",
+    "Equipe BoraFest",
+  ].join("\n");
+
+  const html = `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p>Seu código de acesso BoraFest:</p>
+  <p style="font-size:32px;font-weight:800;letter-spacing:8px;color:#6d28d9">${escapeHtml(payload.code)}</p>
+  <p style="color:#666;font-size:13px">Ele vale por ${payload.ttlMinutes} minutos. Se você não pediu este código, ignore este e-mail.</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim();
+
+  return { to, subject: `${payload.code} é seu código BoraFest`, html, text };
+}
+
+export function renderOtpWhatsApp(payload: OtpCodePayload) {
+  return {
+    template: "otp_code",
+    variables: { code: payload.code, ttl_minutes: String(payload.ttlMinutes) },
+  };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
