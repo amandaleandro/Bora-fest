@@ -38,7 +38,7 @@
 | C3 | Meus eventos (tabela, vazio) | ⬜ |
 | C4 | Criar evento — wizard 3 etapas (dados/ingressos/publicar, modal de ingresso) | ⬜ |
 | C5 | Dashboard (KPIs, gráfico, check-in ao vivo, equipe) | ⬜ |
-| C6 | Ingressos (lotes/cortesias/cupons) | ⬜ |
+| C6 | Ingressos (lotes/cortesias/cupons) | ✅ 2026-07-24 (na página do evento) |
 | C7 | Vendas (pedidos + detalhe + reembolso modal; PDV) | ⬜ |
 | C8 | Financeiro (saldo, repasses, dados bancários) | ⬜ |
 | C9 | Participantes / Check-in ao vivo / Divulgue / Ajuda | ⬜ |
