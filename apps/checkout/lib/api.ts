@@ -9,11 +9,17 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: { method?: string; body?: unknown; token?: string } = {},
+): Promise<T> {
+  // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
+  const headers: Record<string, string> = {};
+  if (options.body) headers["Content-Type"] = "application/json";
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
-    // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
@@ -59,6 +65,17 @@ export interface PublicEvent {
   ticketTypes: PublicTicketType[];
 }
 
+export interface EventListItem {
+  id: string;
+  title: string;
+  slug: string;
+  bannerUrl: string | null;
+  startsAt: string;
+  timezone: string;
+  venue: { name: string; city: string; state: string } | null;
+  fromPriceCents: number | null;
+}
+
 export interface AvailabilityItem {
   ticketTypeId: string;
   ticketTypeName: string;
@@ -74,7 +91,7 @@ export interface Reservation {
   eventId: string;
   status: string;
   expiresAt: string;
-  items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number }>;
+  items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number; halfPrice?: boolean }>;
 }
 
 export interface Order {
@@ -85,6 +102,7 @@ export interface Order {
   contactName: string | null;
   status: string;
   totalCents: number;
+  discountCents?: number;
   createdAt: string;
   paidAt: string | null;
   items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number }>;
@@ -126,19 +144,29 @@ export interface OrderTicketsResponse {
 }
 
 export const api = {
+  listPublicEvents: () =>
+    request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
   getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
 
-  createReservation: (eventId: string, items: Array<{ ticketLotId: string; quantity: number }>) =>
-    request<Reservation>("/v1/reservations", { method: "POST", body: { eventId, items } }),
+  createReservation: (
+    eventId: string,
+    items: Array<{ ticketLotId: string; quantity: number; halfPrice?: boolean }>,
+  ) => request<Reservation>("/v1/reservations", { method: "POST", body: { eventId, items } }),
 
   getReservation: (id: string) => request<Reservation>(`/v1/reservations/${id}`),
+
+  checkCoupon: (slug: string, code: string) =>
+    request<{ valid: boolean; code: string; discountType: "PERCENT" | "FIXED"; discountValue: number }>(
+      `/v1/public/events/${slug}/coupons/${encodeURIComponent(code)}`,
+    ),
 
   createOrder: (input: {
     reservationId: string;
     contactEmail: string;
     contactName?: string;
     contactPhone?: string;
+    couponCode?: string;
   }) => request<Order>("/v1/orders", { method: "POST", body: input }),
 
   getOrderStatus: (publicToken: string) => request<Order>(`/v1/orders/${publicToken}/status`),
@@ -146,9 +174,39 @@ export const api = {
   createPixPayment: (orderId: string, input: { payerDocument?: string; payerPhone?: string }) =>
     request<PixPayment>(`/v1/orders/${orderId}/payments/pix`, { method: "POST", body: input }),
 
+  createCardPayment: (
+    orderId: string,
+    input: { cardToken: string; installments: number; payerDocument?: string },
+  ) =>
+    request<{ id: string; status: string; failReason: string | null }>(
+      `/v1/orders/${orderId}/payments/card`,
+      { method: "POST", body: input },
+    ),
+
   getOrderTickets: (publicToken: string) =>
     request<OrderTicketsResponse>(`/v1/orders/${publicToken}/tickets`),
 
   resendTickets: (publicToken: string) =>
     request<{ queued: boolean; channels: string[] }>(`/v1/orders/${publicToken}/resend`, { method: "POST" }),
+
+  transferTicket: (ticketId: string, input: { orderPublicToken: string; toName: string; toEmail: string }) =>
+    request<OrderTicket>(`/v1/tickets/${ticketId}/transfer`, { method: "POST", body: input }),
+
+  requestOtp: (destination: string) =>
+    request<{ sent: boolean }>("/v1/identity/otp/request", {
+      method: "POST",
+      body: { destination, channel: "EMAIL" },
+    }),
+
+  verifyOtp: (destination: string, code: string) =>
+    request<{ token: string; user: { id: string; email: string; name: string | null } }>(
+      "/v1/identity/otp/verify",
+      { method: "POST", body: { destination, code } },
+    ),
+
+  myTickets: (token: string) =>
+    request<Array<OrderTicket & { event: { title: string; slug: string; startsAt: string } }>>(
+      "/v1/me/tickets",
+      { token },
+    ),
 };

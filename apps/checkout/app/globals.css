@@ -3,6 +3,24 @@
 @tailwind utilities;
 
 body {
-  background-color: #0b1120;
-  color: #f3f4f6;
+  background-color: #f6f5fb;
+  color: #16121f;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* recorte de ticket (carteira): círculos laterais + linha tracejada */
+.ticket-notch {
+  position: relative;
+}
+.ticket-notch::before,
+.ticket-notch::after {
+  content: "";
+  position: absolute;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #f6f5fb;
+}
+.ticket-notch::before { left: -11px; }
+.ticket-notch::after { right: -11px; }

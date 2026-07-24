@@ -18,15 +18,15 @@
 
 | # | Tela | Status |
 |---|---|---|
-| B1 | Base: tokens (cores/tipografia Plus Jakarta Sans/raios/sombras), layout mobile, nav | ⬜ |
-| B2 | Início (busca, chips, destaque, próximos eventos) | ⬜ |
-| B3 | Página do evento (hero, badges, CTA sticky, estado encerrado) | ⬜ |
-| B4 | Seleção (lotes, stepper, meia-entrada, esgotado, resumo sticky) | ⬜ |
-| B5 | Identificação (convidado × OTP 4-6 dígitos, termos) | ⬜ |
-| B6 | Dados do comprador (progresso 3 etapas, participante/CPF) | ⬜ |
-| B7 | Pagamento (timer 10:00, abas Pix/Cartão/Carteira, QR, copiar, recusado, expirado) | ⬜ |
-| B8 | Confirmação (aprovado/pendente) | ⬜ |
-| B9 | Carteira (cartão-ingresso com recorte, QR, transferir, vazio) | ⬜ |
+| B1 | Base: tokens (cores/tipografia Plus Jakarta Sans/raios/sombras), layout mobile, nav | ✅ 2026-07-24 |
+| B2 | Início (busca, chips, destaque, próximos eventos) | ✅ 2026-07-24 |
+| B3 | Página do evento (hero, badges, CTA sticky, estado encerrado) | ✅ 2026-07-24 |
+| B4 | Seleção (lotes, stepper, meia-entrada, esgotado, resumo sticky) | ✅ 2026-07-24 |
+| B5 | Identificação (convidado × OTP 4-6 dígitos, termos) | ✅ 2026-07-24 |
+| B6 | Dados do comprador (progresso 3 etapas, participante/CPF) | ✅ 2026-07-24 |
+| B7 | Pagamento (timer 10:00, abas Pix/Cartão/Carteira, QR, copiar, recusado, expirado) | ✅ 2026-07-24 |
+| B8 | Confirmação (aprovado/pendente) | ✅ 2026-07-24 |
+| B9 | Carteira (cartão-ingresso com recorte, QR, transferir, vazio) | ✅ 2026-07-24 |
 | B10 | Perfil/Minhas compras/Privacidade&Termos (LGPD: baixar dados, excluir conta, reembolso CDC) | ⬜ |
 
 ## Bloco C — Painel do Produtor (restyle `apps/producer` 1360px sidebar dark)
