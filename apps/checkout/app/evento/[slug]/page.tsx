@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../../lib/api";
 import { formatCents } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
+import { TicketSelector } from "../../../components/TicketSelector";
 
 function minPriceCents(event: PublicEvent): number | null {
   const prices = event.ticketTypes.flatMap((t) =>
@@ -43,7 +44,61 @@ export default function EventPage({ params }: { params: { slug: string } }) {
   const timeLabel = starts.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: event.timezone });
 
   return (
-    <main className="pb-32">
+    <main className="pb-32 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8">
+      {/* ---------- hotsite desktop: 2 colunas ---------- */}
+      <div className="hidden gap-8 lg:grid lg:grid-cols-[1fr_400px]">
+        <div>
+          <div className="relative h-[320px] overflow-hidden rounded-3xl bg-brand-gradient">
+            {event.bannerUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={event.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            )}
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-8">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold backdrop-blur ${closed ? "bg-black/50 text-white/90" : "bg-black/25 text-white"}`}>
+                {closed ? "Vendas encerradas" : "Vendas abertas"}
+              </span>
+              <h1 className="mt-2 text-[32px] font-extrabold leading-tight text-white">{event.title}</h1>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon d={paths.calendar} /></div>
+              <div>
+                <p className="text-[14px] font-bold capitalize">{dateLabel}</p>
+                <p className="text-[12px] font-medium text-muted">a partir de {timeLabel}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon d={paths.pin} /></div>
+              <div className="min-w-0">
+                <p className="truncate text-[14px] font-bold">{event.venue?.name ?? "Local a confirmar"}</p>
+                <p className="truncate text-[12px] font-medium text-muted">
+                  {event.venue ? `${event.venue.address} · ${event.venue.city}/${event.venue.state}` : ""}
+                </p>
+              </div>
+            </div>
+          </div>
+          {event.description && (
+            <section className="mt-6">
+              <h2 className="text-[18px] font-extrabold">Sobre o evento</h2>
+              <p className="mt-2 whitespace-pre-line text-[14px] font-medium leading-relaxed text-ink-soft">{event.description}</p>
+            </section>
+          )}
+        </div>
+        <aside className="lg:sticky lg:top-6 lg:self-start">
+          <div className="rounded-3xl border border-line bg-bg p-5 shadow-card">
+            <h2 className="text-[16px] font-extrabold">Ingressos</h2>
+            {closed ? (
+              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">Vendas encerradas</p>
+            ) : (
+              <div className="mt-3"><TicketSelector event={event} compact /></div>
+            )}
+          </div>
+        </aside>
+      </div>
+
+      {/* ---------- mobile (como no PWA) ---------- */}
+      <div className="lg:hidden">
       {/* hero */}
       <div className="relative h-[430px] overflow-hidden bg-brand-gradient">
         {event.bannerUrl && (
@@ -134,6 +189,7 @@ export default function EventPage({ params }: { params: { slug: string } }) {
             Comprar ingressos{min !== null ? ` · a partir de ${formatCents(min)}` : ""}
           </Link>
         )}
+      </div>
       </div>
     </main>
   );

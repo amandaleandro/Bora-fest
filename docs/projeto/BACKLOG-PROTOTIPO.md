@@ -56,3 +56,14 @@
 > Ordem de execução: A1→A3 (destravam login/entrega) → B inteiro (jornada de compra é o coração) →
 > A4–A6 junto com C6/B4 (precisam um do outro) → C → D. Compliance do README (Apple/LGPD/CDC) é
 > requisito de aceite das telas correspondentes, não item separado.
+
+## Bloco E — Handoff v1 (2ª entrega): Site Público + estratégia PWA
+
+| # | Feature | Teste de aceite | Status |
+|---|---|---|---|
+| E1 | Site Público: Home desktop (hero, categorias, grid, faixa Produza) + header Entrar/footer | abrir em viewport desktop, navegar até o hotsite | ✅ 2026-07-24 |
+| E2 | Hotsite desktop do evento (seleção lateral sticky) reusando o checkout existente | fluxo completo desktop até pagar | ✅ 2026-07-24 |
+| E3 | Minha Conta no site (login por código, ingressos com QR) — rota /perfil já cobre; garantir desktop | login OTP desktop e ver ingresso | ✅ 2026-07-24 (rota /perfil responsiva) |
+| E4 | PWA do Comprador: manifest + service worker (offline fallback + instalável) | manifest servido; SW registra; /offline no ar sem rede | ✅ 2026-07-24 |
+| E5 | PWA de Validação (apps/validacao): PIN→evento/portão→scanner (BarcodeDetector/manual)→resultado→resumo | fluxo com código manual valida ingresso real | ✅ 2026-07-24 |
+

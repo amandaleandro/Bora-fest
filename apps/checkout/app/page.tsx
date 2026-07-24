@@ -40,10 +40,35 @@ export default function HomePage() {
   const highlight = filtered[0];
   const rest = filtered.slice(1);
 
+  const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
+
   return (
-    <main className="px-5 pb-10 pt-6">
-      {/* saudação + avatar */}
-      <header className="flex items-center justify-between">
+    <main className="px-5 pb-10 pt-6 lg:mx-auto lg:max-w-6xl lg:px-6">
+      {/* hero desktop */}
+      {highlight && (
+        <section className="mb-8 hidden lg:block">
+          <Link href={`/evento/${highlight.slug}`}
+            className="relative block overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
+            <div className="absolute -right-16 -top-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-3 py-1 text-[12px] font-bold backdrop-blur">
+              <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
+              Em alta agora
+            </span>
+            <h2 className="mt-4 max-w-2xl text-[40px] font-extrabold leading-tight">{highlight.title}</h2>
+            <p className="mt-2 text-[15px] font-semibold text-white/85">
+              {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
+            </p>
+            {highlight.fromPriceCents !== null && (
+              <span className="mt-6 inline-block rounded-full bg-white px-6 py-3 text-[15px] font-extrabold text-ink">
+                a partir de {formatCents(highlight.fromPriceCents)}
+              </span>
+            )}
+          </Link>
+        </section>
+      )}
+
+      {/* saudação + avatar (mobile) */}
+      <header className="flex items-center justify-between lg:hidden">
         <div>
           <h1 className="text-[22px] font-extrabold">Olá! 👋</h1>
           <p className="mt-0.5 flex items-center gap-1 text-[13px] font-semibold text-primary">
@@ -60,7 +85,7 @@ export default function HomePage() {
       </header>
 
       {/* busca */}
-      <div className="mt-5 flex h-[50px] items-center gap-2 rounded-2xl border-[1.5px] border-line-input bg-surface px-4">
+      <div className="mt-5 flex h-[50px] lg:hidden items-center gap-2 rounded-2xl border-[1.5px] border-line-input bg-surface px-4">
         <Icon d={paths.search} size={18} className="text-muted-3" />
         <input
           value={query}
@@ -71,7 +96,7 @@ export default function HomePage() {
       </div>
 
       {/* chips de categoria */}
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="mt-4 flex gap-2 lg:hidden overflow-x-auto pb-1">
         {CATEGORIES.map((c) => (
           <button
             key={c}
@@ -93,9 +118,9 @@ export default function HomePage() {
         <p className="mt-10 text-center text-[13px] text-muted">Nenhum evento encontrado.</p>
       ) : (
         <>
-          {/* destaque "Em alta" */}
+          {/* destaque "Em alta" (mobile) */}
           {highlight && (
-            <section className="mt-6">
+            <section className="mt-6 lg:hidden">
               <h2 className="text-[15px] font-extrabold">Em alta</h2>
               <Link
                 href={`/evento/${highlight.slug}`}
@@ -123,7 +148,7 @@ export default function HomePage() {
 
           {/* próximos eventos */}
           {rest.length > 0 && (
-            <section className="mt-7">
+            <section className="mt-7 lg:hidden">
               <h2 className="text-[15px] font-extrabold">Próximos eventos</h2>
               <ul className="mt-3 space-y-3">
                 {rest.map((event) => {
@@ -153,6 +178,40 @@ export default function HomePage() {
               </ul>
             </section>
           )}
+          {/* grade desktop */}
+          <section className="hidden lg:block">
+            <h2 className="text-[20px] font-extrabold">Próximos eventos</h2>
+            <div className="mt-4 grid grid-cols-3 gap-5">
+              {filtered.map((event) => (
+                <Link key={event.id} href={`/evento/${event.slug}`}
+                  className="overflow-hidden rounded-2xl border border-line bg-surface transition-shadow hover:shadow-card">
+                  <div className="h-36 bg-brand-gradient" />
+                  <div className="p-4">
+                    <p className="truncate text-[15px] font-extrabold">{event.title}</p>
+                    <p className="mt-0.5 truncate text-[12px] font-medium text-muted">
+                      {new Date(event.startsAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                      {event.venue ? ` · ${event.venue.city}` : ""}
+                    </p>
+                    {event.fromPriceCents !== null && (
+                      <p className="mt-2 text-[13px] font-extrabold text-primary">a partir de {formatCents(event.fromPriceCents)}</p>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {/* faixa Produza seu evento (desktop) */}
+          <section className="mt-10 hidden overflow-hidden rounded-3xl bg-gradient-to-br from-[#17131f] to-[#2b1157] p-10 text-white lg:block">
+            <h2 className="text-[26px] font-extrabold">Produza seu evento com a BoraFest</h2>
+            <p className="mt-1 max-w-xl text-[14px] font-semibold text-white/80">
+              Publique em minutos, venda com Pix na tela e sem travar aguardando verificação.
+            </p>
+            <a href={`${PANEL}/cadastro`}
+              className="mt-5 inline-block rounded-2xl bg-white px-6 py-3 text-[14px] font-extrabold text-ink">
+              Criar conta de produtor
+            </a>
+          </section>
         </>
       )}
     </main>

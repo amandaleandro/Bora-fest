@@ -1,0 +1,17 @@
+{
+  "name": "BoraFest",
+  "short_name": "BoraFest",
+  "description": "Compre e guarde seus ingressos — sem senha, sem fricção.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f5fb",
+  "theme_color": "#6d28d9",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%236d28d9'/%3E%3Ctext x='256' y='340' font-family='sans-serif' font-size='260' font-weight='800' fill='white' text-anchor='middle'%3EB%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
