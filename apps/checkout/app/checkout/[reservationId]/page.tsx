@@ -12,19 +12,26 @@ type Step = "ident" | "dados" | "pagamento";
 type PayTab = "pix" | "cartao" | "carteira";
 
 function useCountdown(target: string | null) {
+  // sem alvo carregado ainda => infinito (nunca tratar como expirado)
   const [left, setLeft] = useState<number>(() =>
-    target ? Math.max(0, new Date(target).getTime() - Date.now()) : 0,
+    target ? Math.max(0, new Date(target).getTime() - Date.now()) : Number.POSITIVE_INFINITY,
   );
   useEffect(() => {
-    if (!target) return;
+    if (!target) {
+      setLeft(Number.POSITIVE_INFINITY);
+      return;
+    }
+    // recalcula imediatamente ao receber o alvo (sem esperar o 1º tick)
+    setLeft(Math.max(0, new Date(target).getTime() - Date.now()));
     const id = setInterval(
       () => setLeft(Math.max(0, new Date(target).getTime() - Date.now())),
       1000,
     );
     return () => clearInterval(id);
   }, [target]);
-  const mm = String(Math.floor(left / 60000)).padStart(2, "0");
-  const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+  const finite = Number.isFinite(left);
+  const mm = finite ? String(Math.floor(left / 60000)).padStart(2, "0") : "--";
+  const ss = finite ? String(Math.floor((left % 60000) / 1000)).padStart(2, "0") : "--";
   return { left, label: `${mm}:${ss}` };
 }
 
@@ -76,6 +83,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [tab, setTab] = useState<PayTab>("pix");
   const [pixCode, setPixCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pixChecking, setPixChecking] = useState(false);
   const [approved, setApproved] = useState(false);
   const [cardNumber, setCardNumber] = useState("");
   const [cardExp, setCardExp] = useState("");
@@ -87,11 +95,28 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const slug = typeof window !== "undefined" ? sessionStorage.getItem(`bf.slug.${reservationId}`) : null;
   const deadline = order?.status === "PAYMENT_PENDING" ? null : reservation?.expiresAt ?? null;
   const { left, label } = useCountdown(order ? null : reservation?.expiresAt ?? null);
-  const expired = !order && reservation !== null && left <= 0;
+  const expired =
+    !order &&
+    reservation !== null &&
+    (reservation.status === "EXPIRED" ||
+      (reservation.status === "ACTIVE" && Number.isFinite(left) && left <= 0));
 
   useEffect(() => {
-    api.getReservation(reservationId).then(setReservation).catch(() => setError("Reserva não encontrada"));
-  }, [reservationId]);
+    api
+      .getReservation(reservationId)
+      .then((r) => {
+        // voltou para um checkout já concluído → segue para o pedido
+        if (r.status === "CONVERTED") {
+          const orderToken = sessionStorage.getItem(`bf.order.${reservationId}`);
+          if (orderToken) {
+            router.replace(`/pedido/${orderToken}`);
+            return;
+          }
+        }
+        setReservation(r);
+      })
+      .catch(() => setError("Reserva não encontrada"));
+  }, [reservationId, router]);
 
   useEffect(() => {
     if (otpResendIn <= 0) return;
@@ -155,6 +180,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         couponCode: coupon || undefined,
       });
       setOrder(created);
+      sessionStorage.setItem(`bf.order.${reservationId}`, created.publicToken);
       setStep("pagamento");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível criar o pedido");
@@ -219,6 +245,20 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   }
   if (!reservation) {
     return <main className="flex min-h-dvh items-center justify-center text-[13px] text-muted">Carregando…</main>;
+  }
+
+  if (!order && reservation?.status === "CONVERTED") {
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center px-8 text-center">
+        <h1 className="text-[20px] font-extrabold">Este checkout já foi concluído</h1>
+        <p className="mt-2 text-[13px] font-medium text-muted">
+          Procure o link do pedido no seu e-mail, ou veja em Minhas compras.
+        </p>
+        <Link href="/minhas-compras" className="mt-6 flex h-14 w-full items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta">
+          Minhas compras
+        </Link>
+      </main>
+    );
   }
 
   // tempo esgotado
@@ -480,8 +520,18 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
               {(order.discountCents ?? 0) > 0 && (
                 <p className="text-[12px] font-bold text-success">desconto aplicado: −{formatCents(order.discountCents!)}</p>
               )}
+              <button
+                onClick={() => setPixChecking(true)}
+                disabled={pixChecking}
+                className="mx-auto mt-3 flex h-12 items-center justify-center rounded-2xl bg-pix px-8 text-[14px] font-extrabold text-white disabled:opacity-70"
+              >
+                {pixChecking ? "Verificando pagamento…" : "Já fiz o pagamento"}
+              </button>
               <p className="mx-auto mt-3 max-w-[280px] text-[12px] font-medium text-muted">
                 Assim que o pagamento cair, esta página avança sozinha — não feche o app.
+              </p>
+              <p className="mx-auto mt-2 max-w-[300px] rounded-xl bg-warning/10 px-3 py-2 text-[11px] font-bold text-warning">
+                Ambiente de TESTE: o banco é simulado e aprova o Pix sozinho em ~20s. Em produção, só aprova com pagamento real.
               </p>
             </div>
           )}
