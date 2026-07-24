@@ -11,3 +11,11 @@ export const createCouponSchema = z.object({
   message: "Percentual máximo é 100",
 });
 export type CreateCouponInput = z.infer<typeof createCouponSchema>;
+
+export const issueComplimentarySchema = z.object({
+  ticketLotId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(20),
+  attendeeName: z.string().min(2),
+  attendeeEmail: z.string().email(),
+});
+export type IssueComplimentaryInput = z.infer<typeof issueComplimentarySchema>;
