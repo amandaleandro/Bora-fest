@@ -25,7 +25,7 @@ export default function RegisterPage() {
     try {
       const res = await passwordAuth.register({ name, email, password });
       login(res.token, res.user);
-      router.push("/organizacoes?onboarding=1");
+      router.push("/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar a conta");
       setBusy(false);

@@ -81,4 +81,22 @@ export class OrganizationsService {
       },
     });
   }
+  async addBankAccount(organizationId: string, userId: string, input: {
+    holderName: string; holderDocument: string; bankCode: string;
+    agency: string; account: string; accountType: string; pixKey?: string;
+  }) {
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
+    // a conta nova vira a padrão de repasse
+    const [, created] = await prisma.$transaction([
+      prisma.bankAccount.updateMany({ where: { organizationId }, data: { isDefault: false } }),
+      prisma.bankAccount.create({ data: { organizationId, ...input, isDefault: true } }),
+    ]);
+    return created;
+  }
+
+  async listBankAccounts(organizationId: string, userId: string) {
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
+    return prisma.bankAccount.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" } });
+  }
+
 }

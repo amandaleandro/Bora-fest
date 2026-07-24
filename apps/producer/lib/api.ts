@@ -312,3 +312,11 @@ export const complimentaryApi = {
   issue: (eventId: string, body: Record<string, unknown>, token: string) =>
     request(`/v1/events/${eventId}/complimentary-tickets`, { method: "POST", body, token }),
 };
+
+export const bankAccountsApi = {
+  add: (organizationId: string, body: Record<string, unknown>, token: string) =>
+    request(`/v1/organizations/${organizationId}/bank-accounts`, { method: "POST", body, token }),
+  list: (organizationId: string, token: string) =>
+    request<Array<{ id: string; bankCode: string; agency: string; account: string; holderName: string; isDefault: boolean }>>(
+      `/v1/organizations/${organizationId}/bank-accounts`, { token }),
+};

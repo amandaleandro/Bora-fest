@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
-import { createOrganizationSchema, inviteMemberSchema } from "@borafest/contracts";
+import { createBankAccountSchema, createOrganizationSchema, inviteMemberSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -28,4 +28,18 @@ export class OrganizationsController {
   ) {
     return this.organizationsService.inviteMember(organizationId, actorUserId, body as any);
   }
+  @Post(":id/bank-accounts")
+  addBankAccount(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(createBankAccountSchema)) body: unknown,
+  ) {
+    return this.organizationsService.addBankAccount(id, userId, body as any);
+  }
+
+  @Get(":id/bank-accounts")
+  listBankAccounts(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.listBankAccounts(id, userId);
+  }
+
 }
