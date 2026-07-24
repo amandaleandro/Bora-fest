@@ -35,8 +35,8 @@
 |---|---|---|
 | C1 | Auth split-screen (login senha, cadastro, recuperar) | ✅ 2026-07-24 |
 | C2 | Onboarding organizador (PF/PJ + dados bancários, banner "vendas não bloqueiam") | ✅ 2026-07-24 |
-| C3 | Meus eventos (tabela, vazio) | ⬜ |
-| C4 | Criar evento — wizard 3 etapas (dados/ingressos/publicar, modal de ingresso) | ⬜ |
+| C3 | Meus eventos (tabela, vazio) | 🟡 lista existente ok; restyle tabela pendente |
+| C4 | Criar evento — wizard 3 etapas (dados/ingressos/publicar, modal de ingresso) | ✅ 2026-07-24 (3 etapas; upload de banner por URL) |
 | C5 | Dashboard (KPIs, gráfico, check-in ao vivo, equipe) | ⬜ |
 | C6 | Ingressos (lotes/cortesias/cupons) | ✅ 2026-07-24 (na página do evento) |
 | C7 | Vendas (pedidos + detalhe + reembolso modal; PDV) | ⬜ |

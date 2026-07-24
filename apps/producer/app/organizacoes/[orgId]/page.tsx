@@ -60,13 +60,21 @@ function OrganizationContent({ orgId }: { orgId: string }) {
 
       <div className="mt-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Eventos</h1>
-        <button
-          type="button"
-          className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
-          onClick={() => setShowForm((v) => !v)}
-        >
-          Novo evento
-        </button>
+        <div className="flex gap-2">
+          <Link
+            href={`/eventos/novo?org=${orgId}`}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"
+          >
+            Criar novo evento
+          </Link>
+          <button
+            type="button"
+            className="rounded-lg border border-line-input px-4 py-2 text-sm font-semibold"
+            onClick={() => setShowForm((v) => !v)}
+          >
+            Criação rápida
+          </button>
+        </div>
       </div>
 
       {showForm ? (
