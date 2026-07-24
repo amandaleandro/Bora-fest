@@ -14,6 +14,7 @@ export function Nav() {
         BoraFest
       </Link>
       <div className="flex items-center gap-4 text-sm text-gray-400">
+        <Link href="/ajuda">Ajuda</Link>
         {user?.email ? <span>{user.email}</span> : null}
         <button
           type="button"

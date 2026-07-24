@@ -4,6 +4,7 @@ import { useSession } from "../context/SessionContext";
 import { searchTicketsByCode, type LocalTicket } from "../db/database";
 import { attemptCheckin, type CheckinAttemptResult } from "../checkin/attemptCheckin";
 import { ResultBanner } from "../components/ResultBanner";
+import { colors } from "../theme/colors";
 
 /**
  * Busca manual por código curto do ingresso. O manifesto local não traz
@@ -41,6 +42,7 @@ export function ManualSearchScreen() {
         value={query}
         onChangeText={setQuery}
         placeholder="código do ingresso (ex.: BF-XXXX-XXXX)"
+        placeholderTextColor={colors.textDim}
         autoCapitalize="characters"
         autoCorrect={false}
       />
@@ -65,12 +67,14 @@ export function ManualSearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#111827", padding: 20 },
-  title: { fontSize: 20, fontWeight: "700", color: "#fff", marginBottom: 16 },
+  container: { flex: 1, backgroundColor: colors.bg, padding: 20, paddingTop: 60 },
+  title: { fontSize: 20, fontWeight: "700", color: colors.text, marginBottom: 16 },
   input: {
-    backgroundColor: "#1f2937",
-    color: "#fff",
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -79,11 +83,13 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 14,
+    paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: "#1f2937",
+    borderBottomColor: colors.border,
   },
-  rowCode: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  rowStatus: { color: "#9ca3af", fontSize: 13 },
-  empty: { color: "#6b7280", textAlign: "center", marginTop: 24 },
+  rowCode: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  rowStatus: { color: colors.textMuted, fontSize: 13 },
+  empty: { color: colors.textDim, textAlign: "center", marginTop: 24 },
 });

@@ -49,27 +49,37 @@ function OrganizationContent({ orgId }: { orgId: string }) {
     }
   }
 
+  const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
+    DRAFT: { bg: "bg-warning/10", fg: "text-warning", label: "Rascunho" },
+    PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
+    UNPUBLISHED: { bg: "bg-line", fg: "text-muted", label: "Despublicado" },
+    CANCELLED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
+  };
+
+  function formatDate(iso: string): string {
+    return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
   return (
     <main>
       <Nav />
       <div className="mt-6 flex items-center justify-between">
-        <Link href={`/organizacoes/${orgId}/financeiro`} className="text-sm text-gray-400 underline">
-          Ver financeiro da organização →
-        </Link>
-      </div>
-
-      <div className="mt-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Eventos</h1>
+        <div>
+          <h1 className="text-[22px] font-extrabold">Meus eventos</h1>
+          <Link href={`/organizacoes/${orgId}/financeiro`} className="text-[13px] font-bold text-primary">
+            Ver financeiro da organização →
+          </Link>
+        </div>
         <div className="flex gap-2">
           <Link
             href={`/eventos/novo?org=${orgId}`}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"
+            className="rounded-xl bg-primary px-4 py-2.5 text-[13px] font-bold text-white"
           >
             Criar novo evento
           </Link>
           <button
             type="button"
-            className="rounded-lg border border-line-input px-4 py-2 text-sm font-semibold"
+            className="rounded-xl border border-line px-4 py-2.5 text-[13px] font-bold text-muted"
             onClick={() => setShowForm((v) => !v)}
           >
             Criação rápida
@@ -78,10 +88,10 @@ function OrganizationContent({ orgId }: { orgId: string }) {
       </div>
 
       {showForm ? (
-        <div className="mt-4 space-y-3 rounded-lg bg-gray-800/60 p-4">
+        <div className="mt-4 space-y-3 rounded-2xl border border-line bg-surface p-4">
           <input placeholder="Título" className="w-full" value={title} onChange={(e) => setTitle(e.target.value)} />
           <div>
-            <label className="mb-1 block text-xs text-gray-400">Início</label>
+            <label className="mb-1 block text-xs text-muted">Início</label>
             <input
               type="datetime-local"
               className="w-full"
@@ -90,13 +100,13 @@ function OrganizationContent({ orgId }: { orgId: string }) {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-gray-400">Fim</label>
+            <label className="mb-1 block text-xs text-muted">Fim</label>
             <input type="datetime-local" className="w-full" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
           </div>
-          {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
           <button
             type="button"
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
+            className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-brand-dark"
             onClick={handleCreate}
           >
             Criar (fica como rascunho)
@@ -105,20 +115,49 @@ function OrganizationContent({ orgId }: { orgId: string }) {
       ) : null}
 
       {loading ? (
-        <p className="mt-6 text-gray-400">Carregando...</p>
+        <p className="mt-6 text-muted">Carregando...</p>
+      ) : events.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-line bg-surface p-10 text-center">
+          <p className="text-[15px] font-extrabold">Nenhum evento ainda</p>
+          <p className="mt-1 text-[13px] font-semibold text-muted">
+            Crie seu primeiro evento para começar a vender ingressos.
+          </p>
+        </div>
       ) : (
-        <div className="mt-6 space-y-2">
-          {events.map((event) => (
-            <Link
-              key={event.id}
-              href={`/eventos/${event.id}`}
-              className="flex items-center justify-between rounded-lg bg-gray-800/60 px-4 py-3"
-            >
-              <span>{event.title}</span>
-              <span className="text-xs text-gray-400">{event.status}</span>
-            </Link>
-          ))}
-          {events.length === 0 ? <p className="text-gray-500">Nenhum evento ainda.</p> : null}
+        <div className="mt-6 overflow-hidden rounded-2xl border border-line bg-surface">
+          <table className="w-full text-left text-[13px]">
+            <thead>
+              <tr className="border-b border-line bg-bg/60 text-[12px] font-bold text-muted">
+                <th className="px-5 py-3">Evento</th>
+                <th className="px-5 py-3">Data</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((event) => {
+                const s = STATUS_STYLES[event.status] ?? { bg: "bg-line", fg: "text-muted", label: event.status };
+                return (
+                  <tr key={event.id} className="border-b border-line last:border-0 hover:bg-bg/40">
+                    <td className="px-5 py-3.5">
+                      <Link href={`/eventos/${event.id}`} className="font-bold">
+                        {event.title}
+                      </Link>
+                    </td>
+                    <td className="px-5 py-3.5 font-semibold text-muted">{formatDate(event.startsAt)}</td>
+                    <td className="px-5 py-3.5">
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${s.bg} ${s.fg}`}>{s.label}</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right">
+                      <Link href={`/eventos/${event.id}`} className="text-[12px] font-bold text-primary">
+                        Gerenciar →
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </main>

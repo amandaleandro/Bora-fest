@@ -28,7 +28,7 @@ test("pedido pago credita o ledger (venda + comissão) e webhook duplicado é no
 
   try {
     const reservations = new ReservationsService(new InventoryService());
-    const orders = new OrdersService(new CouponsService(new OrgAccessService()));
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const payments = new PaymentsService(new IdempotencyService());
 
     const reservation = await reservations.create(undefined, {

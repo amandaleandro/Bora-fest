@@ -19,7 +19,7 @@ test("registro de push token fica atrelado ao pedido (upsert por token)", async 
 
   try {
     const reservations = new ReservationsService(new InventoryService());
-    const orders = new OrdersService(new CouponsService(new OrgAccessService()));
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const notifications = new NotificationsService();
 
     const reservation = await reservations.create(undefined, {

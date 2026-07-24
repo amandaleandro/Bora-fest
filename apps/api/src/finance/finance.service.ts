@@ -31,4 +31,15 @@ export class FinanceService {
       take: Math.min(limit, 200),
     });
   }
+
+  /** Somente leitura: criação/marcação de repasse continua exclusiva do backoffice (admin). */
+  async listPayouts(organizationId: string, actorUserId: string) {
+    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+
+    return prisma.payout.findMany({
+      where: { organizationId },
+      orderBy: { requestedAt: "desc" },
+      take: 100,
+    });
+  }
 }

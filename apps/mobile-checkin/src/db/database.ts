@@ -156,3 +156,21 @@ export function countConfirmedCheckins(): number {
   const row = db.getFirstSync<{ count: number }>("SELECT COUNT(*) as count FROM confirmed_checkins");
   return row?.count ?? 0;
 }
+
+export interface RecentCheckin {
+  ticket_id: string;
+  checkin_id: string | null;
+  confirmed_at: string;
+  code: string | null;
+}
+
+export function listRecentCheckins(limit = 30): RecentCheckin[] {
+  return db.getAllSync<RecentCheckin>(
+    `SELECT c.ticket_id, c.checkin_id, c.confirmed_at, t.code
+     FROM confirmed_checkins c
+     LEFT JOIN tickets t ON t.id = c.ticket_id
+     ORDER BY c.confirmed_at DESC
+     LIMIT ?`,
+    [limit],
+  );
+}

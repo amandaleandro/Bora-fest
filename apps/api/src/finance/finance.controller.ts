@@ -21,4 +21,9 @@ export class FinanceController {
   ) {
     return this.financeService.listEntries(organizationId, userId, limit ? Number(limit) : 50);
   }
+
+  @Get("payouts")
+  listPayouts(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
+    return this.financeService.listPayouts(organizationId, userId);
+  }
 }

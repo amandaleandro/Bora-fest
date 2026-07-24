@@ -16,6 +16,8 @@ export interface CheckinAttemptResult {
   offline: boolean;
   ticketCode?: string;
   attendeeName?: string | null;
+  ticketType?: string | null;
+  previousCheckinAt?: string | null;
   message: string;
 }
 
@@ -45,6 +47,8 @@ export async function attemptCheckin(
       offline: false,
       ticketCode: response.ticket?.code,
       attendeeName: response.ticket?.attendeeName,
+      ticketType: response.ticket?.typeName ?? response.ticket?.lotName,
+      previousCheckinAt: response.firstCheckin?.at ?? null,
       message: describeOutcome(response.result, response.firstCheckin?.deviceName),
     };
   } catch {

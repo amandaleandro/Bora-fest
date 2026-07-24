@@ -1,21 +1,28 @@
 import React, { useEffect } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import type { CheckinAttemptResult } from "../checkin/attemptCheckin";
+import { colors } from "../theme/colors";
 
-const COLORS: Record<CheckinAttemptResult["outcome"], string> = {
-  VALID: "#16a34a",
-  ALREADY_USED: "#d97706",
-  CANCELED: "#dc2626",
-  INVALID: "#dc2626",
+const STATE: Record<
+  CheckinAttemptResult["outcome"],
+  { bg: string; accent: string; icon: string; label: string }
+> = {
+  VALID: { bg: colors.successBg, accent: colors.success, icon: "✓", label: "VÁLIDO" },
+  ALREADY_USED: { bg: colors.warningBg, accent: colors.warning, icon: "⏱", label: "JÁ UTILIZADO" },
+  CANCELED: { bg: colors.dangerBg, accent: colors.danger, icon: "✕", label: "CANCELADO" },
+  INVALID: { bg: colors.dangerBg, accent: colors.danger, icon: "✕", label: "INVÁLIDO" },
 };
 
-const LABELS: Record<CheckinAttemptResult["outcome"], string> = {
-  VALID: "VÁLIDO",
-  ALREADY_USED: "JÁ UTILIZADO",
-  CANCELED: "CANCELADO",
-  INVALID: "INVÁLIDO",
-};
+function formatTime(iso?: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+  } catch {
+    return null;
+  }
+}
 
+/** Resultado em tela cheia (D4) — o antigo banner sobreposto virou o estado principal da tela. */
 export function ResultBanner({
   result,
   onDismiss,
@@ -24,20 +31,33 @@ export function ResultBanner({
   onDismiss: () => void;
 }) {
   useEffect(() => {
-    const timer = setTimeout(onDismiss, 3500);
+    const timer = setTimeout(onDismiss, 4000);
     return () => clearTimeout(timer);
   }, [result, onDismiss]);
 
+  const state = STATE[result.outcome];
+  const previousAt = formatTime(result.previousCheckinAt);
+
   return (
-    <Pressable
-      style={[styles.container, { backgroundColor: COLORS[result.outcome] }]}
-      onPress={onDismiss}
-    >
-      <Text style={styles.label}>{LABELS[result.outcome]}</Text>
-      {result.ticketCode ? <Text style={styles.code}>{result.ticketCode}</Text> : null}
+    <Pressable style={[styles.container, { backgroundColor: state.bg }]} onPress={onDismiss}>
+      <View style={[styles.iconCircle, { borderColor: state.accent }]}>
+        <Text style={[styles.icon, { color: state.accent }]}>{state.icon}</Text>
+      </View>
+      <Text style={[styles.label, { color: state.accent }]}>{state.label}</Text>
+
       {result.attendeeName ? <Text style={styles.name}>{result.attendeeName}</Text> : null}
+      {result.ticketType ? <Text style={styles.ticketType}>{result.ticketType}</Text> : null}
+      {result.ticketCode ? <Text style={styles.code}>{result.ticketCode}</Text> : null}
+
       <Text style={styles.message}>{result.message}</Text>
+      {result.outcome === "ALREADY_USED" && previousAt ? (
+        <Text style={styles.detail}>Check-in original: {previousAt}</Text>
+      ) : null}
       {result.offline ? <Text style={styles.offline}>modo offline</Text> : null}
+
+      <Pressable style={[styles.continueButton, { borderColor: state.accent }]} onPress={onDismiss}>
+        <Text style={[styles.continueText, { color: state.accent }]}>Continuar escaneando</Text>
+      </Pressable>
     </Pressable>
   );
 }
@@ -51,11 +71,31 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: 32,
   },
-  label: { fontSize: 40, fontWeight: "800", color: "#fff", marginBottom: 12 },
-  code: { fontSize: 20, color: "#fff", fontWeight: "600" },
-  name: { fontSize: 18, color: "#fff", marginTop: 4 },
-  message: { fontSize: 15, color: "#ffffffcc", marginTop: 12, textAlign: "center" },
+  iconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  icon: { fontSize: 44, fontWeight: "800" },
+  label: { fontSize: 32, fontWeight: "800", marginBottom: 16, letterSpacing: 1 },
+  name: { fontSize: 22, color: "#fff", fontWeight: "700", textAlign: "center" },
+  ticketType: { fontSize: 15, color: "#ffffffb0", marginTop: 4 },
+  code: { fontSize: 16, color: "#ffffffcc", fontWeight: "600", marginTop: 8 },
+  message: { fontSize: 15, color: "#ffffffcc", marginTop: 16, textAlign: "center" },
+  detail: { fontSize: 13, color: "#ffffffaa", marginTop: 8, textAlign: "center" },
   offline: { fontSize: 12, color: "#fff", marginTop: 16, fontStyle: "italic" },
+  continueButton: {
+    marginTop: 32,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  continueText: { fontWeight: "700", fontSize: 14 },
 });

@@ -1,0 +1,20 @@
+/** Paleta dark do hi-fi (`docs/design/BoraFest - App Validacao.html`): fundo quase preto + roxo de destaque. */
+export const colors = {
+  bg: "#0b0910",
+  surface: "#18141f",
+  surfaceAlt: "#221c2e",
+  border: "#2e2738",
+  primary: "#6d28d9",
+  primaryText: "#ffffff",
+  text: "#ffffff",
+  textMuted: "#9a92a8",
+  textDim: "#6b6478",
+  success: "#16a34a",
+  successBg: "#0f2417",
+  warning: "#d97706",
+  warningBg: "#2a1c0a",
+  danger: "#dc2626",
+  dangerBg: "#2a1013",
+  online: "#22c55e",
+  offline: "#f59e0b",
+};

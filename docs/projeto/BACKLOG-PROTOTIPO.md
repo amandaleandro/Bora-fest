@@ -35,23 +35,23 @@
 |---|---|---|
 | C1 | Auth split-screen (login senha, cadastro, recuperar) | ✅ 2026-07-24 |
 | C2 | Onboarding organizador (PF/PJ + dados bancários, banner "vendas não bloqueiam") | ✅ 2026-07-24 |
-| C3 | Meus eventos (tabela, vazio) | 🟡 lista existente ok; restyle tabela pendente |
+| C3 | Meus eventos (tabela, vazio) | ✅ 2026-07-24 |
 | C4 | Criar evento — wizard 3 etapas (dados/ingressos/publicar, modal de ingresso) | ✅ 2026-07-24 (3 etapas; upload de banner por URL) |
 | C5 | Dashboard (KPIs, gráfico, check-in ao vivo, equipe) | ✅ 2026-07-24 |
 | C6 | Ingressos (lotes/cortesias/cupons) | ✅ 2026-07-24 (na página do evento) |
-| C7 | Vendas (pedidos + detalhe + reembolso modal; PDV) | ⬜ |
-| C8 | Financeiro (saldo, repasses, dados bancários) | ⬜ |
-| C9 | Participantes / Check-in ao vivo / Divulgue / Ajuda | ⬜ |
+| C7 | Vendas (pedidos + detalhe + reembolso modal; PDV) | ✅ 2026-07-24 |
+| C8 | Financeiro (saldo, repasses, dados bancários) | ✅ 2026-07-24 |
+| C9 | Participantes / Check-in ao vivo / Divulgue / Ajuda | ✅ 2026-07-24 |
 
 ## Bloco D — App de Validação (restyle `apps/mobile-checkin`, dark)
 
 | # | Tela | Status |
 |---|---|---|
-| D1 | Login PIN (dots, teclado 3×4, shake) | ⬜ |
-| D2 | Evento & portão + priming de câmera | ⬜ |
-| D3 | Scanner (mira, scanline, chip conexão, lanterna) | ⬜ |
-| D4 | Resultados full-screen (válido/inválido/já usado) | ⬜ |
-| D5 | Busca manual / Offline+fila / Resumo com reverter / Privacidade | ⬜ |
+| D1 | Login PIN (dots, teclado 3×4, shake) | ✅ 2026-07-24 |
+| D2 | Evento & portão + priming de câmera | ✅ 2026-07-24 |
+| D3 | Scanner (mira, scanline, chip conexão, lanterna) | ✅ 2026-07-24 |
+| D4 | Resultados full-screen (válido/inválido/já usado) | ✅ 2026-07-24 |
+| D5 | Busca manual / Offline+fila / Resumo com reverter / Privacidade | 🟡 2026-07-24 (resumo+privacidade prontos; "reverter" só explica que exige o painel do produtor — `POST /v1/checkins/:id/reverse` usa `SessionGuard`, não token de dispositivo, e o controller de check-ins está fora de escopo desta sessão) |
 
 > Ordem de execução: A1→A3 (destravam login/entrega) → B inteiro (jornada de compra é o coração) →
 > A4–A6 junto com C6/B4 (precisam um do outro) → C → D. Compliance do README (Apple/LGPD/CDC) é

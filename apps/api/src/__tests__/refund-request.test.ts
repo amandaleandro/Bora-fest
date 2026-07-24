@@ -22,7 +22,7 @@ test("pedido de reembolso fica PENDING num pedido PAID e bloqueia duplicata", as
 
   try {
     const reservations = new ReservationsService(new InventoryService());
-    const orders = new OrdersService(new CouponsService(new OrgAccessService()));
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const payments = new PaymentsService(new IdempotencyService());
     const refundRequests = new RefundRequestsService();
 
@@ -60,7 +60,7 @@ test("pedido de reembolso é recusado se o pedido ainda não foi pago", async ()
 
   try {
     const reservations = new ReservationsService(new InventoryService());
-    const orders = new OrdersService(new CouponsService(new OrgAccessService()));
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const refundRequests = new RefundRequestsService();
 
     const reservation = await reservations.create(undefined, {

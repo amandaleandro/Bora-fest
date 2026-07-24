@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { useSession } from "../context/SessionContext";
-import { countConfirmedCheckins, countPendingCheckins } from "../db/database";
+import { countConfirmedCheckins, countPendingCheckins, setMeta } from "../db/database";
 import { syncManifest } from "../sync/manifestSync";
 import { flushPendingCheckins } from "../sync/syncQueue";
+import { colors } from "../theme/colors";
 
 interface Props {
   onOpenScanner: () => void;
   onOpenManualSearch: () => void;
+  onOpenSummary: () => void;
+  onOpenPrivacy: () => void;
 }
 
-export function HomeScreen({ onOpenScanner, onOpenManualSearch }: Props) {
+export function HomeScreen({ onOpenScanner, onOpenManualSearch, onOpenSummary, onOpenPrivacy }: Props) {
   const { session, clearSession, setCheckinPoint } = useSession();
   const [confirmed, setConfirmed] = useState(0);
   const [pending, setPending] = useState(0);
@@ -43,6 +46,7 @@ export function HomeScreen({ onOpenScanner, onOpenManualSearch }: Props) {
         deviceToken: session!.deviceToken,
       });
       if (result.error) setLastSyncError(result.error);
+      else setMeta("lastSyncAt", new Date().toISOString());
       refreshCounters();
     } catch (err) {
       setLastSyncError(err instanceof Error ? err.message : "Falha ao sincronizar");
@@ -70,7 +74,11 @@ export function HomeScreen({ onOpenScanner, onOpenManualSearch }: Props) {
               style={[styles.gateChip, session.checkinPointId === point.id && styles.gateChipActive]}
               onPress={() => setCheckinPoint(point.id)}
             >
-              <Text style={styles.gateChipText}>{point.name}</Text>
+              <Text
+                style={[styles.gateChipText, session.checkinPointId === point.id && styles.gateChipTextActive]}
+              >
+                {point.name}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -95,9 +103,13 @@ export function HomeScreen({ onOpenScanner, onOpenManualSearch }: Props) {
         <Text style={styles.secondaryButtonText}>Busca manual</Text>
       </Pressable>
 
+      <Pressable style={styles.secondaryButton} onPress={onOpenSummary}>
+        <Text style={styles.secondaryButtonText}>Resumo & fila offline</Text>
+      </Pressable>
+
       <Pressable style={styles.syncButton} onPress={handleSync} disabled={syncing}>
         {syncing ? (
-          <ActivityIndicator color="#111827" />
+          <ActivityIndicator color={colors.bg} />
         ) : (
           <Text style={styles.syncButtonText}>
             Sincronizar manifesto {pending > 0 ? `(${pending} pendentes)` : ""}
@@ -106,44 +118,72 @@ export function HomeScreen({ onOpenScanner, onOpenManualSearch }: Props) {
       </Pressable>
       {lastSyncError ? <Text style={styles.error}>{lastSyncError}</Text> : null}
 
-      <Pressable style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Sair deste aparelho</Text>
-      </Pressable>
+      <View style={styles.footerRow}>
+        <Pressable onPress={onOpenPrivacy}>
+          <Text style={styles.footerLink}>Privacidade</Text>
+        </Pressable>
+        <Pressable onPress={handleLogout}>
+          <Text style={styles.footerLink}>Sair deste aparelho</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#111827", padding: 20, paddingTop: 60 },
-  eventTitle: { fontSize: 22, fontWeight: "700", color: "#fff", marginBottom: 16 },
+  container: { flex: 1, backgroundColor: colors.bg, padding: 20, paddingTop: 60 },
+  eventTitle: { fontSize: 22, fontWeight: "700", color: colors.text, marginBottom: 16 },
   gateRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  gateChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: "#1f2937" },
-  gateChipActive: { backgroundColor: "#22c55e" },
-  gateChipText: { color: "#fff", fontSize: 13 },
+  gateChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  gateChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  gateChipText: { color: colors.textMuted, fontSize: 13 },
+  gateChipTextActive: { color: "#fff", fontWeight: "600" },
   counters: { flexDirection: "row", gap: 12, marginVertical: 24 },
-  counterBox: { flex: 1, backgroundColor: "#1f2937", borderRadius: 12, padding: 16, alignItems: "center" },
-  counterValue: { fontSize: 32, fontWeight: "800", color: "#22c55e" },
-  counterValuePending: { color: "#f59e0b" },
-  counterLabel: { fontSize: 12, color: "#9ca3af", marginTop: 4 },
-  primaryButton: { backgroundColor: "#22c55e", borderRadius: 10, paddingVertical: 16, alignItems: "center" },
-  primaryButtonText: { color: "#052e16", fontWeight: "700", fontSize: 17 },
+  counterBox: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 18,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  counterValue: { fontSize: 32, fontWeight: "800", color: colors.online },
+  counterValuePending: { color: colors.offline },
+  counterLabel: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  primaryButton: { backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
+  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 17 },
   secondaryButton: {
-    backgroundColor: "#1f2937",
-    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
     marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  secondaryButtonText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  secondaryButtonText: { color: colors.text, fontWeight: "600", fontSize: 15 },
   syncButton: {
-    backgroundColor: "#e5e7eb",
-    borderRadius: 10,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
     marginTop: 24,
   },
-  syncButtonText: { color: "#111827", fontWeight: "600" },
-  error: { color: "#f87171", marginTop: 8, textAlign: "center" },
-  logoutButton: { marginTop: "auto", alignItems: "center", paddingVertical: 16 },
-  logoutText: { color: "#6b7280", fontSize: 13 },
+  syncButtonText: { color: colors.text, fontWeight: "600" },
+  error: { color: colors.danger, marginTop: 8, textAlign: "center" },
+  footerRow: {
+    marginTop: "auto",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 16,
+  },
+  footerLink: { color: colors.textDim, fontSize: 13 },
 });

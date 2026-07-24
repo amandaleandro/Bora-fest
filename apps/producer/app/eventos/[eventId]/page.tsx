@@ -208,11 +208,20 @@ function EventContent({ eventId }: { eventId: string }) {
         <Link href={`/eventos/${eventId}/dashboard`} className="rounded-lg bg-gray-800 px-4 py-2">
           Dashboard de vendas
         </Link>
+        <Link href={`/eventos/${eventId}/vendas`} className="rounded-lg bg-gray-800 px-4 py-2">
+          Vendas
+        </Link>
         <Link href={`/eventos/${eventId}/participantes`} className="rounded-lg bg-gray-800 px-4 py-2">
           Participantes
         </Link>
         <Link href={`/eventos/${eventId}/portaria`} className="rounded-lg bg-gray-800 px-4 py-2">
           Portaria/validadores
+        </Link>
+        <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="rounded-lg bg-gray-800 px-4 py-2">
+          Check-in ao vivo
+        </Link>
+        <Link href={`/eventos/${eventId}/divulgue`} className="rounded-lg bg-gray-800 px-4 py-2">
+          Divulgue
         </Link>
       </div>
 

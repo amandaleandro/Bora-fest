@@ -19,9 +19,87 @@
 |---|---|
 | **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + backup/restore + alerta ✅ + transferência/reembolso ✅ + plano de testes (rascunho) + Fase 12 (app público do comprador, `apps/mobile-public`, agora com push + cartão) 🟡 |
 | **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado; Fase 12 com código escrito e bundle validado nas 2 plataformas (push e cartão testados ao vivo contra API real), não testado em aparelho real |
-| **Última atualização** | 2026-07-23 |
+| **Última atualização** | 2026-07-24 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
+
+### Sessão C7/C8 — Vendas (pedidos + reembolso + PDV) e Financeiro (2026-07-24, Claude)
+
+- **Vendas** (`apps/producer/app/eventos/[eventId]/vendas/page.tsx`, nova):
+  aba "Pedidos" com tabela (comprador, itens, status, total, criado/pago em)
+  paginada e filtro por status, reusando `GET /v1/events/:eventId/orders`
+  (já existia em `dashboard.service.ts`, só não tinha UI). Clique na linha
+  abre painel lateral com detalhe (itens/lote, pagamento, ingressos) e ação
+  "Reembolsar" (total ou parcial + motivo). Aba "PDV" registra venda
+  presencial (lote + nome/documento/e-mail do comprador) já paga.
+- **Endpoints novos no backend** (todos org-scoped via `OrgAccessService`,
+  seguindo o mesmo padrão de `dashboard.controller.ts`/`finance.controller.ts`
+  — nunca `platformRole=ADMIN`):
+  - `GET /v1/orders/:orderId/detail` (`FINANCE_VIEW`) — detalhe completo do
+    pedido para o painel.
+  - `POST /v1/orders/:orderId/refund` (`ORDER_REFUND`) — equivalente
+    org-scoped do `admin.refundOrder`: se o pedido tem pagamento real
+    (Pix/cartão) chama o gateway como o fluxo admin; se é uma venda PDV
+    (sem `Payment`, "pagã em dinheiro") faz o estorno manualmente no ledger
+    e cancela os ingressos emitidos (reembolso total).
+  - `POST /v1/events/:eventId/pdv-orders` (`EVENT_CREATE`, mesmo permission
+    usado pelas cortesias) — cria a venda manual: reserva+confirma estoque
+    na mesma transação, pedido já `PAID`, credita o ledger
+    (`SALE_CREDIT`/`PLATFORM_FEE`, taxa calculada como Pix por não passar
+    por gateway) e dispara o outbox `order.paid` — o worker emite os
+    ingressos exatamente como numa compra online (mesmo caminho de
+    cortesias, mas com valor real).
+  - Contratos novos em `packages/contracts/src/orders.ts`
+    (`pdvOrderSchema`/`PdvOrderInput`); reembolso reusa `refundOrderSchema`
+    já existente em `admin.ts` (mesmo shape, sem duplicar).
+- **Financeiro** (`apps/producer/app/organizacoes/[orgId]/financeiro/page.tsx`):
+  restyle completo (KPIs de saldo/disponível, tabela de lançamentos com
+  rótulos em PT-BR, tabela de repasses, formulário + lista de dados
+  bancários). Endpoint novo `GET /v1/organizations/:id/payouts`
+  (`finance.controller.ts`/`finance.service.ts`, permissão `FINANCE_VIEW`)
+  — somente leitura; criação/marcação de repasse continua exclusiva do
+  backoffice admin (`admin.controller.ts`), conforme decisão registrada no
+  prompt (produtor não tem botão de "solicitar repasse").
+- `npx tsc --noEmit -p .` limpo em `apps/api` e `apps/producer` (erros
+  pré-existentes em `apps/api/src/__tests__/*.test.ts` não relacionados a
+  esta mudança — assinatura antiga de um helper de teste).
+- Nota: durante esta sessão outra sessão paralela também mexeu em
+  `apps/producer/lib/api.ts`/`app/eventos/[eventId]/page.tsx` (C9); as
+  duplicatas de `ordersApi`/`payoutsApi` que apareceram foram resolvidas
+  mantendo uma única definição de cada.
+
+### Sessão C9 — Participantes/Check-in ao vivo/Divulgue/Ajuda (2026-07-24, Claude)
+
+- **Participantes** (`apps/producer/app/eventos/[eventId]/participantes/page.tsx`):
+  restyle completo pro padrão rounded-2xl/border-line/bg-surface das outras
+  telas, badges de status (`TicketStatus`: ISSUED/ACTIVE/CHECKED_IN em
+  success, TRANSFERRED em muted, CANCELED/REFUNDED em danger) e busca
+  client-side por nome/e-mail/código. Funcionalidade existente (listar via
+  `dashboardApi.participants`, exportar CSV) preservada.
+- **Check-in ao vivo standalone**
+  (`apps/producer/app/eventos/[eventId]/checkin-ao-vivo/page.tsx`, nova):
+  contador grande + barra de progresso + check-ins por portão, usando
+  `GET /v1/events/:id/checkin-live` (que já expõe `byCheckinPoint` agrupado
+  por `checkinPointId`) cruzado com `validatorConfigApi.listCheckinPoints`
+  pra mostrar o nome do portão. **Gap conhecido**: a API não expõe um feed de
+  check-ins individuais recentes (só contagem agregada por portão), então a
+  tela não fabrica uma lista de "últimos check-ins" — ficou fora do escopo
+  real do backend.
+- **Divulgue** (`apps/producer/app/eventos/[eventId]/divulgue/page.tsx`,
+  nova): link público do hotsite (`{CHECKOUT_URL}/evento/{slug}`, mesmo
+  padrão já usado na seção Publicação da página do evento), botão copiar,
+  texto pronto pra compartilhar e atalhos WhatsApp/X/Facebook. Sem QR: a
+  única lib de QR do monorepo é `react-native-qrcode-svg` (só React Native,
+  não roda no browser) — não valia adicionar dependência nova só pra isso,
+  então ficou copiável/compartilhável apenas, como previsto no plano como
+  fallback aceitável.
+- **Ajuda** (`apps/producer/app/ajuda/page.tsx`, nova): FAQ estático
+  (repasses, reembolso, check-in, cortesias, cupons, publicação, divulgação)
+  e contato de suporte. Link "Ajuda" adicionado no `Nav.tsx` sem mais
+  mudanças estruturais.
+- Links adicionados na página do evento
+  (`apps/producer/app/eventos/[eventId]/page.tsx`) para as duas telas novas.
+- `npx tsc --noEmit -p .` limpo em `apps/producer` depois das mudanças.
 
 ### Sessão de pré-lançamento (2026-07-23, Arthur + Claude)
 
@@ -47,6 +125,46 @@
   §22 completo mapeado em 6 blocos com status real (o que já passou em
   2026-07-23, o que é parcial, o que trava em celular/VPS/conta PSP) e ordem
   sugerida de execução.
+
+### Bloco D — restyle do app de validação (2026-07-24, Amanda + Claude)
+
+Implementado o Bloco D do `BACKLOG-PROTOTIPO.md` inteiro em `apps/mobile-checkin`,
+restyle sobre a lógica existente (device auth, manifest sync, fila offline,
+verificação Ed25519) sem tocar nela:
+
+- **D1** — `PinLoginScreen.tsx`: PIN vira dots (preenchido/vazio) + teclado
+  numérico 3×4 (`Animated` para o shake em PIN errado), mantendo o campo de
+  ID do evento (a sessão do validador exige `eventId`+`pin` juntos — não dá
+  para tirar sem mudar a API) e o fluxo `api.createValidatorSession` intacto.
+- **D2** — `HomeScreen.tsx` restyled (tema dark/roxo, `src/theme/colors.ts`
+  novo) + `CameraPrimingScreen.tsx` novo: pede permissão da câmera antes de
+  abrir o scanner, com tela amigável de negada + atalho para configurações
+  do aparelho (`Linking.openSettings`).
+- **D3** — `ScannerScreen.tsx`: moldura com cantos + scanline animada
+  (`Animated.loop`), chip de status online/offline com contagem da fila
+  (deriva do retorno `offline` de cada tentativa de check-in + polling do
+  sqlite local), botão de lanterna via `enableTorch` do `expo-camera`.
+- **D4** — `ResultBanner.tsx` virou visão full-screen por estado (verde
+  válido/âmbar já-usado com horário do check-in original/vermelho
+  inválido-cancelado), com nome, tipo de ingresso e código. Isso exigiu
+  estender `CheckinAttemptResult` (`attemptCheckin.ts`) com `ticketType` e
+  `previousCheckinAt` vindos do `CheckinResponse` já retornado pela API —
+  nenhuma mudança na verificação Ed25519.
+- **D5** — `ManualSearchScreen.tsx` restyled; `SyncSummaryScreen.tsx` novo
+  (pendentes na fila, hora da última sync via `meta.lastSyncAt`, lista dos
+  check-ins recentes deste aparelho via `listRecentCheckins` novo em
+  `database.ts`); `PrivacyScreen.tsx` novo (texto estático LGPD).
+  **Gap real encontrado**: `POST /v1/checkins/:id/reverse` usa
+  `SessionGuard` (login do produtor), não `ValidatorDeviceGuard` — o
+  aparelho de portaria só tem token de dispositivo, então não consegue
+  chamar esse endpoint. Como o controller de check-ins está fora do escopo
+  desta sessão (outros agentes mexendo em `apps/producer`/`apps/api`), o
+  botão "Reverter" do resumo explica isso ao usuário em vez de tentar
+  reverter — reversão continua só pelo painel do produtor. D5 marcado 🟡
+  no backlog por causa disso.
+- `npx tsc --noEmit` em `apps/mobile-checkin` passou limpo depois das
+  mudanças. **Não foi possível testar em aparelho/emulador real** nesta
+  sessão — validação é só de tipos/lógica, não visual.
 
 ### Validação em navegador real (2026-07-23, Arthur + Claude)
 
@@ -598,6 +716,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-24 | Amanda + Claude | **C7 (Vendas: pedidos + detalhe + reembolso + PDV) e C8 (Financeiro: saldo/repasses/dados bancários) — Bloco C fechado (C1–C9)**. Backend novo, org-scoped (permissão `FINANCE_VIEW`/`ORDER_REFUND`/`EVENT_CREATE` via `OrgAccessService`, mesmo padrão do dashboard — não passa por `platformRole=ADMIN`): `GET /v1/events/:eventId/orders` (lista paginada, reaproveita `DashboardService.listOrders` já existente), `GET /v1/orders/:orderId/detail` (itens/lote/tipo, pagamentos, ingressos), `POST /v1/orders/:orderId/refund` (`refundOrderSchema` reaproveitado do admin — dispara `getGateway().refund`+`applyGatewayStatus` quando há pagamento real, ou debita o ledger direto quando é venda do PDV sem gateway), `POST /v1/events/:eventId/pdv-orders` (`pdvOrderSchema` novo em `@borafest/contracts`: lote+qtd+comprador — reserva+confirma estoque na mesma transação, pedido nasce `PAID`, credita `SALE_CREDIT`/`PLATFORM_FEE` no ledger com a taxa Pix e reusa o outbox `order.paid` pro worker emitir o ingresso, igual cortesia mas com valor real) e `GET /v1/organizations/:organizationId/payouts` (somente leitura — criação/marcação de pago continuam exclusivas do backoffice ADMIN, confirmado no `arquitetura-borafest.md` §4.5 "admin-web controla saldos/repasses"). Frontend: `apps/producer/app/eventos/[eventId]/vendas` (abas Pedidos/PDV, filtro por status, painel lateral de detalhe, modal de estorno total/parcial com motivo) e `apps/organizacoes/[orgId]/financeiro` restylizado (KPIs saldo/disponível, tabela de lançamentos, tabela de repasses, formulário+lista de contas bancárias) — `tsc --noEmit` limpo em `apps/api` e `apps/producer`. Achados corrigidos nesta sessão: 5 testes de integração quebrados por `OrdersService` ter ganhado um 2º parâmetro (`OrgAccessService`) no construtor — corrigido nos `__tests__`; link duplicado de "Vendas" na página do evento; faltavam anotações de tipo de retorno (`Promise<any>`) em `getOrderDetailForProducer`/`refundOrder` (erro TS2742 de tipo do Prisma não portável, mesmo padrão já usado em `admin.service.ts`). | Bloco C completo (C1–C9). Falta: Bloco D (restyle do app de validação, D1–D5) e revisão de C3 (tabela de "Meus eventos" ainda não restylizada). |
 | 2026-07-24 | Arthur + Claude | **C5 — Dashboard Geral restylizado**: 4 KPIs com tiles coloridos (valor vendido, emitidos, aprovadas com delta verde, pedidos), vendas por lote com barras de progresso, **Check-in ao vivo** (dot pulsante, X/Y presentes, barra, +N/min — polling 10s no checkin-live) com estado vazio, e quebras por status. Validado no navegador com dados reais da sessão (R$604,80; 1/11 presentes). | Restam: C7 (vendas/PDV), C8/C9 e Bloco D. |
 | 2026-07-24 | Arthur + Claude | **C4 — Wizard de criação de evento em 3 etapas** (Dados → Ingressos → Publicar): stepper visual, dados+banner, ingressos com preço final calculado em verde, revisão com hotsite e aviso 'venda começa imediatamente', Publicar/Salvar rascunho — tudo em cima das APIs já testadas; botão 'Criar novo evento' da organização leva ao wizard. Renderização validada no navegador. | Restam do protótipo: C5 (KPIs/gráfico dashboard), C7 (vendas/PDV), C8/C9 (financeiro restyle, divulgue) e Bloco D (telas do app validação). Backlog atualizado. |
 | 2026-07-24 | Arthur + Claude | **C2 — Onboarding do organizador**: banner-diferencial 'vendas NÃO ficam bloqueadas' + chip de verificação pendente, card PF/PJ (toggle troca labels Nome/CPF↔Razão social/CNPJ) e card de dados bancários (banco/agência/conta/tipo/Pix). Backend novo: POST/GET /v1/organizations/:id/bank-accounts (nova conta vira padrão de repasse) — testado E2E (register→org→conta bancária→listagem). Cadastro agora desemboca no /onboarding. | Restam: C4 wizard, C5 dashboard restyle, C7 vendas/PDV, C8/C9, e Bloco D (app validação). Tudo mapeado no BACKLOG-PROTOTIPO.md. |

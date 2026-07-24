@@ -181,8 +181,20 @@ export interface Participant {
   lotName: string;
 }
 
+export interface CheckinLive {
+  eventId: string;
+  totalTickets: number;
+  checkedIn: number;
+  remaining: number;
+  perMinute: number;
+  byCheckinPoint: Array<{ checkinPointId: string | null; count: number }>;
+  generatedAt: string;
+}
+
 export const dashboardApi = {
   get: (token: string, eventId: string) => request<Dashboard>(`/v1/events/${eventId}/dashboard`, { token }),
+  checkinLive: (token: string, eventId: string) =>
+    request<CheckinLive>(`/v1/events/${eventId}/checkin-live`, { token }),
   participants: (token: string, eventId: string) =>
     request<Participant[]>(`/v1/events/${eventId}/participants`, { token }),
   /**
@@ -319,4 +331,81 @@ export const bankAccountsApi = {
   list: (organizationId: string, token: string) =>
     request<Array<{ id: string; bankCode: string; agency: string; account: string; holderName: string; isDefault: boolean }>>(
       `/v1/organizations/${organizationId}/bank-accounts`, { token }),
+};
+
+// ---------------------------------------------------------------------------
+// Vendas (pedidos + PDV + reembolso) — painel > evento > Vendas
+// ---------------------------------------------------------------------------
+
+export interface OrderSummary {
+  id: string;
+  publicToken: string;
+  contactName: string | null;
+  contactEmail: string;
+  status: string;
+  totalCents: number;
+  createdAt: string;
+  paidAt: string | null;
+  _count: { tickets: number };
+}
+
+export interface OrderDetail {
+  id: string;
+  publicToken: string;
+  contactName: string | null;
+  contactEmail: string;
+  status: string;
+  totalCents: number;
+  discountCents: number;
+  createdAt: string;
+  paidAt: string | null;
+  event: { id: string; title: string };
+  items: Array<{
+    id: string;
+    quantity: number;
+    priceCents: number;
+    feeCents: number;
+    ticketLot: { name: string; ticketType: { name: string } };
+  }>;
+  payments: Array<{ id: string; method: string; status: string; amountCents: number; provider: string; paidAt: string | null }>;
+  tickets: Array<{ id: string; code: string; status: string; attendeeName: string | null }>;
+}
+
+export const ordersApi = {
+  list: (eventId: string, token: string, params?: { status?: string; page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set("status", params.status);
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+    const qs = query.toString();
+    return request<{ total: number; page: number; pageSize: number; orders: OrderSummary[] }>(
+      `/v1/events/${eventId}/orders${qs ? `?${qs}` : ""}`, { token },
+    );
+  },
+  detail: (orderId: string, token: string) => request<OrderDetail>(`/v1/orders/${orderId}/detail`, { token }),
+  refund: (orderId: string, body: { amountCents?: number; reason: string }, token: string) =>
+    request(`/v1/orders/${orderId}/refund`, { method: "POST", body, token }),
+  createPdvSale: (
+    eventId: string,
+    body: { ticketLotId: string; quantity: number; buyerName: string; buyerDocument?: string; buyerEmail?: string },
+    token: string,
+  ) => request<{ orderId: string; publicToken: string }>(`/v1/events/${eventId}/pdv-orders`, { method: "POST", body, token }),
+};
+
+// ---------------------------------------------------------------------------
+// Repasses (payouts) — leitura, painel > Financeiro (criação é exclusiva do backoffice admin)
+// ---------------------------------------------------------------------------
+
+export interface Payout {
+  id: string;
+  amountCents: number;
+  status: string;
+  requestedAt: string;
+  paidAt: string | null;
+  notes: string | null;
+}
+
+export const payoutsApi = {
+  list: (organizationId: string, token: string) =>
+    request<Payout[]>(`/v1/organizations/${organizationId}/payouts`, { token }),
 };
