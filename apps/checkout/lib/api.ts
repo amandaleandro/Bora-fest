@@ -209,4 +209,26 @@ export const api = {
       "/v1/me/tickets",
       { token },
     ),
+
+  myProfile: (token: string) =>
+    request<{ id: string; name: string | null; email: string | null; phone: string | null }>("/v1/me", { token }),
+
+  myOrders: (token: string) =>
+    request<Array<{
+      id: string; publicToken: string; status: string; totalCents: number; discountCents: number;
+      createdAt: string;
+      event: { title: string; slug: string; startsAt: string; endsAt: string };
+      items: Array<{ quantity: number; ticketLot: { name: string } }>;
+    }>>("/v1/me/orders", { token }),
+
+  myDataExport: (token: string) => request<unknown>("/v1/me/data-export", { token }),
+
+  deleteAccount: (token: string) =>
+    request<{ deleted: boolean }>("/v1/me", { method: "DELETE", token }),
+
+  requestRefund: (publicToken: string, reason: string) =>
+    request<{ id: string; status: string }>(`/v1/orders/${publicToken}/refund-requests`, {
+      method: "POST",
+      body: { reason },
+    }),
 };

@@ -27,7 +27,7 @@
 | B7 | Pagamento (timer 10:00, abas Pix/Cartão/Carteira, QR, copiar, recusado, expirado) | ✅ 2026-07-24 |
 | B8 | Confirmação (aprovado/pendente) | ✅ 2026-07-24 |
 | B9 | Carteira (cartão-ingresso com recorte, QR, transferir, vazio) | ✅ 2026-07-24 |
-| B10 | Perfil/Minhas compras/Privacidade&Termos (LGPD: baixar dados, excluir conta, reembolso CDC) | ⬜ |
+| B10 | Perfil/Minhas compras/Privacidade&Termos (LGPD: baixar dados, excluir conta, reembolso CDC) | ✅ 2026-07-24 |
 
 ## Bloco C — Painel do Produtor (restyle `apps/producer` 1360px sidebar dark)
 
