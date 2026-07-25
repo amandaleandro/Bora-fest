@@ -28,7 +28,7 @@ export class FinanceController {
   listPayouts(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
     return this.financeService.listPayouts(organizationId, userId);
   }
-  @Post(":organizationId/payout-requests")
+  @Post("payout-requests")
   requestPayout(
     @Param("organizationId") organizationId: string,
     @CurrentUserId() userId: string,
@@ -37,7 +37,7 @@ export class FinanceController {
     return this.financeService.requestPayout(organizationId, userId, (body as { amountCents: number }).amountCents);
   }
 
-  @Get(":organizationId/payout-requests")
+  @Get("payout-requests")
   listPayoutRequests(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
     return this.financeService.listPayoutRequests(organizationId, userId);
   }

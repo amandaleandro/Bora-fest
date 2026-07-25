@@ -97,6 +97,13 @@ export class IdentityService {
       data: { consumedAt: new Date(), userId: user.id },
     });
 
+    // OTP verificado = posse do e-mail comprovada: reivindica os pedidos feitos
+    // como convidado com este e-mail, para os ingressos aparecerem na carteira.
+    await prisma.order.updateMany({
+      where: { userId: null, contactEmail: input.destination },
+      data: { userId: user.id },
+    });
+
     const token = await createSessionToken({ sub: user.id });
 
     return { token, user };

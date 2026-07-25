@@ -41,8 +41,17 @@ Handoff v2 (`docs/design/`, com as 8 decisões de produto cravadas) implementado
   pagamentos, fail-fast dos segredos do Pagar.me.
 - **E-mail**: adapter Resend pronto — basta a chave para o ingresso e o OTP saírem.
 
-**Validado no navegador**: compra com 2 ingressos nominais → participantes com
-CPF gravados, consentimento (terms+privacy v2026-07) registrado no pedido.
+**Validado de ponta a ponta (2026-07-25, no navegador + API)**:
+compra com 2 ingressos nominais → LGPD bloqueante marcado → Pix pago →
+participantes com CPF e consentimento (terms+privacy v2026-07) gravados →
+login sem senha reivindica o pedido de convidado → carteira mostra os 2
+ingressos com nome → PIN de portaria → manifesto com nome (sem CPF) →
+check-in VALID → segunda leitura ALREADY_USED com aparelho do 1º uso.
+
+Dois bugs achados e corrigidos nessa validação:
+1. Rota de saque duplicava `:organizationId` (o modal do painel ia dar 404).
+2. Pedido de convidado nunca era vinculado à conta — a carteira ficava vazia.
+   Agora o verify do OTP (posse do e-mail comprovada) reivindica os pedidos.
 
 **Bloqueios de lançamento (externos)**: conta Pagar.me, chave do Resend, VPS.
 
