@@ -74,7 +74,7 @@ export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
   create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string }) =>
     request<Organization & { members: unknown[] }>("/v1/organizations", { method: "POST", body: input, token }),
-  inviteMember: (token: string, organizationId: string, email: string, roleKey: string) =>
+  inviteMember: (token: string, organizationId: string, email: string, roleKey: MemberRoleKey) =>
     request(`/v1/organizations/${organizationId}/members`, {
       method: "POST",
       body: { email, roleKey },
@@ -94,7 +94,22 @@ export interface EventSummary {
   startsAt: string;
   endsAt: string;
   organizationId: string;
+  description?: string | null;
+  bannerUrl?: string | null;
 }
+
+/**
+ * Rótulos do handoff → roleKey do inviteMemberSchema (owner|admin|operator|finance).
+ * "Gestor do evento" cai em `finance` porque é a única role não-admin com acesso a
+ * pedidos/participantes (finance:view + order:refund); `operator` só tem checkin:perform.
+ */
+export const MEMBER_ROLES = [
+  { key: "admin", label: "Administrador", description: "Tudo, inclusive financeiro e saques" },
+  { key: "finance", label: "Gestor do evento", description: "Ingressos, vendas e participantes" },
+  { key: "operator", label: "Check-in", description: "Só o app de validação e o painel ao vivo" },
+] as const;
+
+export type MemberRoleKey = (typeof MEMBER_ROLES)[number]["key"];
 
 export const eventsApi = {
   list: (token: string, organizationId: string) =>
@@ -123,6 +138,8 @@ export interface TicketType {
   description: string | null;
 }
 
+export type FeeMode = "BUYER" | "PRODUCER";
+
 export interface TicketLot {
   id: string;
   name: string;
@@ -132,16 +149,28 @@ export interface TicketLot {
   soldCount: number;
   reservedCount: number;
   status: string;
+  feeMode?: FeeMode;
+  nominal?: boolean;
+  requiresCpf?: boolean;
+}
+
+export interface CreateLotInput {
+  name: string;
+  priceCents: number;
+  feeCents: number;
+  capacity: number;
+  maxPerOrder?: number;
+  /** BUYER: preço + taxa no checkout · PRODUCER: produtor absorve a taxa */
+  feeMode?: FeeMode;
+  nominal?: boolean;
+  requiresCpf?: boolean;
 }
 
 export const catalogApi = {
   createTicketType: (token: string, eventId: string, input: { name: string; position?: number }) =>
     request<TicketType>(`/v1/events/${eventId}/ticket-types`, { method: "POST", body: input, token }),
-  createLot: (
-    token: string,
-    ticketTypeId: string,
-    input: { name: string; priceCents: number; feeCents: number; capacity: number; maxPerOrder?: number },
-  ) => request<TicketLot>(`/v1/ticket-types/${ticketTypeId}/lots`, { method: "POST", body: input, token }),
+  createLot: (token: string, ticketTypeId: string, input: CreateLotInput) =>
+    request<TicketLot>(`/v1/ticket-types/${ticketTypeId}/lots`, { method: "POST", body: input, token }),
   activateLot: (token: string, lotId: string) =>
     request<TicketLot>(`/v1/ticket-lots/${lotId}/activate`, { method: "POST", token }),
 };
@@ -298,13 +327,22 @@ export const passwordAuth = {
     }),
 };
 
+export interface UpdateEventInput {
+  title?: string;
+  description?: string;
+  startsAt?: string;
+  endsAt?: string;
+  /** updateEventSchema valida `z.string().url().optional()` — null derruba a request. */
+  bannerUrl?: string;
+}
+
 export const eventControls = {
   unpublish: (eventId: string, token: string) =>
     request(`/v1/events/${eventId}/unpublish`, { method: "POST", token }),
   republish: (eventId: string, token: string) =>
     request(`/v1/events/${eventId}/republish`, { method: "POST", token }),
-  update: (eventId: string, body: Record<string, unknown>, token: string) =>
-    request(`/v1/events/${eventId}`, { method: "PATCH", body, token }),
+  update: (eventId: string, body: UpdateEventInput, token: string) =>
+    request<EventSummary>(`/v1/events/${eventId}`, { method: "PATCH", body, token }),
 };
 
 export const couponsApi = {
@@ -325,12 +363,34 @@ export const complimentaryApi = {
     request(`/v1/events/${eventId}/complimentary-tickets`, { method: "POST", body, token }),
 };
 
+export interface BankAccount {
+  id: string;
+  bankCode: string;
+  agency: string;
+  account: string;
+  accountType: string;
+  holderName: string;
+  holderDocument: string;
+  pixKey?: string | null;
+  isDefault: boolean;
+}
+
+/** createBankAccountSchema exige holderDocument e accountType — sem eles a API devolve 400. */
+export interface CreateBankAccountInput {
+  holderName: string;
+  holderDocument: string;
+  bankCode: string;
+  agency: string;
+  account: string;
+  accountType: "corrente" | "poupanca";
+  pixKey?: string;
+}
+
 export const bankAccountsApi = {
-  add: (organizationId: string, body: Record<string, unknown>, token: string) =>
-    request(`/v1/organizations/${organizationId}/bank-accounts`, { method: "POST", body, token }),
+  add: (organizationId: string, body: CreateBankAccountInput, token: string) =>
+    request<BankAccount>(`/v1/organizations/${organizationId}/bank-accounts`, { method: "POST", body, token }),
   list: (organizationId: string, token: string) =>
-    request<Array<{ id: string; bankCode: string; agency: string; account: string; holderName: string; isDefault: boolean }>>(
-      `/v1/organizations/${organizationId}/bank-accounts`, { token }),
+    request<BankAccount[]>(`/v1/organizations/${organizationId}/bank-accounts`, { token }),
 };
 
 // ---------------------------------------------------------------------------
@@ -405,7 +465,25 @@ export interface Payout {
   notes: string | null;
 }
 
+/** Solicitação de saque feita pelo produtor (fila que o backoffice aprova). */
+export interface PayoutRequest {
+  id: string;
+  amountCents: number;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "PAID" | string;
+  notes: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export const payoutsApi = {
   list: (organizationId: string, token: string) =>
     request<Payout[]>(`/v1/organizations/${organizationId}/payouts`, { token }),
+  listRequests: (organizationId: string, token: string) =>
+    request<PayoutRequest[]>(`/v1/organizations/${organizationId}/payout-requests`, { token }),
+  requestPayout: (organizationId: string, amountCents: number, token: string) =>
+    request<PayoutRequest>(`/v1/organizations/${organizationId}/payout-requests`, {
+      method: "POST",
+      body: { amountCents },
+      token,
+    }),
 };

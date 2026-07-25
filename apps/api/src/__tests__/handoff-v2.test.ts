@@ -16,7 +16,7 @@ after(async () => {
 function services() {
   return {
     reservations: new ReservationsService(new InventoryService()),
-    orders: new OrdersService(new CouponsService(new OrgAccessService())),
+    orders: new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService()),
   };
 }
 

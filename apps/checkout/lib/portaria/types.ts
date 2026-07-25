@@ -1,0 +1,100 @@
+/** Tipos compartilhados do PWA de portaria (handoff v2, superfície 4). */
+
+export interface Session {
+  deviceId: string;
+  deviceToken: string;
+  credentialLabel?: string;
+  event: { id: string; title: string; slug?: string; startsAt?: string; endsAt?: string };
+  checkinPoints: Array<{ id: string; name: string }>;
+}
+
+/** Ingresso como vem no manifesto — sem CPF (minimização LGPD, ver validator.service). */
+export interface ManifestTicket {
+  id: string;
+  code: string;
+  status: string;
+  ticketLotId: string;
+  checkedInAt: string | null;
+  updatedAt: string;
+  attendeeName: string | null;
+}
+
+export interface ManifestLot {
+  id: string;
+  name: string;
+  typeName: string;
+}
+
+export interface ManifestMeta {
+  eventId: string;
+  eventTitle: string;
+  /** carimbo devolvido pelo servidor; vira o `since` do próximo delta */
+  manifestVersion: string;
+  publicKeyPem: string | null;
+  syncedAt: string;
+  ticketCount: number;
+}
+
+export interface ManifestResponse {
+  manifestVersion: string;
+  delta: boolean;
+  lots: ManifestLot[];
+  event: { id: string; title: string; startsAt: string; endsAt: string; timezone: string };
+  signingKey: { publicKeyPem: string; algorithm: string } | null;
+  ticketCount: number;
+  tickets: ManifestTicket[];
+}
+
+/** Estado de um item da fila offline. CONFLICT/INVALID nunca são descartados. */
+export type QueueState = "PENDING" | "CONFLICT" | "INVALID";
+
+export interface QueueItem {
+  /** único por aparelho — o servidor usa (deviceId, localSeq) como chave */
+  localSeq: number;
+  ticketId: string;
+  checkinPointId?: string;
+  scannedAt: string;
+  state: QueueState;
+  code: string;
+  name: string | null;
+  gateName: string | null;
+}
+
+export type ResultKind = "VALID" | "ALREADY_USED" | "INVALID" | "CANCELED" | "UNVERIFIED";
+
+export type InvalidReason =
+  | "BAD_SIGNATURE"
+  | "OTHER_EVENT"
+  | "NOT_FOUND"
+  | "EVENT_WITHOUT_KEY"
+  | "MALFORMED";
+
+export interface ScanResult {
+  kind: ResultKind;
+  reason?: InvalidReason;
+  /** verificado no aparelho (manifesto + assinatura) em vez de no servidor */
+  offline?: boolean;
+  ticketId?: string;
+  code?: string;
+  name?: string | null;
+  lotLabel?: string | null;
+  firstAt?: string | null;
+  firstGate?: string | null;
+  firstDevice?: string | null;
+  checkinId?: string;
+}
+
+export interface SummaryResponse {
+  totalTickets: number;
+  checkedIn: number;
+  remaining: number;
+  byGate: Array<{ gate: string; count: number }>;
+}
+
+export interface RecentCheckin {
+  checkinId: string;
+  code: string;
+  name: string | null;
+  gate: string | null;
+  at: string;
+}

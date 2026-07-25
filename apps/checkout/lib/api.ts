@@ -42,6 +42,11 @@ export interface PublicTicketLot {
   soldCount: number;
   reservedCount: number;
   status: string;
+  /** BUYER: comprador paga a taxa. PRODUCER: o produtor absorve (total = preço). */
+  feeMode: "BUYER" | "PRODUCER";
+  /** exige nome (e CPF quando requiresCpf) de cada participante no checkout */
+  nominal: boolean;
+  requiresCpf: boolean;
 }
 
 export interface PublicTicketType {
@@ -104,6 +109,8 @@ export interface Order {
   totalCents: number;
   discountCents?: number;
   createdAt: string;
+  /** janela de pagamento do pedido — mantém o cronômetro vivo depois da reserva */
+  expiresAt?: string | null;
   paidAt: string | null;
   items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number }>;
   payments?: Array<{
@@ -143,16 +150,36 @@ export interface OrderTicketsResponse {
   tickets: OrderTicket[];
 }
 
+export interface OrderAttendeeInput {
+  ticketLotId: string;
+  name: string;
+  cpf?: string;
+}
+
+/** Aceite versionado de Termos e Privacidade (LGPD) — obrigatório para pagar. */
+export interface ConsentInput {
+  version: string;
+  terms: true;
+  privacy: true;
+}
+
 export const api = {
   listPublicEvents: () =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
   getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
 
+  /** A reserva só guarda o eventId; o checkout precisa do slug para reler o catálogo. */
+  resolveEventSlug: (eventId: string) =>
+    request<{ total: number; events: EventListItem[] }>("/v1/public/events").then(
+      (r) => r.events.find((e) => e.id === eventId)?.slug ?? null,
+    ),
+
   createReservation: (
     eventId: string,
     items: Array<{ ticketLotId: string; quantity: number; halfPrice?: boolean }>,
-  ) => request<Reservation>("/v1/reservations", { method: "POST", body: { eventId, items } }),
+    token?: string,
+  ) => request<Reservation>("/v1/reservations", { method: "POST", body: { eventId, items }, token }),
 
   getReservation: (id: string) => request<Reservation>(`/v1/reservations/${id}`),
 
@@ -161,13 +188,18 @@ export const api = {
       `/v1/public/events/${slug}/coupons/${encodeURIComponent(code)}`,
     ),
 
-  createOrder: (input: {
-    reservationId: string;
-    contactEmail: string;
-    contactName?: string;
-    contactPhone?: string;
-    couponCode?: string;
-  }) => request<Order>("/v1/orders", { method: "POST", body: input }),
+  createOrder: (
+    input: {
+      reservationId: string;
+      contactEmail: string;
+      contactName?: string;
+      contactPhone?: string;
+      couponCode?: string;
+      attendees?: OrderAttendeeInput[];
+      consent?: ConsentInput;
+    },
+    token?: string,
+  ) => request<Order>("/v1/orders", { method: "POST", body: input, token }),
 
   getOrderStatus: (publicToken: string) => request<Order>(`/v1/orders/${publicToken}/status`),
 
@@ -211,7 +243,24 @@ export const api = {
     ),
 
   myProfile: (token: string) =>
-    request<{ id: string; name: string | null; email: string | null; phone: string | null }>("/v1/me", { token }),
+    request<{
+      id: string;
+      name: string | null;
+      email: string | null;
+      phone: string | null;
+      // preferências de notificação são de CONTA (handoff §8); enquanto a API
+      // não as devolver, a UI cai no espelho em localStorage
+      notifyWhatsapp?: boolean;
+      notifyEmailOffers?: boolean;
+    }>("/v1/me", { token }),
+
+  /** Grava as preferências de notificação na conta. Rota ainda opcional: 404 = usar só o localStorage. */
+  updatePreferences: (token: string, prefs: { notifyWhatsapp: boolean; notifyEmailOffers: boolean }) =>
+    request<{ notifyWhatsapp?: boolean; notifyEmailOffers?: boolean }>("/v1/me", {
+      method: "PATCH",
+      body: prefs,
+      token,
+    }),
 
   myOrders: (token: string) =>
     request<Array<{

@@ -2,28 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Painel é light na v1 — dark mode só na portaria (decisão v2 #5). */
 body {
-  background-color: #0b1120;
-  color: #f3f4f6;
+  background-color: #f6f5fb;
+  color: #16121f;
 }
 
-input,
+/* Fallback para os campos que ainda não recebem classes utilitárias. */
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
-  background-color: #1f2937;
-  border-radius: 0.5rem;
+  background-color: #ffffff;
+  border: 1.5px solid #e0dbec;
+  border-radius: 0.75rem;
   padding: 0.6rem 0.9rem;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-}
-
-th,
-td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #1f2937;
-  font-size: 0.875rem;
 }

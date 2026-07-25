@@ -17,9 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" className={jakarta.variable}>
       <body className="font-sans bg-bg text-ink">
-        <AuthProvider>
-          <div className="mx-auto min-h-screen max-w-4xl px-4">{children}</div>
-        </AuthProvider>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

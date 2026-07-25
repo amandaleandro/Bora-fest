@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
+import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { organizationsApi, type Organization } from "@/lib/api";
 
+const inputCls =
+  "h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
+
+/**
+ * Multi-produtora fica para a v2 (decisão #6) — o login já cai em "Meus eventos".
+ * Esta tela continua acessível para quem administra mais de uma organização.
+ */
 function OrganizationsContent() {
   const { token } = useAuth();
   const [orgs, setOrgs] = useState<Array<Organization & { roleKey: string }>>([]);
@@ -47,13 +53,14 @@ function OrganizationsContent() {
   }
 
   return (
-    <main>
-      <Nav />
-      <div className="mt-8 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Suas organizações</h1>
+    <>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[13px] font-semibold text-muted">
+          Escolha a produtora para ver os eventos e o financeiro.
+        </p>
         <button
           type="button"
-          className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
+          className="rounded-xl border-[1.5px] border-line-input px-4 py-2.5 text-[13px] font-bold text-ink-soft"
           onClick={() => setShowForm((v) => !v)}
         >
           Nova organização
@@ -61,22 +68,26 @@ function OrganizationsContent() {
       </div>
 
       {showForm ? (
-        <div className="mt-4 space-y-3 rounded-lg bg-gray-800/60 p-4">
-          <input placeholder="Nome" className="w-full" value={name} onChange={(e) => setName(e.target.value)} />
+        <div className="mb-4 space-y-3 rounded-[18px] border border-line bg-surface p-5">
+          <input placeholder="Nome" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
           <input
             placeholder="CPF ou CNPJ"
-            className="w-full"
+            className={inputCls}
             value={document}
             onChange={(e) => setDocument(e.target.value.replace(/\D/g, ""))}
           />
-          <select className="w-full" value={kind} onChange={(e) => setKind(e.target.value as any)}>
+          <select
+            className={inputCls}
+            value={kind}
+            onChange={(e) => setKind(e.target.value as "INDIVIDUAL" | "COMPANY")}
+          >
             <option value="COMPANY">Empresa (CNPJ)</option>
             <option value="INDIVIDUAL">Pessoa física (CPF)</option>
           </select>
-          {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          {error ? <p className="text-[12px] font-semibold text-danger">{error}</p> : null}
           <button
             type="button"
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
+            className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
             onClick={handleCreate}
           >
             Criar
@@ -85,34 +96,36 @@ function OrganizationsContent() {
       ) : null}
 
       {loading ? (
-        <p className="mt-6 text-gray-400">Carregando...</p>
+        <p className="text-[13px] font-semibold text-muted">Carregando…</p>
+      ) : orgs.length === 0 ? (
+        <div className="rounded-[18px] border border-line bg-surface p-10 text-center">
+          <p className="text-[15px] font-extrabold">Nenhuma organização ainda</p>
+          <p className="mt-1 text-[13px] font-semibold text-muted">Crie a primeira acima para começar a vender.</p>
+        </div>
       ) : (
-        <div className="mt-6 space-y-2">
+        <div className="space-y-2">
           {orgs.map((org) => (
             <Link
               key={org.id}
               href={`/organizacoes/${org.id}`}
-              className="flex items-center justify-between rounded-lg bg-gray-800/60 px-4 py-3"
+              className="flex items-center justify-between rounded-[14px] border border-line bg-surface px-5 py-4 hover:border-primary/40"
             >
-              <span>{org.name}</span>
-              <span className="text-xs text-gray-400">
+              <span className="text-[14px] font-extrabold text-ink">{org.name}</span>
+              <span className="text-[12px] font-semibold text-muted">
                 {org.status} · {org.roleKey}
               </span>
             </Link>
           ))}
-          {orgs.length === 0 ? (
-            <p className="text-gray-500">Nenhuma organização ainda — crie a primeira acima.</p>
-          ) : null}
         </div>
       )}
-    </main>
+    </>
   );
 }
 
 export default function OrganizationsPage() {
   return (
-    <AuthGuard>
+    <GuardedPanelShell title="Suas organizações">
       <OrganizationsContent />
-    </AuthGuard>
+    </GuardedPanelShell>
   );
 }

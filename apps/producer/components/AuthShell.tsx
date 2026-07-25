@@ -1,3 +1,5 @@
+import { PRIVACY_URL, TERMS_URL } from "@/lib/config";
+
 // Split-screen do protótipo: painel esquerdo dark com marca + form à direita.
 export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
@@ -22,8 +24,8 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
           </ul>
         </div>
         <p className="text-[12px] font-medium text-white/60">
-          <a href="http://localhost:3000/legal?aba=termos" className="underline">Termos</a> ·{" "}
-          <a href="http://localhost:3000/legal" className="underline">Privacidade (LGPD)</a>
+          <a href={TERMS_URL} className="underline">Termos</a> ·{" "}
+          <a href={PRIVACY_URL} className="underline">Privacidade (LGPD)</a>
         </p>
       </aside>
       <main className="flex flex-1 items-center justify-center px-6 py-12">

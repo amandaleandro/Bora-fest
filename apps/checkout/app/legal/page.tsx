@@ -4,6 +4,9 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Icon, paths } from "../../components/icons";
 
+/** versão vigente do aceite de Termos/Privacidade (handoff v2) */
+const CONSENT_VERSION = "v2026-07";
+
 const PRIVACIDADE = [
   ["O que coletamos", "Nome, e-mail, celular e dados do pedido — o mínimo para emitir e entregar seus ingressos. CPF só quando o evento exigir (meia-entrada ou controle de acesso)."],
   ["Como usamos", "Emitir ingressos, enviar por e-mail/WhatsApp, prevenir fraude e cumprir obrigações fiscais. Marketing só com o seu opt-in explícito."],
@@ -31,31 +34,31 @@ function LegalContent() {
   const sections = tab === "privacidade" ? PRIVACIDADE : TERMOS;
 
   return (
-    <main className="px-5 pb-16 pt-6">
+    <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pb-14 lg:pt-8">
       <header className="flex items-center gap-3">
-        <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface"><Icon d={paths.back} /></button>
-        <h1 className="text-[20px] font-extrabold">Privacidade & Termos</h1>
+        <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+        <h1 className="text-[20px] font-extrabold lg:text-[24px]">Privacidade &amp; Termos</h1>
       </header>
 
-      <div className="mt-5 flex rounded-2xl bg-line p-1">
+      <div className="mt-5 flex rounded-2xl bg-line p-1 lg:w-fit lg:gap-1">
         {([["privacidade", "Privacidade"], ["termos", "Termos de Uso"]] as const).map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} className={`flex-1 rounded-xl py-2.5 text-[13px] font-bold ${tab === key ? "bg-surface text-ink shadow-sm" : "text-muted"}`}>
+          <button key={key} onClick={() => setTab(key)} className={`flex-1 rounded-xl py-2.5 text-[13px] font-bold lg:px-8 ${tab === key ? "bg-surface text-ink shadow-sm" : "text-muted"}`}>
             {label}
           </button>
         ))}
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
         {sections.map(([title, body]) => (
-          <section key={title} className="rounded-2xl border border-line bg-surface p-4">
-            <h2 className="text-[14px] font-extrabold">{title}</h2>
+          <section key={title} className="rounded-2xl border border-line bg-surface p-4 lg:p-6">
+            <h2 className="text-[14px] font-extrabold lg:text-[15px]">{title}</h2>
             <p className="mt-1.5 text-[13px] font-medium leading-relaxed text-ink-soft">{body}</p>
           </section>
         ))}
       </div>
 
       <p className="mt-6 text-center text-[12px] font-medium text-muted">
-        Encarregado de dados (DPO): <span className="font-bold">privacidade@borafest.com</span>
+        Versão {CONSENT_VERSION} · Encarregado de dados (DPO): <span className="font-bold">privacidade@borafest.com</span>
       </p>
     </main>
   );

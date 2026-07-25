@@ -1,5 +1,6 @@
 import { DevLogEmailSender, DevLogPushSender, DevLogWhatsAppSender, DEVLOG_PROVIDER } from "./dev-log";
 import { ExpoPushSender, EXPO_PUSH_PROVIDER } from "./expo-push";
+import { ResendEmailSender, RESEND_PROVIDER } from "./resend";
 import type { EmailSender, PushSender, WhatsAppSender } from "./types";
 
 const emailSenders = new Map<string, EmailSender>();
@@ -9,6 +10,9 @@ const pushSenders = new Map<string, PushSender>();
 function ensureBuiltins(): void {
   if (!emailSenders.has(DEVLOG_PROVIDER)) {
     emailSenders.set(DEVLOG_PROVIDER, new DevLogEmailSender());
+  }
+  if (!emailSenders.has(RESEND_PROVIDER)) {
+    emailSenders.set(RESEND_PROVIDER, new ResendEmailSender());
   }
   if (!whatsappSenders.has(DEVLOG_PROVIDER)) {
     whatsappSenders.set(DEVLOG_PROVIDER, new DevLogWhatsAppSender());
