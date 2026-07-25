@@ -17,11 +17,34 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Handoff v1 implementado nas 4 superfícies — pré-lançamento |
-| **Status da fase** | 🟢 Build 14/14 · testes 24/24 · Site Público + PWA comprador + Painel + PWA validação no ar em localhost |
-| **Última atualização** | 2026-07-24 |
+| **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
+| **Status da fase** | 🟢 Build 14/14 · testes 27/27 · fluxo v2 (nominal + LGPD + taxa) validado no navegador |
+| **Última atualização** | 2026-07-25 |
 | **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
+
+### Onde estamos (2026-07-25)
+
+Handoff v2 (`docs/design/`, com as 8 decisões de produto cravadas) implementado:
+
+- **Backend**: quem paga a taxa (feeMode), ingresso nominal (participantes com
+  CPF), consentimento LGPD versionado, solicitar saque (D+2 + KYC), portaria
+  com motivo do inválido/portão do 1º uso/manifesto com nomes.
+- **Checkout**: 3 passos (Identificação → Participantes → Pagamento), LGPD
+  bloqueante v2026-07, Resumo do pedido sticky, layout desktop 1160px.
+- **Portaria**: camada offline real (IndexedDB + Ed25519 local + sync em lote
+  + jsQR para iOS) com a regra "sem manifesto, nunca aprovar".
+- **Painel**: sidebar persistente, quem-paga-a-taxa com simulação, solicitar
+  saque, convidar equipe.
+- **PWA**: ícones reais, manifesto próprio da portaria, service worker versionado.
+- **Perímetro**: CORS por allowlist, trustProxy, rate limit no PIN/checkins/
+  pagamentos, fail-fast dos segredos do Pagar.me.
+- **E-mail**: adapter Resend pronto — basta a chave para o ingresso e o OTP saírem.
+
+**Validado no navegador**: compra com 2 ingressos nominais → participantes com
+CPF gravados, consentimento (terms+privacy v2026-07) registrado no pedido.
+
+**Bloqueios de lançamento (externos)**: conta Pagar.me, chave do Resend, VPS.
 
 ### Onde estamos (2026-07-24, verificação de estado)
 
@@ -731,6 +754,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-25 | Arthur + Claude | **Handoff v2 concluído**: backend (feeMode, nominal, consent, saque, portaria) + telas novas nos 4 frontends + PWA real + perímetro + adapter Resend. Os 4 agentes paralelos de frontend caíram por limite de sessão, mas entregaram antes; recuperei o estado, corrigi 3 erros (tipo do banner, construtor no teste, rótulo de taxa com carrinho vazio) e revalidei: build 14/14, testes 27/27, fluxo v2 clicado no navegador com participantes e consentimento gravados. | Falta só o externo: Pagar.me, Resend e VPS. |
 | 2026-07-24 | Arthur + Claude | **AUDITORIA v1 (2ª rodada, 8 agentes/405 verificações)** — `AUDITORIA-V1-2026-07-24.md`. Veredito: ~63% do caminho até um piloto que vende de verdade. Núcleo transacional sólido, MAS achados graves: portaria offline aprova QUALQUER leitura em verde sem rede (inclusive 401 de aparelho bloqueado), cartão com token FABRICADO no navegador (coletamos PAN/CVV sem tokenização), textos de 'ambiente de teste' visíveis ao comprador, 6 telas sem layout desktop, links localhost hardcoded no painel, CORS aberto e rate limit burlável por header, CI travado por billing do GitHub. BACKLOG estava marcando ✅ itens que o código não faz (E1/E3/A1/A2/D5). | Próximo: PR de perímetro+deploy, matar teatro de pagamento, reescrever caminho offline da portaria. |
 | 2026-07-24 | Arthur + Claude | **Verificação de estado + 2 fixes de build**: auditoria do código real contra o handoff v1; `pnpm build` estava 11/14 — causa 1: `NODE_ENV=development` do `.env` vazava para o `next build` pelo `globalPassThroughEnv` do turbo (admin quebrava no prerender com runtime dev); causa 2: dev server concorrendo pelo `.next`. Corrigido (NODE_ENV fora do passthrough) → build 14/14 e testes 24/24 verdes. REGISTRO de 'Estado atual' reescrito (estava sem o Bloco E). | Handoff v1 nas 4 superfícies; bloqueios de lançamento seguem externos (PSP, e-mail, VPS). |
 | 2026-07-24 | Arthur + Claude | **HANDOFF v1 (Bloco E) EXECUTADO — Site Público + estratégia PWA**: handoff novo versionado em docs/design; Site Público desktop responsivo no próprio apps/checkout (header Entrar/Produza, hero, grade de eventos, faixa Produza, footer LGPD; hotsite 2 colunas com SELEÇÃO LATERAL STICKY via TicketSelector compartilhado); PWA do comprador (manifest + service worker com fallback offline — SW só em produção após bug de cache em dev achado e corrigido no teste); **PWA de Validação em /portaria** (PIN dark com dots+teclado, portões, scanner com BarcodeDetector + busca manual, resultados full-screen, resumo com reverter, fila offline). Testado clicando: home/hotsite desktop, PIN real → check-in VÁLIDO verde → duplicado JÁ UTILIZADO âmbar com 1º uso/aparelho. | Handoff v1 completo nas 4 superfícies. Pendências de publicação seguem: conta Pagar.me, e-mail real, VPS. |

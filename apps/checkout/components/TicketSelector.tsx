@@ -141,7 +141,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
       <div className="mt-4 flex items-center justify-between gap-3">
         <div>
           <p className="text-[12px] font-semibold text-muted">
-            {count} ingresso{count === 1 ? "" : "s"} · {anyBuyerFee ? "inclui taxas" : "taxa por conta do produtor"}
+            {count} ingresso{count === 1 ? "" : "s"}
+            {count > 0 ? (anyBuyerFee ? " · inclui taxas" : " · taxa por conta do produtor") : ""}
           </p>
           <p className="text-[20px] font-extrabold">{formatCents(totalCents)}</p>
         </div>
