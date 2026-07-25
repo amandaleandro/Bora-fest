@@ -97,7 +97,8 @@ export function getLots(): Promise<ManifestLot[]> {
 }
 
 /**
- * Grava um lote de ingressos (full ou delta) e o novo carimbo do manifesto na
+ * Grava um lote de ingressos (full ou delta) — o objeto inteiro, incluindo o
+ * `cpfHash` usado na busca por documento — e o novo carimbo do manifesto na
  * MESMA transação — se algo falhar no meio, a versão local não avança e o
  * próximo delta rebusca a partir do ponto anterior.
  */

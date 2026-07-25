@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Param, Post } from "@nestjs/common";
-import { registerPushTokenSchema } from "@borafest/contracts";
+import { orderWhatsAppSchema, registerPushTokenSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { NotificationsService } from "./notifications.service";
 
@@ -11,6 +11,15 @@ export class NotificationsController {
   @HttpCode(202)
   resend(@Param("publicToken") publicToken: string) {
     return this.notificationsService.resendTickets(publicToken);
+  }
+
+  @Post(":publicToken/whatsapp")
+  @HttpCode(200)
+  sendWhatsApp(
+    @Param("publicToken") publicToken: string,
+    @Body(ZodBody(orderWhatsAppSchema)) body: unknown,
+  ) {
+    return this.notificationsService.sendTicketsToWhatsApp(publicToken, body as any);
   }
 
   @Post(":publicToken/push-token")

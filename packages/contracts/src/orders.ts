@@ -28,6 +28,14 @@ export const createOrderSchema = z.object({
 });
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
+/** "Receber meus ingressos no WhatsApp" — corpo opcional; sem phone usa o contato do pedido. */
+export const orderWhatsAppSchema = z
+  .object({
+    phone: z.string().min(10).max(20).optional(),
+  })
+  .optional();
+export type OrderWhatsAppInput = z.infer<typeof orderWhatsAppSchema>;
+
 /** PDV (venda presencial/manual pelo produtor) — painel > Vendas > PDV, sem checkout. */
 export const pdvOrderSchema = z.object({
   ticketLotId: z.string().uuid(),

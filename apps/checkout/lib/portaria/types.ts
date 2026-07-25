@@ -8,7 +8,7 @@ export interface Session {
   checkinPoints: Array<{ id: string; name: string }>;
 }
 
-/** Ingresso como vem no manifesto — sem CPF (minimização LGPD, ver validator.service). */
+/** Ingresso como vem no manifesto — sem CPF cru (minimização LGPD, ver validator.service). */
 export interface ManifestTicket {
   id: string;
   code: string;
@@ -17,6 +17,12 @@ export interface ManifestTicket {
   checkedInAt: string | null;
   updatedAt: string;
   attendeeName: string | null;
+  /**
+   * SHA-256 (hex minúsculo) dos 11 dígitos do CPF, ou null se não houver.
+   * Permite a busca por documento no aparelho sem o CPF sair do servidor.
+   * Opcional para tolerar manifestos guardados antes do campo existir.
+   */
+  cpfHash?: string | null;
 }
 
 export interface ManifestLot {

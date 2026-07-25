@@ -1,12 +1,15 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { prisma } from "@borafest/database";
 import { closeRedisConnection } from "@borafest/queues";
+import { generateTicketCode } from "@borafest/tickets";
 import { ReservationsService } from "../reservations/reservations.service";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { InventoryService } from "../inventory/inventory.service";
+import { ValidatorService } from "../validator/validator.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
 after(async () => {
@@ -140,6 +143,98 @@ test("consentimento LGPD é gravado versionado por pedido", async () => {
     assert.equal(consents.length, 2, "termos + privacidade");
     assert.ok(consents.every((c) => c.version === "v2026-07"));
     assert.deepEqual(consents.map((c) => c.document).sort(), ["privacy", "terms"]);
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
+test("manifesto da portaria expõe cpfHash (sha256) e nunca o CPF cru", async () => {
+  const fixture = await createFixtureEvent({ lotCapacity: 5 });
+  const CPF = "52998224725";
+  try {
+    // pedido/reserva mínimos só pra satisfazer as FKs do Ticket
+    const reservation = await prisma.reservation.create({
+      data: { eventId: fixture.event.id, status: "CONVERTED", expiresAt: new Date() },
+    });
+    const order = await prisma.order.create({
+      data: {
+        eventId: fixture.event.id,
+        reservationId: reservation.id,
+        contactEmail: "manifesto@test.dev",
+        status: "FULFILLED",
+        totalCents: 5500,
+      },
+    });
+    const orderItem = await prisma.orderItem.create({
+      data: {
+        orderId: order.id,
+        ticketLotId: fixture.lot.id,
+        quantity: 2,
+        priceCents: 5000,
+        feeCents: 500,
+      },
+    });
+    const [nominal, anonimo] = await Promise.all([
+      prisma.ticket.create({
+        data: {
+          orderId: order.id,
+          orderItemId: orderItem.id,
+          eventId: fixture.event.id,
+          ticketLotId: fixture.lot.id,
+          seq: 1,
+          code: generateTicketCode(),
+          qrToken: "n/a",
+          status: "ACTIVE",
+          attendeeName: "Ana Souza",
+          attendeeCpf: CPF,
+        },
+      }),
+      prisma.ticket.create({
+        data: {
+          orderId: order.id,
+          orderItemId: orderItem.id,
+          eventId: fixture.event.id,
+          ticketLotId: fixture.lot.id,
+          seq: 2,
+          code: generateTicketCode(),
+          qrToken: "n/a",
+          status: "ACTIVE",
+        },
+      }),
+    ]);
+
+    const credential = await prisma.validatorCredential.create({
+      data: {
+        eventId: fixture.event.id,
+        label: "Portão A",
+        pinHash: "n/a",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    const device = await prisma.validatorDevice.create({
+      data: {
+        credentialId: credential.id,
+        eventId: fixture.event.id,
+        name: "Aparelho manifesto",
+        tokenHash: "n/a",
+        status: "ACTIVE",
+      },
+    });
+
+    const validator = new ValidatorService(new OrgAccessService());
+    const expectedHash = createHash("sha256").update(CPF).digest("hex");
+
+    for (const since of [undefined, new Date(0)]) {
+      const manifest = await validator.getManifest(device, since);
+      const byId = new Map(manifest.tickets.map((t) => [t.id, t]));
+
+      assert.equal(byId.get(nominal.id)?.cpfHash, expectedHash, "nominal: sha256 do CPF");
+      assert.equal(byId.get(anonimo.id)?.cpfHash, null, "sem CPF → cpfHash null");
+
+      const serialized = JSON.stringify(manifest);
+      assert.ok(!serialized.includes(CPF), "CPF cru não pode aparecer na resposta");
+      assert.ok(!serialized.includes("attendeeCpf"), "campo attendeeCpf não pode vazar");
+    }
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
   }

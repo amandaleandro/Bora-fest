@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   Injectable,
@@ -20,6 +21,14 @@ import type {
 } from "@borafest/contracts";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
+
+/** SHA-256 (hex minúsculo) dos 11 dígitos do CPF — o cru nunca sai do servidor. */
+function hashCpf(cpf: string | null): string | null {
+  if (!cpf) return null;
+  const digits = cpf.replace(/\D/g, "");
+  if (!digits) return null;
+  return createHash("sha256").update(digits).digest("hex");
+}
 
 @Injectable()
 export class ValidatorService {
@@ -198,8 +207,9 @@ export class ValidatorService {
         checkedInAt: true,
         updatedAt: true,
         // busca manual por nome na portaria (handoff §4). CPF NÃO vai para o
-        // aparelho: fica só no servidor (minimização LGPD).
+        // aparelho: só o hash sai do servidor (minimização LGPD).
         attendeeName: true,
+        attendeeCpf: true,
       },
     });
 
@@ -215,7 +225,12 @@ export class ValidatorService {
       event,
       signingKey: signingKey ?? null,
       ticketCount: tickets.length,
-      tickets,
+      // busca por documento na portaria compara sha256 no aparelho — o CPF cru
+      // nunca sai do servidor.
+      tickets: tickets.map(({ attendeeCpf, ...ticket }) => ({
+        ...ticket,
+        cpfHash: hashCpf(attendeeCpf),
+      })),
     };
   }
 

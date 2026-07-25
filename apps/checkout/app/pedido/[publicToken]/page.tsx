@@ -10,6 +10,16 @@ import { Icon, paths } from "../../../components/icons";
 /** Evento do Chrome/Edge para instalar o PWA (não existe no Safari). */
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
 
+/** Máscara simples de celular BR: "(11) 91234-5678" (aceita colar com +55). */
+function maskBrPhone(value: string): string {
+  let d = value.replace(/\D/g, "");
+  if (d.length === 13 && d.startsWith("55")) d = d.slice(2);
+  d = d.slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
 function rememberOrder(token: string) {
   try {
     const list: string[] = JSON.parse(localStorage.getItem("bf.orders") ?? "[]");
@@ -79,6 +89,10 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   const [transferName, setTransferName] = useState("");
   const [transferEmail, setTransferEmail] = useState("");
   const [transferMsg, setTransferMsg] = useState<string | null>(null);
+  const [whatsOpen, setWhatsOpen] = useState(false);
+  const [whatsPhone, setWhatsPhone] = useState("");
+  const [whatsState, setWhatsState] = useState<"idle" | "sending" | "ok" | "error">("idle");
+  const [whatsError, setWhatsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -98,6 +112,11 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     load();
   }, [load]);
 
+  // pré-preenche o WhatsApp com o contato do pedido (a API pública expõe)
+  useEffect(() => {
+    if (order?.contactPhone) setWhatsPhone(maskBrPhone(order.contactPhone));
+  }, [order?.contactPhone]);
+
   // pendente: polling
   useEffect(() => {
     if (!order || !["CREATED", "PAYMENT_PENDING"].includes(order.status)) return;
@@ -112,6 +131,18 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       setResendMessage("Reenviado por e-mail e WhatsApp ✅");
     } catch (e) {
       setResendMessage(e instanceof ApiError ? e.message : "Não foi possível reenviar agora");
+    }
+  }
+
+  async function sendWhatsApp() {
+    setWhatsState("sending");
+    setWhatsError(null);
+    try {
+      await api.sendTicketsWhatsApp(publicToken, whatsPhone.replace(/\D/g, ""));
+      setWhatsState("ok");
+    } catch (e) {
+      setWhatsState("error");
+      setWhatsError(e instanceof ApiError ? e.message : "Não foi possível enviar agora");
     }
   }
 
@@ -286,10 +317,50 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         </div>
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:justify-center">
+      {/* entrega por WhatsApp: texto + QR de cada ingresso, direto no celular */}
+      <div className="mt-6 text-left">
+        {whatsState === "ok" ? (
+          <p className="flex h-14 items-center justify-center rounded-2xl bg-success/10 text-[14px] font-extrabold text-success">
+            Enviado! Confira seu WhatsApp 📱
+          </p>
+        ) : !whatsOpen ? (
+          <button
+            onClick={() => setWhatsOpen(true)}
+            className="flex h-14 w-full items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
+          >
+            Receber meus ingressos no WhatsApp
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-line bg-surface p-4">
+            <p className="text-[12px] font-bold text-muted">
+              Enviaremos cada ingresso com o QR para este número
+            </p>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={whatsPhone}
+              onChange={(e) => setWhatsPhone(maskBrPhone(e.target.value))}
+              placeholder="(11) 91234-5678"
+              className="mt-2 h-[50px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-4 text-[14px] font-medium outline-none focus:border-primary"
+            />
+            {whatsState === "error" && whatsError && (
+              <p className="mt-2 text-[12px] font-semibold text-danger">{whatsError}</p>
+            )}
+            <button
+              onClick={sendWhatsApp}
+              disabled={whatsState === "sending" || whatsPhone.replace(/\D/g, "").length < 11}
+              className="mt-3 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta disabled:bg-[#d9d2e8]"
+            >
+              {whatsState === "sending" ? "Enviando…" : "Enviar para o WhatsApp"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:justify-center">
         <Link
           href="/perfil"
-          className="flex h-14 items-center justify-center rounded-2xl bg-primary px-7 text-[15px] font-extrabold text-white shadow-cta lg:h-[52px] lg:rounded-[14px]"
+          className="flex h-14 items-center justify-center rounded-2xl border-[1.5px] border-line-input bg-surface px-7 text-[14px] font-bold text-ink lg:h-[52px] lg:rounded-[14px]"
         >
           Ver meus ingressos
         </Link>

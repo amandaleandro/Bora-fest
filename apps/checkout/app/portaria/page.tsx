@@ -3,13 +3,18 @@
 /**
  * PWA de Validação (portaria) — handoff v2, superfície 4.
  *
+ * App standalone de tela cheia (fora do chrome do site — ver ./layout.tsx e
+ * components/SiteChrome.tsx), com o visual do protótipo aprovado
+ * "docs/design/BoraFest - App Validacao.html".
+ *
  * Regra inegociável da v2: **sem manifesto local sincronizado, NUNCA aprovar**.
  * Toda leitura passa por verificação de assinatura Ed25519 + status no
  * manifesto guardado em IndexedDB; sem manifesto o resultado é
  * "Não foi possível verificar" (slate), jamais "Válido".
  *
- * Fluxo: PIN → evento/portão → câmera → scanner (BarcodeDetector ou jsQR) →
- * resultado full-screen → busca manual / fila offline / resumo da portaria.
+ * Fluxo: evento + PIN → portão → validação em 3 abas (Scanner QR, Código
+ * BF-XXXX-XXXX e Documento nome/CPF-hash) → resultado full-screen →
+ * fila offline / resumo da portaria.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +22,7 @@ import { ApiError } from "../../lib/api";
 import { isAuthError, portariaApi } from "../../lib/portaria/api";
 import * as db from "../../lib/portaria/db";
 import { CameraError, startScanner, type ScannerHandle } from "../../lib/portaria/scanner";
+import { searchByDocument, type DocumentSearchMode } from "../../lib/portaria/search";
 import { enqueueCheckin, flushQueue, loadIndex, syncManifest } from "../../lib/portaria/sync";
 import type {
   ManifestTicket,
@@ -30,7 +36,6 @@ import {
   EMPTY_INDEX,
   INVALID_REASON_TEXT,
   lotLabel,
-  searchManifest,
   verifyLocally,
   type ManifestIndex,
 } from "../../lib/portaria/verify";
@@ -40,15 +45,17 @@ type Screen =
   | "legal"
   | "select"
   | "camera"
-  | "scanner"
+  | "validate"
   | "result"
-  | "manual"
   | "offline"
   | "summary"
   | "blocked";
 
+type Tab = "scanner" | "code" | "doc";
+
 const SESSION_KEY = "bf.portaria.session";
 const GATE_KEY = "bf.portaria.portao";
+const CAM_KEY = "bf.portaria.camera-ok";
 
 interface EventOption {
   id: string;
@@ -98,6 +105,24 @@ const RESULT_STYLE: Record<
   },
 };
 
+// feedback tátil por resultado — válido é curto, recusa é insistente
+const VIBRATE: Record<ScanResult["kind"], number | number[]> = {
+  VALID: 60,
+  ALREADY_USED: [70, 60, 70],
+  INVALID: [90, 60, 90, 60, 90],
+  CANCELED: [90, 60, 90, 60, 90],
+  UNVERIFIED: [40, 40, 40],
+};
+
+function vibrar(pattern: number | number[]) {
+  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+  try {
+    navigator.vibrate(pattern);
+  } catch {
+    /* alguns navegadores bloqueiam sem gesto */
+  }
+}
+
 function hora(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -105,12 +130,107 @@ function hora(value?: string | null): string {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Versão curta do carimbo do manifesto, para caber no rodapé. */
+function versaoCurta(value: string): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) {
+    return date.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return value.slice(0, 12);
+}
+
+/** Corpo do código (sem o "BF-") formatado como XXXX-XXXX enquanto digita. */
+function formatarCorpoCodigo(raw: string): string {
+  let v = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // colou o código inteiro com o prefixo? remove o "BF"
+  if (v.startsWith("BF") && v.length > 8) v = v.slice(2);
+  v = v.slice(0, 8);
+  return v.length <= 4 ? v : `${v.slice(0, 4)}-${v.slice(4)}`;
+}
+
+const CORPO_COMPLETO = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+
+function iniciais(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+type StatusIngresso = "disponivel" | "usado" | "cancelado";
+
+const BADGE: Record<StatusIngresso, { label: string; cls: string }> = {
+  disponivel: { label: "Disponível", cls: "bg-success/20 text-[#4ade80]" },
+  usado: { label: "Já usado", cls: "bg-warning/25 text-[#fbbf24]" },
+  cancelado: { label: "Cancelado", cls: "bg-danger/20 text-[#fb7185]" },
+};
+
+const TABS: Array<{ id: Tab; label: string; icon: JSX.Element }> = [
+  {
+    id: "scanner",
+    label: "Scanner",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M3 12h18"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: "code",
+    label: "Código",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: "doc",
+    label: "Documento",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="8.5" cy="11" r="2" stroke="currentColor" strokeWidth="1.6" />
+        <path
+          d="M5.5 16c.6-1.4 1.7-2.1 3-2.1s2.4.7 3 2.1M14.5 10h4M14.5 13.5h4"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+];
+
 export default function PortariaPage() {
   const [screen, setScreen] = useState<Screen>("pin");
+  const [tab, setTab] = useState<Tab>("scanner");
   const [session, setSession] = useState<Session | null>(null);
+
   const [events, setEvents] = useState<EventOption[]>([]);
+  const [eventsError, setEventsError] = useState(false);
   const [eventQuery, setEventQuery] = useState("");
   const [eventId, setEventId] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [entering, setEntering] = useState(false);
@@ -118,7 +238,7 @@ export default function PortariaPage() {
   const [gate, setGate] = useState<{ id?: string; name: string }>({ name: "Sem portão específico" });
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [manifest, setManifest] = useState({ ready: false, tickets: 0, syncedAt: "" });
+  const [manifest, setManifest] = useState({ ready: false, tickets: 0, version: "", syncedAt: "" });
   const [count, setCount] = useState(0);
   const [queue, setQueue] = useState<QueueItem[]>([]);
 
@@ -127,8 +247,12 @@ export default function PortariaPage() {
   const [torchOn, setTorchOn] = useState(false);
   const [torchAvailable, setTorchAvailable] = useState(false);
 
-  const [manualQuery, setManualQuery] = useState("");
-  const [manualResults, setManualResults] = useState<ManifestTicket[]>([]);
+  const [codeBody, setCodeBody] = useState("");
+  const [docQuery, setDocQuery] = useState("");
+  const [docResults, setDocResults] = useState<ManifestTicket[]>([]);
+  const [docMode, setDocMode] = useState<DocumentSearchMode>("none");
+  const [docSelected, setDocSelected] = useState<ManifestTicket | null>(null);
+
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [recent, setRecent] = useState<RecentCheckin[]>([]);
   const [blockedMessage, setBlockedMessage] = useState("");
@@ -141,11 +265,18 @@ export default function PortariaPage() {
 
   const applyIndex = useCallback((index: ManifestIndex) => {
     indexRef.current = index;
-    setManifest({
-      ready: index.ready,
-      tickets: index.byId.size,
-      syncedAt: new Date().toISOString(),
-    });
+    db.getManifestMeta()
+      .then((meta) =>
+        setManifest({
+          ready: index.ready,
+          tickets: index.byId.size,
+          version: meta?.manifestVersion ?? "",
+          syncedAt: meta?.syncedAt ?? "",
+        }),
+      )
+      .catch(() =>
+        setManifest({ ready: index.ready, tickets: index.byId.size, version: "", syncedAt: "" }),
+      );
   }, []);
 
   const goBlocked = useCallback((message: string) => {
@@ -185,6 +316,17 @@ export default function PortariaPage() {
     [applyIndex, goBlocked, refreshQueue],
   );
 
+  const carregarEventos = useCallback(() => {
+    setEventsError(false);
+    portariaApi
+      .listEvents()
+      .then(setEvents)
+      .catch(() => {
+        setEvents([]);
+        setEventsError(true);
+      });
+  }, []);
+
   // --- montagem: sessão salva, eventos, rede -------------------------------
 
   useEffect(() => {
@@ -211,8 +353,8 @@ export default function PortariaPage() {
     setOnline(navigator.onLine);
     db.getGateCount().then(setCount).catch(() => undefined);
     refreshQueue();
-    portariaApi.listEvents().then(setEvents).catch(() => setEvents([]));
-  }, [refreshQueue]);
+    carregarEventos();
+  }, [carregarEventos, refreshQueue]);
 
   // rede voltou: ressincroniza manifesto e esvazia a fila automaticamente
   useEffect(() => {
@@ -254,7 +396,8 @@ export default function PortariaPage() {
           ? "PIN inválido. Confira o código com o produtor."
           : "Sem conexão para validar o PIN. Tente novamente.",
       );
-      setTimeout(() => setPinError(null), 2600);
+      vibrar([80, 60, 80]);
+      setTimeout(() => setPinError(null), 3200);
     } finally {
       setEntering(false);
     }
@@ -265,14 +408,20 @@ export default function PortariaPage() {
     sessionRef.current = null;
     setSession(null);
     indexRef.current = EMPTY_INDEX;
-    setManifest({ ready: false, tickets: 0, syncedAt: "" });
+    setManifest({ ready: false, tickets: 0, version: "", syncedAt: "" });
     db.clearManifest().catch(() => undefined);
+    setTab("scanner");
+    setCodeBody("");
+    setDocQuery("");
+    setDocResults([]);
+    setDocSelected(null);
     setScreen("pin");
   }
 
   // --- validação -----------------------------------------------------------
 
   const showResult = useCallback((value: ScanResult) => {
+    vibrar(VIBRATE[value.kind]);
     setResult(value);
     setScreen("result");
   }, []);
@@ -285,7 +434,7 @@ export default function PortariaPage() {
   }, []);
 
   const validar = useCallback(
-    async (input: { qrToken?: string; code?: string; ticketId?: string }) => {
+    async (input: { qrToken?: string; code?: string }) => {
       const active = sessionRef.current;
       if (!active || busyRef.current) return;
       busyRef.current = true;
@@ -317,9 +466,16 @@ export default function PortariaPage() {
             if (value.kind === "VALID") {
               contar(1);
               if (value.ticketId) {
-                await db
-                  .markTicketCheckedIn(value.ticketId, new Date().toISOString())
-                  .catch(() => undefined);
+                const at = new Date().toISOString();
+                await db.markTicketCheckedIn(value.ticketId, at).catch(() => undefined);
+                // espelha no índice em memória: a lista da aba Documento
+                // precisa mostrar "Já usado" sem esperar o próximo delta
+                const cached = indexRef.current.byId.get(value.ticketId);
+                if (cached) {
+                  const updated = { ...cached, status: "CHECKED_IN", checkedInAt: at };
+                  indexRef.current.byId.set(updated.id, updated);
+                  indexRef.current.byCode.set(updated.code.toUpperCase(), updated);
+                }
               }
             }
             showResult(value);
@@ -333,6 +489,7 @@ export default function PortariaPage() {
           }
         }
 
+        // mesmo caminho local do QR — o documento também referencia pelo `code`
         const local = verifyLocally(input, indexRef.current);
         if (local.kind === "VALID" && local.ticketId) {
           const item = await enqueueCheckin({
@@ -359,12 +516,13 @@ export default function PortariaPage() {
     [contar, gate.id, gate.name, goBlocked, showResult],
   );
 
-  // --- scanner -------------------------------------------------------------
+  // --- scanner (aba) -------------------------------------------------------
 
   useEffect(() => {
-    if (screen !== "scanner") {
+    if (screen !== "validate" || tab !== "scanner") {
       scannerRef.current?.stop();
       scannerRef.current = null;
+      setTorchOn(false);
       return;
     }
     let cancelled = false;
@@ -383,11 +541,13 @@ export default function PortariaPage() {
         scannerRef.current = handle;
         setTorchAvailable(handle.torchAvailable);
         setCameraError(null);
+        localStorage.setItem(CAM_KEY, "1");
       })
       .catch((error) => {
-        // câmera negada ou indisponível: cai na busca manual, sem travar
+        // câmera negada ou indisponível: cai na aba Documento, sem travar
         if (error instanceof CameraError) setCameraError(error);
-        setScreen("manual");
+        localStorage.removeItem(CAM_KEY);
+        setTab("doc");
       });
 
     return () => {
@@ -395,11 +555,11 @@ export default function PortariaPage() {
       scannerRef.current?.stop();
       scannerRef.current = null;
     };
-  }, [screen, validar]);
+  }, [screen, tab, validar]);
 
-  // ao voltar para o scanner, atualiza o manifesto por delta
+  // ao entrar no modo validação, atualiza o manifesto por delta
   useEffect(() => {
-    if (screen === "scanner") syncNow();
+    if (screen === "validate") syncNow();
   }, [screen, syncNow]);
 
   async function alternarLanterna() {
@@ -407,6 +567,33 @@ export default function PortariaPage() {
     if (!handle) return;
     const next = !torchOn;
     if (await handle.setTorch(next)) setTorchOn(next);
+  }
+
+  // --- busca por documento (nome ou CPF-hash, 100% local) ------------------
+
+  // `manifest.syncedAt` na dependência: um sync (ou check-in) rebusca e a
+  // lista reflete o status novo dos ingressos.
+  useEffect(() => {
+    if (screen !== "validate" || tab !== "doc") return;
+    let alive = true;
+    searchByDocument(indexRef.current, docQuery)
+      .then((found) => {
+        if (!alive) return;
+        setDocResults(found.tickets);
+        setDocMode(found.mode);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [docQuery, screen, tab, manifest.syncedAt]);
+
+  function statusIngresso(ticket: ManifestTicket): StatusIngresso {
+    if (ticket.status === "CANCELED" || ticket.status === "REFUNDED") return "cancelado";
+    if (ticket.status === "CHECKED_IN" || indexRef.current.localCheckins.has(ticket.id)) {
+      return "usado";
+    }
+    return "disponivel";
   }
 
   // --- resumo --------------------------------------------------------------
@@ -447,22 +634,40 @@ export default function PortariaPage() {
 
   const eventosFiltrados = useMemo(() => {
     const term = eventQuery.trim().toLowerCase();
-    if (!term) return events.slice(0, 6);
-    return events.filter((e) => e.title.toLowerCase().includes(term)).slice(0, 8);
+    if (!term) return events.slice(0, 30);
+    return events.filter((e) => e.title.toLowerCase().includes(term)).slice(0, 30);
   }, [events, eventQuery]);
 
   const pendentes = queue.filter((q) => q.state === "PENDING");
   const conflitos = queue.filter((q) => q.state !== "PENDING");
   const eventoSelecionado = events.find((e) => e.id === eventId);
+  const codigoPronto = CORPO_COMPLETO.test(codeBody);
 
-  function buscarManual(value: string) {
-    setManualQuery(value);
-    setManualResults(searchManifest(indexRef.current, value));
+  const docHint = !manifest.ready
+    ? "Lista local não sincronizada"
+    : docMode === "cpf"
+      ? `${docResults.length} ingresso${docResults.length === 1 ? "" : "s"} com este CPF`
+      : docMode === "name"
+        ? `${docResults.length} participante${docResults.length === 1 ? "" : "s"} encontrado${docResults.length === 1 ? "" : "s"}`
+        : "Digite ao menos 2 letras ou o CPF completo";
+
+  function iniciarValidacao() {
+    const granted = typeof localStorage !== "undefined" && localStorage.getItem(CAM_KEY) === "1";
+    setTab("scanner");
+    setScreen(granted ? "validate" : "camera");
+  }
+
+  function validarCodigo() {
+    if (!codigoPronto) return;
+    const code = `BF-${codeBody}`;
+    setCodeBody("");
+    validar({ code });
   }
 
   // -------------------------------------------------------------------------
 
-  const shell = "mx-auto flex min-h-dvh w-full max-w-[430px] flex-col";
+  // a coluna full-screen vem do layout da rota; cada tela só se estica nela
+  const shell = "flex w-full flex-1 flex-col";
 
   return (
     <>
@@ -470,67 +675,53 @@ export default function PortariaPage() {
       <style>{`@keyframes bf-scanline{0%{top:14%}50%{top:80%}100%{top:14%}}`}</style>
 
       {screen === "pin" && (
-        <main className={`${shell} bg-[#16121f] px-7 pb-9 pt-10 text-white`}>
+        <main className={`${shell} bg-[#16121f] px-6 pb-8 pt-10 text-white`}>
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-[18px] bg-primary text-[30px] font-extrabold">
               B
             </div>
             <h1 className="text-[24px] font-extrabold leading-tight">Validação BoraFest</h1>
             <p className="mb-7 mt-1.5 text-[14px] font-medium text-white/55">
-              Digite o PIN de acesso fornecido pelo produtor.
+              Escolha o evento e digite o PIN fornecido pelo produtor.
             </p>
 
-            <div className="mb-6 w-full text-left">
-              {eventoSelecionado ? (
-                <button
-                  onClick={() => {
-                    setEventId("");
-                    setEventQuery("");
-                  }}
-                  className="flex w-full items-center justify-between rounded-2xl border-2 border-primary bg-primary/10 px-4 py-3 text-left"
-                >
-                  <span className="text-[14px] font-extrabold">{eventoSelecionado.title}</span>
-                  <span className="text-[12px] font-bold text-[#a78bfa]">trocar</span>
-                </button>
-              ) : (
-                <>
-                  {events.length > 6 && (
-                    <input
-                      value={eventQuery}
-                      onChange={(e) => setEventQuery(e.target.value)}
-                      placeholder="Buscar evento pelo nome"
-                      className="mb-2 h-12 w-full rounded-2xl border-[1.5px] border-white/15 bg-white/10 px-4 text-[14px] font-semibold text-white placeholder:text-white/35"
-                    />
-                  )}
-                  <div className="max-h-[190px] space-y-2 overflow-y-auto">
-                    {eventosFiltrados.map((event) => (
-                      <button
-                        key={event.id}
-                        onClick={() => setEventId(event.id)}
-                        className="w-full rounded-2xl border-[1.5px] border-white/12 bg-white/5 px-4 py-3 text-left"
-                      >
-                        <span className="block text-[14px] font-extrabold">{event.title}</span>
-                        <span className="mt-0.5 block text-[12px] font-medium text-white/45">
-                          {new Date(event.startsAt).toLocaleDateString("pt-BR")}
-                          {event.venue ? ` · ${event.venue.city}` : ""}
-                        </span>
-                      </button>
-                    ))}
-                    {eventosFiltrados.length === 0 && (
-                      <p className="py-3 text-center text-[12px] font-semibold text-white/40">
-                        Nenhum evento encontrado.
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              onClick={() => setPickerOpen(true)}
+              className={`mb-7 flex w-full items-center gap-3 rounded-2xl border-[1.5px] px-4 py-3.5 text-left ${
+                eventoSelecionado ? "border-primary bg-primary/10" : "border-white/15 bg-white/[.06]"
+              }`}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="flex-none text-[#a78bfa]">
+                <rect x="3" y="5" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              <span className="min-w-0 flex-1">
+                {eventoSelecionado ? (
+                  <>
+                    <span className="block truncate text-[14px] font-extrabold">
+                      {eventoSelecionado.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[12px] font-medium text-white/45">
+                      {new Date(eventoSelecionado.startsAt).toLocaleDateString("pt-BR")}
+                      {eventoSelecionado.venue ? ` · ${eventoSelecionado.venue.city}` : ""}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[14px] font-bold text-white/55">Escolher evento</span>
+                )}
+              </span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="flex-none text-white/45">
+                <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
 
-            <div className={`mb-6 flex gap-2.5 ${pinError ? "animate-shake" : ""}`}>
+            <div className={`mb-6 flex gap-3 ${pinError ? "animate-shake" : ""}`}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <span
                   key={i}
-                  className={`h-4 w-4 rounded-full ${i < pin.length ? "bg-primary" : "bg-white/[.18]"}`}
+                  className={`h-4 w-4 rounded-full transition-colors ${
+                    i < pin.length ? "bg-primary" : "bg-white/[.18]"
+                  }`}
                 />
               ))}
             </div>
@@ -545,22 +736,29 @@ export default function PortariaPage() {
               </p>
             )}
 
-            <div className="grid grid-cols-3 gap-3.5">
+            <div className="grid w-full max-w-[300px] grid-cols-3 gap-3">
               {["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"].map((key, i) => (
                 <button
                   key={i}
                   disabled={!key}
+                  aria-label={key === "⌫" ? "Apagar" : key || undefined}
                   onClick={() => {
+                    vibrar(12);
                     setPinError(null);
                     if (key === "⌫") {
                       setPin((p) => p.slice(0, -1));
+                      return;
+                    }
+                    if (!eventId) {
+                      setPinError("Escolha o evento antes do PIN.");
+                      setPickerOpen(true);
                       return;
                     }
                     const next = (pin + key).slice(0, 6);
                     setPin(next);
                     if (next.length === 6) entrar(next);
                   }}
-                  className="h-16 w-16 rounded-[20px] bg-white/10 text-[24px] font-bold disabled:bg-transparent"
+                  className="h-16 rounded-[20px] bg-white/[.08] text-[24px] font-bold transition active:bg-white/20 disabled:bg-transparent"
                 >
                   {key}
                 </button>
@@ -573,7 +771,7 @@ export default function PortariaPage() {
               onClick={() => entrar(pin)}
               disabled={pin.length !== 6 || !eventId || entering}
               className={`h-14 w-full rounded-2xl text-[16px] font-extrabold ${
-                pin.length === 6 && eventId ? "bg-primary" : "bg-white/[.12]"
+                pin.length === 6 && eventId ? "bg-primary shadow-cta" : "bg-white/[.12]"
               }`}
             >
               {entering ? "Entrando..." : "Entrar"}
@@ -587,6 +785,96 @@ export default function PortariaPage() {
             </p>
           </div>
         </main>
+      )}
+
+      {/* seletor de evento — sheet por cima do login */}
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 lg:items-center lg:p-6"
+          onClick={() => setPickerOpen(false)}
+        >
+          <div
+            className="flex max-h-[80dvh] w-full max-w-[430px] flex-col rounded-t-[28px] bg-[#1d1828] px-5 pb-6 pt-4 text-white lg:rounded-[28px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="mx-auto mb-4 h-1.5 w-12 flex-none rounded-full bg-white/15 lg:hidden" />
+            <div className="mb-4 flex flex-none items-center justify-between">
+              <h2 className="text-[17px] font-extrabold">Qual é o evento?</h2>
+              <button
+                onClick={() => setPickerOpen(false)}
+                aria-label="Fechar"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <input
+              value={eventQuery}
+              onChange={(e) => setEventQuery(e.target.value)}
+              placeholder="Buscar pelo nome do evento"
+              className="mb-3 h-12 w-full flex-none rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 text-[14px] font-semibold text-white outline-none placeholder:text-white/35 focus:border-primary"
+            />
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-1">
+              {eventosFiltrados.map((event) => {
+                const active = event.id === eventId;
+                return (
+                  <button
+                    key={event.id}
+                    onClick={() => {
+                      setEventId(event.id);
+                      setPinError(null);
+                      setPickerOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-2xl border-[1.5px] px-4 py-3 text-left ${
+                      active ? "border-primary bg-primary/10" : "border-white/10 bg-white/[.05]"
+                    }`}
+                  >
+                    <span className="h-10 w-10 flex-none rounded-xl bg-brand-gradient" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-extrabold">{event.title}</span>
+                      <span className="mt-0.5 block truncate text-[12px] font-medium text-white/45">
+                        {new Date(event.startsAt).toLocaleDateString("pt-BR")}
+                        {event.venue ? ` · ${event.venue.name}, ${event.venue.city}` : ""}
+                      </span>
+                    </span>
+                    {active && (
+                      <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full bg-primary">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                          <path d="M5 12l5 5 9-11" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {events.length === 0 && eventsError && (
+                <div className="rounded-2xl border border-warning/30 bg-warning/10 px-4 py-4 text-center">
+                  <p className="text-[13px] font-bold text-[#fbbf24]">
+                    Não foi possível carregar os eventos.
+                  </p>
+                  <button
+                    onClick={carregarEventos}
+                    className="mt-2 rounded-xl bg-white/10 px-4 py-2 text-[12px] font-bold"
+                  >
+                    Tentar de novo
+                  </button>
+                </div>
+              )}
+              {events.length === 0 && !eventsError && (
+                <p className="py-4 text-center text-[12px] font-semibold text-white/40">
+                  Carregando eventos...
+                </p>
+              )}
+              {events.length > 0 && eventosFiltrados.length === 0 && (
+                <p className="py-4 text-center text-[12px] font-semibold text-white/40">
+                  Nenhum evento encontrado.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {screen === "legal" && (
@@ -611,7 +899,7 @@ export default function PortariaPage() {
               ],
               [
                 "2. Dados dos participantes",
-                "Nome, tipo de ingresso e status de check-in são tratados em nome do organizador (operador, nos termos da LGPD), exclusivamente para controle de acesso ao evento. O CPF não é enviado para o aparelho.",
+                "Nome, tipo de ingresso e status de check-in são tratados em nome do organizador (operador, nos termos da LGPD), exclusivamente para controle de acesso ao evento. O CPF não é enviado para o aparelho — a busca por documento compara apenas um hash irreversível.",
               ],
               [
                 "3. Modo offline",
@@ -634,42 +922,59 @@ export default function PortariaPage() {
 
       {screen === "select" && session && (
         <main className={`${shell} bg-bg px-6 pb-10 pt-4`}>
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between gap-3">
             <h1 className="text-[22px] font-extrabold leading-tight text-ink">Selecione o ponto</h1>
-            <button
-              onClick={sair}
-              className="flex h-[34px] items-center gap-1.5 rounded-[10px] border border-[#e6e2f0] bg-white px-3 text-[12px] font-bold text-muted"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Sair
-            </button>
+            <div className="flex flex-none items-center gap-2">
+              <span
+                className={`flex h-[34px] items-center gap-1.5 rounded-[10px] px-2.5 text-[12px] font-bold ${
+                  online ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                }`}
+              >
+                <span className={`h-[7px] w-[7px] rounded-full bg-current ${online ? "animate-pulseDot" : ""}`} />
+                {online ? "Online" : "Offline"}
+              </span>
+              <button
+                onClick={sair}
+                className="flex h-[34px] items-center gap-1.5 rounded-[10px] border border-[#e6e2f0] bg-white px-3 text-[12px] font-bold text-muted"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Sair
+              </button>
+            </div>
           </div>
           <p className="mb-5 mt-1 text-[14px] font-medium text-muted">
-            Escolha o evento ativo e o portão onde você vai validar.
+            Confira o evento e escolha o portão onde você vai validar.
           </p>
 
           <h2 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-2">Evento ativo</h2>
           <div className="mb-6 flex items-center gap-3.5 rounded-2xl border-2 border-primary bg-primary/[.04] p-4">
             <span className="h-[46px] w-[46px] flex-none rounded-xl bg-brand-gradient" />
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <p className="text-[15px] font-extrabold leading-tight text-ink">{session.event.title}</p>
               <p className="mt-1 text-[12px] font-medium text-muted-2">
                 {manifest.ready
-                  ? `${manifest.tickets} ingressos na lista local`
+                  ? `${manifest.tickets} ingressos na lista local · v ${versaoCurta(manifest.version)}`
                   : syncing
                     ? "Baixando lista de ingressos..."
                     : "Lista local ainda não sincronizada"}
               </p>
+              <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                  <rect x="4" y="7" width="16" height="13" rx="2.5" stroke="currentColor" strokeWidth="2" />
+                  <path d="M9 7V5.5A2.5 2.5 0 0 1 11.5 3h1A2.5 2.5 0 0 1 15 5.5V7M12 12v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                {session.credentialLabel ?? "Equipe de portaria"}
+              </span>
             </div>
-            <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-primary">
+            <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full bg-primary">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
                 <path d="M5 12l5 5 9-11" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -725,7 +1030,7 @@ export default function PortariaPage() {
           </div>
 
           <button
-            onClick={() => setScreen("camera")}
+            onClick={iniciarValidacao}
             className="h-[54px] w-full rounded-2xl bg-primary text-[16px] font-extrabold text-white shadow-cta"
           >
             Iniciar validação
@@ -768,248 +1073,404 @@ export default function PortariaPage() {
           </div>
           <div className="space-y-2.5">
             <button
-              onClick={() => setScreen("scanner")}
+              onClick={() => {
+                setTab("scanner");
+                setScreen("validate");
+              }}
               className="h-[54px] w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white"
             >
               Permitir acesso
             </button>
             <button
-              onClick={() => setScreen("manual")}
+              onClick={() => {
+                setTab("doc");
+                setScreen("validate");
+              }}
               className="h-12 w-full rounded-2xl border-[1.5px] border-white/[.18] text-[13px] font-bold text-white/70"
             >
-              Agora não — usar busca manual
+              Agora não — validar por documento
             </button>
           </div>
         </main>
       )}
 
-      {screen === "scanner" && session && (
-        <main className={`${shell} relative bg-[#0b0910] text-white`}>
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,#1a1424,#0b0910)]" />
-          <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
-          {/* escurece o vídeo para a mira e os textos manterem contraste AA */}
-          <div className="absolute inset-0 bg-black/45" />
+      {screen === "validate" && session && (
+        <main className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#0b0910] text-white">
+          {tab === "scanner" && (
+            <>
+              <div className="absolute inset-0 bg-[linear-gradient(135deg,#1a1424,#0b0910)]" />
+              <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
+              {/* escurece o vídeo para a mira e os textos manterem contraste AA */}
+              <div className="absolute inset-0 bg-black/45" />
+            </>
+          )}
 
-          <div className="relative z-10 flex items-center justify-between px-5 py-3.5">
+          {/* topo: voltar · evento/credencial · status de rede */}
+          <div className="relative z-10 flex flex-none items-center gap-3 px-4 pb-2 pt-4">
             <button
               onClick={() => setScreen("select")}
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10"
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-white/10"
               aria-label="Voltar"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-extrabold leading-tight">{session.event.title}</p>
+              <p className="truncate text-[11px] font-medium text-white/45">
+                {gate.name}
+                {session.credentialLabel ? ` · ${session.credentialLabel}` : ""}
+              </p>
+            </div>
             <span
-              className={`flex items-center gap-1.5 rounded-full px-3.5 py-[7px] text-[12px] font-bold ${
+              className={`flex flex-none items-center gap-1.5 rounded-full px-3 py-[7px] text-[11px] font-bold ${
                 online ? "bg-success/[.18] text-[#4ade80]" : "bg-warning/20 text-[#fbbf24]"
               }`}
             >
               <span className={`h-[7px] w-[7px] rounded-full bg-current ${online ? "animate-pulseDot" : ""}`} />
               {syncing ? "Sincronizando" : online ? "Online" : "Offline"}
             </span>
-            <button
-              onClick={alternarLanterna}
-              disabled={!torchAvailable}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl ${
-                torchOn ? "bg-white text-[#16121f]" : "bg-white/10 text-white"
-              } disabled:opacity-30`}
-              aria-label="Lanterna"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
-            </button>
           </div>
 
-          <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-10">
-            <p className="mb-2 text-center text-[18px] font-extrabold">Aponte para o QR code</p>
-            <p className="mb-7 text-center text-[13px] font-medium text-white/50">
-              {session.event.title} · {gate.name}
-            </p>
-
-            <div className="relative h-[250px] w-[250px]">
-              <span className="absolute left-0 top-0 h-11 w-11 rounded-tl-[14px] border-l-4 border-t-4 border-[#a78bfa]" />
-              <span className="absolute right-0 top-0 h-11 w-11 rounded-tr-[14px] border-r-4 border-t-4 border-[#a78bfa]" />
-              <span className="absolute bottom-0 left-0 h-11 w-11 rounded-bl-[14px] border-b-4 border-l-4 border-[#a78bfa]" />
-              <span className="absolute bottom-0 right-0 h-11 w-11 rounded-br-[14px] border-b-4 border-r-4 border-[#a78bfa]" />
-              <span
-                className="absolute left-[14%] right-[14%] h-[3px] rounded-sm bg-[linear-gradient(90deg,transparent,#a78bfa,transparent)] shadow-[0_0_14px_#a78bfa]"
-                style={{ animation: "bf-scanline 2.6s ease-in-out infinite" }}
-              />
-            </div>
-
-            {!manifest.ready && (
-              <p className="mt-6 max-w-[260px] text-center text-[12px] font-bold text-[#fbbf24]">
-                Lista local não sincronizada — nenhuma entrada será liberada até sincronizar.
+          {/* ---- aba Scanner ---- */}
+          {tab === "scanner" && (
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-8">
+              <p className="mb-1.5 text-center text-[17px] font-extrabold">Aponte para o QR code</p>
+              <p className="mb-6 text-center text-[12px] font-medium text-white/50">
+                A leitura é automática e funciona offline.
               </p>
-            )}
-          </div>
 
-          <div className="relative z-10 px-5 pb-6">
-            <div className="flex items-center justify-between rounded-[18px] bg-white/[.08] px-[18px] py-4 backdrop-blur">
-              <div>
-                <p className="text-[22px] font-extrabold">{count}</p>
-                <p className="mt-1 text-[11px] font-medium text-white/50">entradas neste portão</p>
+              <div className="relative h-[240px] w-[240px]">
+                <span className="absolute left-0 top-0 h-11 w-11 rounded-tl-[14px] border-l-4 border-t-4 border-[#a78bfa]" />
+                <span className="absolute right-0 top-0 h-11 w-11 rounded-tr-[14px] border-r-4 border-t-4 border-[#a78bfa]" />
+                <span className="absolute bottom-0 left-0 h-11 w-11 rounded-bl-[14px] border-b-4 border-l-4 border-[#a78bfa]" />
+                <span className="absolute bottom-0 right-0 h-11 w-11 rounded-br-[14px] border-b-4 border-r-4 border-[#a78bfa]" />
+                <span
+                  className="absolute left-[14%] right-[14%] h-[3px] rounded-sm bg-[linear-gradient(90deg,transparent,#a78bfa,transparent)] shadow-[0_0_14px_#a78bfa]"
+                  style={{ animation: "bf-scanline 2.6s ease-in-out infinite" }}
+                />
               </div>
-              <div className="flex gap-2">
+
+              {!manifest.ready && (
+                <p className="mt-5 max-w-[260px] text-center text-[12px] font-bold text-[#fbbf24]">
+                  Lista local não sincronizada — nenhuma entrada será liberada até sincronizar.
+                </p>
+              )}
+
+              <div className="mt-7 flex w-full items-center justify-between rounded-[18px] bg-white/[.08] px-[18px] py-3.5 backdrop-blur">
+                <div>
+                  <p className="text-[20px] font-extrabold leading-none">{count}</p>
+                  <p className="mt-1.5 text-[11px] font-medium text-white/50">entradas neste portão</p>
+                </div>
                 <button
-                  onClick={() => setScreen("summary")}
-                  className="h-11 rounded-xl border-[1.5px] border-white/20 px-4 text-[13px] font-bold"
+                  onClick={alternarLanterna}
+                  disabled={!torchAvailable}
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                    torchOn ? "bg-white text-[#16121f]" : "bg-white/10 text-white"
+                  } disabled:opacity-30`}
+                  aria-label="Lanterna"
                 >
-                  Resumo
-                </button>
-                <button
-                  onClick={() => {
-                    setManualQuery("");
-                    setManualResults([]);
-                    setScreen("manual");
-                  }}
-                  className="flex h-11 items-center gap-1.5 rounded-xl border-[1.5px] border-white/20 px-4 text-[13px] font-bold"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-                    <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
                   </svg>
-                  Busca manual
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* ---- aba Código manual ---- */}
+          {tab === "code" && (
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pt-4">
+              <h1 className="text-[20px] font-extrabold">Código do ingresso</h1>
+              <p className="mb-6 mt-1 text-[13px] font-medium leading-relaxed text-white/50">
+                Digite o código curto impresso no ingresso ou no e-mail.
+              </p>
+
+              <div className="flex h-[60px] items-center rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 focus-within:border-primary">
+                <span className="text-[20px] font-extrabold tracking-[.12em] text-white/45">BF-</span>
+                <input
+                  value={codeBody}
+                  onChange={(e) => setCodeBody(formatarCorpoCodigo(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") validarCodigo();
+                  }}
+                  placeholder="0000-0000"
+                  autoFocus
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="w-full bg-transparent text-[20px] font-extrabold uppercase tracking-[.12em] text-white outline-none placeholder:text-white/25"
+                />
+              </div>
+
+              {!manifest.ready && (
+                <p className="mt-3 text-[12px] font-bold text-[#fbbf24]">
+                  Lista local não sincronizada — sem rede, nenhum código será aprovado.
+                </p>
+              )}
+
+              <button
+                onClick={validarCodigo}
+                disabled={!codigoPronto}
+                className="mt-5 h-[54px] w-full flex-none rounded-2xl bg-primary text-[16px] font-extrabold text-white shadow-cta disabled:bg-white/[.08] disabled:text-white/35 disabled:shadow-none"
+              >
+                Validar código
+              </button>
+              <p className="mt-4 text-[12px] font-medium leading-relaxed text-white/40">
+                Use quando o QR não carregar no celular do participante ou o papel estiver danificado.
+              </p>
+            </div>
+          )}
+
+          {/* ---- aba Documento (nome ou CPF) ---- */}
+          {tab === "doc" && (
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pt-4">
+              <h1 className="text-[20px] font-extrabold">Buscar participante</h1>
+              <p className="mb-4 mt-1 text-[13px] font-medium leading-relaxed text-white/50">
+                Nome ou CPF — a busca roda na lista do aparelho e funciona offline.
+              </p>
+
+              {cameraError && (
+                <p className="mb-3 flex-none rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12px] font-semibold text-[#fbbf24]">
+                  {cameraError.kind === "DENIED"
+                    ? "Câmera negada neste aparelho — valide pelo documento ou pelo código."
+                    : "Câmera indisponível neste navegador — valide pelo documento ou pelo código."}
+                </p>
+              )}
+
+              <div className="flex h-[52px] flex-none items-center gap-2.5 rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 focus-within:border-primary">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" className="flex-none text-white/40">
+                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                  <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <input
+                  value={docQuery}
+                  onChange={(e) => setDocQuery(e.target.value)}
+                  placeholder="Nome ou CPF do participante"
+                  inputMode="search"
+                  autoFocus
+                  className="w-full bg-transparent text-[15px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30"
+                />
+                {docQuery && (
+                  <button
+                    onClick={() => setDocQuery("")}
+                    aria-label="Limpar busca"
+                    className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-white/10 text-white/60"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-2.5 flex flex-none items-center justify-between px-0.5">
+                <span className="text-[11.5px] font-semibold text-white/45">{docHint}</span>
+                {!manifest.ready ? (
+                  <button
+                    onClick={() => syncNow()}
+                    className="rounded-lg bg-primary/25 px-2.5 py-1.5 text-[11.5px] font-bold text-[#c4b5fd]"
+                  >
+                    sincronizar
+                  </button>
+                ) : (
+                  docMode === "cpf" && (
+                    <span className="text-[11px] font-semibold text-white/30">comparado por hash</span>
+                  )
+                )}
+              </div>
+
+              <div className="mt-2.5 min-h-0 flex-1 space-y-2.5 overflow-y-auto pb-3">
+                {docResults.map((ticket) => {
+                  const st = statusIngresso(ticket);
+                  return (
+                    <button
+                      key={ticket.id}
+                      onClick={() => setDocSelected(ticket)}
+                      className="flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-white/10 bg-white/[.06] px-4 py-3.5 text-left transition active:bg-white/[.12]"
+                    >
+                      <span className="flex h-[42px] w-[42px] flex-none items-center justify-center rounded-full bg-brand-gradient text-[14px] font-extrabold">
+                        {iniciais(ticket.attendeeName ?? ticket.code)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-extrabold leading-tight">
+                          {ticket.attendeeName ?? "Ingresso não nominal"}
+                        </span>
+                        <span className="mt-1 block truncate text-[12px] font-medium text-white/45">
+                          {lotLabel(indexRef.current, ticket.ticketLotId) ?? "Ingresso"} · {ticket.code}
+                        </span>
+                      </span>
+                      <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-bold ${BADGE[st].cls}`}>
+                        {BADGE[st].label}
+                      </span>
+                    </button>
+                  );
+                })}
+
+                {docMode !== "none" && docResults.length === 0 && (
+                  <div className="flex flex-col items-center px-5 py-12 text-center">
+                    <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-[22px] bg-white/[.06] text-white/30">
+                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+                        <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+                        <path d="m20 20-3-3M8 11h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <p className="mb-1.5 text-[16px] font-extrabold">Nenhum resultado</p>
+                    <p className="max-w-[250px] text-[13px] font-medium leading-relaxed text-white/45">
+                      {docMode === "cpf"
+                        ? "Nenhum ingresso com este CPF na lista deste evento."
+                        : `Nenhum participante para “${docQuery}”. Confira o nome ou tente o CPF completo.`}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* rodapé: fila/manifesto · resumo · abas */}
+          <div className="relative z-10 flex-none">
+            <div className="mx-4 mb-2 flex gap-2">
+              <button
+                onClick={() => setScreen("offline")}
+                className="flex h-9 min-w-0 flex-1 items-center justify-center gap-2 truncate rounded-xl bg-white/[.07] px-3 text-[11px] font-semibold text-white/60"
+              >
+                {syncing ? (
+                  <span className="h-3 w-3 flex-none animate-spin rounded-full border-2 border-white/25 border-t-white/70" />
+                ) : (
+                  <span
+                    className={`h-[7px] w-[7px] flex-none rounded-full ${
+                      pendentes.length > 0 ? "bg-[#fbbf24]" : "bg-[#4ade80]"
+                    }`}
+                  />
+                )}
+                <span className="truncate">
+                  lista v {versaoCurta(manifest.version)} · {pendentes.length}{" "}
+                  {pendentes.length === 1 ? "pendente" : "pendentes"}
+                </span>
+              </button>
+              <button
+                onClick={() => setScreen("summary")}
+                className="h-9 flex-none rounded-xl bg-white/[.07] px-3.5 text-[11px] font-bold text-white/60"
+              >
+                Resumo
+              </button>
+            </div>
+            <div className="flex items-stretch gap-1 border-t border-white/10 bg-[#120e1a]/95 px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 backdrop-blur">
+              {TABS.map((item) => {
+                const active = tab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      vibrar(10);
+                      setTab(item.id);
+                    }}
+                    className={`flex flex-1 flex-col items-center gap-1 rounded-2xl py-2.5 text-[11px] font-bold transition ${
+                      active ? "bg-primary/20 text-[#c4b5fd]" : "text-white/45 active:bg-white/[.06]"
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </main>
       )}
+
+      {/* confirmação do check-in por documento */}
+      {docSelected &&
+        (() => {
+          const st = statusIngresso(docSelected);
+          const lot = lotLabel(indexRef.current, docSelected.ticketLotId) ?? "Ingresso";
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 lg:items-center lg:p-6"
+              onClick={() => setDocSelected(null)}
+            >
+              <div
+                className="w-full max-w-[430px] rounded-t-[28px] bg-[#1d1828] px-6 pb-8 pt-4 text-white lg:rounded-[28px]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="mx-auto mb-4 block h-1.5 w-12 rounded-full bg-white/15 lg:hidden" />
+                <div className="mb-5 flex items-center gap-3.5">
+                  <span className="flex h-[52px] w-[52px] flex-none items-center justify-center rounded-full bg-brand-gradient text-[17px] font-extrabold">
+                    {iniciais(docSelected.attendeeName ?? docSelected.code)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[18px] font-extrabold leading-tight">
+                      {docSelected.attendeeName ?? "Ingresso não nominal"}
+                    </p>
+                    <p className="mt-1 truncate text-[13px] font-medium text-white/50">{lot}</p>
+                  </div>
+                </div>
+
+                <div className="mb-5 space-y-2.5 rounded-2xl bg-white/[.06] px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[13px] font-medium text-white/55">Código</span>
+                    <span className="text-[14px] font-extrabold">{docSelected.code}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[13px] font-medium text-white/55">Status</span>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${BADGE[st].cls}`}>
+                      {BADGE[st].label}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-[13px] font-medium text-white/55">Portão</span>
+                    <span className="text-[14px] font-extrabold">{gate.name}</span>
+                  </div>
+                </div>
+
+                {st === "usado" && (
+                  <p className="mb-4 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12px] font-semibold leading-relaxed text-[#fbbf24]">
+                    Este ingresso já passou pela portaria
+                    {docSelected.checkedInAt ? ` às ${hora(docSelected.checkedInAt)}` : ""}. Veja a
+                    situação completa antes de decidir com o organizador.
+                  </p>
+                )}
+                {st === "cancelado" && (
+                  <p className="mb-4 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-[12px] font-semibold leading-relaxed text-[#fb7185]">
+                    Ingresso cancelado ou estornado — entrada não permitida.
+                  </p>
+                )}
+
+                <button
+                  onClick={() => {
+                    const code = docSelected.code;
+                    setDocSelected(null);
+                    validar({ code });
+                  }}
+                  className={`h-[54px] w-full rounded-2xl text-[16px] font-extrabold ${
+                    st === "disponivel" ? "bg-success text-white shadow-cta-green" : "bg-white/10 text-white"
+                  }`}
+                >
+                  {st === "disponivel" ? "Confirmar entrada" : "Ver situação completa"}
+                </button>
+                <button
+                  onClick={() => setDocSelected(null)}
+                  className="mt-2.5 h-12 w-full rounded-2xl border-[1.5px] border-white/15 text-[13px] font-bold text-white/70"
+                >
+                  Voltar
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
       {screen === "result" && result && (
         <ResultScreen
           result={result}
           gateName={gate.name}
-          onNext={() => setScreen("scanner")}
-          onManual={() => {
-            setManualQuery("");
-            setManualResults([]);
-            setScreen("manual");
+          onNext={() => setScreen("validate")}
+          onSearch={() => {
+            setTab("doc");
+            setScreen("validate");
           }}
           onSync={() => setScreen("offline")}
         />
-      )}
-
-      {screen === "manual" && (
-        <main className={`${shell} bg-bg px-5 pb-10 pt-4`}>
-          <div className="mb-4 flex items-center gap-3.5">
-            <button
-              onClick={() => setScreen(session ? "scanner" : "pin")}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e6e2f0] bg-white text-ink"
-              aria-label="Voltar"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M15 5l-7 7 7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <h1 className="text-[18px] font-extrabold text-ink">Busca manual</h1>
-          </div>
-
-          {cameraError && (
-            <p className="mb-3 rounded-2xl border border-warning/25 bg-warning/[.08] px-4 py-3 text-[12px] font-semibold text-[#92400e]">
-              {cameraError.kind === "DENIED"
-                ? "Câmera negada neste aparelho. Você pode validar pelo nome ou pelo código."
-                : "Câmera indisponível neste navegador. Você pode validar pelo nome ou pelo código."}
-            </p>
-          )}
-
-          <div className="flex h-[52px] items-center gap-2.5 rounded-2xl border-[1.5px] border-primary bg-white px-4">
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
-              <circle cx="11" cy="11" r="7" stroke="#8b8598" strokeWidth="2" />
-              <path d="m20 20-3.5-3.5" stroke="#8b8598" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            <input
-              value={manualQuery}
-              onChange={(e) => buscarManual(e.target.value)}
-              placeholder="Nome do participante ou código"
-              autoFocus
-              className="w-full bg-transparent text-[15px] font-semibold text-ink outline-none placeholder:font-medium placeholder:text-muted-3"
-            />
-          </div>
-
-          <div className="my-3 flex items-center justify-between px-0.5">
-            <span className="text-[12px] font-semibold text-muted-2">
-              {!manifest.ready
-                ? "Lista local não sincronizada"
-                : manualQuery.trim().length < 2
-                  ? "Digite ao menos 2 letras"
-                  : `${manualResults.length} participante${manualResults.length === 1 ? "" : "s"} encontrado${manualResults.length === 1 ? "" : "s"}`}
-            </span>
-            {!manifest.ready && (
-              <button
-                onClick={() => syncNow()}
-                className="rounded-[9px] bg-primary/[.08] px-2.5 py-1.5 text-[12px] font-semibold text-primary"
-              >
-                sincronizar
-              </button>
-            )}
-          </div>
-
-          {manualResults.length > 0 ? (
-            <div className="space-y-2.5">
-              {manualResults.map((ticket) => {
-                const usado =
-                  ticket.status === "CHECKED_IN" || indexRef.current.localCheckins.has(ticket.id);
-                const cancelado = ticket.status === "CANCELED" || ticket.status === "REFUNDED";
-                return (
-                  <div
-                    key={ticket.id}
-                    className="flex items-center gap-3 rounded-2xl border-[1.5px] border-line bg-white px-4 py-3.5"
-                  >
-                    <span className="flex h-[42px] w-[42px] flex-none items-center justify-center rounded-full bg-brand-gradient text-[14px] font-extrabold text-white">
-                      {(ticket.attendeeName ?? ticket.code)
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase()}
-                    </span>
-                    <div className="flex-1">
-                      <p className="text-[14px] font-extrabold leading-tight text-ink">
-                        {ticket.attendeeName ?? "Ingresso não nominal"}
-                      </p>
-                      <p className="mt-1 text-[12px] font-medium text-muted-2">
-                        {lotLabel(indexRef.current, ticket.ticketLotId) ?? "Ingresso"} · {ticket.code}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => validar({ ticketId: ticket.id, code: ticket.code })}
-                      disabled={cancelado}
-                      className={`h-[38px] rounded-[11px] px-4 text-[12px] font-bold ${
-                        cancelado
-                          ? "bg-[#f4f2f8] text-[#9f1239]"
-                          : usado
-                            ? "bg-[#f4f2f8] text-warning"
-                            : "bg-success px-4 text-white"
-                      }`}
-                    >
-                      {cancelado ? "Cancelado" : usado ? "Já usado" : "Check-in"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            manualQuery.trim().length >= 2 && (
-              <div className="flex flex-col items-center px-5 py-14 text-center">
-                <div className="mb-5 flex h-24 w-24 items-center justify-center rounded-[26px] bg-[#efedf5] text-muted-4">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
-                    <path d="m20 20-3-3M8 11h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </div>
-                <p className="mb-2 text-[17px] font-extrabold text-ink">Nenhum resultado</p>
-                <p className="max-w-[250px] text-[13px] font-medium leading-relaxed text-muted">
-                  Nenhum participante encontrado para &ldquo;{manualQuery}&rdquo;. Confira o nome ou o código do
-                  ingresso.
-                </p>
-              </div>
-            )
-          )}
-        </main>
       )}
 
       {screen === "offline" && (
@@ -1044,6 +1505,24 @@ export default function PortariaPage() {
               </div>
             </div>
           )}
+
+          <div className="mb-4 rounded-[18px] border border-line bg-white p-5">
+            <h2 className="mb-3 text-[15px] font-extrabold text-ink">Lista local (manifesto)</h2>
+            <div className="space-y-2 text-[13px] font-semibold">
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-2">Versão</span>
+                <span className="text-ink">{versaoCurta(manifest.version)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-2">Ingressos</span>
+                <span className="text-ink">{manifest.tickets}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-2">Sincronizada</span>
+                <span className="text-ink">{hora(manifest.syncedAt)}</span>
+              </div>
+            </div>
+          </div>
 
           <div className="mb-4 rounded-[18px] border border-line bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
@@ -1116,10 +1595,10 @@ export default function PortariaPage() {
             {syncing ? "Sincronizando..." : "Sincronizar agora"}
           </button>
           <button
-            onClick={() => setScreen(session ? "scanner" : "pin")}
+            onClick={() => setScreen(session ? "validate" : "pin")}
             className="mt-3 h-12 w-full rounded-2xl border border-line bg-white text-[13px] font-bold text-ink"
           >
-            Voltar ao scanner
+            Voltar à validação
           </button>
         </main>
       )}
@@ -1205,10 +1684,10 @@ export default function PortariaPage() {
           </div>
 
           <button
-            onClick={() => setScreen("scanner")}
+            onClick={() => setScreen("validate")}
             className="mt-5 h-12 w-full rounded-2xl border border-line bg-white text-[13px] font-bold text-ink"
           >
-            Voltar ao scanner
+            Voltar à validação
           </button>
         </main>
       )}
@@ -1279,13 +1758,13 @@ function ResultScreen({
   result,
   gateName,
   onNext,
-  onManual,
+  onSearch,
   onSync,
 }: {
   result: ScanResult;
   gateName: string;
   onNext: () => void;
-  onManual: () => void;
+  onSearch: () => void;
   onSync: () => void;
 }) {
   const style = RESULT_STYLE[result.kind];
@@ -1300,7 +1779,8 @@ function ResultScreen({
   } else if (result.kind === "ALREADY_USED") {
     rows.push(["Portador", result.name ?? result.code ?? "—"]);
     rows.push(["1º uso", hora(result.firstAt)]);
-    rows.push(["Portão", result.firstGate ?? result.firstDevice ?? "Não informado"]);
+    rows.push(["Portão", result.firstGate ?? "Não informado"]);
+    if (result.firstDevice) rows.push(["Aparelho", result.firstDevice]);
   } else if (result.kind === "CANCELED") {
     rows.push(["Portador", result.name ?? result.code ?? "—"]);
     rows.push(["Status", "Cancelado ou estornado"]);
@@ -1313,14 +1793,11 @@ function ResultScreen({
   } else {
     rows.push(["Motivo", reason?.motivo ?? "Ingresso inválido"]);
     rows.push(["O que dizer", reason?.dizer ?? '"Não conseguimos validar este ingresso"']);
-    rows.push(["Ação", reason?.acao ?? "Conferir a compra na busca manual"]);
+    rows.push(["Ação", reason?.acao ?? "Conferir a compra na busca por documento"]);
   }
 
   return (
-    <main
-      className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col text-white"
-      style={{ background: style.gradient }}
-    >
+    <main className="flex w-full flex-1 flex-col text-white" style={{ background: style.gradient }}>
       <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
         <div
           className={`mb-6 flex h-[108px] w-[108px] items-center justify-center rounded-full bg-white ${style.anim}`}
@@ -1368,7 +1845,7 @@ function ResultScreen({
           )}
           {result.kind !== "VALID" && (
             <button
-              onClick={onManual}
+              onClick={onSearch}
               className="h-11 flex-1 rounded-xl bg-white/20 text-[12px] font-bold text-white"
             >
               Buscar na lista

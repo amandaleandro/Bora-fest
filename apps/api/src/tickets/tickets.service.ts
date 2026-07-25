@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { prisma } from "@borafest/database";
 import { signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
+import QRCode from "qrcode";
 import type { TransferTicketInput } from "@borafest/contracts";
 
 @Injectable()
@@ -28,6 +29,21 @@ export class TicketsService {
       event: order.event,
       tickets: order.tickets.map((ticket) => this.toPublicTicket(ticket)),
     };
+  }
+
+  /**
+   * PNG do QR de um ingresso (conteúdo = `qr_token`), acessível por quem tem
+   * o token público do pedido — é a imagem enviada na entrega por WhatsApp.
+   */
+  async renderTicketQrPng(orderPublicToken: string, ticketId: string): Promise<Buffer> {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { qrToken: true, order: { select: { publicToken: true } } },
+    });
+    if (!ticket || ticket.order.publicToken !== orderPublicToken) {
+      throw new NotFoundException("Ingresso não encontrado neste pedido");
+    }
+    return QRCode.toBuffer(ticket.qrToken, { type: "png", width: 512, margin: 2 });
   }
 
   /** Carteira do usuário autenticado. */

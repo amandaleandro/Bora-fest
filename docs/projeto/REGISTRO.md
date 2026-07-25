@@ -53,7 +53,26 @@ Dois bugs achados e corrigidos nessa validação:
 2. Pedido de convidado nunca era vinculado à conta — a carteira ficava vazia.
    Agora o verify do OTP (posse do e-mail comprovada) reivindica os pedidos.
 
-**Bloqueios de lançamento (externos)**: conta Pagar.me, chave do Resend, VPS.
+**Rodada pós-feedback do Arthur (2026-07-25, tarde)** — 3 frentes em paralelo:
+- **Portaria redesenhada**: app standalone de tela cheia (sem header/rodapé do
+  site), seguindo o protótipo aprovado — PIN com teclado grande, seletor de
+  evento/portão, abas Scanner / Código / Documento, resultados full-screen
+  (verde/amarelo/vermelho), badge Online/Offline e pendentes de sync.
+- **Validação por documento (sem QR), offline**: manifesto passou a levar o
+  CPF **hasheado** (sha256 — o CPF cru nunca sai do servidor); a busca por
+  nome/CPF roda na lista local do aparelho. Validado no navegador: CPF com
+  pontuação → Marina Costa → Confirmar entrada → Válido → sincronizado.
+- **Ingresso no WhatsApp**: botão "Receber meus ingressos no WhatsApp" na
+  página do pedido → POST /v1/orders/:publicToken/whatsapp (normaliza celular
+  BR p/ E.164) → 1 mensagem por ingresso com texto + PNG do QR
+  (GET .../tickets/:id/qr.png). Adapter Meta Cloud API pronto: com as chaves,
+  é setar WHATSAPP_PROVIDER=meta + WHATSAPP_CLOUD_TOKEN +
+  WHATSAPP_PHONE_NUMBER_ID. Sem chaves, devlog loga (testado).
+
+Build 14/14 · testes 34/34 (API 13, payments 10, notifications 8, tickets 3).
+
+**Bloqueios de lançamento (externos)**: conta Pagar.me, chave do Resend,
+chaves do WhatsApp Cloud (Meta), VPS.
 
 ### Onde estamos (2026-07-24, verificação de estado)
 

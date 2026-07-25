@@ -105,6 +105,8 @@ export interface Order {
   eventId: string;
   contactEmail: string;
   contactName: string | null;
+  /** celular do contato (só dígitos, pode vir com 55) — pré-preenche o envio por WhatsApp */
+  contactPhone?: string | null;
   status: string;
   totalCents: number;
   discountCents?: number;
@@ -220,6 +222,13 @@ export const api = {
 
   resendTickets: (publicToken: string) =>
     request<{ queued: boolean; channels: string[] }>(`/v1/orders/${publicToken}/resend`, { method: "POST" }),
+
+  /** Envia cada ingresso (texto + QR) para o WhatsApp; sem phone usa o contato do pedido. */
+  sendTicketsWhatsApp: (publicToken: string, phone?: string) =>
+    request<{ sent: boolean; tickets: number; phone: string }>(`/v1/orders/${publicToken}/whatsapp`, {
+      method: "POST",
+      body: phone ? { phone } : {},
+    }),
 
   transferTicket: (ticketId: string, input: { orderPublicToken: string; toName: string; toEmail: string }) =>
     request<OrderTicket>(`/v1/tickets/${ticketId}/transfer`, { method: "POST", body: input }),

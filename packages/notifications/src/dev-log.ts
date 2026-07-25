@@ -25,10 +25,13 @@ export class DevLogWhatsAppSender implements WhatsAppSender {
   readonly provider = DEVLOG_PROVIDER;
 
   async send(message: WhatsAppMessage): Promise<void> {
-    log.info(
-      { channel: "whatsapp", to: message.to, template: message.template, variables: message.variables },
-      "whatsapp (dev) enviado para o log",
-    );
+    const detail =
+      "template" in message
+        ? { template: message.template, variables: message.variables }
+        : "imageUrl" in message
+          ? { imageUrl: message.imageUrl, caption: message.caption }
+          : { text: message.text };
+    log.info({ channel: "whatsapp", to: message.to, ...detail }, "whatsapp (dev) enviado para o log");
   }
 }
 

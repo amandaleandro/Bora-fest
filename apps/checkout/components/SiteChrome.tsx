@@ -6,6 +6,18 @@ import { usePathname } from "next/navigation";
 
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
 
+/** A portaria é um app standalone: nada de header/rodapé/moldura do site. */
+function isStandaloneRoute(pathname: string | null): boolean {
+  return Boolean(pathname?.startsWith("/portaria"));
+}
+
+/** Moldura de largura do site (430px no mobile) — a portaria fica fora dela. */
+export function SiteFrame({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  if (isStandaloneRoute(pathname)) return <>{children}</>;
+  return <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-bg lg:max-w-none">{children}</div>;
+}
+
 /** Header/footer do Site Público (desktop) — no mobile o app é full-screen. */
 export function SiteHeader() {
   const pathname = usePathname();
@@ -15,6 +27,8 @@ export function SiteHeader() {
   useEffect(() => {
     setSignedIn(Boolean(localStorage.getItem("bf.token")));
   }, [pathname]);
+
+  if (isStandaloneRoute(pathname)) return null;
 
   return (
     <header className="hidden border-b border-line bg-surface lg:block">
@@ -34,6 +48,9 @@ export function SiteHeader() {
 }
 
 export function SiteFooter() {
+  const pathname = usePathname();
+  if (isStandaloneRoute(pathname)) return null;
+
   return (
     <footer className="hidden border-t border-line bg-surface lg:block">
       <div className="mx-auto grid max-w-[1160px] grid-cols-4 gap-8 px-6 py-10 text-[13px]">
