@@ -453,6 +453,7 @@ model Order {
   payments    Payment[]
   couponRedemption CouponRedemption?
   attendees        OrderAttendee[]
+  consents         Consent[]
   tickets     Ticket[]
   refundRequests RefundRequest[]
   pushTokens  PushToken[]
@@ -969,6 +970,8 @@ model Consent {
   acceptedAt DateTime @default(now()) @map("accepted_at")
   ip         String?
   userAgent  String?  @map("user_agent")
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([userId])
