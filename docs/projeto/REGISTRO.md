@@ -17,11 +17,26 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + backup/restore + alerta ✅ + transferência/reembolso ✅ + plano de testes (rascunho) + Fase 12 (app público do comprador, `apps/mobile-public`, agora com push + cartão) 🟡 |
-| **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado; Fase 12 com código escrito e bundle validado nas 2 plataformas (push e cartão testados ao vivo contra API real), não testado em aparelho real |
+| **Fase em andamento** | Handoff v1 implementado nas 4 superfícies — pré-lançamento |
+| **Status da fase** | 🟢 Build 14/14 · testes 24/24 · Site Público + PWA comprador + Painel + PWA validação no ar em localhost |
 | **Última atualização** | 2026-07-24 |
-| **Atualizado por** | Amanda + Claude |
+| **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
+
+### Onde estamos (2026-07-24, verificação de estado)
+
+- **Handoff v1 (docs/design) implementado nas 4 superfícies**: Site Público
+  desktop + hotsite com seleção sticky, App do Comprador (PWA com manifest e
+  service worker), Painel do Produtor completo, App de Validação como PWA em
+  `/portaria` (além do RN antigo em `apps/mobile-checkin`).
+- **Saúde**: `pnpm build` 14/14 e `pnpm test` 24/24 verdes; API, worker e os 3
+  frontends rodando em localhost (3333/3000/3001/3002).
+- **2 bugs de build corrigidos nesta verificação**: (1) `NODE_ENV` vazava do
+  `.env` para o `next build` via `globalPassThroughEnv` do turbo, fazendo o
+  admin quebrar no prerender com runtime de dev; (2) dev server concorrendo
+  pelo `.next` durante o build (limpar `.next` + parar dev antes de buildar).
+- **Bloqueios de lançamento continuam externos**: conta PSP Pagar.me (chaves),
+  provedor real de e-mail/WhatsApp, e VPS+domínio para subir.
 
 ### Sessão C7/C8 — Vendas (pedidos + reembolso + PDV) e Financeiro (2026-07-24, Claude)
 
@@ -716,6 +731,7 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+| 2026-07-24 | Arthur + Claude | **Verificação de estado + 2 fixes de build**: auditoria do código real contra o handoff v1; `pnpm build` estava 11/14 — causa 1: `NODE_ENV=development` do `.env` vazava para o `next build` pelo `globalPassThroughEnv` do turbo (admin quebrava no prerender com runtime dev); causa 2: dev server concorrendo pelo `.next`. Corrigido (NODE_ENV fora do passthrough) → build 14/14 e testes 24/24 verdes. REGISTRO de 'Estado atual' reescrito (estava sem o Bloco E). | Handoff v1 nas 4 superfícies; bloqueios de lançamento seguem externos (PSP, e-mail, VPS). |
 | 2026-07-24 | Arthur + Claude | **HANDOFF v1 (Bloco E) EXECUTADO — Site Público + estratégia PWA**: handoff novo versionado em docs/design; Site Público desktop responsivo no próprio apps/checkout (header Entrar/Produza, hero, grade de eventos, faixa Produza, footer LGPD; hotsite 2 colunas com SELEÇÃO LATERAL STICKY via TicketSelector compartilhado); PWA do comprador (manifest + service worker com fallback offline — SW só em produção após bug de cache em dev achado e corrigido no teste); **PWA de Validação em /portaria** (PIN dark com dots+teclado, portões, scanner com BarcodeDetector + busca manual, resultados full-screen, resumo com reverter, fila offline). Testado clicando: home/hotsite desktop, PIN real → check-in VÁLIDO verde → duplicado JÁ UTILIZADO âmbar com 1º uso/aparelho. | Handoff v1 completo nas 4 superfícies. Pendências de publicação seguem: conta Pagar.me, e-mail real, VPS. |
 | 2026-07-24 | Arthur + Claude | **🏁 BACKLOG DO PROTÓTIPO 100% CONCLUÍDO** — fechado o último item (D5): rota POST /v1/validator/checkins/:id/reverse com ValidatorDeviceGuard (reverter check-in direto do aparelho da portaria, escopo do evento, audit com deviceName; testado E2E: VALID→reverte→audit→401 sem token). Com o commit da Amanda (C3/C7-C9/D1-D5) as 3 superfícies do handoff estão implementadas: A(6/6) B(10/10) C(9/9) D(5/5). Suite completa verde. | Software alinhado ao protótipo. Pendências para público seguem as externas: conta Pagar.me, e-mail real, VPS, app em celular físico. |
 | 2026-07-24 | Arthur + Claude | **Correções do teste do Arthur em navegador próprio**: (1) BUG do 'tempo esgotado' instantâneo — contador nascia em 0 antes da reserva carregar e checkout reusado (reserva CONVERTED) caía na tela errada; agora contador nasce infinito, expirado exige reserva ATIVA com tempo real zerado, e checkout concluído REDIRECIONA para o pedido (token guardado na sessão; caso sem token → tela 'checkout já concluído'). (2) Pix ganhou o botão 'Já fiz o pagamento' do protótipo + faixa explícita 'Ambiente de TESTE: banco simulado aprova em ~20s' (a 'aprovação falsa' era o simulador local — em produção só aprova com dinheiro real). Revalidado E2E no navegador: timer 09:53 correto, aprovação → confirmação, voltar → cai no pedido. | Testes do Arthur seguem; próximo do backlog: C7/C3/C8/C9/D. |
