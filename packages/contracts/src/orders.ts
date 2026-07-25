@@ -7,6 +7,24 @@ export const createOrderSchema = z.object({
   /** celular com DDD — habilita entrega do ingresso por WhatsApp */
   contactPhone: z.string().min(10).max(20).optional(),
   couponCode: z.string().min(3).max(24).optional(),
+  /// participantes de ingressos nominais (1 por unidade do lote nominal)
+  attendees: z
+    .array(
+      z.object({
+        ticketLotId: z.string().uuid(),
+        name: z.string().min(2),
+        cpf: z.string().min(11).max(14).optional(),
+      }),
+    )
+    .optional(),
+  /// aceite versionado de Termos e Privacidade (LGPD) — bloqueante no checkout
+  consent: z
+    .object({
+      version: z.string().min(3),
+      terms: z.literal(true),
+      privacy: z.literal(true),
+    })
+    .optional(),
 });
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 

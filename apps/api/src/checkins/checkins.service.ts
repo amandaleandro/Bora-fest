@@ -25,10 +25,12 @@ export class CheckinsService {
    * exatamente um aparelho recebe VALID; os demais, ALREADY_USED.
    */
   async create(device: ValidatorDevice, input: CreateCheckinInput) {
-    const ticket = await this.resolveTicket(device.eventId, input);
-    if (!ticket) {
-      return { result: "INVALID" as CheckinOutcome };
+    const resolved = await this.resolveTicketWithReason(device.eventId, input);
+    if (!resolved.ticket) {
+      // motivo específico para a portaria saber o que dizer ao portador (handoff v2)
+      return { result: "INVALID" as CheckinOutcome, reason: resolved.reason };
     }
+    const ticket = resolved.ticket;
 
     if (input.checkinPointId) {
       await this.assertCheckinPoint(device.eventId, input.checkinPointId);
@@ -362,16 +364,20 @@ export class CheckinsService {
         const first = await tx.checkin.findFirst({
           where: { ticketId, status: "CONFIRMED" },
           orderBy: { receivedAt: "asc" },
-          include: { device: { select: { name: true } } },
+          include: { device: { select: { name: true } }, checkinPoint: { select: { name: true } } },
         });
-        firstCheckin = { at: first?.scannedAt ?? ticket.checkedInAt, deviceName: first?.device.name };
+        firstCheckin = {
+          at: first?.scannedAt ?? ticket.checkedInAt,
+          deviceName: first?.device.name,
+          gateName: first?.checkinPoint?.name ?? null,
+        };
       }
 
       return { result, ticketStatus: ticket.status, checkinId: conflict.id, firstCheckin };
     });
   }
 
-  private async resolveTicket(eventId: string, input: CreateCheckinInput) {
+  private async resolveTicketWithReason(eventId: string, input: CreateCheckinInput) {
     let ticketId: string | undefined;
 
     if (input.qrToken) {
@@ -379,21 +385,29 @@ export class CheckinsService {
         where: { eventId },
         select: { publicKeyPem: true },
       });
-      if (!signingKey) return null;
+      if (!signingKey) return { ticket: null, reason: "EVENT_WITHOUT_KEY" as const };
       try {
         const payload = verifyTicketToken(input.qrToken, signingKey.publicKeyPem);
-        if (payload.eid !== eventId) return null;
+        if (payload.eid !== eventId) return { ticket: null, reason: "OTHER_EVENT" as const };
         ticketId = payload.tid;
       } catch (error) {
-        if (error instanceof InvalidTicketTokenError) return null;
+        if (error instanceof InvalidTicketTokenError) {
+          return { ticket: null, reason: "BAD_SIGNATURE" as const };
+        }
         throw error;
       }
     }
 
+    const found = await this.findTicket(eventId, ticketId, input.code);
+    if (!found) return { ticket: null, reason: "NOT_FOUND" as const };
+    return { ticket: found, reason: null };
+  }
+
+  private async findTicket(eventId: string, ticketId?: string, code?: string) {
     return prisma.ticket.findFirst({
       where: {
         eventId,
-        ...(ticketId ? { id: ticketId } : { code: input.code!.toUpperCase() }),
+        ...(ticketId ? { id: ticketId } : { code: (code ?? "").toUpperCase() }),
       },
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },

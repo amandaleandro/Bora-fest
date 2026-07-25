@@ -197,17 +197,78 @@ export class ValidatorService {
         ticketLotId: true,
         checkedInAt: true,
         updatedAt: true,
+        // busca manual por nome na portaria (handoff §4). CPF NÃO vai para o
+        // aparelho: fica só no servidor (minimização LGPD).
+        attendeeName: true,
       },
+    });
+
+    const lots = await prisma.ticketLot.findMany({
+      where: { ticketType: { eventId: device.eventId } },
+      select: { id: true, name: true, ticketType: { select: { name: true } } },
     });
 
     return {
       manifestVersion: generatedAt.toISOString(),
+      lots: lots.map((l) => ({ id: l.id, name: l.name, typeName: l.ticketType.name })),
       delta: Boolean(since),
       event,
       signingKey: signingKey ?? null,
       ticketCount: tickets.length,
       tickets,
     };
+  }
+
+  /** Resumo de portaria pelo próprio aparelho (handoff §4: presentes + por portão). */
+  async summary(device: ValidatorDevice) {
+    const [total, checkedIn, byPoint, points] = await Promise.all([
+      prisma.ticket.count({
+        where: { eventId: device.eventId, status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
+      }),
+      prisma.ticket.count({ where: { eventId: device.eventId, status: "CHECKED_IN" } }),
+      prisma.checkin.groupBy({
+        by: ["checkinPointId"],
+        where: { eventId: device.eventId, status: "CONFIRMED" },
+        _count: { _all: true },
+      }),
+      prisma.checkinPoint.findMany({
+        where: { eventId: device.eventId },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const nameById = new Map(points.map((p) => [p.id, p.name]));
+    return {
+      totalTickets: total,
+      checkedIn,
+      remaining: Math.max(total - checkedIn, 0),
+      byGate: byPoint.map((p) => ({
+        gate: p.checkinPointId ? (nameById.get(p.checkinPointId) ?? "Portão") : "Sem portão",
+        count: p._count._all,
+      })),
+    };
+  }
+
+  /** Últimas entradas confirmadas do evento — alimenta o "Reverter" do resumo. */
+  async recentCheckins(device: ValidatorDevice) {
+    const rows = await prisma.checkin.findMany({
+      where: { eventId: device.eventId, status: "CONFIRMED" },
+      orderBy: { receivedAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        scannedAt: true,
+        ticket: { select: { code: true, attendeeName: true } },
+        checkinPoint: { select: { name: true } },
+      },
+    });
+    return rows.map((r) => ({
+      checkinId: r.id,
+      code: r.ticket.code,
+      name: r.ticket.attendeeName,
+      gate: r.checkinPoint?.name ?? null,
+      at: r.scannedAt,
+    }));
   }
 
   // -------------------------------------------------------------------------

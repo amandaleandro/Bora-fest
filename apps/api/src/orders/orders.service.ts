@@ -43,10 +43,35 @@ export class OrdersService {
       throw new BadRequestException("Reserva expirada");
     }
 
-    const itemsTotalCents = reservation.items.reduce(
-      (sum, item) => sum + (item.priceCents + item.feeCents) * item.quantity,
-      0,
-    );
+    // quem paga a taxa (handoff v2 §3): BUYER soma a taxa ao comprador;
+    // PRODUCER absorve — o comprador paga só o preço e o repasse é descontado.
+    const lots = await prisma.ticketLot.findMany({
+      where: { id: { in: reservation.items.map((i) => i.ticketLotId) } },
+      select: { id: true, feeMode: true, nominal: true, requiresCpf: true },
+    });
+    const lotById = new Map(lots.map((l) => [l.id, l]));
+
+    const itemsTotalCents = reservation.items.reduce((sum, item) => {
+      const producerAbsorbs = lotById.get(item.ticketLotId)?.feeMode === "PRODUCER";
+      const unit = item.priceCents + (producerAbsorbs ? 0 : item.feeCents);
+      return sum + unit * item.quantity;
+    }, 0);
+
+    // ingressos nominais exigem um participante por unidade
+    const nominalItems = reservation.items.filter((i) => lotById.get(i.ticketLotId)?.nominal);
+    if (nominalItems.length > 0) {
+      for (const item of nominalItems) {
+        const provided = (input.attendees ?? []).filter((a) => a.ticketLotId === item.ticketLotId);
+        if (provided.length < item.quantity) {
+          throw new BadRequestException(
+            "Informe o nome de cada participante dos ingressos nominais",
+          );
+        }
+        if (lotById.get(item.ticketLotId)?.requiresCpf && provided.some((a) => !a.cpf)) {
+          throw new BadRequestException("CPF obrigatório para os ingressos deste setor");
+        }
+      }
+    }
 
     const coupon = input.couponCode
       ? await this.coupons.findUsable(reservation.eventId, input.couponCode)
@@ -92,6 +117,27 @@ export class OrdersService {
         },
         include: { items: true },
       });
+
+      if (input.attendees?.length) {
+        await tx.orderAttendee.createMany({
+          data: input.attendees.map((a) => ({
+            orderId: created.id,
+            ticketLotId: a.ticketLotId,
+            name: a.name,
+            cpf: a.cpf?.replace(/\D/g, ""),
+          })),
+        });
+      }
+
+      if (input.consent) {
+        // LGPD: aceite versionado e provável em auditoria
+        await tx.consent.createMany({
+          data: [
+            { orderId: created.id, userId: userId ?? null, document: "terms", version: input.consent.version },
+            { orderId: created.id, userId: userId ?? null, document: "privacy", version: input.consent.version },
+          ],
+        });
+      }
 
       if (coupon) {
         // resgate atômico: só conta se ainda houver saldo de usos

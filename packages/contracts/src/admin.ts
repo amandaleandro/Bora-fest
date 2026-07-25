@@ -22,3 +22,8 @@ export const markPayoutPaidSchema = z.object({
   notes: z.string().min(3).optional(),
 });
 export type MarkPayoutPaidInput = z.infer<typeof markPayoutPaidSchema>;
+
+export const requestPayoutSchema = z.object({
+  amountCents: z.number().int().min(100),
+});
+export type RequestPayoutInput = z.infer<typeof requestPayoutSchema>;

@@ -90,6 +90,18 @@ export class ValidatorController {
     return this.validatorService.refreshDeviceToken(req.validatorDevice, deviceId);
   }
 
+  @Get("events/:eventId/summary")
+  @UseGuards(ValidatorDeviceGuard)
+  summary(@Req() req: any) {
+    return this.validatorService.summary(req.validatorDevice);
+  }
+
+  @Get("events/:eventId/recent-checkins")
+  @UseGuards(ValidatorDeviceGuard)
+  recentCheckins(@Req() req: any) {
+    return this.validatorService.recentCheckins(req.validatorDevice);
+  }
+
   @Get("events/:eventId/manifest")
   @UseGuards(ValidatorDeviceGuard)
   manifest(@Req() req: any) {

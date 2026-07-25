@@ -35,6 +35,9 @@ model User {
   /// login por senha (painel do produtor); compradores seguem sem senha (OTP)
   passwordHash    String?   @map("password_hash")
   termsAcceptedAt DateTime? @map("terms_accepted_at")
+  /// preferências de marketing (transacional é sempre enviado)
+  notifyWhatsapp  Boolean   @default(true) @map("notify_whatsapp")
+  notifyEmailOffers Boolean @default(false) @map("notify_email_offers")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
@@ -134,6 +137,7 @@ model Organization {
   members       OrganizationMember[]
   verifications OrganizerVerification[]
   bankAccounts  BankAccount[]
+  payoutRequests PayoutRequest[]
   venues        Venue[]
   events        Event[]
   ledgerAccount LedgerAccount?
@@ -322,6 +326,11 @@ model TicketType {
   @@map("ticket_types")
 }
 
+enum FeeMode {
+  BUYER
+  PRODUCER
+}
+
 enum LotStatus {
   DRAFT
   SCHEDULED
@@ -340,6 +349,11 @@ model TicketLot {
   soldCount      Int       @default(0) @map("sold_count")
   reservedCount  Int       @default(0) @map("reserved_count")
   maxPerOrder    Int       @default(6) @map("max_per_order")
+  /// BUYER: comprador paga preço+taxa · PRODUCER: produtor absorve (desconto no repasse)
+  feeMode        FeeMode   @default(BUYER) @map("fee_mode")
+  /// exige nome (e CPF) por ingresso — setores nominais (ex.: Camarote)
+  nominal        Boolean   @default(false)
+  requiresCpf    Boolean   @default(false) @map("requires_cpf")
   status         LotStatus @default(DRAFT)
   startsAt       DateTime? @map("starts_at")
   endsAt         DateTime? @map("ends_at")
@@ -438,6 +452,7 @@ model Order {
   items       OrderItem[]
   payments    Payment[]
   couponRedemption CouponRedemption?
+  attendees        OrderAttendee[]
   tickets     Ticket[]
   refundRequests RefundRequest[]
   pushTokens  PushToken[]
@@ -611,6 +626,7 @@ model Ticket {
   status        TicketStatus @default(ISSUED)
   attendeeName  String?      @map("attendee_name")
   attendeeEmail String?      @map("attendee_email")
+  attendeeCpf   String?      @map("attendee_cpf")
   issuedAt      DateTime     @default(now()) @map("issued_at")
   checkedInAt   DateTime?    @map("checked_in_at")
   canceledAt    DateTime?    @map("canceled_at")
@@ -925,6 +941,63 @@ model CouponRedemption {
 
   @@index([couponId])
   @@map("coupon_redemptions")
+}
+
+
+
+/// Participante nominal informado no checkout (1 por unidade de lote nominal).
+model OrderAttendee {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @map("order_id") @db.Uuid
+  ticketLotId String  @map("ticket_lot_id") @db.Uuid
+  name        String
+  cpf         String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_attendees")
+}
+
+/// Aceite versionado de Termos/Privacidade (LGPD) — provado por pedido/usuário.
+model Consent {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  orderId    String?  @map("order_id") @db.Uuid
+  document   String   // "terms" | "privacy"
+  version    String   // ex.: "v2026-07"
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+  ip         String?
+  userAgent  String?  @map("user_agent")
+
+  @@index([orderId])
+  @@index([userId])
+  @@map("consents")
+}
+
+/// Solicitação de saque do produtor sobre saldo liberado (D+2 do evento + KYC).
+model PayoutRequest {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  amountCents    Int                 @map("amount_cents")
+  status         PayoutRequestStatus @default(PENDING)
+  bankAccountId  String?             @map("bank_account_id") @db.Uuid
+  payoutId       String?             @map("payout_id") @db.Uuid
+  notes          String?
+  requestedBy    String?             @map("requested_by") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at")
+  resolvedAt     DateTime?           @map("resolved_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@map("payout_requests")
+}
+
+enum PayoutRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // ---------------------------------------------------------------------------

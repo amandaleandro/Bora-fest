@@ -8,6 +8,10 @@ export const createTicketTypeSchema = z.object({
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeSchema>;
 
 export const createTicketLotSchema = z.object({
+  /// BUYER = comprador paga preço+taxa · PRODUCER = produtor absorve
+  feeMode: z.enum(["BUYER", "PRODUCER"]).optional(),
+  nominal: z.boolean().optional(),
+  requiresCpf: z.boolean().optional(),
   name: z.string().min(2),
   priceCents: z.number().int().min(0),
   feeCents: z.number().int().min(0).default(0),
