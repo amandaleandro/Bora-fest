@@ -16,6 +16,7 @@ import {
 } from "@borafest/contracts";
 import { z } from "zod";
 import { ZodBody } from "../common/zod-body.decorator";
+import { RateLimit } from "../common/rate-limit.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { ValidatorDeviceGuard } from "./validator-device.guard";
@@ -79,6 +80,8 @@ export class ValidatorController {
 
   /** login por PIN + registro do aparelho em uma chamada */
   @Post("sessions")
+  // PIN tem 6 dígitos: sem limite dedicado, o espaço é varrível por força bruta
+  @RateLimit({ limit: 10, windowSeconds: 900, keyPrefix: "validator-pin", by: "body:session" })
   createSession(@Body(ZodBody(sessionWithDeviceSchema)) body: unknown) {
     const input = body as z.infer<typeof sessionWithDeviceSchema>;
     return this.validatorService.createSessionAndRegisterDevice(input.session, input.device);

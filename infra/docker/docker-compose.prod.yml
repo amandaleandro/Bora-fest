@@ -42,7 +42,8 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.backend
       target: api
-    command: ["sh", "-c", "cd packages/database && npx prisma migrate deploy"]
+    # migrations + seed das roles (sem as roles, criar organização quebra)
+    command: ["sh", "-c", "cd packages/database && npx prisma migrate deploy && npx tsx src/seed.ts"]
     environment:
       DATABASE_URL: ${DATABASE_URL:?}
     depends_on:
@@ -68,6 +69,9 @@ services:
       PAGARME_WEBHOOK_BASIC_PASSWORD: ${PAGARME_WEBHOOK_BASIC_PASSWORD:-}
       MOCK_WEBHOOK_SECRET: ${MOCK_WEBHOOK_SECRET:-}
       WEB_BASE_URL: https://${CHECKOUT_DOMAIN:?}
+      PRODUCER_BASE_URL: https://${PRODUCER_DOMAIN:?}
+      CORS_ORIGINS: https://${CHECKOUT_DOMAIN:?},https://${PRODUCER_DOMAIN:?},https://${ADMIN_DOMAIN:?}
+      TRUST_PROXY: "true"
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-devlog}
       WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-devlog}
       PLATFORM_PIX_FEE_BPS: ${PLATFORM_PIX_FEE_BPS:-499}
@@ -100,6 +104,9 @@ services:
       PAGARME_SECRET_KEY: ${PAGARME_SECRET_KEY:-}
       MOCK_WEBHOOK_SECRET: ${MOCK_WEBHOOK_SECRET:-}
       WEB_BASE_URL: https://${CHECKOUT_DOMAIN:?}
+      PRODUCER_BASE_URL: https://${PRODUCER_DOMAIN:?}
+      CORS_ORIGINS: https://${CHECKOUT_DOMAIN:?},https://${PRODUCER_DOMAIN:?},https://${ADMIN_DOMAIN:?}
+      TRUST_PROXY: "true"
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-devlog}
       WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-devlog}
     depends_on:

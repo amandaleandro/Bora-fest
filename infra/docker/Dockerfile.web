@@ -47,6 +47,8 @@ WORKDIR /app
 # saída standalone: server.js próprio + só as deps necessárias
 COPY --from=builder /repo/apps/${APP}/.next/standalone ./
 COPY --from=builder /repo/apps/${APP}/.next/static ./apps/${APP}/.next/static
+# public/: manifest, service worker e ícones do PWA — sem isso dão 404 em produção
+COPY --from=builder /repo/apps/${APP}/public ./apps/${APP}/public
 
 EXPOSE 3000
 # o server.js fica no caminho do app dentro do standalone do monorepo
