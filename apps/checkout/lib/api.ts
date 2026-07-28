@@ -285,7 +285,7 @@ export const api = {
     request<{ deleted: boolean }>("/v1/me", { method: "DELETE", token }),
 
   requestRefund: (publicToken: string, reason: string) =>
-    request<{ id: string; status: string }>(`/v1/orders/${publicToken}/refund-requests`, {
+    request<{ id: string; status: string; reviewedBy: string }>(`/v1/orders/${publicToken}/refund-requests`, {
       method: "POST",
       body: { reason },
     }),

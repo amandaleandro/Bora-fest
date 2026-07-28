@@ -93,7 +93,17 @@ gateway primário ("melhor que o Pagar.me em todos os termos necessários").
   janela/automático por organização (auditado, com confirmação do aditivo);
   painel do produtor mostra "liberam após a janela" e a antecipação estimada.
 
-Build 14/14 · testes 42/42 (payments 16, API 15, notifications 8, tickets 3).
+**Reembolso direcionado à casa (2026-07-28, tarde)** — pedido do Arthur:
+- Solicitação do comprador agora informa quem analisa (`reviewedBy`): casa
+  (INSTANTÂNEO) ou BoraFest (PADRÃO) — mostrado no app do comprador.
+- Painel do produtor ganhou a página **Reembolsos**: casa INSTANTÂNEA aprova
+  (executa o estorno de verdade — sai do saldo dela via ledger) ou recusa com
+  justificativa; PADRÃO vê a fila em modo leitura ("quem analisa é a
+  BoraFest"). Guarda de permissão ORDER_REFUND + trava por settlementMode no
+  servidor. Executor de estorno unificado (backoffice e casa usam o mesmo:
+  `common/execute-refund.ts`).
+
+Build 14/14 · testes 43/43 (payments 16, API 16, notifications 8, tickets 3).
 
 **Bloqueios de lançamento (externos)**: conta ASAAS (chave + token do
 webhook), chave do Resend, chaves do WhatsApp Cloud (Meta), VPS.

@@ -103,6 +103,7 @@ interface NavLink {
 function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
   const eventsHref = organizationId ? `/organizacoes/${organizationId}` : "/organizacoes";
   const financeHref = organizationId ? `/organizacoes/${organizationId}/financeiro` : "/organizacoes";
+  const refundsHref = organizationId ? `/organizacoes/${organizationId}/reembolsos` : "/organizacoes";
 
   const manage: NavLink[] = event
     ? [
@@ -111,10 +112,14 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
         { href: `/eventos/${event.id}/vendas`, icon: icons.cart, label: "Vendas" },
         { href: financeHref, icon: icons.card, label: "Financeiro" },
+        { href: refundsHref, icon: icons.card, label: "Reembolsos" },
         { href: `/eventos/${event.id}/participantes`, icon: icons.people, label: "Participantes" },
         { href: `/eventos/${event.id}/portaria`, icon: icons.scan, label: "Check-in" },
       ]
-    : [{ href: financeHref, icon: icons.card, label: "Financeiro" }];
+    : [
+        { href: financeHref, icon: icons.card, label: "Financeiro" },
+        { href: refundsHref, icon: icons.card, label: "Reembolsos" },
+      ];
 
   return { eventsHref, manage };
 }

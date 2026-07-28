@@ -61,6 +61,7 @@ export default function PurchasesPage() {
   const [rows, setRows] = useState<PurchaseRow[] | null>(null);
   const [refundFor, setRefundFor] = useState<string | null>(null);
   const [refundOk, setRefundOk] = useState<string | null>(null);
+  const [refundReviewer, setRefundReviewer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,7 +96,8 @@ export default function PurchasesPage() {
   async function requestRefund(token: string) {
     setError(null);
     try {
-      await api.requestRefund(token, "Solicitado pelo comprador no app");
+      const created = await api.requestRefund(token, "Solicitado pelo comprador no app");
+      setRefundReviewer(created.reviewedBy ?? null);
       setRefundOk(token);
       setRefundFor(null);
     } catch (e) {
@@ -140,7 +142,8 @@ export default function PurchasesPage() {
 
               {refundOk === row.publicToken && (
                 <div className="mt-3 rounded-xl bg-success/10 p-3 text-[12px] font-bold text-success">
-                  Pedido de reembolso registrado (CDC art. 49 — até 5 dias úteis para resposta) ✅
+                  Pedido de reembolso enviado para {refundReviewer ?? "análise"} — até 5 dias úteis
+                  para resposta (CDC art. 49) ✅
                 </div>
               )}
 

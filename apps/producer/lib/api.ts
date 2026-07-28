@@ -269,11 +269,41 @@ export interface LedgerEntry {
   createdAt: string;
 }
 
+export interface OrgRefundRequest {
+  id: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  requestedAt: string;
+  resolutionNote: string | null;
+  order: {
+    publicToken: string;
+    contactName: string | null;
+    contactEmail: string;
+    totalCents: number;
+    status: string;
+    event: { title: string };
+  };
+}
+
 export const financeApi = {
   getBalance: (token: string, organizationId: string) =>
     request<Balance>(`/v1/organizations/${organizationId}/balance`, { token }),
   getLedger: (token: string, organizationId: string) =>
     request<LedgerEntry[]>(`/v1/organizations/${organizationId}/ledger`, { token }),
+  listRefundRequests: (token: string, organizationId: string) =>
+    request<OrgRefundRequest[]>(`/v1/organizations/${organizationId}/refund-requests`, { token }),
+  approveRefundRequest: (token: string, organizationId: string, id: string) =>
+    request(`/v1/organizations/${organizationId}/refund-requests/${id}/approve`, {
+      method: "POST",
+      body: {},
+      token,
+    }),
+  rejectRefundRequest: (token: string, organizationId: string, id: string, note: string) =>
+    request(`/v1/organizations/${organizationId}/refund-requests/${id}/reject`, {
+      method: "POST",
+      body: { note },
+      token,
+    }),
 };
 
 // ---------------------------------------------------------------------------

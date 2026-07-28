@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { applyGatewayStatus, getGateway } from "@borafest/payments";
+import { executeOrderRefund } from "../common/execute-refund";
 import {
   createNotificationDeliveryQueue,
   createOrderExpirationQueue,
@@ -232,54 +233,9 @@ export class AdminService {
   async refundOrder(publicToken: string, userId: string, input: RefundOrderInput): Promise<any> {
     const actor = await this.platformAccess.assertAdmin(userId);
 
-    const order = await prisma.order.findUnique({
-      where: { publicToken },
-      include: { payments: { orderBy: { createdAt: "desc" } } },
-    });
-    if (!order) throw new NotFoundException("Pedido não encontrado");
-
-    const payment = order.payments.find((p) => p.status === "PAID");
-    if (!payment || !payment.externalId) {
-      throw new BadRequestException("Pedido não tem pagamento aprovado para estornar");
-    }
-    if (input.amountCents !== undefined && input.amountCents > payment.amountCents) {
-      throw new BadRequestException("Valor do estorno maior que o pagamento");
-    }
-
-    const marked = await prisma.payment.updateMany({
-      where: { id: payment.id, status: "PAID" },
-      data: { status: "REFUND_PENDING" },
-    });
-    if (marked.count === 0) {
-      throw new BadRequestException("Estorno já em andamento para este pagamento");
-    }
-
-    const gateway = getGateway(payment.provider);
-    let result;
-    try {
-      result = await gateway.refund({
-        externalId: payment.externalId,
-        amountCents: input.amountCents,
-        idempotencyKey: `admin-refund:${payment.id}:${input.amountCents ?? "full"}`,
-      });
-    } catch (error) {
-      await prisma.payment.updateMany({
-        where: { id: payment.id, status: "REFUND_PENDING" },
-        data: { status: "PAID" },
-      });
-      throw error;
-    }
-
-    if (result.status === "FAILED") {
-      await prisma.payment.updateMany({
-        where: { id: payment.id, status: "REFUND_PENDING" },
-        data: { status: "PAID" },
-      });
-      throw new BadRequestException("Gateway recusou o estorno");
-    }
-
-    await applyGatewayStatus(payment.id, result.status, undefined, {
-      refundAmountCents: input.amountCents,
+    const { order, gatewayStatus } = await executeOrderRefund(publicToken, {
+      amountCents: input.amountCents,
+      idempotencyPrefix: "admin-refund",
     });
 
     await prisma.auditLog.create({
@@ -288,7 +244,7 @@ export class AdminService {
         action: "admin.order.refund",
         entityType: "order",
         entityId: order.id,
-        metadata: { amountCents: input.amountCents, reason: input.reason, gatewayStatus: result.status },
+        metadata: { amountCents: input.amountCents, reason: input.reason, gatewayStatus },
       },
     });
 
