@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsx --test src/mock.test.ts src/pagarme.test.ts"
+    "test": "tsx --test src/mock.test.ts src/pagarme.test.ts src/asaas.test.ts"
   },
   "dependencies": {
     "@borafest/database": "workspace:*"

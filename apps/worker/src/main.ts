@@ -9,6 +9,9 @@ import {
   createPaymentReconciliationWorker,
   createReservationExpirationQueue,
   createReservationExpirationWorker,
+  AUTO_PAYOUTS_JOB_ID,
+  createAutoPayoutsQueue,
+  createAutoPayoutsWorker,
   NOTIFICATION_DELIVERY_JOB_ID,
   ORDER_EXPIRATION_JOB_ID,
   OUTBOX_DISPATCH_JOB_ID,
@@ -21,6 +24,7 @@ import { processOutboxBatch } from "./process-outbox";
 import { reconcilePendingPayments } from "./reconcile-payments";
 import { expireStaleOrders } from "./expire-orders";
 import { deliverPendingNotifications } from "./deliver-notifications";
+import { sweepAutoPayouts } from "./auto-payouts";
 
 const log = withContext({ module: "worker" });
 
@@ -47,6 +51,16 @@ async function main() {
     OUTBOX_DISPATCH_JOB_ID,
     { every: 3_000 },
     { name: "dispatch", data: {} },
+  );
+
+  // --- repasses: varredura do repasse automático (a cada 30 min) -----------
+  const autoPayoutsWorker = createAutoPayoutsWorker(async () => {
+    await sweepAutoPayouts();
+  });
+  await createAutoPayoutsQueue().upsertJobScheduler(
+    AUTO_PAYOUTS_JOB_ID,
+    { every: 30 * 60_000 },
+    { name: "sweep", data: {} },
   );
 
   // --- pagamentos: reconciliação com o gateway -----------------------------
@@ -85,13 +99,14 @@ async function main() {
     ["pagamentos", paymentWorker],
     ["pedidos", orderWorker],
     ["notificações", notificationWorker],
+    ["repasses", autoPayoutsWorker],
   ] as const) {
     worker.on("failed", (job, error) => {
       log.error({ queue: name, jobId: job?.id, error: error.message }, "job falhou");
     });
   }
 
-  log.info("workers iniciados: reservas, outbox, pagamentos, pedidos e notificações");
+  log.info("workers iniciados: reservas, outbox, pagamentos, pedidos, notificações e repasses");
 }
 
 main().catch((error) => {

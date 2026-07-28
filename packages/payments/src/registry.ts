@@ -1,3 +1,4 @@
+import { AsaasGateway, ASAAS_PROVIDER } from "./asaas";
 import { MockGateway, MOCK_PROVIDER } from "./mock";
 import { PagarmeGateway, PAGARME_PROVIDER } from "./pagarme";
 import type { PaymentGateway } from "./types";
@@ -9,9 +10,13 @@ function ensureBuiltins(): void {
     gateways.set(MOCK_PROVIDER, new MockGateway());
   }
   if (!gateways.has(PAGARME_PROVIDER)) {
-    // primário (decisão 2026-07-23) — env lida por chamada, troca é só
-    // PAYMENTS_PROVIDER; futuros adapters (asaas, celcoin...) entram aqui
+    // mantido vivo como alavanca de negociação e plano B (troca por env)
     gateways.set(PAGARME_PROVIDER, new PagarmeGateway());
+  }
+  if (!gateways.has(ASAAS_PROVIDER)) {
+    // primário (decisão 2026-07-28, pesquisa rodada 2): melhor custo com
+    // escrow + KYC no PSP para o pré-lançamento
+    gateways.set(ASAAS_PROVIDER, new AsaasGateway());
   }
 }
 

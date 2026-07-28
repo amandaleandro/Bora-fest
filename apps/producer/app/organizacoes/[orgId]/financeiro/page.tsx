@@ -168,6 +168,19 @@ function FinanceContent({ orgId }: { orgId: string }) {
                   {formatCents(pendingCents)} já solicitados
                 </p>
               ) : null}
+              {balance?.settlementMode === "INSTANT" ? (
+                <p className="mt-1 text-[11.5px] font-semibold text-brand">
+                  Repasse instantâneo ativo
+                  {(balance?.anticipationFeeCents ?? 0) > 0
+                    ? ` · antecipação estimada ${formatCents(balance?.anticipationFeeCents ?? 0)}`
+                    : ""}
+                </p>
+              ) : (balance?.heldCents ?? 0) > 0 ? (
+                <p className="mt-1 text-[11.5px] font-semibold text-muted">
+                  {formatCents(balance?.heldCents ?? 0)} liberam após a janela de reembolso (7 dias da
+                  venda)
+                </p>
+              ) : null}
             </div>
             <div className="rounded-[18px] border border-line bg-surface p-5">
               <p className="text-[12px] font-bold text-muted">Repasse</p>

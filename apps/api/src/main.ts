@@ -19,15 +19,25 @@ function corsOrigins(): true | string[] {
 
 /** Falha no boot em vez de aceitar venda que o gateway não vai honrar. */
 function assertPaymentSecrets(): void {
-  if ((process.env.PAYMENTS_PROVIDER ?? "mock") !== "pagarme") return;
-  const missing = ["PAGARME_SECRET_KEY"].filter((k) => !process.env[k]);
-  const hasWebhookAuth =
-    (process.env.PAGARME_WEBHOOK_BASIC_USER && process.env.PAGARME_WEBHOOK_BASIC_PASSWORD) ||
-    process.env.PAGARME_WEBHOOK_SECRET;
-  if (!hasWebhookAuth) missing.push("PAGARME_WEBHOOK_BASIC_USER/PASSWORD");
+  const provider = process.env.PAYMENTS_PROVIDER ?? "mock";
+  const missing: string[] = [];
+
+  if (provider === "pagarme") {
+    if (!process.env.PAGARME_SECRET_KEY) missing.push("PAGARME_SECRET_KEY");
+    const hasWebhookAuth =
+      (process.env.PAGARME_WEBHOOK_BASIC_USER && process.env.PAGARME_WEBHOOK_BASIC_PASSWORD) ||
+      process.env.PAGARME_WEBHOOK_SECRET;
+    if (!hasWebhookAuth) missing.push("PAGARME_WEBHOOK_BASIC_USER/PASSWORD");
+  } else if (provider === "asaas") {
+    if (!process.env.ASAAS_API_KEY) missing.push("ASAAS_API_KEY");
+    if (!process.env.ASAAS_WEBHOOK_TOKEN) missing.push("ASAAS_WEBHOOK_TOKEN");
+  } else {
+    return;
+  }
+
   if (missing.length > 0) {
     throw new Error(
-      `PAYMENTS_PROVIDER=pagarme exige: ${missing.join(", ")} — sem isso o webhook é recusado e o pedido nunca confirma`,
+      `PAYMENTS_PROVIDER=${provider} exige: ${missing.join(", ")} — sem isso o webhook é recusado e o pedido nunca confirma`,
     );
   }
 }

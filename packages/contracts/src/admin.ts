@@ -27,3 +27,10 @@ export const requestPayoutSchema = z.object({
   amountCents: z.number().int().min(100),
 });
 export type RequestPayoutInput = z.infer<typeof requestPayoutSchema>;
+
+export const updateSettlementSchema = z.object({
+  settlementMode: z.enum(["STANDARD", "INSTANT"]).optional(),
+  autoPayout: z.boolean().optional(),
+  refundHoldDays: z.number().int().min(0).max(90).optional(),
+});
+export type UpdateSettlementInput = z.infer<typeof updateSettlementSchema>;

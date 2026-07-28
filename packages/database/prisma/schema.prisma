@@ -131,6 +131,15 @@ model Organization {
   pixFeeBps        Int?      @map("pix_fee_bps")
   pixFeeFloorCents Int?      @map("pix_fee_floor_cents")
   cardFeeBps       Int?      @map("card_fee_bps")
+  /// STANDARD: crédito de venda só libera para saque após a janela de
+  /// reembolso. INSTANT: libera na hora (casas de confiança) — a
+  /// responsabilidade contratual pelo reembolso passa à casa e a parcela
+  /// dentro da janela paga antecipação (decisão 2026-07-28).
+  settlementMode SettlementMode @default(STANDARD) @map("settlement_mode")
+  /// dias da janela de reembolso (CDC art. 49 = 7); conta a partir do pagamento
+  refundHoldDays Int            @default(7) @map("refund_hold_days")
+  /// repasse automático: worker cria os payouts do saldo recém-liberado
+  autoPayout     Boolean        @default(false) @map("auto_payout")
   createdAt DateTime           @default(now()) @map("created_at")
   updatedAt DateTime           @updatedAt @map("updated_at")
 
@@ -849,11 +858,19 @@ model LedgerAccount {
   @@map("ledger_accounts")
 }
 
+enum SettlementMode {
+  STANDARD
+  INSTANT
+}
+
 enum LedgerEntryType {
   SALE_CREDIT
   PLATFORM_FEE
   REFUND_DEBIT
   PAYOUT_DEBIT
+  /// taxa de antecipação cobrada de org INSTANT sobre a parcela do saque que
+  /// ainda estaria na janela de reembolso no modo STANDARD
+  ANTICIPATION_FEE
 }
 
 /// Lançamento append-only. amountCents é assinado (positivo = crédito,
@@ -867,10 +884,14 @@ model LedgerEntry {
   referenceType   String          @map("reference_type")
   referenceId     String          @map("reference_id")
   description     String?
+  /// quando o crédito passa a contar no saldo sacável (janela de reembolso).
+  /// Débitos e créditos INSTANT nascem com availableAt = createdAt.
+  availableAt     DateTime        @default(now()) @map("available_at")
   createdAt       DateTime        @default(now()) @map("created_at")
 
   ledgerAccount LedgerAccount @relation(fields: [ledgerAccountId], references: [id], onDelete: Cascade)
 
+  @@index([ledgerAccountId, availableAt])
   @@index([ledgerAccountId, createdAt])
   @@index([referenceType, referenceId])
   @@map("ledger_entries")

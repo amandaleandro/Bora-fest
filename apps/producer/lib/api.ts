@@ -255,6 +255,9 @@ export interface Balance {
   organizationId: string;
   balanceCents: number;
   availableForPayoutCents: number;
+  heldCents?: number;
+  anticipationFeeCents?: number;
+  settlementMode?: "STANDARD" | "INSTANT";
 }
 
 export interface LedgerEntry {

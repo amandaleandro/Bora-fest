@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
-import { getAvailableForPayoutCents, getOrganizationBalanceCents } from "../common/ledger";
+import { computeAnticipationFeeCents, getPayoutAvailability } from "../common/ledger";
 
 @Injectable()
 export class FinanceService {
@@ -11,12 +11,8 @@ export class FinanceService {
   async getBalance(organizationId: string, actorUserId: string) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
 
-    const [balanceCents, availableForPayoutCents] = await Promise.all([
-      getOrganizationBalanceCents(organizationId),
-      getAvailableForPayoutCents(organizationId),
-    ]);
-
-    return { organizationId, balanceCents, availableForPayoutCents };
+    const availability = await getPayoutAvailability(organizationId);
+    return { organizationId, ...availability };
   }
 
   async listEntries(organizationId: string, actorUserId: string, limit = 50) {
@@ -57,7 +53,10 @@ export class FinanceService {
       );
     }
 
-    const { availableForPayoutCents } = await this.getBalance(organizationId, userId);
+    const { availableForPayoutCents, settlementMode } = await this.getBalance(
+      organizationId,
+      userId,
+    );
     const pending = await prisma.payoutRequest.aggregate({
       where: { organizationId, status: "PENDING" },
       _sum: { amountCents: true },
@@ -66,6 +65,13 @@ export class FinanceService {
     if (amountCents > livre) {
       throw new BadRequestException("Valor acima do saldo disponível para saque");
     }
+
+    // INSTANT: informa a antecipação da parcela em janela já na solicitação —
+    // o débito ANTICIPATION_FEE é lançado quando o admin cria o repasse
+    const anticipationFeeCents =
+      settlementMode === "INSTANT"
+        ? await computeAnticipationFeeCents(organizationId, amountCents)
+        : 0;
 
     const bankAccount = await prisma.bankAccount.findFirst({
       where: { organizationId, isDefault: true },
@@ -85,11 +91,11 @@ export class FinanceService {
         action: "payout.request",
         entityType: "payout_request",
         entityId: request.id,
-        metadata: { amountCents },
+        metadata: { amountCents, settlementMode, anticipationFeeCents },
       },
     });
 
-    return request;
+    return { ...request, anticipationFeeCents };
   }
 
   async listPayoutRequests(organizationId: string, userId: string) {

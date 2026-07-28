@@ -21,6 +21,9 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
   const [pixFloor, setPixFloor] = useState("");
   const [cardFee, setCardFee] = useState("");
   const [blockReason, setBlockReason] = useState("");
+  const [settlementMode, setSettlementMode] = useState<"STANDARD" | "INSTANT">("STANDARD");
+  const [autoPayout, setAutoPayout] = useState(false);
+  const [refundHoldDays, setRefundHoldDays] = useState("7");
   const [message, setMessage] = useState<string | null>(null);
 
   const isAdmin = user?.platformRole === "ADMIN";
@@ -38,6 +41,9 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
       setPixFee(orgData.pixFeeBps != null ? String(orgData.pixFeeBps / 100) : "");
       setPixFloor(orgData.pixFeeFloorCents != null ? String(orgData.pixFeeFloorCents / 100) : "");
       setCardFee(orgData.cardFeeBps != null ? String(orgData.cardFeeBps / 100) : "");
+      setSettlementMode(orgData.settlementMode ?? "STANDARD");
+      setAutoPayout(orgData.autoPayout ?? false);
+      setRefundHoldDays(String(orgData.refundHoldDays ?? 7));
     } finally {
       setLoading(false);
     }
@@ -61,6 +67,31 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
       await load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Não foi possível salvar");
+    }
+  }
+
+  async function handleSaveSettlement() {
+    if (!token) return;
+    setMessage(null);
+    if (
+      settlementMode === "INSTANT" &&
+      org?.settlementMode !== "INSTANT" &&
+      !window.confirm(
+        "Repasse INSTANTÂNEO transfere a responsabilidade pelos reembolsos para a casa. Confirme que o aditivo (docs/juridico/REPASSE-INSTANTANEO-MINUTA.md) está assinado.",
+      )
+    ) {
+      return;
+    }
+    try {
+      await adminApi.updateSettlement(token, orgId, {
+        settlementMode,
+        autoPayout,
+        refundHoldDays: Number(refundHoldDays) || 7,
+      });
+      setMessage("Repasse atualizado");
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Não foi possível salvar o repasse");
     }
   }
 
@@ -168,6 +199,51 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
           >
             Salvar taxa
           </button>
+        </section>
+      ) : null}
+
+      {isAdmin ? (
+        <section className="mt-8">
+          <h2 className="text-sm font-medium text-gray-300">Repasse</h2>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">Modo</label>
+              <select
+                value={settlementMode}
+                onChange={(e) => setSettlementMode(e.target.value as "STANDARD" | "INSTANT")}
+              >
+                <option value="STANDARD">Padrão — libera após a janela de reembolso</option>
+                <option value="INSTANT">Instantâneo — casa de confiança (aditivo assinado)</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">Janela de reembolso (dias)</label>
+              <input
+                className="w-24"
+                value={refundHoldDays}
+                onChange={(e) => setRefundHoldDays(e.target.value)}
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={autoPayout}
+                onChange={(e) => setAutoPayout(e.target.checked)}
+              />
+              Repasse automático
+            </label>
+            <button
+              type="button"
+              className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
+              onClick={handleSaveSettlement}
+            >
+              Salvar repasse
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Instantâneo cobra antecipação de 1,25% a.m. pró-rata sobre a parcela ainda na janela e
+            exige o aditivo de responsabilidade de reembolso assinado pela casa.
+          </p>
         </section>
       ) : null}
 

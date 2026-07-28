@@ -71,8 +71,32 @@ Dois bugs achados e corrigidos nessa validação:
 
 Build 14/14 · testes 34/34 (API 13, payments 10, notifications 8, tickets 3).
 
-**Bloqueios de lançamento (externos)**: conta Pagar.me, chave do Resend,
-chaves do WhatsApp Cloud (Meta), VPS.
+**Rodada Asaas (2026-07-28)** — decisão cravada pelo Arthur: Asaas é o
+gateway primário ("melhor que o Pagar.me em todos os termos necessários").
+- **Adapter Asaas completo** (`packages/payments/src/asaas.ts`): Pix
+  (customer + payment + QR), cartão tokenizado (recusa 400 vira FAILED com
+  motivo), estorno total/parcial, webhook por token fixo
+  (`asaas-access-token`, fail closed), mapeamento de status completo.
+  `PAYMENTS_PROVIDER=asaas` + `ASAAS_API_KEY` + `ASAAS_WEBHOOK_TOKEN`
+  (sandbox: `ASAAS_API_URL=https://api-sandbox.asaas.com/v3`). Fail-fast no
+  main.ts. Pagar.me continua vivo como plano B.
+- **Modos de repasse por organização**: `settlementMode` PADRÃO (crédito de
+  venda só vira sacável após `refundHoldDays` — 7 dias, CDC) ou INSTANTÂNEO
+  (casas de confiança: saca tudo na hora, antecipação de 1,25% a.m. pró-rata
+  sobre a parcela em janela — `ANTICIPATION_FEE_BPS_MONTHLY` — e
+  responsabilidade de reembolso da casa via aditivo:
+  `docs/juridico/REPASSE-INSTANTANEO-MINUTA.md`). Ledger ganhou `availableAt`
+  e o tipo `ANTICIPATION_FEE` (migração `settlement_mode_availability`).
+- **Repasse automático**: fila nova `auto-payouts` no worker (a cada 30 min)
+  cria o Payout do saldo recém-liberado (mínimo `AUTO_PAYOUT_MIN_CENTS`,
+  R$ 50); execução bancária segue no backoffice. Backoffice controla modo/
+  janela/automático por organização (auditado, com confirmação do aditivo);
+  painel do produtor mostra "liberam após a janela" e a antecipação estimada.
+
+Build 14/14 · testes 42/42 (payments 16, API 15, notifications 8, tickets 3).
+
+**Bloqueios de lançamento (externos)**: conta ASAAS (chave + token do
+webhook), chave do Resend, chaves do WhatsApp Cloud (Meta), VPS.
 
 ### Onde estamos (2026-07-24, verificação de estado)
 
