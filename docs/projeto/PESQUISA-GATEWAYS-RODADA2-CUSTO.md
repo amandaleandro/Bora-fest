@@ -48,3 +48,36 @@
 
 Dossiê completo com fontes e datas: workflow `pesquisa-gateways-2026`
 (14 agentes, 27/07/2026).
+
+---
+
+## Adendo (27/07/2026): Cakto e InfinitePay, a pedido do Arthur
+
+Mesma conta (taxa BoraFest 5% + piso R$ 2,49; pior caso 1 ingresso/pedido):
+
+**Pix — sobra por ingresso** (R$ 20 / 50 / 100 / 200):
+- Asaas (R$ 1,99/venda): 0,50 / 0,51 / 3,01 / 8,01
+- Cakto ("0%" + R$ 2,49/venda): **0,00** / 0,01 / 2,51 / 7,51
+- InfinitePay (0% real, sem fixo): 2,49 / 2,50 / 5,00 / 10,00
+
+**Cartão 1x — sobra por ingresso**:
+- Asaas (2,99% + R$ 0,49): 1,33 / 0,44 / 1,37 / 3,23
+- Cakto (tabela 4,99% + R$ 2,49): **−1,12 / −2,61 / −2,73 / −2,97 (PREJUÍZO em tudo)**
+- InfinitePay (4,20% base → 2,29% c/ volume): 1,55 / 0,30 / 0,59 / 1,18
+
+**Vereditos (verificação adversarial):**
+- **InfinitePay: FRACO para marketplace.** Pix 0% é real e sem asterisco, mas
+  reprova em 4/5 requisitos: sem split, sem custódia, sem KYC de terceiros,
+  sem estorno via API; checkout hospedado com redirect (marca deles). Pegadinha
+  de contrato: retenção de repasses até 180 dias em apuração — Reclame Aqui
+  documenta congelamento recorrente no perfil "pico de venda + entrega futura"
+  (= ticketeria). Radar apenas como lojista direto de produto próprio.
+- **Cakto: FRACO/sob consulta.** Verificador achou uma Split API não
+  documentada (workspace Postman oficial, api.pay.cakto.com.br) — existe
+  produto de marketplace escondido. Mas: reserva de segurança sobre TODOS
+  (10% Pix / 20% cartão por ~35 dias), cartão D+15, R$ 4,59/saque, estorno só
+  total, DNA infoproduto sem material para eventos. Tabela de cartão
+  inviabiliza taxa de 5%.
+
+**Conclusão: mantida a recomendação Asaas** (única com margem positiva em
+todos os cenários E os 5 requisitos estruturais atendidos com doc pública).
