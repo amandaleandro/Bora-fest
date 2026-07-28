@@ -81,3 +81,26 @@ Mesma conta (taxa BoraFest 5% + piso R$ 2,49; pior caso 1 ingresso/pedido):
 
 **Conclusão: mantida a recomendação Asaas** (única com margem positiva em
 todos os cenários E os 5 requisitos estruturais atendidos com doc pública).
+
+---
+
+## Adendo 2 (28/07/2026): caça a uma opção superior ao Asaas
+
+Frentes ainda não exploradas, verificadas direto na fonte:
+
+| Provedor | O que tem | Por que NÃO supera o Asaas hoje |
+|---|---|---|
+| **Braspag/Cielo Split** | Subadquirência p/ marketplace madura; exemplo na doc: facilitador 2% + R$ 0,30 (abaixo do Asaas no cartão); KYC de subordinados; agenda financeira | Preço real é negociado em contrato (o 2% é exemplo ilustrativo); liquidação vai DIRETO ao subordinado pela agenda — "sem retenção de valores", ou seja, sem a nossa custódia; Pix no split não confirmado; contrato enterprise Cielo, não self-service |
+| **Getnet Split** | Produto de marketplace (Santander), liquidação via CIP | Sem preço público, contrato comercial, sem evidência de custódia controlada pela plataforma |
+| **Adyen for Platforms** | O padrão-ouro mundial (custódia + KYC + ticketing como segmento-alvo) | Enterprise puro: sem preço público BR, foco em plataformas grandes — inacessível em pré-lançamento |
+| **Safe2Pay** | API real de subcontas/split documentada; exemplos na doc: Pix 1,99%, cartão 3,30% | Preço oficial "sob consulta" (exemplos ≠ tabela); custódia e KYC das subcontas não documentados publicamente; cliente do vertical eventos opera a 4,99% |
+| **Vindi/Barte/Malga** | — | Barte é B2B (produto errado); Malga é orquestrador (não resolve custódia/KYC — ainda precisa de adquirente); Vindi marketplace sob consulta, sem evidência de superar o benchmark |
+| **Asaas negociado** | Página oficial admite "condições do seu contrato" ≠ tabela | Sem faixas públicas — o caminho é abrir conta, gerar volume e negociar de dentro |
+
+**Conclusão: nenhuma opção verificável supera o Asaas HOJE para uma startup em
+pré-lançamento.** A "opção superior" não é um provedor, é um ESTÁGIO: com
+R$ 300k–1M+/mês de volume, as rotas enterprise (Braspag, Getnet, Adyen,
+Pagar.me custom, Asaas negociado) derrubam qualquer tabela. Estratégia:
+lançar no Asaas → volume → renegociar com as propostas enterprise na mesa.
+(Obs.: workflow de 7 agentes caiu no limite de sessão; análise concluída
+manualmente nas fontes oficiais em 28/07/2026.)
