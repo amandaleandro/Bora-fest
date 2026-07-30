@@ -168,6 +168,12 @@ export interface ConsentInput {
 export const api = {
   listPublicEvents: () =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
+  listPublicEventsByCity: (city?: string) =>
+    request<{ total: number; events: EventListItem[] }>(
+      `/v1/public/events${city ? `?city=${encodeURIComponent(city)}` : ""}`,
+    ).then((r) => r.events),
+  listPublicCities: () =>
+    request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
   getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
 
@@ -210,7 +216,21 @@ export const api = {
 
   createCardPayment: (
     orderId: string,
-    input: { cardToken: string; installments: number; payerDocument?: string },
+    input: {
+      cardToken?: string;
+      card?: {
+        number: string;
+        holderName: string;
+        expiryMonth: string;
+        expiryYear: string;
+        ccv: string;
+        holderCpf: string;
+        postalCode: string;
+        addressNumber: string;
+      };
+      installments: number;
+      payerDocument?: string;
+    },
   ) =>
     request<{ id: string; status: string; failReason: string | null }>(
       `/v1/orders/${orderId}/payments/card`,

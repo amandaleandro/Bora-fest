@@ -152,3 +152,42 @@ test("mapeamento de status cobre o ciclo completo", () => {
   assert.equal(mapAsaasWebhookEvent("PAYMENT_UPDATED", "RECEIVED"), "PAID");
   assert.equal(mapAsaasWebhookEvent("PAYMENT_CREATED", undefined), "PENDING");
 });
+
+test("cartão cru vai com creditCard + holderInfo + remoteIp (modelo server-side)", async () => {
+  stubFetchQueue([
+    { status: 200, body: { id: "cus_9" } },
+    { status: 200, body: { id: "pay_raw", status: "CONFIRMED" } },
+  ]);
+  const ok = await gateway.createCardPayment({
+    paymentId: "pmt-raw",
+    orderId: "order-raw",
+    amountCents: 10699,
+    rawCard: {
+      number: "5162 3062 1937 8829",
+      holderName: "Arthur H",
+      expiryMonth: "05",
+      expiryYear: "2028",
+      ccv: "318",
+      holderInfo: {
+        name: "Arthur H",
+        email: "a@b.dev",
+        cpfCnpj: "529.982.247-25",
+        postalCode: "01310-100",
+        addressNumber: "42",
+        phone: "(11) 98765-4321",
+      },
+    },
+    remoteIp: "200.100.50.25",
+    installments: 1,
+    customer: { email: "a@b.dev" },
+    idempotencyKey: "idem-raw",
+  });
+  assert.deepEqual(ok, { externalId: "pay_raw", status: "PAID" });
+
+  const body = JSON.parse(String(requests[1].init.body));
+  assert.equal(body.creditCard.number, "5162306219378829"); // só dígitos
+  assert.equal(body.creditCardHolderInfo.cpfCnpj, "52998224725");
+  assert.equal(body.creditCardHolderInfo.postalCode, "01310100");
+  assert.equal(body.remoteIp, "200.100.50.25");
+  assert.equal(body.creditCardToken, undefined);
+});

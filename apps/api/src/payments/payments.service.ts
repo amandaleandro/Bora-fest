@@ -76,11 +76,18 @@ export class PaymentsService {
     );
   }
 
-  async createCard(orderId: string, input: CreateCardPaymentInput, idempotencyKey?: string) {
+  async createCard(
+    orderId: string,
+    input: CreateCardPaymentInput,
+    idempotencyKey?: string,
+    remoteIp?: string,
+  ) {
+    // PAN nunca entra em log, banco ou payload de idempotência — só o final
+    const cardRef = input.cardToken ?? `raw:${input.card?.number.replace(/\D/g, "").slice(-4)}`;
     return this.idempotency.run(
       idempotencyKey,
       "payments:create-card",
-      { orderId, cardToken: input.cardToken, installments: input.installments },
+      { orderId, cardRef, installments: input.installments },
       async () => {
         const order = await this.loadPayableOrder(orderId);
         const gateway = getDefaultGateway();
@@ -100,11 +107,31 @@ export class PaymentsService {
           orderId,
           amountCents: order.totalCents,
           cardToken: input.cardToken,
+          ...(input.card
+            ? {
+                rawCard: {
+                  number: input.card.number,
+                  holderName: input.card.holderName,
+                  expiryMonth: input.card.expiryMonth,
+                  expiryYear: input.card.expiryYear,
+                  ccv: input.card.ccv,
+                  holderInfo: {
+                    name: input.card.holderName,
+                    email: order.contactEmail,
+                    cpfCnpj: input.card.holderCpf,
+                    postalCode: input.card.postalCode,
+                    addressNumber: input.card.addressNumber,
+                    phone: order.contactPhone ?? undefined,
+                  },
+                },
+              }
+            : {}),
+          remoteIp,
           installments: input.installments,
           customer: {
             name: order.contactName ?? undefined,
             email: order.contactEmail,
-            document: input.payerDocument,
+            document: input.payerDocument ?? input.card?.holderCpf,
           },
           idempotencyKey: payment.id,
         });

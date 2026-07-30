@@ -6,11 +6,21 @@ export class PublicCatalogController {
   constructor(private readonly catalogService: CatalogService) {}
 
   @Get()
-  listEvents(@Query("page") page: string | undefined, @Query("pageSize") pageSize: string | undefined) {
+  listEvents(
+    @Query("page") page: string | undefined,
+    @Query("pageSize") pageSize: string | undefined,
+    @Query("city") city: string | undefined,
+  ) {
     return this.catalogService.listPublicEvents({
       page: page ? Number(page) : 1,
       pageSize: pageSize ? Math.min(Number(pageSize), 50) : 20,
+      city: city?.trim() || undefined,
     });
+  }
+
+  @Get("cities/list")
+  listCities() {
+    return this.catalogService.listPublicCities();
   }
 
   @Get(":slug")

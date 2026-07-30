@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, Param, Post } from "@nestjs/common";
+import { Body, Controller, Headers, Ip, Param, Post } from "@nestjs/common";
 import { createCardPaymentSchema, createPixPaymentSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { RateLimit } from "../common/rate-limit.decorator";
@@ -24,8 +24,9 @@ export class PaymentsController {
   createCard(
     @Param("orderId") orderId: string,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Ip() remoteIp: string,
     @Body(ZodBody(createCardPaymentSchema)) body: unknown,
   ) {
-    return this.paymentsService.createCard(orderId, body as any, idempotencyKey);
+    return this.paymentsService.createCard(orderId, body as any, idempotencyKey, remoteIp);
   }
 }

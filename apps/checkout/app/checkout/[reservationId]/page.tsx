@@ -126,6 +126,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [cardNumber, setCardNumber] = useState("");
   const [cardExp, setCardExp] = useState("");
   const [cardCvv, setCardCvv] = useState("");
+  const [cardHolder, setCardHolder] = useState("");
+  const [cardCpf, setCardCpf] = useState("");
+  const [cardCep, setCardCep] = useState("");
+  const [cardAddrNum, setCardAddrNum] = useState("");
   const [installments, setInstallments] = useState(1);
   const [cardError, setCardError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
@@ -425,11 +429,23 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     if (!target) return;
     setPaying(true);
     const digits = onlyDigits(cardNumber);
+    const [expMonth, expYearShort] = cardExp.split("/").map((p) => p.trim());
     try {
-      // produção: tokenizecard.js do Pagar.me gera o token no navegador;
-      // o mock aprova qualquer token que não termine em _fail
-      const token = digits.endsWith("0000") ? "tok_mock_fail" : `tok_${digits.slice(-4)}`;
-      const res = await api.createCardPayment(target.id, { cardToken: token, installments });
+      // cartão vai cru por HTTPS direto à nossa API → Asaas (modelo oficial
+      // deles); nunca é logado nem persistido. Mock em dev recusa final 0000.
+      const res = await api.createCardPayment(target.id, {
+        card: {
+          number: digits,
+          holderName: cardHolder.trim(),
+          expiryMonth: (expMonth ?? "").padStart(2, "0"),
+          expiryYear: expYearShort && expYearShort.length === 2 ? `20${expYearShort}` : (expYearShort ?? ""),
+          ccv: cardCvv,
+          holderCpf: onlyDigits(cardCpf),
+          postalCode: onlyDigits(cardCep),
+          addressNumber: cardAddrNum.trim() || "S/N",
+        },
+        installments,
+      });
       if (res.status === "FAILED") {
         setCardError(res.failReason ?? "Pagamento recusado — sua reserva continua valendo.");
       }
@@ -894,6 +910,15 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       </div>
                     )}
                     <div>
+                      <label className={labelClass}>Nome impresso no cartão</label>
+                      <input
+                        value={cardHolder}
+                        onChange={(e) => setCardHolder(e.target.value)}
+                        placeholder="Como está no cartão"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
                       <label className={labelClass}>Número do cartão</label>
                       <input
                         inputMode="numeric"
@@ -925,6 +950,39 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                         />
                       </div>
                     </div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className={labelClass}>CPF do titular</label>
+                        <input
+                          inputMode="numeric"
+                          value={cardCpf}
+                          onChange={(e) => setCardCpf(e.target.value)}
+                          placeholder="000.000.000-00"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className={labelClass}>CEP da fatura</label>
+                        <input
+                          inputMode="numeric"
+                          value={cardCep}
+                          onChange={(e) => setCardCep(e.target.value)}
+                          placeholder="00000-000"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="w-28">
+                        <label className={labelClass}>Número</label>
+                        <input
+                          value={cardAddrNum}
+                          onChange={(e) => setCardAddrNum(e.target.value)}
+                          placeholder="123"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
                     <div>
                       <label className={labelClass}>Parcelamento</label>
                       <select
@@ -942,10 +1000,22 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     <button
                       onClick={payCard}
                       disabled={
-                        payDisabled || onlyDigits(cardNumber).length < 13 || !cardExp || cardCvv.length < 3
+                        payDisabled ||
+                        onlyDigits(cardNumber).length < 13 ||
+                        !cardExp ||
+                        cardCvv.length < 3 ||
+                        cardHolder.trim().length < 2 ||
+                        onlyDigits(cardCpf).length < 11 ||
+                        onlyDigits(cardCep).length < 8
                       }
                       className={ctaClass(
-                        payDisabled || onlyDigits(cardNumber).length < 13 || !cardExp || cardCvv.length < 3,
+                        payDisabled ||
+                          onlyDigits(cardNumber).length < 13 ||
+                          !cardExp ||
+                          cardCvv.length < 3 ||
+                          cardHolder.trim().length < 2 ||
+                          onlyDigits(cardCpf).length < 11 ||
+                          onlyDigits(cardCep).length < 8,
                       )}
                     >
                       {creating || paying ? "Processando…" : `Pagar ${formatCents(totalCents)}`}

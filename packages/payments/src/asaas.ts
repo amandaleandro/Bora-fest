@@ -110,7 +110,28 @@ export class AsaasGateway implements PaymentGateway {
           input.installments > 1
             ? toReais(Math.round(input.amountCents / input.installments))
             : undefined,
-        creditCardToken: input.cardToken,
+        ...(input.rawCard
+          ? {
+              creditCard: {
+                holderName: input.rawCard.holderName,
+                number: input.rawCard.number.replace(/\D/g, ""),
+                expiryMonth: input.rawCard.expiryMonth,
+                expiryYear: input.rawCard.expiryYear,
+                ccv: input.rawCard.ccv,
+              },
+              creditCardHolderInfo: {
+                name: input.rawCard.holderInfo.name,
+                email: input.rawCard.holderInfo.email,
+                cpfCnpj: input.rawCard.holderInfo.cpfCnpj.replace(/\D/g, ""),
+                postalCode: input.rawCard.holderInfo.postalCode.replace(/\D/g, ""),
+                addressNumber: input.rawCard.holderInfo.addressNumber,
+                ...(input.rawCard.holderInfo.phone
+                  ? { phone: input.rawCard.holderInfo.phone.replace(/\D/g, "") }
+                  : {}),
+              },
+              ...(input.remoteIp ? { remoteIp: input.remoteIp } : {}),
+            }
+          : { creditCardToken: input.cardToken }),
       });
     } catch (error) {
       // cartão recusado volta como 400 com lista de erros — não é falha nossa

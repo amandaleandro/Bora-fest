@@ -114,6 +114,15 @@ Verificado da internet: api.borafest.com.br/health ok/db up, site, painel e
 admin respondendo 200 com HTTPS válido. Asaas plugado (chave prod no env do
 painel, com escape $$ contra interpolação do compose).
 
+**Cartão real + localização (2026-07-30, sequência)**: checkout de cartão
+agora é o modelo server-side oficial do Asaas (cartão + dados do titular +
+IP do comprador direto ao PSP — nunca logado/persistido; mock em dev recusa
+final 0000); formulário ganhou titular/CPF/CEP/número. Home do site trocou o
+"São Paulo, SP" fixo por seletor de cidades REAIS (endpoint público de
+cidades com evento publicado + filtro ?city=), escolha persistida no
+aparelho. Resend: chave recebida do Arthur — vai no Environment do EasyPanel
+(EMAIL_PROVIDER=resend + RESEND_API_KEY), não no git. Testes 44/44.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

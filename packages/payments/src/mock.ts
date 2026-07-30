@@ -57,7 +57,9 @@ export class MockGateway implements PaymentGateway {
 
   async createCardPayment(input: CreateCardPaymentInput): Promise<CardPaymentResult> {
     const externalId = `mock_card_${input.paymentId}`;
-    if (input.cardToken.endsWith("_fail")) {
+    const ref = input.cardToken ?? (input.rawCard ? `tok_${input.rawCard.number.slice(-4)}` : "");
+    const recusa = ref.endsWith("_fail") || input.rawCard?.number.endsWith("0000");
+    if (recusa) {
       this.statuses.set(externalId, "FAILED");
       return { externalId, status: "FAILED", failReason: "Cartão recusado (simulado)" };
     }
