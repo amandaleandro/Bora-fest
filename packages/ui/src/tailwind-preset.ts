@@ -1,0 +1,46 @@
+import type { Config } from "tailwindcss";
+
+export const boraPreset: Partial<Config> = {
+  theme: {
+    extend: {
+      colors: {
+        background: {
+          DEFAULT: "#090D16",
+          card: "#0F172A",
+          elevated: "#1E293B",
+          hover: "#334155",
+        },
+        brand: {
+          DEFAULT: "#8B5CF6", // Vibrant Violet
+          hover: "#7C3AED",
+          light: "#A78BFA",
+          dark: "#4C1D95",
+          glow: "rgba(139, 92, 246, 0.25)",
+        },
+        accent: {
+          DEFAULT: "#10B981", // Emerald Neon
+          hover: "#059669",
+          light: "#34D399",
+          glow: "rgba(16, 185, 129, 0.25)",
+        },
+        neon: {
+          pink: "#EC4899",
+          cyan: "#06B6D4",
+          amber: "#F59E0B",
+        },
+      },
+      fontFamily: {
+        sans: ["Plus Jakarta Sans", "Inter", "sans-serif"],
+      },
+      boxShadow: {
+        "glow-brand": "0 0 20px -3px rgba(139, 92, 246, 0.35)",
+        "glow-accent": "0 0 20px -3px rgba(16, 185, 129, 0.35)",
+        "glass": "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
+      },
+      backgroundImage: {
+        "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
+        "hero-pattern": "radial-gradient(circle at 50% 0%, rgba(139,92,246,0.15) 0%, rgba(9,13,22,0) 70%)",
+      },
+    },
+  },
+};

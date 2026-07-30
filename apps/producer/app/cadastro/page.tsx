@@ -7,6 +7,8 @@ import { passwordAuth } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { AuthShell, inputCls, labelCls, primaryBtn } from "../../components/AuthShell";
 
+const CHECKOUT = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "http://localhost:3000";
+
 export default function RegisterPage() {
   const router = useRouter();
   const { login } = useAuth();
@@ -52,8 +54,8 @@ export default function RegisterPage() {
         <label className="flex items-start gap-2 text-[12px] font-medium text-ink-soft">
           <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
           <span>
-            Li e aceito os <a href="http://localhost:3000/legal?aba=termos" className="font-bold text-primary">Termos</a> e a{" "}
-            <a href="http://localhost:3000/legal" className="font-bold text-primary">Política de Privacidade</a> (LGPD)
+            Li e aceito os <a href={`${CHECKOUT}/legal?aba=termos`} className="font-bold text-primary">Termos</a> e a{" "}
+            <a href={`${CHECKOUT}/legal`} className="font-bold text-primary">Política de Privacidade</a> (LGPD)
           </span>
         </label>
         {error && <p className="text-[12px] font-semibold text-danger">{error}</p>}

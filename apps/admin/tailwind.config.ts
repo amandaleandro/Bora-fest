@@ -1,13 +1,15 @@
 import type { Config } from "tailwindcss";
+import { boraPreset } from "@borafest/ui";
 
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  presets: [boraPreset as Config],
+  content: [
+    "./app/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+    "../../packages/ui/src/**/*.{ts,tsx}",
+  ],
   theme: {
-    extend: {
-      colors: {
-        brand: { DEFAULT: "#22c55e", dark: "#052e16" },
-      },
-    },
+    extend: {},
   },
   plugins: [],
 };

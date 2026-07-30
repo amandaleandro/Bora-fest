@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { identityApi, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, Input } from "@borafest/ui";
 
 function LoginForm() {
   const router = useRouter();
@@ -49,47 +50,68 @@ function LoginForm() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center">
-      <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold">Backoffice BoraFest</h1>
-        <p className="mt-1 text-gray-400">Acesso restrito à equipe interna.</p>
+    <main className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden">
+      {/* Background Orbs */}
+      <div className="absolute -top-24 -left-24 h-96 w-96 rounded-full bg-brand/20 blur-3xl" />
+      <div className="absolute -bottom-24 -right-24 h-96 w-96 rounded-full bg-accent/15 blur-3xl" />
 
-        <div className="mt-8 space-y-4">
-          <div>
-            <label className="mb-1 block text-sm text-gray-300">E-mail</label>
-            <input
-              type="email"
-              className="w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={step === "code"}
-            />
+      <Card className="w-full max-w-md relative z-10 p-8 shadow-glow-brand/20">
+        <div className="text-center space-y-2 mb-8">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-brand to-brand-light text-xl font-extrabold text-white shadow-glow-brand mb-2">
+            BF
           </div>
+          <h1 className="text-2xl font-black tracking-tight text-white">Backoffice BoraFest</h1>
+          <p className="text-sm text-slate-400">Acesso exclusivo e seguro à equipe interna.</p>
+        </div>
 
-          {step === "code" ? (
-            <div>
-              <label className="mb-1 block text-sm text-gray-300">Código recebido por e-mail</label>
-              <input
-                className="w-full"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                maxLength={6}
-              />
+        <div className="space-y-5">
+          <Input
+            label="E-mail Corporativo"
+            type="email"
+            placeholder="seu.nome@borafest.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={step === "code"}
+          />
+
+          {step === "code" && (
+            <Input
+              label="Código OTP de Acesso"
+              placeholder="000000"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              maxLength={6}
+              className="text-center text-lg tracking-widest font-mono"
+            />
+          )}
+
+          {error && (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-400 font-medium">
+              {error}
             </div>
-          ) : null}
+          )}
 
-          {error ? <p className="text-sm text-red-400">{error}</p> : null}
-
-          <button
+          <Button
             type="button"
-            className="w-full rounded-lg bg-brand px-6 py-3 font-semibold text-brand-dark disabled:opacity-40"
+            className="w-full mt-2"
+            isLoading={submitting}
             onClick={step === "email" ? handleRequestCode : handleVerifyCode}
             disabled={submitting || (step === "email" ? !email.includes("@") : code.length !== 6)}
           >
-            {submitting ? "Aguarde..." : step === "email" ? "Enviar código" : "Entrar"}
-          </button>
+            {step === "email" ? "Enviar Código de Acesso" : "Entrar no Sistema"}
+          </Button>
+
+          {step === "code" && (
+            <button
+              type="button"
+              onClick={() => setStep("email")}
+              className="w-full text-center text-xs text-slate-400 hover:text-slate-200 font-medium transition-colors mt-2"
+            >
+              ← Alterar e-mail
+            </button>
+          )}
         </div>
-      </div>
+      </Card>
     </main>
   );
 }
