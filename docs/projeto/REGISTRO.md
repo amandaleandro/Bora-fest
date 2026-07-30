@@ -105,8 +105,19 @@ gateway primário ("melhor que o Pagar.me em todos os termos necessários").
 
 Build 14/14 · testes 43/43 (payments 16, API 16, notifications 8, tickets 3).
 
-**Bloqueios de lançamento (externos)**: conta ASAAS (chave + token do
-webhook), chave do Resend, chaves do WhatsApp Cloud (Meta), VPS.
+**🚀 EM PRODUÇÃO (2026-07-30, madrugada)** — deploy no VPS do Arthur
+(72.62.138.230) via serviço Compose do EasyPanel (que já hospedava outros
+serviços; Traefik dele faz o HTTPS). docker-compose.yml raiz + Dockerfiles
+autocontidos em infra/docker/easypanel/. Build de estreia quebrou uma vez
+(admin/producer sem pasta public/ — fix bc0f51c) e na segunda subiu em 1min24s.
+Verificado da internet: api.borafest.com.br/health ok/db up, site, painel e
+admin respondendo 200 com HTTPS válido. Asaas plugado (chave prod no env do
+painel, com escape $$ contra interpolação do compose).
+
+**Pendências de homologação**: ativar webhook no painel Asaas → compra real
+de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
+(e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
+deploy key do EasyPanel e privar.
 
 ### Onde estamos (2026-07-24, verificação de estado)
 
