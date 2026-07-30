@@ -1,0 +1,126 @@
+# BoraFest — deploy via serviço COMPOSE do EasyPanel (VPS do Arthur).
+#
+# Este arquivo fica na RAIZ porque é o caminho padrão que o EasyPanel procura.
+# Não é o compose de desenvolvimento (esse está em infra/docker/) nem o de
+# produção standalone com Caddy (infra/docker/docker-compose.prod.yml) — aqui
+# NÃO há proxy nem portas 80/443: o Traefik do EasyPanel faz o HTTPS, e os
+# domínios são apontados na aba Domains do painel (api→3333, sites→3000).
+#
+# Variáveis vêm do Environment do serviço Compose no painel. As URLs internas
+# de banco/redis são montadas AQUI (host = nome do serviço) para ninguém errar.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: borafest
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: borafest
+    volumes:
+      - borafest_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U borafest"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - borafest_redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # migrações + seed rodam no boot da API (CMD do Dockerfile.api do easypanel)
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/easypanel/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 3333
+      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET}
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
+      ASAAS_API_KEY: ${ASAAS_API_KEY}
+      ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN}
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://borafest.com.br}
+      PRODUCER_BASE_URL: ${PRODUCER_BASE_URL:-https://painel.borafest.com.br}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://borafest.com.br,https://painel.borafest.com.br,https://admin.borafest.com.br}
+      TRUST_PROXY: "true"
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-devlog}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-BoraFest <ingressos@borafest.com.br>}
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-devlog}
+      WHATSAPP_CLOUD_TOKEN: ${WHATSAPP_CLOUD_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.borafest.com.br}
+      PLATFORM_PIX_FEE_BPS: ${PLATFORM_PIX_FEE_BPS:-499}
+      PLATFORM_PIX_FEE_FLOOR_CENTS: ${PLATFORM_PIX_FEE_FLOOR_CENTS:-249}
+      PLATFORM_CARD_FEE_BPS: ${PLATFORM_CARD_FEE_BPS:-699}
+      ANTICIPATION_FEE_BPS_MONTHLY: ${ANTICIPATION_FEE_BPS_MONTHLY:-125}
+      AUTO_PAYOUT_MIN_CENTS: ${AUTO_PAYOUT_MIN_CENTS:-5000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/easypanel/Dockerfile.worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
+      ASAAS_API_KEY: ${ASAAS_API_KEY}
+      ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN}
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://borafest.com.br}
+      PRODUCER_BASE_URL: ${PRODUCER_BASE_URL:-https://painel.borafest.com.br}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-devlog}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-BoraFest <ingressos@borafest.com.br>}
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-devlog}
+      WHATSAPP_CLOUD_TOKEN: ${WHATSAPP_CLOUD_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.borafest.com.br}
+      ANTICIPATION_FEE_BPS_MONTHLY: ${ANTICIPATION_FEE_BPS_MONTHLY:-125}
+      AUTO_PAYOUT_MIN_CENTS: ${AUTO_PAYOUT_MIN_CENTS:-5000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  site:
+    build:
+      context: .
+      dockerfile: infra/docker/easypanel/Dockerfile.checkout
+    restart: unless-stopped
+
+  painel:
+    build:
+      context: .
+      dockerfile: infra/docker/easypanel/Dockerfile.producer
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: .
+      dockerfile: infra/docker/easypanel/Dockerfile.admin
+    restart: unless-stopped
+
+volumes:
+  borafest_pg:
+  borafest_redis:

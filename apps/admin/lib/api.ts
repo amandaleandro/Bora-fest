@@ -71,6 +71,9 @@ export interface AdminOrganization {
   pixFeeBps: number | null;
   pixFeeFloorCents: number | null;
   cardFeeBps: number | null;
+  settlementMode?: "STANDARD" | "INSTANT";
+  refundHoldDays?: number;
+  autoPayout?: boolean;
   createdAt: string;
   _count: { events: number; members: number };
 }
@@ -143,6 +146,16 @@ export const adminApi = {
     id: string,
     input: { pixFeeBps?: number | null; pixFeeFloorCents?: number | null; cardFeeBps?: number | null },
   ) => request(`/v1/admin/organizations/${id}/fee`, { method: "POST", body: input, token }),
+
+  updateSettlement: (
+    token: string,
+    id: string,
+    input: { settlementMode?: "STANDARD" | "INSTANT"; autoPayout?: boolean; refundHoldDays?: number },
+  ) =>
+    request<{ settlementMode: "STANDARD" | "INSTANT"; autoPayout: boolean; refundHoldDays: number }>(
+      `/v1/admin/organizations/${id}/settlement`,
+      { method: "POST", body: input, token },
+    ),
 
   blockOrganization: (token: string, id: string, reason: string) =>
     request(`/v1/admin/organizations/${id}/block`, { method: "POST", body: { reason }, token }),

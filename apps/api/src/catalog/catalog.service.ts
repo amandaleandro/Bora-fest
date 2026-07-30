@@ -48,6 +48,9 @@ export class CatalogService {
         feeCents: input.feeCents,
         capacity: input.capacity,
         maxPerOrder: input.maxPerOrder,
+        feeMode: input.feeMode ?? "BUYER",
+        nominal: input.nominal ?? false,
+        requiresCpf: input.requiresCpf ?? false,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
       },
@@ -73,9 +76,34 @@ export class CatalogService {
     return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "ACTIVE" } });
   }
 
+  /**
+   * Cidades que TÊM evento publicado e futuro — alimenta o seletor de
+   * localização da home (decisão 2026-07-30: mostrar o que existe de fato na
+   * cidade, nunca uma localização fixa/aleatória).
+   */
+  async listPublicCities() {
+    const venues = await prisma.event.findMany({
+      where: { status: "PUBLISHED", endsAt: { gt: new Date() }, venueId: { not: null } },
+      select: { venue: { select: { city: true, state: true } } },
+      distinct: ["venueId"],
+    });
+    const unique = new Map<string, { city: string; state: string }>();
+    for (const item of venues) {
+      if (!item.venue) continue;
+      unique.set(`${item.venue.city}|${item.venue.state}`, item.venue);
+    }
+    return [...unique.values()].sort((a, b) => a.city.localeCompare(b.city, "pt-BR"));
+  }
+
   /** Descoberta de eventos (Fase 12): lista eventos publicados, futuros primeiro. */
-  async listPublicEvents(options: { page: number; pageSize: number }) {
-    const where = { status: "PUBLISHED" as const, endsAt: { gt: new Date() } };
+  async listPublicEvents(options: { page: number; pageSize: number; city?: string }) {
+    const where = {
+      status: "PUBLISHED" as const,
+      endsAt: { gt: new Date() },
+      ...(options.city
+        ? { venue: { is: { city: { equals: options.city, mode: "insensitive" as const } } } }
+        : {}),
+    };
 
     const [total, events] = await Promise.all([
       prisma.event.count({ where }),

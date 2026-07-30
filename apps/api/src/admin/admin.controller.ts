@@ -3,6 +3,7 @@ import {
   approveRefundRequestSchema,
   blockReasonSchema,
   markPayoutPaidSchema,
+  updateSettlementSchema,
   refundOrderSchema,
   rejectRefundRequestSchema,
   setOrganizationFeeSchema,
@@ -165,6 +166,15 @@ export class AdminController {
     @Query("status") status: string | undefined,
   ) {
     return this.adminService.listPayouts(userId, { organizationId, status });
+  }
+
+  @Post("organizations/:id/settlement")
+  updateSettlement(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(updateSettlementSchema)) body: unknown,
+  ) {
+    return this.adminService.updateSettlement(id, userId, body as any);
   }
 
   @Post("organizations/:id/payouts")

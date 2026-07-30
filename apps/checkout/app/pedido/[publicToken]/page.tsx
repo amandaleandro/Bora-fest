@@ -7,6 +7,19 @@ import { api, ApiError, type Order, type OrderTicketsResponse } from "../../../l
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 
+/** Evento do Chrome/Edge para instalar o PWA (não existe no Safari). */
+type InstallPromptEvent = Event & { prompt: () => Promise<void> };
+
+/** Máscara simples de celular BR: "(11) 91234-5678" (aceita colar com +55). */
+function maskBrPhone(value: string): string {
+  let d = value.replace(/\D/g, "");
+  if (d.length === 13 && d.startsWith("55")) d = d.slice(2);
+  d = d.slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
 function rememberOrder(token: string) {
   try {
     const list: string[] = JSON.parse(localStorage.getItem("bf.orders") ?? "[]");
@@ -14,6 +27,56 @@ function rememberOrder(token: string) {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Card "Baixe o app": usa o prompt nativo de instalação quando o navegador
+ * oferece; sem ele (Safari/iOS, ou já instalado) leva para a home do PWA.
+ */
+function InstallAppCard() {
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    setInstalled(window.matchMedia("(display-mode: standalone)").matches);
+    const onPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onInstalled = () => setInstalled(true);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  if (installed) return null;
+
+  return (
+    <div className="mt-[22px] flex items-center gap-3.5 rounded-2xl border border-primary/15 bg-primary/[.06] p-4 text-left">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white">
+        <Icon d={paths.ticket} size={22} />
+      </div>
+      <p className="flex-1 text-[13px] font-medium leading-relaxed text-ink-soft">
+        <b className="text-ink">Baixe o app BoraFest</b> — entre com o mesmo e-mail e seus ingressos estarão lá,
+        prontos para a portaria.
+      </p>
+      {installPrompt ? (
+        <button
+          onClick={() => { installPrompt.prompt(); setInstallPrompt(null); }}
+          className="h-[38px] shrink-0 rounded-[10px] bg-ink px-4 text-[12px] font-bold text-white"
+        >
+          Baixar app
+        </button>
+      ) : (
+        <Link href="/" className="flex h-[38px] shrink-0 items-center rounded-[10px] bg-ink px-4 text-[12px] font-bold text-white">
+          Baixar app
+        </Link>
+      )}
+    </div>
+  );
 }
 
 export default function OrderPage({ params }: { params: { publicToken: string } }) {
@@ -26,6 +89,10 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   const [transferName, setTransferName] = useState("");
   const [transferEmail, setTransferEmail] = useState("");
   const [transferMsg, setTransferMsg] = useState<string | null>(null);
+  const [whatsOpen, setWhatsOpen] = useState(false);
+  const [whatsPhone, setWhatsPhone] = useState("");
+  const [whatsState, setWhatsState] = useState<"idle" | "sending" | "ok" | "error">("idle");
+  const [whatsError, setWhatsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +112,11 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     load();
   }, [load]);
 
+  // pré-preenche o WhatsApp com o contato do pedido (a API pública expõe)
+  useEffect(() => {
+    if (order?.contactPhone) setWhatsPhone(maskBrPhone(order.contactPhone));
+  }, [order?.contactPhone]);
+
   // pendente: polling
   useEffect(() => {
     if (!order || !["CREATED", "PAYMENT_PENDING"].includes(order.status)) return;
@@ -59,6 +131,18 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       setResendMessage("Reenviado por e-mail e WhatsApp ✅");
     } catch (e) {
       setResendMessage(e instanceof ApiError ? e.message : "Não foi possível reenviar agora");
+    }
+  }
+
+  async function sendWhatsApp() {
+    setWhatsState("sending");
+    setWhatsError(null);
+    try {
+      await api.sendTicketsWhatsApp(publicToken, whatsPhone.replace(/\D/g, ""));
+      setWhatsState("ok");
+    } catch (e) {
+      setWhatsState("error");
+      setWhatsError(e instanceof ApiError ? e.message : "Não foi possível enviar agora");
     }
   }
 
@@ -91,7 +175,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   // --- pendente ---
   if (pending) {
     return (
-      <main className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
+      <main className="flex min-h-dvh flex-col items-center justify-center px-6 text-center lg:mx-auto lg:max-w-[560px]">
         <div className="flex h-[92px] w-[92px] items-center justify-center rounded-full bg-warning/10 text-warning">
           <Icon d={paths.clock} size={44} />
         </div>
@@ -111,13 +195,20 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   // --- carteira ---
   if (view === "carteira" && ticketsData) {
     return (
-      <main className="px-5 pb-16 pt-6">
-        <h1 className="text-[22px] font-extrabold">Seus ingressos</h1>
-        <p className="mt-0.5 text-[13px] font-medium text-muted">
-          {order.contactName ?? order.contactEmail} · {ticketsData.tickets.length} ingresso{ticketsData.tickets.length === 1 ? "" : "s"}
-        </p>
+      <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pt-8">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setView("confirmacao")} aria-label="Voltar" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface">
+            <Icon d={paths.back} />
+          </button>
+          <div>
+            <h1 className="text-[22px] font-extrabold lg:text-[24px]">Seus ingressos</h1>
+            <p className="mt-0.5 text-[13px] font-medium text-muted">
+              {order.contactName ?? order.contactEmail} · {ticketsData.tickets.length} ingresso{ticketsData.tickets.length === 1 ? "" : "s"}
+            </p>
+          </div>
+        </div>
 
-        <div className="mt-5 space-y-6">
+        <div className="mt-5 space-y-6 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
           {ticketsData.tickets.map((ticket) => (
             <article key={ticket.id} className="overflow-hidden rounded-3xl bg-surface shadow-card">
               <div className="bg-brand-gradient p-5 text-white">
@@ -157,8 +248,8 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
         {/* bottom sheet de transferência */}
         {transferFor && (
-          <div className="fixed inset-0 z-20 mx-auto flex max-w-[430px] items-end bg-black/40" onClick={() => setTransferFor(null)}>
-            <div className="w-full rounded-t-3xl bg-surface p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center" onClick={() => setTransferFor(null)}>
+            <div className="w-full max-w-[430px] rounded-t-3xl bg-surface p-6 lg:rounded-3xl" onClick={(e) => e.stopPropagation()}>
               <h2 className="text-[18px] font-extrabold">Transferir ingresso</h2>
               <p className="mt-1 text-[12px] font-medium text-muted">
                 O QR atual é invalidado e um novo é gerado para a pessoa indicada.
@@ -193,7 +284,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
   // --- confirmação (aprovado) ---
   return (
-    <main className="flex min-h-dvh flex-col bg-gradient-to-b from-emerald-50 to-bg px-6 pb-10 pt-16 text-center">
+    <main className="flex min-h-dvh flex-col bg-gradient-to-b from-emerald-50 to-bg px-6 pb-10 pt-16 text-center lg:mx-auto lg:max-w-[660px] lg:px-7 lg:pb-16 lg:pt-12">
       <div className="mx-auto flex h-[92px] w-[92px] animate-pop items-center justify-center rounded-full bg-success text-white">
         <Icon d={paths.check} size={44} stroke={2.5} />
       </div>
@@ -201,6 +292,10 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       <span className="mx-auto mt-2 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-bold text-success">
         Pagamento confirmado
       </span>
+      <p className="mx-auto mt-4 max-w-[460px] text-[14px] font-medium leading-relaxed text-muted">
+        Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b> e pelo WhatsApp — e eles já
+        estão na sua conta, que vale aqui no site e no app BoraFest.
+      </p>
 
       <div className="mt-6 rounded-2xl border border-line bg-surface p-4 text-left">
         <p className="text-[12px] font-bold text-muted">Pedido {shortId}</p>
@@ -222,13 +317,63 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         </div>
       </div>
 
-      <button
-        onClick={() => setView("carteira")}
-        className="mt-6 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
-      >
-        Ver meus ingressos
-      </button>
-      <Link href="/" className="mt-3 text-[13px] font-bold text-primary">Voltar ao início</Link>
+      {/* entrega por WhatsApp: texto + QR de cada ingresso, direto no celular */}
+      <div className="mt-6 text-left">
+        {whatsState === "ok" ? (
+          <p className="flex h-14 items-center justify-center rounded-2xl bg-success/10 text-[14px] font-extrabold text-success">
+            Enviado! Confira seu WhatsApp 📱
+          </p>
+        ) : !whatsOpen ? (
+          <button
+            onClick={() => setWhatsOpen(true)}
+            className="flex h-14 w-full items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
+          >
+            Receber meus ingressos no WhatsApp
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-line bg-surface p-4">
+            <p className="text-[12px] font-bold text-muted">
+              Enviaremos cada ingresso com o QR para este número
+            </p>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={whatsPhone}
+              onChange={(e) => setWhatsPhone(maskBrPhone(e.target.value))}
+              placeholder="(11) 91234-5678"
+              className="mt-2 h-[50px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-4 text-[14px] font-medium outline-none focus:border-primary"
+            />
+            {whatsState === "error" && whatsError && (
+              <p className="mt-2 text-[12px] font-semibold text-danger">{whatsError}</p>
+            )}
+            <button
+              onClick={sendWhatsApp}
+              disabled={whatsState === "sending" || whatsPhone.replace(/\D/g, "").length < 11}
+              className="mt-3 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta disabled:bg-[#d9d2e8]"
+            >
+              {whatsState === "sending" ? "Enviando…" : "Enviar para o WhatsApp"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:justify-center">
+        <Link
+          href="/perfil"
+          className="flex h-14 items-center justify-center rounded-2xl border-[1.5px] border-line-input bg-surface px-7 text-[14px] font-bold text-ink lg:h-[52px] lg:rounded-[14px]"
+        >
+          Ver meus ingressos
+        </Link>
+        <button
+          onClick={() => setView("carteira")}
+          className="h-14 rounded-2xl border-[1.5px] border-line-input bg-surface px-6 text-[14px] font-bold text-ink lg:h-[52px] lg:rounded-[14px]"
+        >
+          Ingressos deste pedido
+        </button>
+      </div>
+      <Link href="/" className="mt-4 text-[13px] font-bold text-primary">Explorar mais eventos</Link>
+
+      <InstallAppCard />
     </main>
   );
 }

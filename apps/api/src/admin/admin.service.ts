@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { applyGatewayStatus, getGateway } from "@borafest/payments";
+import { executeOrderRefund } from "../common/execute-refund";
 import {
   createNotificationDeliveryQueue,
   createOrderExpirationQueue,
@@ -17,7 +18,7 @@ import type {
 } from "@borafest/contracts";
 import { PlatformAccessService } from "../common/platform-access.service";
 import { NotificationsService } from "../notifications/notifications.service";
-import { getAvailableForPayoutCents, getOrganizationBalanceCents } from "../common/ledger";
+import { getOrganizationBalanceCents, getPayoutAvailability } from "../common/ledger";
 
 @Injectable()
 export class AdminService {
@@ -232,54 +233,9 @@ export class AdminService {
   async refundOrder(publicToken: string, userId: string, input: RefundOrderInput): Promise<any> {
     const actor = await this.platformAccess.assertAdmin(userId);
 
-    const order = await prisma.order.findUnique({
-      where: { publicToken },
-      include: { payments: { orderBy: { createdAt: "desc" } } },
-    });
-    if (!order) throw new NotFoundException("Pedido não encontrado");
-
-    const payment = order.payments.find((p) => p.status === "PAID");
-    if (!payment || !payment.externalId) {
-      throw new BadRequestException("Pedido não tem pagamento aprovado para estornar");
-    }
-    if (input.amountCents !== undefined && input.amountCents > payment.amountCents) {
-      throw new BadRequestException("Valor do estorno maior que o pagamento");
-    }
-
-    const marked = await prisma.payment.updateMany({
-      where: { id: payment.id, status: "PAID" },
-      data: { status: "REFUND_PENDING" },
-    });
-    if (marked.count === 0) {
-      throw new BadRequestException("Estorno já em andamento para este pagamento");
-    }
-
-    const gateway = getGateway(payment.provider);
-    let result;
-    try {
-      result = await gateway.refund({
-        externalId: payment.externalId,
-        amountCents: input.amountCents,
-        idempotencyKey: `admin-refund:${payment.id}:${input.amountCents ?? "full"}`,
-      });
-    } catch (error) {
-      await prisma.payment.updateMany({
-        where: { id: payment.id, status: "REFUND_PENDING" },
-        data: { status: "PAID" },
-      });
-      throw error;
-    }
-
-    if (result.status === "FAILED") {
-      await prisma.payment.updateMany({
-        where: { id: payment.id, status: "REFUND_PENDING" },
-        data: { status: "PAID" },
-      });
-      throw new BadRequestException("Gateway recusou o estorno");
-    }
-
-    await applyGatewayStatus(payment.id, result.status, undefined, {
-      refundAmountCents: input.amountCents,
+    const { order, gatewayStatus } = await executeOrderRefund(publicToken, {
+      amountCents: input.amountCents,
+      idempotencyPrefix: "admin-refund",
     });
 
     await prisma.auditLog.create({
@@ -288,7 +244,7 @@ export class AdminService {
         action: "admin.order.refund",
         entityType: "order",
         entityId: order.id,
-        metadata: { amountCents: input.amountCents, reason: input.reason, gatewayStatus: result.status },
+        metadata: { amountCents: input.amountCents, reason: input.reason, gatewayStatus },
       },
     });
 
@@ -457,7 +413,7 @@ export class AdminService {
     const ledgerAccount = await prisma.ledgerAccount.findUnique({ where: { organizationId } });
     const [balanceCents, availableForPayoutCents, entries] = await Promise.all([
       getOrganizationBalanceCents(organizationId),
-      getAvailableForPayoutCents(organizationId),
+      getPayoutAvailability(organizationId).then((a) => a.availableForPayoutCents),
       ledgerAccount
         ? prisma.ledgerEntry.findMany({
             where: { ledgerAccountId: ledgerAccount.id },
@@ -494,7 +450,8 @@ export class AdminService {
       );
     }
 
-    const availableCents = await getAvailableForPayoutCents(organizationId);
+    const availability = await getPayoutAvailability(organizationId);
+    const availableCents = availability.availableForPayoutCents;
     if (availableCents <= 0) {
       throw new BadRequestException("Sem saldo disponível para repasse");
     }
@@ -503,6 +460,28 @@ export class AdminService {
       data: { organizationId, amountCents: availableCents, status: "PENDING" },
     });
 
+    // INSTANT: a parcela ainda na janela de reembolso paga antecipação —
+    // débito lançado junto do repasse para o extrato contar a história toda
+    const anticipationFeeCents =
+      availability.settlementMode === "INSTANT" ? availability.anticipationFeeCents : 0;
+    if (anticipationFeeCents > 0) {
+      const ledgerAccount = await prisma.ledgerAccount.upsert({
+        where: { organizationId },
+        update: {},
+        create: { organizationId },
+      });
+      await prisma.ledgerEntry.create({
+        data: {
+          ledgerAccountId: ledgerAccount.id,
+          type: "ANTICIPATION_FEE",
+          amountCents: -anticipationFeeCents,
+          referenceType: "payout",
+          referenceId: payout.id,
+          description: "Antecipação de saldo em janela de reembolso (repasse instantâneo)",
+        },
+      });
+    }
+
     await prisma.auditLog.create({
       data: {
         actorUserId: actor.id,
@@ -510,11 +489,72 @@ export class AdminService {
         action: "admin.payout.create",
         entityType: "payout",
         entityId: payout.id,
-        metadata: { amountCents: availableCents },
+        metadata: {
+          amountCents: availableCents,
+          settlementMode: availability.settlementMode,
+          anticipationFeeCents,
+        },
       },
     });
 
-    return payout;
+    return { ...payout, anticipationFeeCents };
+  }
+
+  /**
+   * Modo de repasse da organização (decisão 2026-07-28): INSTANT só deve ser
+   * ligado para casas de confiança E após aceite da cláusula de
+   * responsabilidade de reembolso (docs/juridico/REPASSE-INSTANTANEO-MINUTA.md).
+   */
+  async updateSettlement(
+    organizationId: string,
+    userId: string,
+    input: { settlementMode?: "STANDARD" | "INSTANT"; autoPayout?: boolean; refundHoldDays?: number },
+  ) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+    if (input.refundHoldDays !== undefined && (input.refundHoldDays < 0 || input.refundHoldDays > 90)) {
+      throw new BadRequestException("Janela de reembolso deve ficar entre 0 e 90 dias");
+    }
+
+    const updated = await prisma.organization.update({
+      where: { id: organizationId },
+      data: {
+        ...(input.settlementMode !== undefined ? { settlementMode: input.settlementMode } : {}),
+        ...(input.autoPayout !== undefined ? { autoPayout: input.autoPayout } : {}),
+        ...(input.refundHoldDays !== undefined ? { refundHoldDays: input.refundHoldDays } : {}),
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        organizationId,
+        action: "admin.organization.settlement",
+        entityType: "organization",
+        entityId: organizationId,
+        metadata: {
+          antes: {
+            settlementMode: organization.settlementMode,
+            autoPayout: organization.autoPayout,
+            refundHoldDays: organization.refundHoldDays,
+          },
+          depois: {
+            settlementMode: updated.settlementMode,
+            autoPayout: updated.autoPayout,
+            refundHoldDays: updated.refundHoldDays,
+          },
+        },
+      },
+    });
+
+    return {
+      id: updated.id,
+      settlementMode: updated.settlementMode,
+      autoPayout: updated.autoPayout,
+      refundHoldDays: updated.refundHoldDays,
+    };
   }
 
   async markPayoutPaid(payoutId: string, userId: string, notes?: string) {

@@ -1,12 +1,22 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { prisma } from "@borafest/database";
-import type { RegisterPushTokenInput } from "@borafest/contracts";
+import { getWhatsAppSender } from "@borafest/notifications";
+import type { OrderWhatsAppInput, RegisterPushTokenInput } from "@borafest/contracts";
 
 const RESEND_LIMIT_PER_HOUR = 3;
+
+/** Normaliza celular BR (DDD + 9 dígitos, com/sem +55) para E.164 sem "+": 55DDD9XXXXXXXX. */
+function normalizeBrMobile(raw: string): string | null {
+  let digits = raw.replace(/\D/g, "");
+  if (digits.length === 13 && digits.startsWith("55")) digits = digits.slice(2);
+  if (!/^[1-9][0-9]9[0-9]{8}$/.test(digits)) return null;
+  return `55${digits}`;
+}
 
 @Injectable()
 export class NotificationsService {
@@ -103,6 +113,78 @@ export class NotificationsService {
     if (pushTokens.length > 0) channels.push("PUSH");
 
     return { queued: true, channels };
+  }
+
+  /**
+   * "Receber meus ingressos no WhatsApp" — envio imediato (sem fila): o
+   * comprador acabou de pedir, então a janela de 24h da Meta está aberta e
+   * dá pra responder com texto livre + imagem do QR. Em dev o provider
+   * devlog só registra no log; a resposta é a mesma.
+   */
+  async sendTicketsToWhatsApp(publicToken: string, input?: OrderWhatsAppInput) {
+    const order = await prisma.order.findUnique({
+      where: { publicToken },
+      include: {
+        event: { select: { title: true, startsAt: true, timezone: true } },
+        tickets: {
+          where: { status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
+          orderBy: [{ orderItemId: "asc" }, { seq: "asc" }],
+          include: {
+            ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+    if (!order) throw new NotFoundException("Pedido não encontrado");
+    if (!["PAID", "FULFILLED"].includes(order.status) || order.tickets.length === 0) {
+      throw new ConflictException("Pedido ainda não tem ingressos para enviar");
+    }
+
+    const rawPhone = input?.phone ?? order.contactPhone;
+    if (!rawPhone) {
+      throw new BadRequestException("Informe um número de WhatsApp com DDD");
+    }
+    const phone = normalizeBrMobile(rawPhone);
+    if (!phone) {
+      throw new BadRequestException(
+        "Número de WhatsApp inválido — use DDD + 9 dígitos (ex.: 11 91234-5678)",
+      );
+    }
+
+    if (input?.phone && phone !== order.contactPhone) {
+      await prisma.order.update({ where: { id: order.id }, data: { contactPhone: phone } });
+    }
+
+    const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+    const apiPublicUrl = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
+    const orderUrl = `${webBaseUrl}/pedido/${order.publicToken}`;
+    const eventDate = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: order.event.timezone,
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(order.event.startsAt);
+
+    const sender = getWhatsAppSender();
+    for (const ticket of order.tickets) {
+      const lines = [
+        `🎟️ *${order.event.title}* — ${eventDate}`,
+        `${ticket.ticketLot.ticketType.name} / ${ticket.ticketLot.name}`,
+      ];
+      if (ticket.attendeeName) lines.push(`Participante: ${ticket.attendeeName}`);
+      lines.push(
+        `Código: ${ticket.code}`,
+        "",
+        `Apresente o QR abaixo na entrada. Reabra seus ingressos quando quiser: ${orderUrl}`,
+      );
+      await sender.send({ to: phone, text: lines.join("\n") });
+      await sender.send({
+        to: phone,
+        imageUrl: `${apiPublicUrl}/v1/orders/${order.publicToken}/tickets/${ticket.id}/qr.png`,
+        caption: `QR do ingresso ${ticket.code}`,
+      });
+    }
+
+    return { sent: true, tickets: order.tickets.length, phone };
   }
 
   /**

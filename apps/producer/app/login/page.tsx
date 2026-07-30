@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { passwordAuth } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { resolveHomePath } from "../../lib/eventContext";
 import { AuthShell, inputCls, labelCls, primaryBtn } from "../../components/AuthShell";
 
 export default function LoginPage() {
@@ -22,7 +23,8 @@ export default function LoginPage() {
     try {
       const res = await passwordAuth.login(email, password);
       login(res.token, res.user);
-      router.push("/organizacoes");
+      // pós-login vai direto para "Meus eventos" da 1ª organização (decisão v2 #6)
+      router.push(await resolveHomePath(res.token));
     } catch (err) {
       setError(err instanceof Error ? err.message : "E-mail ou senha inválidos");
       setBusy(false);

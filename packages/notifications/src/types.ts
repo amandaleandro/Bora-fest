@@ -16,13 +16,28 @@ export interface EmailSender {
   send(message: EmailMessage): Promise<void>;
 }
 
-export interface WhatsAppMessage {
+export interface WhatsAppTemplateMessage {
   /** telefone com DDD, só dígitos */
   to: string;
   /** nome do template aprovado no provedor */
   template: string;
   variables: Record<string, string>;
 }
+
+/** Texto livre — vale na janela de 24h aberta pelo próprio comprador. */
+export interface WhatsAppTextMessage {
+  to: string;
+  text: string;
+}
+
+/** Imagem por URL pública (ex.: QR do ingresso) com legenda opcional. */
+export interface WhatsAppImageMessage {
+  to: string;
+  imageUrl: string;
+  caption?: string;
+}
+
+export type WhatsAppMessage = WhatsAppTemplateMessage | WhatsAppTextMessage | WhatsAppImageMessage;
 
 export interface WhatsAppSender {
   readonly provider: string;

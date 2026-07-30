@@ -1,4 +1,6 @@
-import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { requestPayoutSchema } from "@borafest/contracts";
+import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { FinanceService } from "./finance.service";
@@ -26,4 +28,18 @@ export class FinanceController {
   listPayouts(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
     return this.financeService.listPayouts(organizationId, userId);
   }
+  @Post("payout-requests")
+  requestPayout(
+    @Param("organizationId") organizationId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(requestPayoutSchema)) body: unknown,
+  ) {
+    return this.financeService.requestPayout(organizationId, userId, (body as { amountCents: number }).amountCents);
+  }
+
+  @Get("payout-requests")
+  listPayoutRequests(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
+    return this.financeService.listPayoutRequests(organizationId, userId);
+  }
+
 }

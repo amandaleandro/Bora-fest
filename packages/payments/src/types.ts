@@ -42,12 +42,36 @@ export interface PixCharge {
   expiresAt: Date;
 }
 
+/**
+ * Dados crus do cartão — usados APENAS por gateways cujo modelo oficial é
+ * server-side (Asaas): trafegam do checkout à API por HTTPS, vão direto ao
+ * PSP e NUNCA são logados nem persistidos.
+ */
+export interface RawCard {
+  number: string;
+  holderName: string;
+  expiryMonth: string;
+  expiryYear: string;
+  ccv: string;
+  holderInfo: {
+    name: string;
+    email: string;
+    cpfCnpj: string;
+    postalCode: string;
+    addressNumber: string;
+    phone?: string;
+  };
+}
+
 export interface CreateCardPaymentInput {
   paymentId: string;
   orderId: string;
   amountCents: number;
-  /** cartão SEMPRE tokenizado pelo provedor — nunca PAN cru (escopo PCI) */
-  cardToken: string;
+  /** token do provedor (Pagar.me/mock) — OU rawCard para gateways server-side */
+  cardToken?: string;
+  rawCard?: RawCard;
+  /** IP do comprador (antifraude do PSP — obrigatório no Asaas) */
+  remoteIp?: string;
   installments: number;
   customer: GatewayCustomer;
   idempotencyKey: string;

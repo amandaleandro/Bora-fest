@@ -17,11 +17,131 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase em andamento** | Pré-lançamento: Ed25519 no app ✅ + infra de produção ✅ + testes de regressão/carga/rate-limit ✅ + backup/restore + alerta ✅ + transferência/reembolso ✅ + plano de testes (rascunho) + Fase 12 (app público do comprador, `apps/mobile-public`, agora com push + cartão) 🟡 |
-| **Status da fase** | 🟢 Tudo que não depende de celular/VPS/conta PSP está construído e testado; Fase 12 com código escrito e bundle validado nas 2 plataformas (push e cartão testados ao vivo contra API real), não testado em aparelho real |
-| **Última atualização** | 2026-07-24 |
-| **Atualizado por** | Amanda + Claude |
+| **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
+| **Status da fase** | 🟢 Build 14/14 · testes 27/27 · fluxo v2 (nominal + LGPD + taxa) validado no navegador |
+| **Última atualização** | 2026-07-25 |
+| **Atualizado por** | Arthur + Claude |
 | **Branch** | `main` |
+
+### Onde estamos (2026-07-25)
+
+Handoff v2 (`docs/design/`, com as 8 decisões de produto cravadas) implementado:
+
+- **Backend**: quem paga a taxa (feeMode), ingresso nominal (participantes com
+  CPF), consentimento LGPD versionado, solicitar saque (D+2 + KYC), portaria
+  com motivo do inválido/portão do 1º uso/manifesto com nomes.
+- **Checkout**: 3 passos (Identificação → Participantes → Pagamento), LGPD
+  bloqueante v2026-07, Resumo do pedido sticky, layout desktop 1160px.
+- **Portaria**: camada offline real (IndexedDB + Ed25519 local + sync em lote
+  + jsQR para iOS) com a regra "sem manifesto, nunca aprovar".
+- **Painel**: sidebar persistente, quem-paga-a-taxa com simulação, solicitar
+  saque, convidar equipe.
+- **PWA**: ícones reais, manifesto próprio da portaria, service worker versionado.
+- **Perímetro**: CORS por allowlist, trustProxy, rate limit no PIN/checkins/
+  pagamentos, fail-fast dos segredos do Pagar.me.
+- **E-mail**: adapter Resend pronto — basta a chave para o ingresso e o OTP saírem.
+
+**Validado de ponta a ponta (2026-07-25, no navegador + API)**:
+compra com 2 ingressos nominais → LGPD bloqueante marcado → Pix pago →
+participantes com CPF e consentimento (terms+privacy v2026-07) gravados →
+login sem senha reivindica o pedido de convidado → carteira mostra os 2
+ingressos com nome → PIN de portaria → manifesto com nome (sem CPF) →
+check-in VALID → segunda leitura ALREADY_USED com aparelho do 1º uso.
+
+Dois bugs achados e corrigidos nessa validação:
+1. Rota de saque duplicava `:organizationId` (o modal do painel ia dar 404).
+2. Pedido de convidado nunca era vinculado à conta — a carteira ficava vazia.
+   Agora o verify do OTP (posse do e-mail comprovada) reivindica os pedidos.
+
+**Rodada pós-feedback do Arthur (2026-07-25, tarde)** — 3 frentes em paralelo:
+- **Portaria redesenhada**: app standalone de tela cheia (sem header/rodapé do
+  site), seguindo o protótipo aprovado — PIN com teclado grande, seletor de
+  evento/portão, abas Scanner / Código / Documento, resultados full-screen
+  (verde/amarelo/vermelho), badge Online/Offline e pendentes de sync.
+- **Validação por documento (sem QR), offline**: manifesto passou a levar o
+  CPF **hasheado** (sha256 — o CPF cru nunca sai do servidor); a busca por
+  nome/CPF roda na lista local do aparelho. Validado no navegador: CPF com
+  pontuação → Marina Costa → Confirmar entrada → Válido → sincronizado.
+- **Ingresso no WhatsApp**: botão "Receber meus ingressos no WhatsApp" na
+  página do pedido → POST /v1/orders/:publicToken/whatsapp (normaliza celular
+  BR p/ E.164) → 1 mensagem por ingresso com texto + PNG do QR
+  (GET .../tickets/:id/qr.png). Adapter Meta Cloud API pronto: com as chaves,
+  é setar WHATSAPP_PROVIDER=meta + WHATSAPP_CLOUD_TOKEN +
+  WHATSAPP_PHONE_NUMBER_ID. Sem chaves, devlog loga (testado).
+
+Build 14/14 · testes 34/34 (API 13, payments 10, notifications 8, tickets 3).
+
+**Rodada Asaas (2026-07-28)** — decisão cravada pelo Arthur: Asaas é o
+gateway primário ("melhor que o Pagar.me em todos os termos necessários").
+- **Adapter Asaas completo** (`packages/payments/src/asaas.ts`): Pix
+  (customer + payment + QR), cartão tokenizado (recusa 400 vira FAILED com
+  motivo), estorno total/parcial, webhook por token fixo
+  (`asaas-access-token`, fail closed), mapeamento de status completo.
+  `PAYMENTS_PROVIDER=asaas` + `ASAAS_API_KEY` + `ASAAS_WEBHOOK_TOKEN`
+  (sandbox: `ASAAS_API_URL=https://api-sandbox.asaas.com/v3`). Fail-fast no
+  main.ts. Pagar.me continua vivo como plano B.
+- **Modos de repasse por organização**: `settlementMode` PADRÃO (crédito de
+  venda só vira sacável após `refundHoldDays` — 7 dias, CDC) ou INSTANTÂNEO
+  (casas de confiança: saca tudo na hora, antecipação de 1,25% a.m. pró-rata
+  sobre a parcela em janela — `ANTICIPATION_FEE_BPS_MONTHLY` — e
+  responsabilidade de reembolso da casa via aditivo:
+  `docs/juridico/REPASSE-INSTANTANEO-MINUTA.md`). Ledger ganhou `availableAt`
+  e o tipo `ANTICIPATION_FEE` (migração `settlement_mode_availability`).
+- **Repasse automático**: fila nova `auto-payouts` no worker (a cada 30 min)
+  cria o Payout do saldo recém-liberado (mínimo `AUTO_PAYOUT_MIN_CENTS`,
+  R$ 50); execução bancária segue no backoffice. Backoffice controla modo/
+  janela/automático por organização (auditado, com confirmação do aditivo);
+  painel do produtor mostra "liberam após a janela" e a antecipação estimada.
+
+**Reembolso direcionado à casa (2026-07-28, tarde)** — pedido do Arthur:
+- Solicitação do comprador agora informa quem analisa (`reviewedBy`): casa
+  (INSTANTÂNEO) ou BoraFest (PADRÃO) — mostrado no app do comprador.
+- Painel do produtor ganhou a página **Reembolsos**: casa INSTANTÂNEA aprova
+  (executa o estorno de verdade — sai do saldo dela via ledger) ou recusa com
+  justificativa; PADRÃO vê a fila em modo leitura ("quem analisa é a
+  BoraFest"). Guarda de permissão ORDER_REFUND + trava por settlementMode no
+  servidor. Executor de estorno unificado (backoffice e casa usam o mesmo:
+  `common/execute-refund.ts`).
+
+Build 14/14 · testes 43/43 (payments 16, API 16, notifications 8, tickets 3).
+
+**🚀 EM PRODUÇÃO (2026-07-30, madrugada)** — deploy no VPS do Arthur
+(72.62.138.230) via serviço Compose do EasyPanel (que já hospedava outros
+serviços; Traefik dele faz o HTTPS). docker-compose.yml raiz + Dockerfiles
+autocontidos em infra/docker/easypanel/. Build de estreia quebrou uma vez
+(admin/producer sem pasta public/ — fix bc0f51c) e na segunda subiu em 1min24s.
+Verificado da internet: api.borafest.com.br/health ok/db up, site, painel e
+admin respondendo 200 com HTTPS válido. Asaas plugado (chave prod no env do
+painel, com escape $$ contra interpolação do compose).
+
+**Cartão real + localização (2026-07-30, sequência)**: checkout de cartão
+agora é o modelo server-side oficial do Asaas (cartão + dados do titular +
+IP do comprador direto ao PSP — nunca logado/persistido; mock em dev recusa
+final 0000); formulário ganhou titular/CPF/CEP/número. Home do site trocou o
+"São Paulo, SP" fixo por seletor de cidades REAIS (endpoint público de
+cidades com evento publicado + filtro ?city=), escolha persistida no
+aparelho. Resend: chave recebida do Arthur — vai no Environment do EasyPanel
+(EMAIL_PROVIDER=resend + RESEND_API_KEY), não no git. Testes 44/44.
+
+**Pendências de homologação**: ativar webhook no painel Asaas → compra real
+de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
+(e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
+deploy key do EasyPanel e privar.
+
+### Onde estamos (2026-07-24, verificação de estado)
+
+- **Handoff v1 (docs/design) implementado nas 4 superfícies**: Site Público
+  desktop + hotsite com seleção sticky, App do Comprador (PWA com manifest e
+  service worker), Painel do Produtor completo, App de Validação como PWA em
+  `/portaria` (além do RN antigo em `apps/mobile-checkin`).
+- **Saúde**: `pnpm build` 14/14 e `pnpm test` 24/24 verdes; API, worker e os 3
+  frontends rodando em localhost (3333/3000/3001/3002).
+- **2 bugs de build corrigidos nesta verificação**: (1) `NODE_ENV` vazava do
+  `.env` para o `next build` via `globalPassThroughEnv` do turbo, fazendo o
+  admin quebrar no prerender com runtime de dev; (2) dev server concorrendo
+  pelo `.next` durante o build (limpar `.next` + parar dev antes de buildar).
+- **Bloqueios de lançamento continuam externos**: conta PSP Pagar.me (chaves),
+  provedor real de e-mail/WhatsApp, e VPS+domínio para subir.
 
 ### Sessão C7/C8 — Vendas (pedidos + reembolso + PDV) e Financeiro (2026-07-24, Claude)
 
@@ -716,6 +836,15 @@ Adicionar sempre a linha nova NO TOPO.
 
 | Data | Quem | O que foi feito | Onde parou |
 |---|---|---|---|
+<<<<<<< HEAD
+=======
+| 2026-07-25 | Arthur + Claude | **Handoff v2 concluído**: backend (feeMode, nominal, consent, saque, portaria) + telas novas nos 4 frontends + PWA real + perímetro + adapter Resend. Os 4 agentes paralelos de frontend caíram por limite de sessão, mas entregaram antes; recuperei o estado, corrigi 3 erros (tipo do banner, construtor no teste, rótulo de taxa com carrinho vazio) e revalidei: build 14/14, testes 27/27, fluxo v2 clicado no navegador com participantes e consentimento gravados. | Falta só o externo: Pagar.me, Resend e VPS. |
+| 2026-07-24 | Arthur + Claude | **AUDITORIA v1 (2ª rodada, 8 agentes/405 verificações)** — `AUDITORIA-V1-2026-07-24.md`. Veredito: ~63% do caminho até um piloto que vende de verdade. Núcleo transacional sólido, MAS achados graves: portaria offline aprova QUALQUER leitura em verde sem rede (inclusive 401 de aparelho bloqueado), cartão com token FABRICADO no navegador (coletamos PAN/CVV sem tokenização), textos de 'ambiente de teste' visíveis ao comprador, 6 telas sem layout desktop, links localhost hardcoded no painel, CORS aberto e rate limit burlável por header, CI travado por billing do GitHub. BACKLOG estava marcando ✅ itens que o código não faz (E1/E3/A1/A2/D5). | Próximo: PR de perímetro+deploy, matar teatro de pagamento, reescrever caminho offline da portaria. |
+| 2026-07-24 | Arthur + Claude | **Verificação de estado + 2 fixes de build**: auditoria do código real contra o handoff v1; `pnpm build` estava 11/14 — causa 1: `NODE_ENV=development` do `.env` vazava para o `next build` pelo `globalPassThroughEnv` do turbo (admin quebrava no prerender com runtime dev); causa 2: dev server concorrendo pelo `.next`. Corrigido (NODE_ENV fora do passthrough) → build 14/14 e testes 24/24 verdes. REGISTRO de 'Estado atual' reescrito (estava sem o Bloco E). | Handoff v1 nas 4 superfícies; bloqueios de lançamento seguem externos (PSP, e-mail, VPS). |
+| 2026-07-24 | Arthur + Claude | **HANDOFF v1 (Bloco E) EXECUTADO — Site Público + estratégia PWA**: handoff novo versionado em docs/design; Site Público desktop responsivo no próprio apps/checkout (header Entrar/Produza, hero, grade de eventos, faixa Produza, footer LGPD; hotsite 2 colunas com SELEÇÃO LATERAL STICKY via TicketSelector compartilhado); PWA do comprador (manifest + service worker com fallback offline — SW só em produção após bug de cache em dev achado e corrigido no teste); **PWA de Validação em /portaria** (PIN dark com dots+teclado, portões, scanner com BarcodeDetector + busca manual, resultados full-screen, resumo com reverter, fila offline). Testado clicando: home/hotsite desktop, PIN real → check-in VÁLIDO verde → duplicado JÁ UTILIZADO âmbar com 1º uso/aparelho. | Handoff v1 completo nas 4 superfícies. Pendências de publicação seguem: conta Pagar.me, e-mail real, VPS. |
+| 2026-07-24 | Arthur + Claude | **🏁 BACKLOG DO PROTÓTIPO 100% CONCLUÍDO** — fechado o último item (D5): rota POST /v1/validator/checkins/:id/reverse com ValidatorDeviceGuard (reverter check-in direto do aparelho da portaria, escopo do evento, audit com deviceName; testado E2E: VALID→reverte→audit→401 sem token). Com o commit da Amanda (C3/C7-C9/D1-D5) as 3 superfícies do handoff estão implementadas: A(6/6) B(10/10) C(9/9) D(5/5). Suite completa verde. | Software alinhado ao protótipo. Pendências para público seguem as externas: conta Pagar.me, e-mail real, VPS, app em celular físico. |
+| 2026-07-24 | Arthur + Claude | **Correções do teste do Arthur em navegador próprio**: (1) BUG do 'tempo esgotado' instantâneo — contador nascia em 0 antes da reserva carregar e checkout reusado (reserva CONVERTED) caía na tela errada; agora contador nasce infinito, expirado exige reserva ATIVA com tempo real zerado, e checkout concluído REDIRECIONA para o pedido (token guardado na sessão; caso sem token → tela 'checkout já concluído'). (2) Pix ganhou o botão 'Já fiz o pagamento' do protótipo + faixa explícita 'Ambiente de TESTE: banco simulado aprova em ~20s' (a 'aprovação falsa' era o simulador local — em produção só aprova com dinheiro real). Revalidado E2E no navegador: timer 09:53 correto, aprovação → confirmação, voltar → cai no pedido. | Testes do Arthur seguem; próximo do backlog: C7/C3/C8/C9/D. |
+>>>>>>> 95c398b3273488088364ab76ee639a7627f2de60
 | 2026-07-24 | Amanda + Claude | **C7 (Vendas: pedidos + detalhe + reembolso + PDV) e C8 (Financeiro: saldo/repasses/dados bancários) — Bloco C fechado (C1–C9)**. Backend novo, org-scoped (permissão `FINANCE_VIEW`/`ORDER_REFUND`/`EVENT_CREATE` via `OrgAccessService`, mesmo padrão do dashboard — não passa por `platformRole=ADMIN`): `GET /v1/events/:eventId/orders` (lista paginada, reaproveita `DashboardService.listOrders` já existente), `GET /v1/orders/:orderId/detail` (itens/lote/tipo, pagamentos, ingressos), `POST /v1/orders/:orderId/refund` (`refundOrderSchema` reaproveitado do admin — dispara `getGateway().refund`+`applyGatewayStatus` quando há pagamento real, ou debita o ledger direto quando é venda do PDV sem gateway), `POST /v1/events/:eventId/pdv-orders` (`pdvOrderSchema` novo em `@borafest/contracts`: lote+qtd+comprador — reserva+confirma estoque na mesma transação, pedido nasce `PAID`, credita `SALE_CREDIT`/`PLATFORM_FEE` no ledger com a taxa Pix e reusa o outbox `order.paid` pro worker emitir o ingresso, igual cortesia mas com valor real) e `GET /v1/organizations/:organizationId/payouts` (somente leitura — criação/marcação de pago continuam exclusivas do backoffice ADMIN, confirmado no `arquitetura-borafest.md` §4.5 "admin-web controla saldos/repasses"). Frontend: `apps/producer/app/eventos/[eventId]/vendas` (abas Pedidos/PDV, filtro por status, painel lateral de detalhe, modal de estorno total/parcial com motivo) e `apps/organizacoes/[orgId]/financeiro` restylizado (KPIs saldo/disponível, tabela de lançamentos, tabela de repasses, formulário+lista de contas bancárias) — `tsc --noEmit` limpo em `apps/api` e `apps/producer`. Achados corrigidos nesta sessão: 5 testes de integração quebrados por `OrdersService` ter ganhado um 2º parâmetro (`OrgAccessService`) no construtor — corrigido nos `__tests__`; link duplicado de "Vendas" na página do evento; faltavam anotações de tipo de retorno (`Promise<any>`) em `getOrderDetailForProducer`/`refundOrder` (erro TS2742 de tipo do Prisma não portável, mesmo padrão já usado em `admin.service.ts`). | Bloco C completo (C1–C9). Falta: Bloco D (restyle do app de validação, D1–D5) e revisão de C3 (tabela de "Meus eventos" ainda não restylizada). |
 | 2026-07-24 | Arthur + Claude | **C5 — Dashboard Geral restylizado**: 4 KPIs com tiles coloridos (valor vendido, emitidos, aprovadas com delta verde, pedidos), vendas por lote com barras de progresso, **Check-in ao vivo** (dot pulsante, X/Y presentes, barra, +N/min — polling 10s no checkin-live) com estado vazio, e quebras por status. Validado no navegador com dados reais da sessão (R$604,80; 1/11 presentes). | Restam: C7 (vendas/PDV), C8/C9 e Bloco D. |
 | 2026-07-24 | Arthur + Claude | **C4 — Wizard de criação de evento em 3 etapas** (Dados → Ingressos → Publicar): stepper visual, dados+banner, ingressos com preço final calculado em verde, revisão com hotsite e aviso 'venda começa imediatamente', Publicar/Salvar rascunho — tudo em cima das APIs já testadas; botão 'Criar novo evento' da organização leva ao wizard. Renderização validada no navegador. | Restam do protótipo: C5 (KPIs/gráfico dashboard), C7 (vendas/PDV), C8/C9 (financeiro restyle, divulgue) e Bloco D (telas do app validação). Backlog atualizado. |

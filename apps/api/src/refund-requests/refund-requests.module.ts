@@ -1,10 +1,11 @@
 import { Module } from "@nestjs/common";
-import { RefundRequestsController } from "./refund-requests.controller";
+import { OrganizationRefundRequestsController, RefundRequestsController } from "./refund-requests.controller";
 import { RefundRequestsService } from "./refund-requests.service";
+import { OrgAccessService } from "../common/org-access.service";
 
 @Module({
-  controllers: [RefundRequestsController],
-  providers: [RefundRequestsService],
+  controllers: [RefundRequestsController, OrganizationRefundRequestsController],
+  providers: [RefundRequestsService, OrgAccessService],
   exports: [RefundRequestsService],
 })
 export class RefundRequestsModule {}

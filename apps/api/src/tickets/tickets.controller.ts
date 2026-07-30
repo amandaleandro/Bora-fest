@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Res, UseGuards } from "@nestjs/common";
+import type { FastifyReply } from "fastify";
 import { transferTicketSchema } from "@borafest/contracts";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -12,6 +13,16 @@ export class TicketsController {
   @Get("orders/:publicToken/tickets")
   byOrder(@Param("publicToken") publicToken: string) {
     return this.ticketsService.findByOrderPublicToken(publicToken);
+  }
+
+  @Get("orders/:publicToken/tickets/:ticketId/qr.png")
+  async ticketQrPng(
+    @Param("publicToken") publicToken: string,
+    @Param("ticketId") ticketId: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const png = await this.ticketsService.renderTicketQrPng(publicToken, ticketId);
+    reply.header("content-type", "image/png").header("cache-control", "private, no-store").send(png);
   }
 
   @Get("me/tickets")

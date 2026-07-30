@@ -1,0 +1,17 @@
+{
+  "name": "BoraFest Portaria",
+  "short_name": "Portaria",
+  "description": "Validação de ingressos na entrada do evento.",
+  "start_url": "/portaria",
+  "scope": "/portaria",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0910",
+  "theme_color": "#0b0910",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

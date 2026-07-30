@@ -31,7 +31,6 @@
     }
   },
   "globalPassThroughEnv": [
-    "NODE_ENV",
     "DATABASE_URL",
     "REDIS_URL",
     "SESSION_JWT_SECRET",

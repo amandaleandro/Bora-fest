@@ -95,6 +95,9 @@ export class PagarmeGateway implements PaymentGateway {
   }
 
   async createCardPayment(input: CreateCardPaymentInput): Promise<CardPaymentResult> {
+    if (!input.cardToken) {
+      throw new Error("Pagar.me exige cardToken tokenizado no navegador (pk_)");
+    }
     const order = await this.request<PagarmeOrderResponse>("POST", "/orders", {
       code: input.orderId,
       customer: this.toCustomer(input.customer),

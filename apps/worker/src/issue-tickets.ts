@@ -14,7 +14,7 @@ const log = withContext({ module: "ticket-issuance" });
 export async function issueTicketsForOrder(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { items: true, event: { include: { signingKey: true } } },
+    include: { items: true, attendees: true, event: { include: { signingKey: true } } },
   });
 
   if (!order) {
@@ -29,8 +29,17 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
 
   const signingKey = await ensureSigningKey(order.eventId, order.event.signingKey);
 
+  // participantes nominais informados no checkout, consumidos por lote
+  const attendeesByLot = new Map<string, Array<{ name: string; cpf: string | null }>>();
+  for (const a of order.attendees ?? []) {
+    const list = attendeesByLot.get(a.ticketLotId) ?? [];
+    list.push({ name: a.name, cpf: a.cpf });
+    attendeesByLot.set(a.ticketLotId, list);
+  }
+
   for (const item of order.items) {
     for (let seq = 1; seq <= item.quantity; seq++) {
+      const attendee = attendeesByLot.get(item.ticketLotId)?.[seq - 1];
       const ticketId = randomUuid();
       const qrToken = signTicketToken(
         {
@@ -57,7 +66,8 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
             qrToken,
             status: "ACTIVE",
             attendeeEmail: order.contactEmail,
-            attendeeName: order.contactName,
+            attendeeName: attendee?.name ?? order.contactName,
+            attendeeCpf: attendee?.cpf ?? null,
           },
         });
       } catch (error) {

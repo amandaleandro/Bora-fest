@@ -132,8 +132,34 @@ Privacidade da operação (LGPD operador) acessível no login · Sair
 ## Compliance já refletido nas telas
 Exclusão de conta in-app + LGPD (30 dias) · Sign in with Apple junto ao Google · priming de câmera · consentimento Termos/Privacidade no checkout · DPO privacidade@borafest.com. Pendências de submissão (fora do design): App Privacy labels, ATT se houver pixel/tracking, URLs públicas de política, conta demo de review.
 
-## Fora de escopo desta v1 (design ainda não produzido)
-- **Dark mode** (todas as superfícies) — planejado, não desenhado.
+## Decisões de produto cravadas (v2 — 25 jul 2026)
+1. **Conta única**: identidade = e-mail/telefone + OTP para todos os papéis; senha é upgrade opcional do papel produtor. "Também organizo" ativa o papel na mesma conta (card na Minha Conta do site).
+2. **Repasse**: D+2 do EVENTO, condicionado a KYC aprovado; saque manual a qualquer momento sobre saldo liberado (modal no Financeiro).
+3. **Validação v1 = PWA** com regra inegociável: **sem manifesto local sincronizado, NUNCA aprovar** — mostrar o estado "Não foi possível verificar" (desenhado). React Native fica para a v2.
+4. **Portaria em subdomínio próprio** (`portaria.borafest.com`), fora do domínio do comprador.
+5. **Dark mode: somente na portaria** (já nasce escura). Restante do sistema é light na v1.
+6. **Pós-login do Painel**: v1 é single-organização — login cai direto em "Meus eventos"; a tela "Suas organizações" (multi-produtora) fica para a v2.
+7. **Scanner no iOS**: usar `getUserMedia` + `BarcodeDetector` com fallback jsQR (funciona no Safari ≥11). Se a câmera falhar ou for negada, o fluxo cai na **Busca manual** (já desenhada) — nunca bloquear a operação.
+8. **Notificações do comprador**: os toggles (WhatsApp/e-mail) são preferência de CONTA (sincronizada entre site e app), não do aparelho. Transacional (ingresso, lembrete) sempre ativo; só marketing é opt-in.
+
+## Assets PWA (pasta `pwa-icons/`)
+`icon-192.png`, `icon-512.png`, `icon-maskable-512.png` (safe-zone), `apple-touch-icon-180.png`. Manifest: `"theme_color": "#6d28d9"`, `"background_color": "#f6f5fb"`, display standalone. O estado "nova versão disponível" está desenhado como toast na home do App do Comprador.
+
+## Regra de breakpoint (Site Público)
+- **≥1024px (desktop)**: conteúdo max-width 1160px centrado; checkout e hotsite em 2 colunas — conteúdo à esquerda (flex 1.5), coluna lateral sticky à direita (flex 1, top 92px) com seleção/resumo; header com busca inline.
+- **<1024px (mobile/tablet)**: colunas empilham (a lateral desce como bloco sticky no rodapé), padding lateral 20–24px, header colapsa a busca em ícone. As telas do App do Comprador são a referência visual do site abaixo de 768px.
+- Grid de eventos: 3 colunas → 2 (<1024) → 1 (<640).
+
+## Adições v2 já desenhadas nos protótipos (25 jul 2026)
+- **Site/Checkout**: passo 2 "Participantes" (nome+CPF por ingresso nominal — só setores que exigem; Pista não é nominal) e **consentimento LGPD bloqueante** (checkbox com versão v2026-07; sem ele os botões de pagar ficam desabilitados). Checkout oficial = **3 passos**: Identificação → Participantes → Pagamento.
+- **Site/Minha Conta**: hub desktop completo — Meus ingressos, Minhas compras (reembolso CDC art. 49, nota fiscal), Dados pessoais (com excluir conta) e Privacidade & Termos (v2026-07).
+- **Painel**: efeito do "quem paga a taxa" simulado em R$ (comprador paga vs. você recebe, no wizard); **Solicitar saque** (modal com conta destino, D+2, sem tarifa + estado "saque solicitado"); **Editar evento** publicado (botão no Dashboard → wizard em modo edição com banner "alterações vão ao ar na hora" e "Salvar alterações").
+- **Validação**: 5 resultados de leitura — Válido, Inválido (com MOTIVO específico + "o que dizer ao portador"), Já utilizado (hora + portão do 1º uso), **Cancelado/estornado** (fundo vinho #9f1239) e **"Não foi possível verificar"** (fundo slate #334155 — sem rede e sem manifesto: NUNCA liberar). Nova tela **"Acesso bloqueado"** (bloqueio remoto pelo organizador / sessão expirada; check-ins locais preservados; "Entrar com novo PIN").
+- **App do Comprador**: coleta de **N nomes para N ingressos nominais** (um card por ingresso do Camarote, com "Usar meus dados" no 1º) + toast **"Nova versão disponível"** (PWA) na home.
+- **Painel**: modal **"Convidar para a equipe"** (e-mail + papel Administrador / Gestor do evento / Check-in, convite expira em 7 dias) no card Equipe & logins do Dashboard.
+
+## Fora de escopo desta v1 (design não produzido, decisão consciente)
+- **Dark mode fora da portaria** (v1 é light; portaria já é dark).
 - Tela própria de "Transferir ingresso" e integração real Wallet (botões presentes; em produção chamam APIs nativas/PassKit).
 - Busca com resultados reais, filtros de categoria funcionais (chips são visuais).
 

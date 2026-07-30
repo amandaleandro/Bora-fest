@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { createCheckinSchema, syncCheckinsSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
+import { RateLimit } from "../common/rate-limit.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { ValidatorDeviceGuard } from "../validator/validator-device.guard";
@@ -11,6 +12,8 @@ export class CheckinsController {
   constructor(private readonly checkinsService: CheckinsService) {}
 
   @Post("checkins")
+  // portaria real faz ~1 leitura/seg por aparelho; 240/min cobre o pico com folga
+  @RateLimit({ limit: 240, windowSeconds: 60, keyPrefix: "checkin" })
   @UseGuards(ValidatorDeviceGuard)
   create(@Req() req: any, @Body(ZodBody(createCheckinSchema)) body: unknown) {
     return this.checkinsService.create(req.validatorDevice, body as any);

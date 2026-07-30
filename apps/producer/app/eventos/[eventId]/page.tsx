@@ -85,7 +85,8 @@ function EventContent({ eventId }: { eventId: string }) {
     if (!token) return;
     setError(null);
     try {
-      await eventControls.update(eventId, { bannerUrl: bannerUrl || null }, token);
+      // limpar = omitir a chave (o schema não aceita null)
+      await eventControls.update(eventId, bannerUrl ? { bannerUrl } : {}, token);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao salvar banner");

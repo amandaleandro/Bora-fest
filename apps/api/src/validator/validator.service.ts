@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   Injectable,
@@ -20,6 +21,14 @@ import type {
 } from "@borafest/contracts";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
+
+/** SHA-256 (hex minúsculo) dos 11 dígitos do CPF — o cru nunca sai do servidor. */
+function hashCpf(cpf: string | null): string | null {
+  if (!cpf) return null;
+  const digits = cpf.replace(/\D/g, "");
+  if (!digits) return null;
+  return createHash("sha256").update(digits).digest("hex");
+}
 
 @Injectable()
 export class ValidatorService {
@@ -197,17 +206,84 @@ export class ValidatorService {
         ticketLotId: true,
         checkedInAt: true,
         updatedAt: true,
+        // busca manual por nome na portaria (handoff §4). CPF NÃO vai para o
+        // aparelho: só o hash sai do servidor (minimização LGPD).
+        attendeeName: true,
+        attendeeCpf: true,
       },
+    });
+
+    const lots = await prisma.ticketLot.findMany({
+      where: { ticketType: { eventId: device.eventId } },
+      select: { id: true, name: true, ticketType: { select: { name: true } } },
     });
 
     return {
       manifestVersion: generatedAt.toISOString(),
+      lots: lots.map((l) => ({ id: l.id, name: l.name, typeName: l.ticketType.name })),
       delta: Boolean(since),
       event,
       signingKey: signingKey ?? null,
       ticketCount: tickets.length,
-      tickets,
+      // busca por documento na portaria compara sha256 no aparelho — o CPF cru
+      // nunca sai do servidor.
+      tickets: tickets.map(({ attendeeCpf, ...ticket }) => ({
+        ...ticket,
+        cpfHash: hashCpf(attendeeCpf),
+      })),
     };
+  }
+
+  /** Resumo de portaria pelo próprio aparelho (handoff §4: presentes + por portão). */
+  async summary(device: ValidatorDevice) {
+    const [total, checkedIn, byPoint, points] = await Promise.all([
+      prisma.ticket.count({
+        where: { eventId: device.eventId, status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
+      }),
+      prisma.ticket.count({ where: { eventId: device.eventId, status: "CHECKED_IN" } }),
+      prisma.checkin.groupBy({
+        by: ["checkinPointId"],
+        where: { eventId: device.eventId, status: "CONFIRMED" },
+        _count: { _all: true },
+      }),
+      prisma.checkinPoint.findMany({
+        where: { eventId: device.eventId },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const nameById = new Map(points.map((p) => [p.id, p.name]));
+    return {
+      totalTickets: total,
+      checkedIn,
+      remaining: Math.max(total - checkedIn, 0),
+      byGate: byPoint.map((p) => ({
+        gate: p.checkinPointId ? (nameById.get(p.checkinPointId) ?? "Portão") : "Sem portão",
+        count: p._count._all,
+      })),
+    };
+  }
+
+  /** Últimas entradas confirmadas do evento — alimenta o "Reverter" do resumo. */
+  async recentCheckins(device: ValidatorDevice) {
+    const rows = await prisma.checkin.findMany({
+      where: { eventId: device.eventId, status: "CONFIRMED" },
+      orderBy: { receivedAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        scannedAt: true,
+        ticket: { select: { code: true, attendeeName: true } },
+        checkinPoint: { select: { name: true } },
+      },
+    });
+    return rows.map((r) => ({
+      checkinId: r.id,
+      code: r.ticket.code,
+      name: r.ticket.attendeeName,
+      gate: r.checkinPoint?.name ?? null,
+      at: r.scannedAt,
+    }));
   }
 
   // -------------------------------------------------------------------------

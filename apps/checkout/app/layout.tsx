@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import { SiteHeader, SiteFooter } from "../components/SiteChrome";
+import { SiteFooter, SiteFrame, SiteHeader } from "../components/SiteChrome";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -26,8 +26,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR" className={jakarta.variable}>
       <body className="font-sans">
         <SiteHeader />
-        {/* mobile: moldura 430px · desktop: as páginas controlam a largura */}
-        <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-bg lg:max-w-none">{children}</div>
+        {/* mobile: moldura 430px · desktop: as páginas controlam a largura · portaria: sem moldura */}
+        <SiteFrame>{children}</SiteFrame>
         <SiteFooter />
         {/* SW só em produção — em dev ele cacheia chunks e confunde o hot reload */}
         <script

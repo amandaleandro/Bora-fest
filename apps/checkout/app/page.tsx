@@ -27,9 +27,32 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Todos");
 
+  const [cities, setCities] = useState<Array<{ city: string; state: string }>>([]);
+  // cidade escolhida fica no aparelho; null = todas as cidades
+  const [city, setCity] = useState<string | null>(null);
+  const [cityOpen, setCityOpen] = useState(false);
+
   useEffect(() => {
-    api.listPublicEvents().then(setEvents).catch(() => setEvents([]));
+    api.listPublicCities().then(setCities).catch(() => setCities([]));
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem("bf.cidade") : null;
+    if (saved) setCity(saved);
   }, []);
+
+  useEffect(() => {
+    api
+      .listPublicEventsByCity(city ?? undefined)
+      .then(setEvents)
+      .catch(() => setEvents([]));
+  }, [city]);
+
+  function pickCity(next: string | null) {
+    setCity(next);
+    setCityOpen(false);
+    if (typeof window !== "undefined") {
+      if (next) window.localStorage.setItem("bf.cidade", next);
+      else window.localStorage.removeItem("bf.cidade");
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!events) return [];
@@ -71,9 +94,13 @@ export default function HomePage() {
       <header className="flex items-center justify-between lg:hidden">
         <div>
           <h1 className="text-[22px] font-extrabold">Olá! 👋</h1>
-          <p className="mt-0.5 flex items-center gap-1 text-[13px] font-semibold text-primary">
-            <Icon d={paths.pin} size={14} /> São Paulo, SP
-          </p>
+          <button
+            type="button"
+            onClick={() => setCityOpen((v) => !v)}
+            className="mt-0.5 flex items-center gap-1 text-[13px] font-semibold text-primary"
+          >
+            <Icon d={paths.pin} size={14} /> {city ?? "Todas as cidades"} ▾
+          </button>
         </div>
         <Link
           href="/perfil"
@@ -83,6 +110,33 @@ export default function HomePage() {
           <Icon d={paths.user} size={20} />
         </Link>
       </header>
+
+      {cityOpen && (
+        <div className="mt-3 rounded-2xl border border-line bg-surface p-2 lg:hidden">
+          <button
+            type="button"
+            onClick={() => pickCity(null)}
+            className={`block w-full rounded-xl px-3 py-2 text-left text-[13.5px] font-bold ${city === null ? "bg-primary/10 text-primary" : ""}`}
+          >
+            Todas as cidades
+          </button>
+          {cities.map((c) => (
+            <button
+              key={`${c.city}-${c.state}`}
+              type="button"
+              onClick={() => pickCity(c.city)}
+              className={`block w-full rounded-xl px-3 py-2 text-left text-[13.5px] font-bold ${city === c.city ? "bg-primary/10 text-primary" : ""}`}
+            >
+              {c.city}, {c.state}
+            </button>
+          ))}
+          {cities.length === 0 && (
+            <p className="px-3 py-2 text-[12.5px] font-semibold text-muted">
+              As cidades aparecem aqui conforme os eventos são publicados.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* busca */}
       <div className="mt-5 flex h-[50px] lg:hidden items-center gap-2 rounded-2xl border-[1.5px] border-line-input bg-surface px-4">

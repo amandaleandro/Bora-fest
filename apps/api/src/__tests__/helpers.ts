@@ -61,6 +61,8 @@ export async function cleanupFixtureEvent(organizationId: string) {
     await prisma.ticket.deleteMany({ where: { eventId: event.id } });
     await prisma.refundRequest.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.pushToken.deleteMany({ where: { order: { eventId: event.id } } });
+    await prisma.orderAttendee.deleteMany({ where: { order: { eventId: event.id } } });
+    await prisma.consent.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.orderItem.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.payment.deleteMany({ where: { order: { eventId: event.id } } });
     await prisma.order.deleteMany({ where: { eventId: event.id } });
@@ -69,6 +71,7 @@ export async function cleanupFixtureEvent(organizationId: string) {
     await prisma.ticketLot.deleteMany({ where: { ticketType: { eventId: event.id } } });
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
   }
+  await prisma.payoutRequest.deleteMany({ where: { organizationId } });
   await prisma.ledgerEntry.deleteMany({
     where: { ledgerAccount: { organizationId } },
   });

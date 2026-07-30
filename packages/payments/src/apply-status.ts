@@ -184,6 +184,11 @@ async function creditOrganizationLedger(
 
   const feeCents = computePlatformFeeCents(payment.method, payment.amountCents, organization);
 
+  // fim da janela de reembolso — fato imutável do lançamento; quem decide se
+  // o valor pode ser sacado antes disso é o settlementMode da org NA HORA do
+  // saque (INSTANT paga antecipação sobre a parcela ainda na janela)
+  const availableAt = new Date(Date.now() + organization.refundHoldDays * 24 * 60 * 60 * 1000);
+
   await tx.ledgerEntry.createMany({
     data: [
       {
@@ -192,6 +197,7 @@ async function creditOrganizationLedger(
         amountCents: payment.amountCents,
         referenceType: "payment",
         referenceId: payment.id,
+        availableAt,
       },
       {
         ledgerAccountId: ledgerAccount.id,
