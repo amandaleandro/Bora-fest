@@ -107,6 +107,27 @@ async function main() {
   }
 
   log.info("workers iniciados: reservas, outbox, pagamentos, pedidos, notificações e repasses");
+
+  // desligamento educado: sem isso o Docker espera, desiste e o deploy do
+  // EasyPanel falha com "container is running" na troca de versão
+  const workers = [
+    reservationWorker,
+    outboxWorker,
+    paymentWorker,
+    orderWorker,
+    notificationWorker,
+    autoPayoutsWorker,
+  ];
+  let encerrando = false;
+  async function shutdown(signal: string) {
+    if (encerrando) return;
+    encerrando = true;
+    log.info({ signal }, "encerrando workers…");
+    await Promise.allSettled(workers.map((w) => w.close()));
+    process.exit(0);
+  }
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 main().catch((error) => {
