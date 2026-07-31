@@ -61,6 +61,20 @@ async function bootstrap() {
 
   const port = process.env.API_PORT ? Number(process.env.API_PORT) : 3333;
   await app.listen(port, "0.0.0.0");
+
+  // desligamento educado: sem isso a troca de versão no EasyPanel trava com
+  // "container is running" (mesmo sintoma corrigido no worker)
+  let encerrando = false;
+  const shutdown = async (signal: string) => {
+    if (encerrando) return;
+    encerrando = true;
+    // se o close travar (conexões penduradas), sai mesmo assim em 8s
+    setTimeout(() => process.exit(0), 8000).unref();
+    await app.close().catch(() => undefined);
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 bootstrap();
