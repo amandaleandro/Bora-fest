@@ -4,7 +4,8 @@
 #   docker build -f infra/docker/Dockerfile.backend --target worker -t borafest-worker .
 
 FROM node:20-alpine AS builder
-RUN apk add --no-cache openssl && corepack enable
+RUN apk add --no-cache openssl && corepack enable \
+  && for i in 1 2 3; do corepack prepare pnpm@9.15.0 --activate && break || sleep 5; done
 WORKDIR /repo
 
 # manifests de TODO o workspace primeiro (o lockfile congelado exige todos),

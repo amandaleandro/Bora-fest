@@ -17,7 +17,9 @@ ARG NEXT_PUBLIC_CHECKOUT_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_PANEL_URL=$NEXT_PUBLIC_PANEL_URL
 ENV NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL
-RUN corepack enable
+# baixa o pnpm UMA vez numa camada estável (com retry) — sem isso o corepack
+# baixa no primeiro uso, dentro do install, e uma queda de rede derruba o build
+RUN corepack enable && for i in 1 2 3; do corepack prepare pnpm@9.15.0 --activate && break || sleep 5; done
 WORKDIR /repo
 
 # manifests de TODO o workspace (o lockfile congelado exige todos)
