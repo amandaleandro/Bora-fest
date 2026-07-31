@@ -58,7 +58,7 @@ function LegalContent() {
       </div>
 
       <p className="mt-6 text-center text-[12px] font-medium text-muted">
-        Versão {CONSENT_VERSION} · Encarregado de dados (DPO): <span className="font-bold">privacidade@borafest.com</span>
+        Versão {CONSENT_VERSION} · Encarregado de dados (DPO): <span className="font-bold">privacidade@borafest.com.br</span>
       </p>
     </main>
   );

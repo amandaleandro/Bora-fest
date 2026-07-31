@@ -79,7 +79,7 @@ function AjudaContent() {
       <section className="mt-5 rounded-2xl border border-line bg-surface p-6 text-center">
         <p className="text-[15px] font-extrabold">Não encontrou o que precisava?</p>
         <p className="mt-1 text-[13px] font-semibold text-muted">
-          Fale com o nosso suporte: <span className="font-bold text-primary">suporte@borafest.com</span>
+          Fale com o nosso suporte: <span className="font-bold text-primary">suporte@borafest.com.br</span>
         </p>
       </section>
     </main>

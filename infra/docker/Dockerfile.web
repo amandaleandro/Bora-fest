@@ -10,7 +10,13 @@
 FROM node:20-alpine AS builder
 ARG APP=checkout
 ARG NEXT_PUBLIC_API_URL=http://localhost:3333
+# URLs entre os apps (site ↔ painel) — embutidas no bundle em build-time;
+# sem elas o link do painel sai como localhost em produção
+ARG NEXT_PUBLIC_PANEL_URL=http://localhost:3001
+ARG NEXT_PUBLIC_CHECKOUT_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_PANEL_URL=$NEXT_PUBLIC_PANEL_URL
+ENV NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL
 RUN corepack enable
 WORKDIR /repo
 

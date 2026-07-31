@@ -1,5 +1,7 @@
 "use client";
 
+import { CHECKOUT_URL } from "@/lib/config";
+
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -121,7 +123,7 @@ function NewEventContent() {
     }
   }
 
-  const publicUrl = slug ? `http://localhost:3000/evento/${slug}` : "";
+  const publicUrl = slug ? `${CHECKOUT_URL}/evento/${slug}` : "";
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">

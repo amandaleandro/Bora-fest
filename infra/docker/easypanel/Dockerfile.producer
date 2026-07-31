@@ -1,10 +1,16 @@
-# Gerado para deploy via EasyPanel — APP e NEXT_PUBLIC_API_URL embutidos.
+# Gerado para deploy via EasyPanel — APP e URLs de produção embutidos.
 # Fonte: Dockerfile.web.
 
 FROM node:20-alpine AS builder
 ARG APP=producer
 ARG NEXT_PUBLIC_API_URL=https://api.borafest.com.br
+# URLs entre os apps (site ↔ painel) — embutidas no bundle em build-time;
+# sem elas o link do painel sai como localhost em produção
+ARG NEXT_PUBLIC_PANEL_URL=https://painel.borafest.com.br
+ARG NEXT_PUBLIC_CHECKOUT_URL=https://borafest.com.br
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_PANEL_URL=$NEXT_PUBLIC_PANEL_URL
+ENV NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL
 RUN corepack enable
 WORKDIR /repo
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { CHECKOUT_URL } from "@/lib/config";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -327,13 +329,13 @@ function EventContent({ eventId }: { eventId: string }) {
         <h2 className="text-lg font-semibold">Publicação</h2>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <code className="rounded-lg bg-bg px-3 py-2 text-sm">
-            {`http://localhost:3000/evento/${(dashboard.event as { slug?: string }).slug ?? ""}`}
+            {`${CHECKOUT_URL}/evento/${(dashboard.event as { slug?: string }).slug ?? ""}`}
           </code>
           <button
             type="button"
             className="rounded-lg border border-line-input px-3 py-2 text-sm font-semibold"
             onClick={() => {
-              navigator.clipboard.writeText(`http://localhost:3000/evento/${(dashboard.event as { slug?: string }).slug ?? ""}`);
+              navigator.clipboard.writeText(`${CHECKOUT_URL}/evento/${(dashboard.event as { slug?: string }).slug ?? ""}`);
               setCopied(true); setTimeout(() => setCopied(false), 1500);
             }}
           >

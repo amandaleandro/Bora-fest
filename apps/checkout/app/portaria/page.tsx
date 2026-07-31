@@ -907,7 +907,7 @@ export default function PortariaPage() {
               ],
               [
                 "4. Contato",
-                "Dúvidas sobre dados: privacidade@borafest.com. Política completa em borafest.com/privacidade.",
+                "Dúvidas sobre dados: privacidade@borafest.com.br. Política completa em borafest.com.br/legal.",
               ],
             ].map(([title, body]) => (
               <div key={title} className="rounded-2xl border border-line bg-white px-[18px] py-4">
@@ -1740,7 +1740,7 @@ export default function PortariaPage() {
               Entrar com novo PIN
             </button>
             <a
-              href="mailto:privacidade@borafest.com"
+              href="mailto:privacidade@borafest.com.br"
               className="flex h-12 w-full items-center justify-center rounded-2xl border-[1.5px] border-white/[.18] text-[13px] font-bold text-white/70"
             >
               Falar com o organizador

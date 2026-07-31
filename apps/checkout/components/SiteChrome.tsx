@@ -38,9 +38,18 @@ export function SiteHeader() {
           <a href={`${PANEL}/cadastro`} className="rounded-xl border-[1.5px] border-line-input px-4 py-2 text-[13px] font-bold text-ink">
             Produza seu evento
           </a>
-          <Link href="/perfil" className="rounded-xl bg-primary px-5 py-2 text-[13px] font-extrabold text-white shadow-cta">
-            {signedIn ? "Minha conta" : "Entrar"}
-          </Link>
+          {pathname?.startsWith("/perfil") ? (
+            <span
+              aria-current="page"
+              className="rounded-xl border-[1.5px] border-primary bg-primary/10 px-5 py-2 text-[13px] font-extrabold text-primary"
+            >
+              {signedIn ? "Minha conta" : "Entrar"}
+            </span>
+          ) : (
+            <Link href="/perfil" className="rounded-xl bg-primary px-5 py-2 text-[13px] font-extrabold text-white shadow-cta">
+              {signedIn ? "Minha conta" : "Entrar"}
+            </Link>
+          )}
         </nav>
       </div>
     </header>
@@ -80,7 +89,7 @@ export function SiteFooter() {
             <li><Link href="/legal" className="hover:text-primary">Política de Privacidade</Link></li>
             <li><Link href="/legal?aba=termos" className="hover:text-primary">Termos de Uso</Link></li>
             <li><Link href="/legal?aba=termos" className="hover:text-primary">Meia-entrada</Link></li>
-            <li className="text-muted-3">DPO: privacidade@borafest.com</li>
+            <li><a href="mailto:privacidade@borafest.com.br" className="hover:text-primary">DPO: privacidade@borafest.com.br</a></li>
           </ul>
         </div>
       </div>
