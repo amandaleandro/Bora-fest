@@ -31,8 +31,11 @@ COPY packages/observability/package.json packages/observability/
 COPY packages/payments/package.json packages/payments/
 COPY packages/queues/package.json packages/queues/
 COPY packages/tickets/package.json packages/tickets/
-RUN pnpm install --frozen-lockfile --filter "@borafest/${APP}"
+COPY packages/ui/package.json packages/ui/
+RUN pnpm install --frozen-lockfile --filter "@borafest/${APP}..."
 
+# pacotes internos (@borafest/ui etc.) — os frontends passaram a consumi-los
+COPY packages packages
 COPY apps/${APP} apps/${APP}
 RUN pnpm --filter "@borafest/${APP}" run build
 
