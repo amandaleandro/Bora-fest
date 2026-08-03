@@ -1,11 +1,11 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 import { AppModule } from "./app.module";
+import { UPLOADS_DIR } from "./uploads/uploads.constants";
 
 /**
  * Origens liberadas: em produção, allowlist explícita via CORS_ORIGINS
@@ -65,13 +65,12 @@ async function bootstrap() {
 
   // uploads (banner de evento): multipart limitado + serviço estático dos
   // arquivos gravados em UPLOADS_DIR (volume no deploy)
-  const uploadsDir = process.env.UPLOADS_DIR ?? join(process.cwd(), "uploads");
-  mkdirSync(uploadsDir, { recursive: true });
+  mkdirSync(UPLOADS_DIR, { recursive: true });
   await app.register(multipart as any, {
     limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   });
   await app.register(fastifyStatic as any, {
-    root: uploadsDir,
+    root: UPLOADS_DIR,
     prefix: "/uploads/",
     decorateReply: false,
   });

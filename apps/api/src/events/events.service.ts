@@ -1,12 +1,29 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { randomBytes } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { join } from "node:path";
-import { pipeline } from "node:stream/promises";
+import { unlink, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateEventInput, UpdateEventInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
+import { UPLOADS_DIR } from "../uploads/uploads.constants";
+
+/** Assinatura (magic bytes) dos formatos aceitos — mimetype do multipart é só o que o cliente alegou. */
+const MAGIC_BYTES: Record<string, { ext: string; signature: number[]; offset?: number }> = {
+  "image/jpeg": { ext: "jpg", signature: [0xff, 0xd8, 0xff] },
+  "image/png": { ext: "png", signature: [0x89, 0x50, 0x4e, 0x47] },
+  "image/webp": { ext: "webp", signature: [0x57, 0x45, 0x42, 0x50], offset: 8 },
+};
+
+function detectImageExt(head: Buffer): string | null {
+  for (const { ext, signature, offset = 0 } of Object.values(MAGIC_BYTES)) {
+    if (head.length >= offset + signature.length) {
+      const matches = signature.every((byte, i) => head[offset + i] === byte);
+      if (matches) return ext;
+    }
+  }
+  return null;
+}
 
 function slugify(title: string): string {
   return title
@@ -132,19 +149,27 @@ export class EventsService {
     if (!event) throw new NotFoundException("Evento não encontrado");
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
 
-    const extByMime: Record<string, string> = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-    };
-    const ext = extByMime[file.mimetype];
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.file as AsyncIterable<Buffer>) {
+      chunks.push(chunk);
+    }
+    const content = Buffer.concat(chunks);
+
+    // extensão vem do conteúdo real do arquivo, não do mimetype alegado pelo
+    // cliente na parte multipart (fácil de forjar)
+    const ext = detectImageExt(content);
     if (!ext) {
       throw new BadRequestException("Formato inválido — use JPG, PNG ou WebP");
     }
 
-    const uploadsDir = process.env.UPLOADS_DIR ?? join(process.cwd(), "uploads");
     const name = `evento-${eventId}-${Date.now()}-${randomBytes(4).toString("hex")}.${ext}`;
-    await pipeline(file.file, createWriteStream(join(uploadsDir, name)));
+    await writeFile(join(UPLOADS_DIR, name), content);
+
+    // remove o banner anterior deste evento para não acumular arquivo órfão
+    if (event.bannerUrl) {
+      const previousName = basename(event.bannerUrl);
+      await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
+    }
 
     const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
     const bannerUrl = `${base}/uploads/${name}`;
