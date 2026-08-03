@@ -1,5 +1,9 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 import { AppModule } from "./app.module";
 
@@ -59,8 +63,35 @@ async function bootstrap() {
 
   app.enableCors({ origin: corsOrigins(), credentials: true });
 
+  // uploads (banner de evento): multipart limitado + serviço estático dos
+  // arquivos gravados em UPLOADS_DIR (volume no deploy)
+  const uploadsDir = process.env.UPLOADS_DIR ?? join(process.cwd(), "uploads");
+  mkdirSync(uploadsDir, { recursive: true });
+  await app.register(multipart as any, {
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  });
+  await app.register(fastifyStatic as any, {
+    root: uploadsDir,
+    prefix: "/uploads/",
+    decorateReply: false,
+  });
+
   const port = process.env.API_PORT ? Number(process.env.API_PORT) : 3333;
   await app.listen(port, "0.0.0.0");
+
+  // desligamento educado: sem isso a troca de versão no EasyPanel trava com
+  // "container is running" (mesmo sintoma corrigido no worker)
+  let encerrando = false;
+  const shutdown = async (signal: string) => {
+    if (encerrando) return;
+    encerrando = true;
+    // se o close travar (conexões penduradas), sai mesmo assim em 8s
+    setTimeout(() => process.exit(0), 8000).unref();
+    await app.close().catch(() => undefined);
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 bootstrap();

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { dashboardApi, type Dashboard } from "@/lib/api";
 
@@ -44,8 +43,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
   if (loading || !dashboard) {
     return (
       <main>
-        <Nav />
-        <p className="mt-6 text-muted">Carregando...</p>
+          <p className="mt-6 text-muted">Carregando...</p>
       </main>
     );
   }
@@ -63,8 +61,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
 
   return (
     <main>
-      <Nav />
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-[22px] font-extrabold">{dashboard.event.title} — Geral</h1>
         <Link href={`/eventos/${eventId}`} className="text-sm font-bold text-primary">Gerenciar evento →</Link>
       </div>

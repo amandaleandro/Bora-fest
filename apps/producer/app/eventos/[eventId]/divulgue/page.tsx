@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { dashboardApi, type Dashboard } from "@/lib/api";
 
@@ -23,8 +22,7 @@ function DivulgueContent({ eventId }: { eventId: string }) {
   if (loading || !dashboard) {
     return (
       <main>
-        <Nav />
-        <p className="mt-6 text-muted">Carregando...</p>
+          <p className="mt-6 text-muted">Carregando...</p>
       </main>
     );
   }
@@ -49,7 +47,6 @@ function DivulgueContent({ eventId }: { eventId: string }) {
 
   return (
     <main>
-      <Nav />
       <div className="mt-6 flex items-center justify-between">
         <div>
           <h1 className="text-[22px] font-extrabold">Divulgue</h1>
@@ -72,7 +69,7 @@ function DivulgueContent({ eventId }: { eventId: string }) {
           Compartilhe este link nas suas redes — ele leva direto para a página de compra.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <code className="flex-1 rounded-xl bg-bg px-4 py-3 text-[13px]">{link}</code>
+          <code className="min-w-0 flex-1 break-all rounded-xl bg-bg px-4 py-3 text-[13px]">{link}</code>
           <button
             type="button"
             onClick={copyLink}

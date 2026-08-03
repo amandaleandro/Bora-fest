@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { computePlatformFeeCents } from "@borafest/payments";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateTicketLotInput, CreateTicketTypeInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
@@ -35,17 +36,25 @@ export class CatalogService {
   async createLot(ticketTypeId: string, actorUserId: string, input: CreateTicketLotInput) {
     const ticketType = await prisma.ticketType.findUnique({
       where: { id: ticketTypeId },
-      include: { event: true },
+      include: { event: { include: { organization: true } } },
     });
     if (!ticketType) throw new NotFoundException("Tipo de ingresso não encontrado");
     await this.orgAccess.assertPermission(ticketType.event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+
+    // taxa de serviço é da PLATAFORMA, nunca digitada pelo produtor (decisão
+    // 2026-08-01): mostrado = cobrado = contabilizado. Ingresso grátis não
+    // paga piso.
+    const feeCents =
+      input.priceCents === 0
+        ? 0
+        : computePlatformFeeCents("PIX", input.priceCents, ticketType.event.organization);
 
     return prisma.ticketLot.create({
       data: {
         ticketTypeId,
         name: input.name,
         priceCents: input.priceCents,
-        feeCents: input.feeCents,
+        feeCents,
         capacity: input.capacity,
         maxPerOrder: input.maxPerOrder,
         feeMode: input.feeMode ?? "BUYER",

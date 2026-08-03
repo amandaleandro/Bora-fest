@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { dashboardApi, ordersApi, type Dashboard, type OrderSummary, type OrderDetail } from "@/lib/api";
 
@@ -188,8 +187,7 @@ function VendasContent({ eventId }: { eventId: string }) {
 
   return (
     <main>
-      <Nav />
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-[22px] font-extrabold">
           {dashboard?.event.title ?? "Evento"} — Vendas
         </h1>
@@ -248,8 +246,8 @@ function VendasContent({ eventId }: { eventId: string }) {
             </div>
           ) : (
             <>
-              <div className="mt-4 overflow-hidden rounded-2xl border border-line bg-surface">
-                <table className="w-full text-left text-[13px]">
+              <div className="mt-4 overflow-x-auto rounded-2xl border border-line bg-surface">
+                <table className="w-full min-w-[720px] text-left text-[13px]">
                   <thead>
                     <tr className="border-b border-line bg-bg/60 text-[12px] font-bold text-muted">
                       <th className="px-5 py-3">Comprador</th>
@@ -290,7 +288,7 @@ function VendasContent({ eventId }: { eventId: string }) {
                     type="button"
                     disabled={page <= 1}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="rounded-lg border border-line px-3 py-1.5 disabled:opacity-40"
+                    className="rounded-lg border border-line px-3 py-1.5 disabled:text-muted-3"
                   >
                     Anterior
                   </button>
@@ -301,7 +299,7 @@ function VendasContent({ eventId }: { eventId: string }) {
                     type="button"
                     disabled={page >= totalPages}
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="rounded-lg border border-line px-3 py-1.5 disabled:opacity-40"
+                    className="rounded-lg border border-line px-3 py-1.5 disabled:text-muted-3"
                   >
                     Próxima
                   </button>
@@ -364,7 +362,7 @@ function VendasContent({ eventId }: { eventId: string }) {
               type="button"
               onClick={submitPdvSale}
               disabled={!pdvLotId || pdvLoading}
-              className="rounded-lg bg-primary px-4 py-2.5 text-[13px] font-bold text-white disabled:opacity-40"
+              className="btn-primary rounded-lg"
             >
               {pdvLoading ? "Registrando..." : "Registrar venda"}
             </button>

@@ -40,4 +40,4 @@ WORKDIR /repo
 COPY --from=builder /repo .
 EXPOSE 3333
 # sem serviço "migrate" no EasyPanel: migrações + seed (idempotentes) rodam no boot
-CMD ["sh", "-c", "cd packages/database && npx prisma migrate deploy && npx tsx src/seed.ts && cd ../.. && node apps/api/dist/main.js"]
+CMD ["sh", "-c", "cd packages/database && npx prisma migrate deploy && npx tsx src/seed.ts && cd ../.. && exec node apps/api/dist/main.js"]

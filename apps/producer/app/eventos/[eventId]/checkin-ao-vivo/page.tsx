@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { dashboardApi, validatorConfigApi, type CheckinLive, type CheckinPoint } from "@/lib/api";
 
@@ -32,8 +31,7 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
   if (loading || !live) {
     return (
       <main>
-        <Nav />
-        <p className="mt-6 text-muted">Carregando...</p>
+          <p className="mt-6 text-muted">Carregando...</p>
       </main>
     );
   }
@@ -42,8 +40,7 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
 
   return (
     <main>
-      <Nav />
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="flex items-center gap-2 text-[22px] font-extrabold">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-success" />

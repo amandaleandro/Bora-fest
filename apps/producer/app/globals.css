@@ -8,6 +8,24 @@ body {
   color: #16121f;
 }
 
+/*
+ * Botões e chips do painel definidos UMA vez (contraste AA nos estados normal
+ * e desabilitado sobre o fundo claro). Utilitários no elemento (px-*, py-*)
+ * ainda vencem, então dá para ajustar tamanho pontualmente.
+ */
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-[13px] font-bold text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-line disabled:text-muted;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[13px] font-bold text-ink transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:border-line disabled:bg-surface disabled:text-muted;
+  }
+  /* Chip de navegação rápida (página do evento). */
+  .chip-nav {
+    @apply inline-flex items-center rounded-xl border border-line-input bg-surface px-4 py-2 text-[13px] font-bold text-ink transition-colors hover:border-primary/50 hover:text-primary;
+  }
+}
+
 /* Fallback para os campos que ainda não recebem classes utilitárias. */
 input:not([type="checkbox"]):not([type="radio"]),
 select,

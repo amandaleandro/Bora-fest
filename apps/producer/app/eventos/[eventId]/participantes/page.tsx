@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { dashboardApi, type Participant } from "@/lib/api";
 
@@ -51,20 +50,14 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
 
   return (
     <main>
-      <Nav />
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-extrabold">Participantes</h1>
           <Link href={`/eventos/${eventId}`} className="text-[13px] font-bold text-primary">
             Voltar ao evento →
           </Link>
         </div>
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={exporting}
-          className="rounded-xl bg-primary px-4 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
-        >
+        <button type="button" onClick={handleExport} disabled={exporting} className="btn-primary">
           {exporting ? "Exportando..." : "Exportar CSV"}
         </button>
       </div>
@@ -88,8 +81,8 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
           </p>
         </div>
       ) : (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-line bg-surface">
-          <table className="w-full text-left text-[13px]">
+        <div className="mt-6 overflow-x-auto rounded-2xl border border-line bg-surface">
+          <table className="w-full min-w-[640px] text-left text-[13px]">
             <thead>
               <tr className="border-b border-line bg-bg/60 text-[12px] font-bold text-muted">
                 <th className="px-5 py-3">Código</th>

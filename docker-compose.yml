@@ -68,6 +68,9 @@ services:
       PLATFORM_CARD_FEE_BPS: ${PLATFORM_CARD_FEE_BPS:-699}
       ANTICIPATION_FEE_BPS_MONTHLY: ${ANTICIPATION_FEE_BPS_MONTHLY:-125}
       AUTO_PAYOUT_MIN_CENTS: ${AUTO_PAYOUT_MIN_CENTS:-5000}
+      UPLOADS_DIR: /repo/uploads
+    volumes:
+      - borafest_uploads:/repo/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,3 +127,4 @@ services:
 volumes:
   borafest_pg:
   borafest_redis:
+  borafest_uploads:

@@ -102,8 +102,16 @@ interface NavLink {
 
 function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
   const eventsHref = organizationId ? `/organizacoes/${organizationId}` : "/organizacoes";
-  const financeHref = organizationId ? `/organizacoes/${organizationId}/financeiro` : "/organizacoes";
-  const refundsHref = organizationId ? `/organizacoes/${organizationId}/reembolsos` : "/organizacoes";
+
+  // Sem organização carregada, Financeiro/Reembolsos apontariam todos para
+  // "/organizacoes" — mesmos hrefs (e keys) de "Meus eventos", o que duplicava
+  // itens na faixa mobile enquanto o contexto carregava. Só entram com o id.
+  const orgLinks: NavLink[] = organizationId
+    ? [
+        { href: `/organizacoes/${organizationId}/financeiro`, icon: icons.card, label: "Financeiro" },
+        { href: `/organizacoes/${organizationId}/reembolsos`, icon: icons.card, label: "Reembolsos" },
+      ]
+    : [];
 
   const manage: NavLink[] = event
     ? [
@@ -111,15 +119,11 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
         { href: `/eventos/${event.id}`, icon: icons.ticket, label: "Ingressos" },
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
         { href: `/eventos/${event.id}/vendas`, icon: icons.cart, label: "Vendas" },
-        { href: financeHref, icon: icons.card, label: "Financeiro" },
-        { href: refundsHref, icon: icons.card, label: "Reembolsos" },
+        ...orgLinks,
         { href: `/eventos/${event.id}/participantes`, icon: icons.people, label: "Participantes" },
         { href: `/eventos/${event.id}/portaria`, icon: icons.scan, label: "Check-in" },
       ]
-    : [
-        { href: financeHref, icon: icons.card, label: "Financeiro" },
-        { href: refundsHref, icon: icons.card, label: "Reembolsos" },
-      ];
+    : orgLinks;
 
   return { eventsHref, manage };
 }
@@ -191,7 +195,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
       ) : null}
 
       {manage.map((link) => (
-        <Item key={link.href} {...link} active={pathname === link.href} />
+        <Item key={link.label} {...link} active={pathname === link.href} />
       ))}
 
       <div className="flex-1" />
@@ -221,7 +225,7 @@ export function SidebarStrip({ event, organizationId }: { event?: SidebarEventIn
     <nav className="flex gap-1.5 overflow-x-auto bg-sidebar px-4 py-2.5 lg:hidden">
       {links.map((link) => (
         <Link
-          key={link.href}
+          key={link.label}
           href={link.href}
           className={`flex shrink-0 items-center gap-2 rounded-[11px] px-3 py-2 text-[12px] ${
             pathname === link.href ? itemOn : itemOff

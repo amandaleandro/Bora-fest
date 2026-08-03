@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
 import { createEventSchema, updateEventSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
@@ -31,6 +42,17 @@ export class EventsController {
     @Body(ZodBody(updateEventSchema)) body: unknown,
   ) {
     return this.eventsService.update(id, userId, body as any);
+  }
+
+  @Post("v1/events/:id/banner")
+  async uploadBanner(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Req() req: FastifyRequest,
+  ) {
+    const file = await (req as any).file();
+    if (!file) throw new BadRequestException("Envie o arquivo no campo 'file'");
+    return this.eventsService.uploadBanner(id, userId, file);
   }
 
   @Post("v1/events/:id/publish")
