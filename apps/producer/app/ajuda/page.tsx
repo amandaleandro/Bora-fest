@@ -61,7 +61,7 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
 
 function AjudaContent() {
   return (
-    <main>
+    <main className="mx-auto w-full max-w-[900px] px-5 pb-10">
       <Nav />
       <div className="mt-6">
         <h1 className="text-[22px] font-extrabold">Ajuda</h1>

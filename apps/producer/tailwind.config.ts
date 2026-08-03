@@ -6,6 +6,13 @@ const config: Config = {
     extend: {
       colors: {
         primary: { DEFAULT: "#6d28d9", hover: "#5b21b6" },
+        /*
+         * Alias legado: telas antigas usavam `bg-brand` + `text-brand-dark`
+         * (paleta do tema escuro). Sem estas chaves o Tailwind não gera as
+         * classes e os botões ficavam transparentes/ilegíveis. `brand` vira
+         * o primário e `brand-dark` é a cor de TEXTO usada sobre bg-brand.
+         */
+        brand: { DEFAULT: "#6d28d9", hover: "#5b21b6", dark: "#ffffff" },
         ink: { DEFAULT: "#16121f", soft: "#544e60" },
         muted: { DEFAULT: "#6b6577", 2: "#8b8598", 3: "#a49eb0" },
         bg: { DEFAULT: "#f6f5fb", dark: "#0b0910" },

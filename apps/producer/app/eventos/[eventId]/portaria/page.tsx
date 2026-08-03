@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { validatorConfigApi, type CheckinPoint, type ValidatorDevice } from "@/lib/api";
 
@@ -68,29 +67,24 @@ function PortariaContent({ eventId }: { eventId: string }) {
 
   return (
     <main>
-      <Nav />
-      <h1 className="mt-6 text-xl font-semibold">Portaria e validadores</h1>
+      <h1 className="mt-2 text-xl font-extrabold">Portaria e validadores</h1>
 
-      {error ? <p className="mt-4 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-4 text-sm font-semibold text-danger">{error}</p> : null}
 
       <section className="mt-6">
-        <h2 className="text-sm font-medium text-gray-300">Portões</h2>
+        <h2 className="text-sm font-bold">Portões</h2>
         <div className="mt-2 flex gap-2">
           <input
             placeholder="Nome do portão (ex.: Portão A)"
-            className="flex-1"
+            className="min-w-0 flex-1"
             value={pointName}
             onChange={(e) => setPointName(e.target.value)}
           />
-          <button
-            type="button"
-            className="rounded-lg bg-brand px-4 text-sm font-semibold text-brand-dark"
-            onClick={handleCreatePoint}
-          >
+          <button type="button" className="btn-primary" onClick={handleCreatePoint}>
             Adicionar
           </button>
         </div>
-        <ul className="mt-3 space-y-1 text-sm text-gray-300">
+        <ul className="mt-3 space-y-1 text-sm font-semibold">
           {points.map((point) => (
             <li key={point.id}>{point.name}</li>
           ))}
@@ -98,25 +92,21 @@ function PortariaContent({ eventId }: { eventId: string }) {
       </section>
 
       <section className="mt-8">
-        <h2 className="text-sm font-medium text-gray-300">Gerar PIN para a equipe de portaria</h2>
+        <h2 className="text-sm font-bold">Gerar PIN para a equipe de portaria</h2>
         <div className="mt-2 flex gap-2">
           <input
             placeholder="Rótulo (ex.: Equipe portão A)"
-            className="flex-1"
+            className="min-w-0 flex-1"
             value={credentialLabel}
             onChange={(e) => setCredentialLabel(e.target.value)}
           />
-          <button
-            type="button"
-            className="rounded-lg bg-brand px-4 text-sm font-semibold text-brand-dark"
-            onClick={handleCreateCredential}
-          >
+          <button type="button" className="btn-primary" onClick={handleCreateCredential}>
             Gerar PIN
           </button>
         </div>
         {generatedPin ? (
-          <div className="mt-3 rounded-lg bg-amber-900/40 p-4">
-            <p className="text-sm text-amber-200">
+          <div className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-4">
+            <p className="text-sm font-semibold text-warning">
               PIN para <strong>{generatedPin.label}</strong> — anote agora, não será mostrado de novo:
             </p>
             <p className="mt-2 text-3xl font-bold tracking-widest">{generatedPin.pin}</p>
@@ -125,43 +115,45 @@ function PortariaContent({ eventId }: { eventId: string }) {
       </section>
 
       <section className="mt-8">
-        <h2 className="text-sm font-medium text-gray-300">Aparelhos registrados</h2>
+        <h2 className="text-sm font-bold">Aparelhos registrados</h2>
         {loading ? (
-          <p className="mt-2 text-gray-400">Carregando...</p>
+          <p className="mt-2 text-muted">Carregando...</p>
         ) : (
-          <table className="mt-2">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Status</th>
-                <th>Registrado em</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {devices.map((device) => (
-                <tr key={device.id}>
-                  <td>{device.name}</td>
-                  <td>{device.status}</td>
-                  <td>{new Date(device.registeredAt).toLocaleString("pt-BR")}</td>
-                  <td>
-                    {device.status === "ACTIVE" ? (
-                      <button
-                        type="button"
-                        className="text-red-400 underline"
-                        onClick={() => handleBlockDevice(device.id)}
-                      >
-                        Bloquear
-                      </button>
-                    ) : null}
-                  </td>
+          <div className="mt-2 overflow-x-auto rounded-xl border border-line bg-surface">
+            <table className="w-full min-w-[520px] text-left text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-[12px] font-bold text-muted">
+                  <th className="px-4 py-3">Nome</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Registrado em</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {devices.map((device) => (
+                  <tr key={device.id} className="border-b border-line last:border-0">
+                    <td className="px-4 py-3 font-semibold">{device.name}</td>
+                    <td className="px-4 py-3 text-muted">{device.status}</td>
+                    <td className="px-4 py-3 text-muted">{new Date(device.registeredAt).toLocaleString("pt-BR")}</td>
+                    <td className="px-4 py-3">
+                      {device.status === "ACTIVE" ? (
+                        <button
+                          type="button"
+                          className="font-bold text-danger underline"
+                          onClick={() => handleBlockDevice(device.id)}
+                        >
+                          Bloquear
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {!loading && devices.length === 0 ? (
-          <p className="mt-2 text-gray-500">Nenhum aparelho registrado ainda.</p>
+          <p className="mt-2 text-sm font-semibold text-muted">Nenhum aparelho registrado ainda.</p>
         ) : null}
       </section>
     </main>

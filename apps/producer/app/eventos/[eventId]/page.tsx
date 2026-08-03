@@ -5,13 +5,38 @@ import { CHECKOUT_URL } from "@/lib/config";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
-import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, type Dashboard } from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+
+/** Aceita "49,90" e "49.90". Inválido/vazio → 0. */
+function parsePriceCents(value: string): number {
+  const n = Number(value.trim().replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+}
+
+/**
+ * Espelho (só para exibição) da taxa calculada pelo SERVIDOR:
+ * 4,99% do preço com piso de R$ 2,49; ingresso grátis = taxa 0.
+ */
+function serviceFeeCents(priceCents: number): number {
+  if (priceCents <= 0) return 0;
+  return Math.max(Math.round(priceCents * 0.0499), 249);
+}
+
+const BANNER_MAX_BYTES = 5 * 1024 * 1024;
+const BANNER_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
+  DRAFT: { bg: "bg-warning/10", fg: "text-warning", label: "Rascunho" },
+  PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
+  SALES_PAUSED: { bg: "bg-warning/10", fg: "text-warning", label: "Vendas pausadas" },
+  UNPUBLISHED: { bg: "bg-line", fg: "text-muted", label: "Despublicado" },
+  CANCELLED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
+};
 
 interface LocalTicketType {
   id: string;
@@ -40,11 +65,12 @@ function EventContent({ eventId }: { eventId: string }) {
   const [courtesyName, setCourtesyName] = useState("");
   const [courtesyEmail, setCourtesyEmail] = useState("");
   const [bannerUrl, setBannerUrl] = useState("");
+  const [bannerUploading, setBannerUploading] = useState(false);
+  const [bannerError, setBannerError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [lotTypeId, setLotTypeId] = useState("");
   const [lotName, setLotName] = useState("");
   const [lotPrice, setLotPrice] = useState("");
-  const [lotFee, setLotFee] = useState("");
   const [lotCapacity, setLotCapacity] = useState("");
 
   // Tipos conhecidos = os criados nesta sessão + os que já têm lote (o
@@ -63,7 +89,7 @@ function EventContent({ eventId }: { eventId: string }) {
     try {
       const d = await dashboardApi.get(token, eventId);
       setDashboard(d);
-      setBannerUrl((d.event as { bannerUrl?: string | null }).bannerUrl ?? "");
+      setBannerUrl(d.event.bannerUrl ?? "");
       couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
       complimentaryApi.list(eventId, token).then(setCourtesies).catch(() => {});
     } finally {
@@ -83,15 +109,27 @@ function EventContent({ eventId }: { eventId: string }) {
     }
   }
 
-  async function saveBanner() {
-    if (!token) return;
-    setError(null);
+  async function handleBannerFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite escolher o mesmo arquivo de novo
+    if (!file || !token) return;
+    setBannerError(null);
+    if (!BANNER_TYPES.includes(file.type)) {
+      setBannerError("Formato não aceito — envie uma imagem JPG, PNG ou WebP.");
+      return;
+    }
+    if (file.size > BANNER_MAX_BYTES) {
+      setBannerError(`Imagem muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB) — o limite é 5 MB.`);
+      return;
+    }
+    setBannerUploading(true);
     try {
-      // limpar = omitir a chave (o schema não aceita null)
-      await eventControls.update(eventId, bannerUrl ? { bannerUrl } : {}, token);
-      await load();
+      const result = await eventControls.uploadBanner(eventId, file, token);
+      setBannerUrl(result.bannerUrl);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao salvar banner");
+      setBannerError(err instanceof Error ? err.message : "Falha ao enviar o banner — tente de novo.");
+    } finally {
+      setBannerUploading(false);
     }
   }
 
@@ -163,17 +201,19 @@ function EventContent({ eventId }: { eventId: string }) {
     if (!token || !lotTypeId) return;
     setError(null);
     try {
+      const priceCents = parsePriceCents(lotPrice);
       const lot = await catalogApi.createLot(token, lotTypeId, {
         name: lotName,
-        priceCents: Math.round(Number(lotPrice) * 100),
-        feeCents: Math.round(Number(lotFee || "0") * 100),
+        priceCents,
+        // A taxa é CALCULADA PELO SERVIDOR; este valor é ignorado lá,
+        // mandamos o espelho só para satisfazer o contrato do schema.
+        feeCents: serviceFeeCents(priceCents),
         capacity: Number(lotCapacity),
       });
       await catalogApi.activateLot(token, lot.id);
       setShowLotForm(false);
       setLotName("");
       setLotPrice("");
-      setLotFee("");
       setLotCapacity("");
       await load();
     } catch (err) {
@@ -184,65 +224,63 @@ function EventContent({ eventId }: { eventId: string }) {
   if (loading || !dashboard) {
     return (
       <main>
-        <Nav />
-        <p className="mt-6 text-gray-400">Carregando...</p>
+        <p className="mt-6 text-muted">Carregando...</p>
       </main>
     );
   }
 
+  const statusStyle = STATUS_STYLES[dashboard.event.status] ?? { bg: "bg-line", fg: "text-muted", label: dashboard.event.status };
+
   return (
     <main>
-      <Nav />
-      <div className="mt-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">{dashboard.event.title}</h1>
-        <span className="rounded-full bg-gray-800 px-3 py-1 text-xs">{dashboard.event.status}</span>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-extrabold">{dashboard.event.title}</h1>
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusStyle.bg} ${statusStyle.fg}`}>
+          {statusStyle.label}
+        </span>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-3 text-sm">
+      <div className="mt-4 flex flex-wrap gap-2">
         {dashboard.event.status === "DRAFT" ? (
-          <button
-            type="button"
-            className="rounded-lg bg-brand px-4 py-2 font-semibold text-brand-dark"
-            onClick={handlePublish}
-          >
+          <button type="button" className="btn-primary" onClick={handlePublish}>
             Publicar evento
           </button>
         ) : null}
-        <Link href={`/eventos/${eventId}/dashboard`} className="rounded-lg bg-gray-800 px-4 py-2">
+        <Link href={`/eventos/${eventId}/dashboard`} className="chip-nav">
           Dashboard de vendas
         </Link>
-        <Link href={`/eventos/${eventId}/vendas`} className="rounded-lg bg-gray-800 px-4 py-2">
+        <Link href={`/eventos/${eventId}/vendas`} className="chip-nav">
           Vendas
         </Link>
-        <Link href={`/eventos/${eventId}/participantes`} className="rounded-lg bg-gray-800 px-4 py-2">
+        <Link href={`/eventos/${eventId}/participantes`} className="chip-nav">
           Participantes
         </Link>
-        <Link href={`/eventos/${eventId}/portaria`} className="rounded-lg bg-gray-800 px-4 py-2">
+        <Link href={`/eventos/${eventId}/portaria`} className="chip-nav">
           Portaria/validadores
         </Link>
-        <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="rounded-lg bg-gray-800 px-4 py-2">
+        <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="chip-nav">
           Check-in ao vivo
         </Link>
-        <Link href={`/eventos/${eventId}/divulgue`} className="rounded-lg bg-gray-800 px-4 py-2">
+        <Link href={`/eventos/${eventId}/divulgue`} className="chip-nav">
           Divulgue
         </Link>
       </div>
 
-      {error ? <p className="mt-4 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-4 text-sm font-semibold text-danger">{error}</p> : null}
 
-      <div className="mt-8 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Ingressos</h2>
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-extrabold">Ingressos</h2>
         <div className="flex gap-2">
           <button
             type="button"
-            className="rounded-lg bg-gray-800 px-3 py-1.5 text-sm"
+            className="btn-secondary px-3 py-1.5"
             onClick={() => setShowTypeForm((v) => !v)}
           >
             + Tipo de ingresso
           </button>
           <button
             type="button"
-            className="rounded-lg bg-gray-800 px-3 py-1.5 text-sm"
+            className="btn-secondary px-3 py-1.5"
             onClick={() => setShowLotForm((v) => !v)}
             disabled={knownTypes.length === 0}
           >
@@ -255,22 +293,18 @@ function EventContent({ eventId }: { eventId: string }) {
         <div className="mt-3 flex gap-2">
           <input
             placeholder="Nome (ex.: Pista, VIP)"
-            className="flex-1"
+            className="min-w-0 flex-1"
             value={typeName}
             onChange={(e) => setTypeName(e.target.value)}
           />
-          <button
-            type="button"
-            className="rounded-lg bg-brand px-4 text-sm font-semibold text-brand-dark"
-            onClick={handleCreateType}
-          >
+          <button type="button" className="btn-primary" onClick={handleCreateType}>
             Criar
           </button>
         </div>
       ) : null}
 
       {showLotForm ? (
-        <div className="mt-3 space-y-2 rounded-lg bg-gray-800/60 p-4">
+        <div className="mt-3 space-y-2 rounded-2xl border border-line bg-surface p-4">
           <select className="w-full" value={lotTypeId} onChange={(e) => setLotTypeId(e.target.value)}>
             <option value="">Selecione o tipo de ingresso</option>
             {knownTypes.map((type) => (
@@ -283,21 +317,27 @@ function EventContent({ eventId }: { eventId: string }) {
           <div className="flex gap-2">
             <input
               placeholder="Preço (R$)"
-              className="w-full"
+              className="w-full min-w-0"
+              inputMode="decimal"
               value={lotPrice}
               onChange={(e) => setLotPrice(e.target.value)}
             />
-            <input placeholder="Taxa (R$)" className="w-full" value={lotFee} onChange={(e) => setLotFee(e.target.value)} />
             <input
               placeholder="Capacidade"
-              className="w-full"
+              className="w-full min-w-0"
+              inputMode="numeric"
               value={lotCapacity}
               onChange={(e) => setLotCapacity(e.target.value)}
             />
           </div>
+          <p className="rounded-lg bg-bg px-3 py-2 text-[13px] font-semibold text-ink-soft">
+            Taxa de serviço (automática):{" "}
+            <strong className="text-ink">{formatCents(serviceFeeCents(parsePriceCents(lotPrice)))}</strong> — cobrada
+            do comprador
+          </p>
           <button
             type="button"
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
+            className="btn-primary"
             onClick={handleCreateLot}
             disabled={!lotTypeId || !lotName || !lotPrice || !lotCapacity}
           >
@@ -306,36 +346,36 @@ function EventContent({ eventId }: { eventId: string }) {
         </div>
       ) : null}
 
-      <div className="mt-4 space-y-4">
-        {dashboard.lots.length === 0 ? <p className="text-gray-500">Nenhum lote criado ainda.</p> : null}
+      <div className="mt-4 space-y-3">
+        {dashboard.lots.length === 0 ? <p className="text-sm font-semibold text-muted">Nenhum lote criado ainda.</p> : null}
         {dashboard.lots.map((lot) => (
-          <div key={lot.id} className="rounded-lg bg-gray-800/60 px-4 py-3">
-            <div className="flex items-center justify-between">
+          <div key={lot.id} className="rounded-xl border border-line bg-surface px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <div>
-                <p className="font-medium">
+                <p className="font-bold">
                   {lot.typeName} — {lot.name}
                 </p>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-muted">
                   {formatCents(lot.priceCents)} + taxa {formatCents(lot.feeCents)} · {lot.sold}/{lot.capacity} vendidos
                 </p>
               </div>
-              <span className="text-xs text-gray-400">{lot.status}</span>
+              <span className="text-xs font-bold text-muted">{lot.status}</span>
             </div>
           </div>
         ))}
       </div>
-      {/* --- Publicação (protótipo: URL + toggle + banner) ------------------ */}
+      {/* --- Publicação (link público + pausar/reabrir + banner) ------------ */}
       <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
-        <h2 className="text-lg font-semibold">Publicação</h2>
+        <h2 className="text-lg font-extrabold">Publicação</h2>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <code className="rounded-lg bg-bg px-3 py-2 text-sm">
-            {`${CHECKOUT_URL}/evento/${(dashboard.event as { slug?: string }).slug ?? ""}`}
+          <code className="max-w-full break-all rounded-lg bg-bg px-3 py-2 text-sm">
+            {`${CHECKOUT_URL}/evento/${dashboard.event.slug}`}
           </code>
           <button
             type="button"
-            className="rounded-lg border border-line-input px-3 py-2 text-sm font-semibold"
+            className="btn-secondary px-3 py-2"
             onClick={() => {
-              navigator.clipboard.writeText(`${CHECKOUT_URL}/evento/${(dashboard.event as { slug?: string }).slug ?? ""}`);
+              navigator.clipboard.writeText(`${CHECKOUT_URL}/evento/${dashboard.event.slug}`);
               setCopied(true); setTimeout(() => setCopied(false), 1500);
             }}
           >
@@ -345,22 +385,39 @@ function EventContent({ eventId }: { eventId: string }) {
             <button
               type="button"
               onClick={togglePublication}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold text-white ${dashboard.event.status === "PUBLISHED" ? "bg-warning" : "bg-success"}`}
+              className={`rounded-lg px-3 py-2 text-sm font-bold text-white ${dashboard.event.status === "PUBLISHED" ? "bg-warning" : "bg-success"}`}
             >
               {dashboard.event.status === "PUBLISHED" ? "Pausar vendas" : "Reabrir vendas"}
             </button>
           )}
         </div>
-        <div className="mt-4 flex gap-2">
-          <input
-            placeholder="URL do banner do evento (imagem)"
-            className="flex-1 rounded-lg border border-line-input px-3 py-2 text-sm"
-            value={bannerUrl}
-            onChange={(e) => setBannerUrl(e.target.value)}
-          />
-          <button type="button" onClick={saveBanner} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">
-            Salvar banner
-          </button>
+
+        <div className="mt-5">
+          <h3 className="text-[13px] font-extrabold">Banner do evento</h3>
+          <div className="mt-2 aspect-video w-full max-w-md overflow-hidden rounded-xl border border-line bg-bg">
+            {bannerUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- domínio do banner é dinâmico
+              <img src={bannerUrl} alt="Banner do evento" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-[13px] font-semibold text-muted">
+                Nenhum banner ainda
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className={`btn-secondary cursor-pointer ${bannerUploading ? "pointer-events-none opacity-60" : ""}`}>
+              {bannerUploading ? "Enviando…" : bannerUrl ? "Trocar banner" : "Adicionar banner"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={bannerUploading}
+                onChange={handleBannerFile}
+              />
+            </label>
+            <span className="text-[12px] font-semibold text-muted">JPG, PNG ou WebP · até 5 MB · ideal 1600×900</span>
+          </div>
+          {bannerError ? <p className="mt-2 text-[13px] font-semibold text-danger">{bannerError}</p> : null}
         </div>
       </section>
 
@@ -375,14 +432,14 @@ function EventContent({ eventId }: { eventId: string }) {
           </select>
           <input placeholder={couponType === "PERCENT" ? "% (1-100)" : "Valor R$"} className="w-28 rounded-lg border border-line-input px-3 py-2 text-sm" value={couponValue} onChange={(e) => setCouponValue(e.target.value)} />
           <input placeholder="Limite de usos" className="w-32 rounded-lg border border-line-input px-3 py-2 text-sm" value={couponMax} onChange={(e) => setCouponMax(e.target.value)} />
-          <button type="button" onClick={createCoupon} disabled={!couponCode || !couponValue} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+          <button type="button" onClick={createCoupon} disabled={!couponCode || !couponValue} className="btn-primary px-4 py-2">
             Criar cupom
           </button>
         </div>
         <div className="mt-4 space-y-2">
           {coupons.length === 0 && <p className="text-sm text-muted">Nenhum cupom ainda.</p>}
           {coupons.map((c) => (
-            <div key={c.id} className="flex items-center justify-between rounded-lg bg-bg px-4 py-2.5 text-sm">
+            <div key={c.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-bg px-4 py-2.5 text-sm">
               <span className="font-bold">{c.code}</span>
               <span>{c.discountType === "PERCENT" ? `−${c.discountValue}%` : `−${formatCents(c.discountValue)}`}</span>
               <span className="text-muted">{c.redeemedCount}{c.maxRedemptions ? `/${c.maxRedemptions}` : ""} usados</span>
@@ -411,14 +468,14 @@ function EventContent({ eventId }: { eventId: string }) {
           <input placeholder="Qtd" className="w-16 rounded-lg border border-line-input px-3 py-2 text-sm" value={courtesyQty} onChange={(e) => setCourtesyQty(e.target.value)} />
           <input placeholder="Nome do convidado" className="w-44 rounded-lg border border-line-input px-3 py-2 text-sm" value={courtesyName} onChange={(e) => setCourtesyName(e.target.value)} />
           <input placeholder="E-mail" className="w-52 rounded-lg border border-line-input px-3 py-2 text-sm" value={courtesyEmail} onChange={(e) => setCourtesyEmail(e.target.value)} />
-          <button type="button" onClick={issueCourtesy} disabled={!courtesyLot || courtesyName.length < 2 || !courtesyEmail.includes("@")} className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+          <button type="button" onClick={issueCourtesy} disabled={!courtesyLot || courtesyName.length < 2 || !courtesyEmail.includes("@")} className="rounded-lg bg-success px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-line disabled:text-muted">
             Emitir cortesia
           </button>
         </div>
         <div className="mt-4 space-y-2">
           {courtesies.length === 0 && <p className="text-sm text-muted">Nenhuma cortesia emitida.</p>}
           {courtesies.map((c) => (
-            <div key={c.id} className="flex items-center justify-between rounded-lg bg-bg px-4 py-2.5 text-sm">
+            <div key={c.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-bg px-4 py-2.5 text-sm">
               <span className="font-semibold">{c.contactName ?? c.contactEmail}</span>
               <span className="text-muted">{c.items.map((i) => `${i.quantity}× ${i.ticketLot.name}`).join(", ")}</span>
               <span className={c.status === "FULFILLED" ? "font-semibold text-success" : "text-muted"}>{c.status}</span>

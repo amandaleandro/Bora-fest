@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { randomBytes } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateEventInput, UpdateEventInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
@@ -113,5 +117,38 @@ export class EventsService {
       where: { id: eventId },
       data: { status: "PUBLISHED" },
     });
+  }
+
+  /**
+   * Banner por upload de arquivo (decisão 2026-08-01: URL colada não presta —
+   * produtor escolhe a imagem no aparelho). Limites: 5 MB, jpeg/png/webp.
+   */
+  async uploadBanner(
+    eventId: string,
+    actorUserId: string,
+    file: { mimetype: string; filename: string; file: NodeJS.ReadableStream },
+  ) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+
+    const extByMime: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    const ext = extByMime[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException("Formato inválido — use JPG, PNG ou WebP");
+    }
+
+    const uploadsDir = process.env.UPLOADS_DIR ?? join(process.cwd(), "uploads");
+    const name = `evento-${eventId}-${Date.now()}-${randomBytes(4).toString("hex")}.${ext}`;
+    await pipeline(file.file, createWriteStream(join(uploadsDir, name)));
+
+    const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
+    const bannerUrl = `${base}/uploads/${name}`;
+    await prisma.event.update({ where: { id: eventId }, data: { bannerUrl } });
+    return { bannerUrl };
   }
 }

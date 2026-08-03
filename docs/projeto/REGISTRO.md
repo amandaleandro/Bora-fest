@@ -123,6 +123,19 @@ cidades com evento publicado + filtro ?city=), escolha persistida no
 aparelho. Resend: chave recebida do Arthur — vai no Environment do EasyPanel
 (EMAIL_PROVIDER=resend + RESEND_API_KEY), não no git. Testes 44/44.
 
+**Taxa REAL ponta a ponta (2026-08-01)** — pergunta do Arthur expôs
+incoerência: a taxa do lote era DIGITADA pelo produtor (campo livre) e o
+ledger calculava outra (bps sobre o total no pagamento) → mostrado ≠ cobrado
+≠ contabilizado. Decisão cravada: **a taxa de serviço é da plataforma** —
+calculada no servidor na criação do lote (4,99% do preço, piso R$ 2,49;
+grátis = 0; overrides por org valem) e o ledger lança EXATAMENTE a taxa
+cobrada nos itens do pedido, nos dois meios. Produtor líquida exatamente o
+preço do ingresso. Teste taxa-real.test.ts trava o invariante (17/17 na API).
+Banner de evento virou UPLOAD de imagem (multipart 5MB jpg/png/webp,
+@fastify/multipart@8 + @fastify/static@7 fixados p/ Fastify 4, volume
+borafest_uploads no compose, servido em /uploads). Painel: contraste dos
+chips + upload no lugar de URL + taxa read-only (agente).
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

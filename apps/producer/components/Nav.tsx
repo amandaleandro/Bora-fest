@@ -9,11 +9,11 @@ export function Nav() {
   const router = useRouter();
 
   return (
-    <header className="flex items-center justify-between border-b border-gray-800 py-4">
+    <header className="flex items-center justify-between border-b border-line py-4">
       <Link href="/organizacoes" className="font-bold">
         BoraFest
       </Link>
-      <div className="flex items-center gap-4 text-sm text-gray-400">
+      <div className="flex items-center gap-4 text-sm text-muted">
         <Link href="/ajuda">Ajuda</Link>
         {user?.email ? <span>{user.email}</span> : null}
         <button

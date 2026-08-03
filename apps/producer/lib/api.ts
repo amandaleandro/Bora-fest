@@ -180,7 +180,7 @@ export const catalogApi = {
 // ---------------------------------------------------------------------------
 
 export interface Dashboard {
-  event: { id: string; title: string; slug: string; status: string };
+  event: { id: string; title: string; slug: string; status: string; bannerUrl?: string | null };
   revenueCents: number;
   orders: { total: number; byStatus: Record<string, number> };
   tickets: { total: number; byStatus: Record<string, number> };
@@ -376,6 +376,23 @@ export const eventControls = {
     request(`/v1/events/${eventId}/republish`, { method: "POST", token }),
   update: (eventId: string, body: UpdateEventInput, token: string) =>
     request<EventSummary>(`/v1/events/${eventId}`, { method: "PATCH", body, token }),
+  /**
+   * Upload do banner (multipart, campo "file") — fora do `request` porque lá o
+   * corpo vira JSON; aqui o browser define o Content-Type com boundary sozinho.
+   */
+  uploadBanner: async (eventId: string, file: File, token: string): Promise<{ bannerUrl: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/banner`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : undefined;
+    if (!response.ok) throw new ApiError(response.status, data?.message ?? "Falha ao enviar o banner");
+    return data as { bannerUrl: string };
+  },
 };
 
 export const couponsApi = {

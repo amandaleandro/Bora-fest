@@ -182,7 +182,15 @@ async function creditOrganizationLedger(
     create: { organizationId },
   });
 
-  const feeCents = computePlatformFeeCents(payment.method, payment.amountCents, organization);
+  // comissão = a taxa de serviço efetivamente definida nos itens do pedido
+  // (decisão 2026-08-01): o que o comprador viu é o que o caixa lança — nos
+  // dois meios de pagamento. computePlatformFeeCents segue sendo a fonte do
+  // VALOR, mas na criação do lote (catalog), não aqui.
+  const items = await tx.orderItem.findMany({
+    where: { orderId: payment.orderId },
+    select: { quantity: true, feeCents: true },
+  });
+  const feeCents = items.reduce((sum, item) => sum + item.feeCents * item.quantity, 0);
 
   // fim da janela de reembolso — fato imutável do lançamento; quem decide se
   // o valor pode ser sacado antes disso é o settlementMode da org NA HORA do
