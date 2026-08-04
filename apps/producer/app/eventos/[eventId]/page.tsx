@@ -67,6 +67,10 @@ function EventContent({ eventId }: { eventId: string }) {
   const [bannerUrl, setBannerUrl] = useState("");
   const [bannerUploading, setBannerUploading] = useState(false);
   const [bannerError, setBannerError] = useState<string | null>(null);
+  const [waitingRoomEnabled, setWaitingRoomEnabled] = useState(false);
+  const [waitingRoomConcurrency, setWaitingRoomConcurrency] = useState("300");
+  const [waitingRoomSaving, setWaitingRoomSaving] = useState(false);
+  const [waitingRoomError, setWaitingRoomError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [lotTypeId, setLotTypeId] = useState("");
   const [lotName, setLotName] = useState("");
@@ -90,6 +94,8 @@ function EventContent({ eventId }: { eventId: string }) {
       const d = await dashboardApi.get(token, eventId);
       setDashboard(d);
       setBannerUrl(d.event.bannerUrl ?? "");
+      setWaitingRoomEnabled(d.event.waitingRoomEnabled);
+      setWaitingRoomConcurrency(String(d.event.waitingRoomConcurrency));
       couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
       complimentaryApi.list(eventId, token).then(setCourtesies).catch(() => {});
     } finally {
@@ -106,6 +112,21 @@ function EventContent({ eventId }: { eventId: string }) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao alterar publicação");
+    }
+  }
+
+  async function saveWaitingRoom(next: { waitingRoomEnabled: boolean; waitingRoomConcurrency: number }) {
+    if (!token) return;
+    setWaitingRoomError(null);
+    setWaitingRoomSaving(true);
+    try {
+      await eventControls.update(eventId, next, token);
+      setWaitingRoomEnabled(next.waitingRoomEnabled);
+      setWaitingRoomConcurrency(String(next.waitingRoomConcurrency));
+    } catch (err) {
+      setWaitingRoomError(err instanceof Error ? err.message : "Falha ao salvar a sala de espera");
+    } finally {
+      setWaitingRoomSaving(false);
     }
   }
 
@@ -418,6 +439,48 @@ function EventContent({ eventId }: { eventId: string }) {
             <span className="text-[12px] font-semibold text-muted">JPG, PNG ou WebP · até 5 MB · ideal 1600×900</span>
           </div>
           {bannerError ? <p className="mt-2 text-[13px] font-semibold text-danger">{bannerError}</p> : null}
+        </div>
+
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-[13px] font-extrabold">Sala de espera</h3>
+          <p className="mt-1 text-[12px] font-semibold text-muted">
+            Para eventos com pico de acesso na abertura das vendas: admite N compradores por vez no checkout em vez
+            de deixar todo mundo bater junto no lote.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-[13px] font-bold">
+              <input
+                type="checkbox"
+                checked={waitingRoomEnabled}
+                disabled={waitingRoomSaving}
+                onChange={(e) =>
+                  saveWaitingRoom({
+                    waitingRoomEnabled: e.target.checked,
+                    waitingRoomConcurrency: Number(waitingRoomConcurrency) || 300,
+                  })
+                }
+              />
+              Ativar sala de espera
+            </label>
+            <label className="flex items-center gap-2 text-[13px] font-semibold text-muted">
+              Compradores simultâneos:
+              <input
+                type="number"
+                min={1}
+                className="w-24 rounded-lg border border-line-input px-2 py-1 text-sm"
+                value={waitingRoomConcurrency}
+                disabled={waitingRoomSaving}
+                onChange={(e) => setWaitingRoomConcurrency(e.target.value)}
+                onBlur={() =>
+                  saveWaitingRoom({
+                    waitingRoomEnabled,
+                    waitingRoomConcurrency: Number(waitingRoomConcurrency) || 300,
+                  })
+                }
+              />
+            </label>
+          </div>
+          {waitingRoomError ? <p className="mt-2 text-[13px] font-semibold text-danger">{waitingRoomError}</p> : null}
         </div>
       </section>
 

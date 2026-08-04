@@ -180,7 +180,15 @@ export const catalogApi = {
 // ---------------------------------------------------------------------------
 
 export interface Dashboard {
-  event: { id: string; title: string; slug: string; status: string; bannerUrl?: string | null };
+  event: {
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    bannerUrl?: string | null;
+    waitingRoomEnabled: boolean;
+    waitingRoomConcurrency: number;
+  };
   revenueCents: number;
   orders: { total: number; byStatus: Record<string, number> };
   tickets: { total: number; byStatus: Record<string, number> };
@@ -367,6 +375,8 @@ export interface UpdateEventInput {
   endsAt?: string;
   /** updateEventSchema valida `z.string().url().optional()` — null derruba a request. */
   bannerUrl?: string;
+  waitingRoomEnabled?: boolean;
+  waitingRoomConcurrency?: number;
 }
 
 export const eventControls = {

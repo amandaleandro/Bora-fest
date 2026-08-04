@@ -3,6 +3,7 @@ import { prisma } from "@borafest/database";
 import { createReservationExpirationQueue } from "@borafest/queues";
 import type { CreateReservationInput } from "@borafest/contracts";
 import { InventoryService, InsufficientStockError } from "../inventory/inventory.service";
+import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 
 const RESERVATION_TTL_MINUTES = 10;
 
@@ -10,12 +11,19 @@ const RESERVATION_TTL_MINUTES = 10;
 export class ReservationsService {
   private readonly expirationQueue = createReservationExpirationQueue();
 
-  constructor(private readonly inventory: InventoryService) {}
+  constructor(
+    private readonly inventory: InventoryService,
+    private readonly waitingRoom: WaitingRoomService,
+  ) {}
 
   async create(userId: string | undefined, input: CreateReservationInput) {
     const event = await prisma.event.findUnique({ where: { id: input.eventId } });
     if (!event || event.status !== "PUBLISHED") {
       throw new NotFoundException("Evento não encontrado ou não publicado");
+    }
+
+    if (event.waitingRoomEnabled) {
+      await this.waitingRoom.assertAdmitted(event.id, input.waitingRoomTicketId);
     }
 
     const lots = await prisma.ticketLot.findMany({

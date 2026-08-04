@@ -8,6 +8,12 @@
 #
 # Variáveis vêm do Environment do serviço Compose no painel. As URLs internas
 # de banco/redis são montadas AQUI (host = nome do serviço) para ninguém errar.
+#
+# Escalar a api sob pico de vendas: o serviço é stateless (sessão é JWT, sem
+# sticky session) — no EasyPanel, aumente o campo "Replicas" do serviço `api`
+# na aba Scale; o Traefik já distribui entre as instâncias. Confirme antes
+# que connection_limit×réplicas continua abaixo do max_connections do
+# Postgres (ver comentário na variável DATABASE_URL abaixo).
 
 services:
   postgres:
@@ -46,7 +52,10 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: 3333
-      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public
+      # connection_limit por instância: com N réplicas da api/worker, N *
+      # connection_limit tem que caber no max_connections do Postgres
+      # (padrão 100) — 10 aguenta ~8 réplicas somadas com folga.
+      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public&connection_limit=10&pool_timeout=10
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       SESSION_JWT_SECRET: ${SESSION_JWT_SECRET}
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
@@ -84,7 +93,10 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public
+      # connection_limit por instância: com N réplicas da api/worker, N *
+      # connection_limit tem que caber no max_connections do Postgres
+      # (padrão 100) — 10 aguenta ~8 réplicas somadas com folga.
+      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public&connection_limit=10&pool_timeout=10
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
       ASAAS_API_KEY: ${ASAAS_API_KEY}

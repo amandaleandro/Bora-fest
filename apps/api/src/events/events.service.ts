@@ -78,6 +78,8 @@ export class EventsService {
         title: input.title,
         description: input.description,
         bannerUrl: input.bannerUrl,
+        waitingRoomEnabled: input.waitingRoomEnabled,
+        waitingRoomConcurrency: input.waitingRoomConcurrency,
         venueId: input.venueId,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,

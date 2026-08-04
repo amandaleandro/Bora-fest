@@ -12,5 +12,7 @@ export const createReservationSchema = z.object({
       }),
     )
     .min(1),
+  /** obtido em POST /v1/public/events/:slug/waiting-room/join — exigido quando o evento tem sala de espera ativa */
+  waitingRoomTicketId: z.string().uuid().optional(),
 });
 export type CreateReservationInput = z.infer<typeof createReservationSchema>;

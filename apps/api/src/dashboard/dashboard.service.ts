@@ -53,7 +53,15 @@ export class DashboardService {
       .reduce((sum, o) => sum + (o._sum.totalCents ?? 0), 0);
 
     return {
-      event: { id: event.id, title: event.title, slug: event.slug, status: event.status },
+      event: {
+        id: event.id,
+        title: event.title,
+        slug: event.slug,
+        status: event.status,
+        bannerUrl: event.bannerUrl,
+        waitingRoomEnabled: event.waitingRoomEnabled,
+        waitingRoomConcurrency: event.waitingRoomConcurrency,
+      },
       revenueCents,
       orders: {
         total: ordersByStatus.reduce((sum, o) => sum + o._count._all, 0),

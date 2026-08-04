@@ -1,8 +1,23 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
-import { applyGatewayStatus, getDefaultGateway } from "@borafest/payments";
+import {
+  applyGatewayStatus,
+  getDefaultGateway,
+  CircuitOpenError,
+  GatewayTimeoutError,
+} from "@borafest/payments";
 import type { CreateCardPaymentInput, CreatePixPaymentInput } from "@borafest/contracts";
 import { IdempotencyService } from "../common/idempotency.service";
+
+/** Erro do gateway já é fail-fast (timeout/circuito) — devolve 503 claro em vez de 500 genérico. */
+function toApiError(error: unknown): never {
+  if (error instanceof CircuitOpenError || error instanceof GatewayTimeoutError) {
+    throw new ServiceUnavailableException(
+      "Pagamento indisponível no momento — tente novamente em alguns segundos",
+    );
+  }
+  throw error;
+}
 
 @Injectable()
 export class PaymentsService {
@@ -46,19 +61,21 @@ export class PaymentsService {
           },
         });
 
-        const charge = await gateway.createPixCharge({
-          paymentId: payment.id,
-          orderId,
-          amountCents: order.totalCents,
-          customer: {
-            name: order.contactName ?? undefined,
-            email: order.contactEmail,
-            document: input.payerDocument,
-            phone: input.payerPhone,
-          },
-          expiresInSeconds,
-          idempotencyKey: payment.id,
-        });
+        const charge = await gateway
+          .createPixCharge({
+            paymentId: payment.id,
+            orderId,
+            amountCents: order.totalCents,
+            customer: {
+              name: order.contactName ?? undefined,
+              email: order.contactEmail,
+              document: input.payerDocument,
+              phone: input.payerPhone,
+            },
+            expiresInSeconds,
+            idempotencyKey: payment.id,
+          })
+          .catch(toApiError);
 
         const updated = await prisma.payment.update({
           where: { id: payment.id },
@@ -102,39 +119,41 @@ export class PaymentsService {
           },
         });
 
-        const result = await gateway.createCardPayment({
-          paymentId: payment.id,
-          orderId,
-          amountCents: order.totalCents,
-          cardToken: input.cardToken,
-          ...(input.card
-            ? {
-                rawCard: {
-                  number: input.card.number,
-                  holderName: input.card.holderName,
-                  expiryMonth: input.card.expiryMonth,
-                  expiryYear: input.card.expiryYear,
-                  ccv: input.card.ccv,
-                  holderInfo: {
-                    name: input.card.holderName,
-                    email: order.contactEmail,
-                    cpfCnpj: input.card.holderCpf,
-                    postalCode: input.card.postalCode,
-                    addressNumber: input.card.addressNumber,
-                    phone: order.contactPhone ?? undefined,
+        const result = await gateway
+          .createCardPayment({
+            paymentId: payment.id,
+            orderId,
+            amountCents: order.totalCents,
+            cardToken: input.cardToken,
+            ...(input.card
+              ? {
+                  rawCard: {
+                    number: input.card.number,
+                    holderName: input.card.holderName,
+                    expiryMonth: input.card.expiryMonth,
+                    expiryYear: input.card.expiryYear,
+                    ccv: input.card.ccv,
+                    holderInfo: {
+                      name: input.card.holderName,
+                      email: order.contactEmail,
+                      cpfCnpj: input.card.holderCpf,
+                      postalCode: input.card.postalCode,
+                      addressNumber: input.card.addressNumber,
+                      phone: order.contactPhone ?? undefined,
+                    },
                   },
-                },
-              }
-            : {}),
-          remoteIp,
-          installments: input.installments,
-          customer: {
-            name: order.contactName ?? undefined,
-            email: order.contactEmail,
-            document: input.payerDocument ?? input.card?.holderCpf,
-          },
-          idempotencyKey: payment.id,
-        });
+                }
+              : {}),
+            remoteIp,
+            installments: input.installments,
+            customer: {
+              name: order.contactName ?? undefined,
+              email: order.contactEmail,
+              document: input.payerDocument ?? input.card?.holderCpf,
+            },
+            idempotencyKey: payment.id,
+          })
+          .catch(toApiError);
 
         await prisma.payment.update({
           where: { id: payment.id },

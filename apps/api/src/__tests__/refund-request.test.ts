@@ -9,6 +9,7 @@ import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { PaymentsService } from "../payments/payments.service";
 import { InventoryService } from "../inventory/inventory.service";
+import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { RefundRequestsService } from "../refund-requests/refund-requests.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
@@ -21,7 +22,7 @@ test("pedido de reembolso fica PENDING num pedido PAID e bloqueia duplicata", as
   const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
 
   try {
-    const reservations = new ReservationsService(new InventoryService());
+    const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
     const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const payments = new PaymentsService(new IdempotencyService());
     const refundRequests = new RefundRequestsService(new OrgAccessService());
@@ -59,7 +60,7 @@ test("pedido de reembolso é recusado se o pedido ainda não foi pago", async ()
   const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
 
   try {
-    const reservations = new ReservationsService(new InventoryService());
+    const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
     const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const refundRequests = new RefundRequestsService(new OrgAccessService());
 

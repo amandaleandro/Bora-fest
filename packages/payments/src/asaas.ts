@@ -12,11 +12,19 @@ import {
   WebhookHeaders,
   WebhookVerificationError,
 } from "./types";
+import { CircuitBreaker, fetchWithTimeout } from "./resilience";
 
 export const ASAAS_PROVIDER = "asaas";
 
 // produção: https://api.asaas.com/v3 · sandbox: https://api-sandbox.asaas.com/v3
 const DEFAULT_API_URL = "https://api.asaas.com/v3";
+const REQUEST_TIMEOUT_MS = 8_000;
+
+const circuitBreaker = new CircuitBreaker({
+  provider: ASAAS_PROVIDER,
+  failureThreshold: 5,
+  resetTimeoutMs: 30_000,
+});
 
 export class AsaasApiError extends Error {
   constructor(
@@ -245,14 +253,20 @@ export class AsaasGateway implements PaymentGateway {
     if (!apiKey) throw new Error("ASAAS_API_KEY is not set");
     const apiUrl = process.env.ASAAS_API_URL ?? DEFAULT_API_URL;
 
-    const response = await fetch(`${apiUrl}${path}`, {
-      method,
-      headers: {
-        access_token: apiKey,
-        "content-type": "application/json",
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const response = await circuitBreaker.execute(() =>
+      fetchWithTimeout(
+        `${apiUrl}${path}`,
+        {
+          method,
+          headers: {
+            access_token: apiKey,
+            "content-type": "application/json",
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        },
+        REQUEST_TIMEOUT_MS,
+      ),
+    );
 
     const text = await response.text();
     let json: unknown;

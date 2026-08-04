@@ -9,6 +9,7 @@ import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { PaymentsService } from "../payments/payments.service";
 import { InventoryService } from "../inventory/inventory.service";
+import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 import {
@@ -23,7 +24,7 @@ after(async () => {
 
 /** Fluxo real: reserva → pedido → Pix → webhook PAID (mesmo caminho da produção). */
 async function payOrder(eventId: string, lotId: string) {
-  const reservations = new ReservationsService(new InventoryService());
+  const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
   const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
   const payments = new PaymentsService(new IdempotencyService());
 

@@ -9,6 +9,7 @@ import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { OrdersService } from "../orders/orders.service";
 import { InventoryService } from "../inventory/inventory.service";
+import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { ValidatorService } from "../validator/validator.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
@@ -18,7 +19,7 @@ after(async () => {
 
 function services() {
   return {
-    reservations: new ReservationsService(new InventoryService()),
+    reservations: new ReservationsService(new InventoryService(), new WaitingRoomService()),
     orders: new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService()),
   };
 }

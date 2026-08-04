@@ -68,7 +68,17 @@ export interface PublicEvent {
   timezone: string;
   venue: { name: string; address: string; city: string; state: string } | null;
   ticketTypes: PublicTicketType[];
+  waitingRoomEnabled: boolean;
 }
+
+export type WaitingRoomJoinResult =
+  | { status: "ADMITTED"; ticketId: string }
+  | { status: "QUEUED"; ticketId: string; position: number };
+
+export type WaitingRoomStatusResult =
+  | { status: "ADMITTED" }
+  | { status: "QUEUED"; position: number }
+  | { status: "EXPIRED" };
 
 export interface EventListItem {
   id: string;
@@ -177,6 +187,13 @@ export const api = {
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
   getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
 
+  joinWaitingRoom: (slug: string) =>
+    request<WaitingRoomJoinResult>(`/v1/public/events/${slug}/waiting-room/join`, { method: "POST" }),
+  waitingRoomStatus: (slug: string, ticketId: string) =>
+    request<WaitingRoomStatusResult>(
+      `/v1/public/events/${slug}/waiting-room/status?ticketId=${encodeURIComponent(ticketId)}`,
+    ),
+
   /** A reserva só guarda o eventId; o checkout precisa do slug para reler o catálogo. */
   resolveEventSlug: (eventId: string) =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then(
@@ -187,7 +204,13 @@ export const api = {
     eventId: string,
     items: Array<{ ticketLotId: string; quantity: number; halfPrice?: boolean }>,
     token?: string,
-  ) => request<Reservation>("/v1/reservations", { method: "POST", body: { eventId, items }, token }),
+    waitingRoomTicketId?: string,
+  ) =>
+    request<Reservation>("/v1/reservations", {
+      method: "POST",
+      body: { eventId, items, waitingRoomTicketId: waitingRoomTicketId || undefined },
+      token,
+    }),
 
   getReservation: (id: string) => request<Reservation>(`/v1/reservations/${id}`),
 

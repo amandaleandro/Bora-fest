@@ -10,6 +10,7 @@ import { CouponsService } from "../coupons/coupons.service";
 import { OrdersService } from "../orders/orders.service";
 import { PaymentsService } from "../payments/payments.service";
 import { InventoryService } from "../inventory/inventory.service";
+import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
@@ -58,7 +59,7 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
     await catalog.activateLot(lot.id, member.id);
 
     // compra do lote pago: comprador paga 400+249; ledger lança EXATAMENTE 249
-    const reservations = new ReservationsService(new InventoryService());
+    const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
     const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const payments = new PaymentsService(new IdempotencyService());
     const reservation = await reservations.create(undefined, {

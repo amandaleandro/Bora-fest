@@ -12,11 +12,15 @@ import {
   AUTO_PAYOUTS_JOB_ID,
   createAutoPayoutsQueue,
   createAutoPayoutsWorker,
+  createPaymentWebhookProcessingWorker,
+  createWaitingRoomSweepQueue,
+  createWaitingRoomSweepWorker,
   NOTIFICATION_DELIVERY_JOB_ID,
   ORDER_EXPIRATION_JOB_ID,
   OUTBOX_DISPATCH_JOB_ID,
   PAYMENT_RECONCILIATION_JOB_ID,
   RESERVATION_RECONCILIATION_JOB_ID,
+  WAITING_ROOM_SWEEP_JOB_ID,
 } from "@borafest/queues";
 import { withContext } from "@borafest/observability";
 import { expireReservation, reconcileExpiredReservations } from "./expire-reservation";
@@ -25,6 +29,8 @@ import { reconcilePendingPayments } from "./reconcile-payments";
 import { expireStaleOrders } from "./expire-orders";
 import { deliverPendingNotifications } from "./deliver-notifications";
 import { sweepAutoPayouts } from "./auto-payouts";
+import { processPaymentWebhookJob } from "./process-payment-webhook";
+import { sweepWaitingRooms } from "./sweep-waiting-room";
 
 const log = withContext({ module: "worker" });
 
@@ -93,6 +99,21 @@ async function main() {
     { name: "deliver", data: {} },
   );
 
+  // --- webhooks de pagamento: verificação de assinatura + aplicação de status
+  const webhookWorker = createPaymentWebhookProcessingWorker(async (job) => {
+    await processPaymentWebhookJob(job.data);
+  });
+
+  // --- sala de espera: promove fila → admitidos nos eventos com pico
+  const waitingRoomWorker = createWaitingRoomSweepWorker(async () => {
+    await sweepWaitingRooms();
+  });
+  await createWaitingRoomSweepQueue().upsertJobScheduler(
+    WAITING_ROOM_SWEEP_JOB_ID,
+    { every: 2_000 },
+    { name: "sweep", data: {} },
+  );
+
   for (const [name, worker] of [
     ["reservas", reservationWorker],
     ["outbox", outboxWorker],
@@ -100,13 +121,17 @@ async function main() {
     ["pedidos", orderWorker],
     ["notificações", notificationWorker],
     ["repasses", autoPayoutsWorker],
+    ["webhooks de pagamento", webhookWorker],
+    ["sala de espera", waitingRoomWorker],
   ] as const) {
     worker.on("failed", (job, error) => {
       log.error({ queue: name, jobId: job?.id, error: error.message }, "job falhou");
     });
   }
 
-  log.info("workers iniciados: reservas, outbox, pagamentos, pedidos, notificações e repasses");
+  log.info(
+    "workers iniciados: reservas, outbox, pagamentos, pedidos, notificações, repasses, webhooks de pagamento e sala de espera",
+  );
 
   // desligamento educado: sem isso o Docker espera, desiste e o deploy do
   // EasyPanel falha com "container is running" na troca de versão
@@ -117,6 +142,8 @@ async function main() {
     orderWorker,
     notificationWorker,
     autoPayoutsWorker,
+    webhookWorker,
+    waitingRoomWorker,
   ];
   let encerrando = false;
   async function shutdown(signal: string) {

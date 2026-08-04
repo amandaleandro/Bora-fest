@@ -12,10 +12,20 @@ import {
   WebhookHeaders,
   WebhookVerificationError,
 } from "./types";
+import { CircuitBreaker, fetchWithTimeout } from "./resilience";
 
 export const PAGARME_PROVIDER = "pagarme";
 
 const DEFAULT_API_URL = "https://api.pagar.me/core/v5";
+const REQUEST_TIMEOUT_MS = 8_000;
+
+// um circuito por processo: falhas seguidas do gateway abrem e poupam os
+// próximos checkouts de esperar o mesmo timeout enquanto ele está fora
+const circuitBreaker = new CircuitBreaker({
+  provider: PAGARME_PROVIDER,
+  failureThreshold: 5,
+  resetTimeoutMs: 30_000,
+});
 
 export class PagarmeApiError extends Error {
   constructor(
@@ -289,16 +299,22 @@ export class PagarmeGateway implements PaymentGateway {
     if (!secretKey) throw new Error("PAGARME_SECRET_KEY is not set");
     const apiUrl = process.env.PAGARME_API_URL ?? DEFAULT_API_URL;
 
-    const response = await fetch(`${apiUrl}${path}`, {
-      method,
-      headers: {
-        authorization: `Basic ${Buffer.from(`${secretKey}:`).toString("base64")}`,
-        "content-type": "application/json",
-        // grafia literal da doc (case-sensitive); dedupe de 24h em produção
-        ...(idempotencyKey ? { "Idempotency-key": idempotencyKey } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const response = await circuitBreaker.execute(() =>
+      fetchWithTimeout(
+        `${apiUrl}${path}`,
+        {
+          method,
+          headers: {
+            authorization: `Basic ${Buffer.from(`${secretKey}:`).toString("base64")}`,
+            "content-type": "application/json",
+            // grafia literal da doc (case-sensitive); dedupe de 24h em produção
+            ...(idempotencyKey ? { "Idempotency-key": idempotencyKey } : {}),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        },
+        REQUEST_TIMEOUT_MS,
+      ),
+    );
 
     const text = await response.text();
     let json: unknown;

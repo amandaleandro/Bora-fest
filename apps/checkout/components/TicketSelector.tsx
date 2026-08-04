@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type PublicEvent } from "../lib/api";
 import { formatCents } from "../lib/format";
@@ -10,12 +10,77 @@ interface Selection {
   half: boolean;
 }
 
+const WAITING_ROOM_POLL_MS = 3_000;
+
+/**
+ * Sala de espera (evento com pico de acesso na abertura de vendas): admite N
+ * compradores por vez em vez de deixar todo mundo bater junto no checkout.
+ * Some sozinha para eventos sem sala de espera ativa (join nem é chamado).
+ */
+function useWaitingRoom(event: PublicEvent) {
+  const [state, setState] = useState<"SKIP" | "JOINING" | "QUEUED" | "ADMITTED">(
+    event.waitingRoomEnabled ? "JOINING" : "SKIP",
+  );
+  const [position, setPosition] = useState<number | null>(null);
+  const ticketIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!event.waitingRoomEnabled) return;
+    let cancelled = false;
+
+    async function join() {
+      setState("JOINING");
+      const result = await api.joinWaitingRoom(event.slug).catch(() => null);
+      if (cancelled || !result) return;
+      if (result.status === "ADMITTED") {
+        ticketIdRef.current = result.ticketId || null;
+        setState("ADMITTED");
+        return;
+      }
+      ticketIdRef.current = result.ticketId;
+      setPosition(result.position);
+      setState("QUEUED");
+    }
+
+    join();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na entrada nesse evento
+  }, [event.slug, event.waitingRoomEnabled]);
+
+  useEffect(() => {
+    if (state !== "QUEUED" || !ticketIdRef.current) return;
+    const interval = setInterval(async () => {
+      const ticketId = ticketIdRef.current;
+      if (!ticketId) return;
+      const result = await api.waitingRoomStatus(event.slug, ticketId).catch(() => null);
+      if (!result) return;
+      if (result.status === "ADMITTED") setState("ADMITTED");
+      else if (result.status === "QUEUED") setPosition(result.position);
+      else ticketIdRef.current = null; // EXPIRED: perdeu a vaga, precisa entrar de novo
+    }, WAITING_ROOM_POLL_MS);
+    return () => clearInterval(interval);
+  }, [state, event.slug]);
+
+  // ticket expirou na fila (perdeu a vaga sem promoção): reentra
+  useEffect(() => {
+    if (state === "QUEUED" && !ticketIdRef.current) {
+      const timeout = setTimeout(() => setState("JOINING"), 0);
+      return () => clearTimeout(timeout);
+    }
+  }, [state, position]);
+
+  return { state, position, ticketId: ticketIdRef.current };
+}
+
 /** Seleção de lotes com stepper/meia/esgotado — usada no mobile e no hotsite desktop. */
 export function TicketSelector({ event, compact = false }: { event: PublicEvent; compact?: boolean }) {
   const router = useRouter();
   const [selection, setSelection] = useState<Record<string, Selection>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const waitingRoom = useWaitingRoom(event);
 
   const lots = useMemo(
     () =>
@@ -67,13 +132,35 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
         }));
       // vincula a compra à conta quando a pessoa já entrou (sessão do site/app)
       const token = localStorage.getItem("bf.token") ?? undefined;
-      const reservation = await api.createReservation(event.id, items, token);
+      const reservation = await api.createReservation(
+        event.id,
+        items,
+        token,
+        waitingRoom.ticketId ?? undefined,
+      );
       sessionStorage.setItem(`bf.slug.${reservation.id}`, event.slug);
       router.push(`/checkout/${reservation.id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível reservar. Tente de novo.");
       setSubmitting(false);
     }
+  }
+
+  if (waitingRoom.state === "JOINING" || waitingRoom.state === "QUEUED") {
+    return (
+      <div className={`rounded-2xl border-[1.5px] border-line bg-surface text-center ${compact ? "p-6" : "p-8"}`}>
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-[3px] border-primary/20 border-t-primary" />
+        <p className="mt-4 font-extrabold">
+          {waitingRoom.state === "JOINING" ? "Entrando na fila…" : "Muita gente comprando agora"}
+        </p>
+        {waitingRoom.state === "QUEUED" && (
+          <p className="mt-1.5 text-[13px] font-semibold text-muted">
+            {waitingRoom.position ? `Você é o número ${waitingRoom.position} na fila. ` : ""}
+            Assim que abrir uma vaga, a seleção de ingressos aparece aqui — não precisa atualizar a página.
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
