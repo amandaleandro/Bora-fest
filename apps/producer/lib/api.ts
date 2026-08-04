@@ -86,6 +86,20 @@ export const organizationsApi = {
 // Events
 // ---------------------------------------------------------------------------
 
+/** Local do evento — `state` é a UF com 2 letras maiúsculas (ex.: "SP"). */
+export interface EventVenue {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+}
+
+/** As 27 UFs aceitas em `EventVenue.state` (valores exatos do contrato da API). */
+export const UF_LIST = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
+  "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+] as const;
+
 export interface EventSummary {
   id: string;
   title: string;
@@ -96,6 +110,7 @@ export interface EventSummary {
   organizationId: string;
   description?: string | null;
   bannerUrl?: string | null;
+  venue?: EventVenue | null;
 }
 
 /**
@@ -117,7 +132,7 @@ export const eventsApi = {
   create: (
     token: string,
     organizationId: string,
-    input: { title: string; startsAt: string; endsAt: string; description?: string },
+    input: { title: string; startsAt: string; endsAt: string; description?: string; venue?: EventVenue },
   ) =>
     request<EventSummary>(`/v1/organizations/${organizationId}/events`, {
       method: "POST",
@@ -188,6 +203,7 @@ export interface Dashboard {
     bannerUrl?: string | null;
     waitingRoomEnabled: boolean;
     waitingRoomConcurrency: number;
+    venue?: EventVenue | null;
   };
   revenueCents: number;
   orders: { total: number; byStatus: Record<string, number> };
@@ -377,6 +393,8 @@ export interface UpdateEventInput {
   bannerUrl?: string;
   waitingRoomEnabled?: boolean;
   waitingRoomConcurrency?: number;
+  /** A API cria/atualiza o local e vincula ao evento. */
+  venue?: EventVenue;
 }
 
 export const eventControls = {

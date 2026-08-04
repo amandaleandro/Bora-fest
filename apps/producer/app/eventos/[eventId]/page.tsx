@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, type Dashboard } from "@/lib/api";
+import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, UF_LIST, type Dashboard, type EventVenue } from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -71,6 +71,11 @@ function EventContent({ eventId }: { eventId: string }) {
   const [waitingRoomConcurrency, setWaitingRoomConcurrency] = useState("300");
   const [waitingRoomSaving, setWaitingRoomSaving] = useState(false);
   const [waitingRoomError, setWaitingRoomError] = useState<string | null>(null);
+  const [venue, setVenue] = useState<EventVenue | null>(null);
+  const [editingVenue, setEditingVenue] = useState(false);
+  const [venueForm, setVenueForm] = useState<EventVenue>({ name: "", address: "", city: "", state: "" });
+  const [venueSaving, setVenueSaving] = useState(false);
+  const [venueError, setVenueError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [lotTypeId, setLotTypeId] = useState("");
   const [lotName, setLotName] = useState("");
@@ -96,6 +101,7 @@ function EventContent({ eventId }: { eventId: string }) {
       setBannerUrl(d.event.bannerUrl ?? "");
       setWaitingRoomEnabled(d.event.waitingRoomEnabled);
       setWaitingRoomConcurrency(String(d.event.waitingRoomConcurrency));
+      setVenue(d.event.venue ?? null);
       couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
       complimentaryApi.list(eventId, token).then(setCourtesies).catch(() => {});
     } finally {
@@ -151,6 +157,37 @@ function EventContent({ eventId }: { eventId: string }) {
       setBannerError(err instanceof Error ? err.message : "Falha ao enviar o banner — tente de novo.");
     } finally {
       setBannerUploading(false);
+    }
+  }
+
+  function openVenueForm() {
+    setVenueForm(venue ?? { name: "", address: "", city: "", state: "" });
+    setVenueError(null);
+    setEditingVenue(true);
+  }
+
+  async function saveVenue() {
+    if (!token) return;
+    const next: EventVenue = {
+      name: venueForm.name.trim(),
+      address: venueForm.address.trim(),
+      city: venueForm.city.trim(),
+      state: venueForm.state,
+    };
+    if (!next.name || !next.address || !next.city || !next.state) {
+      setVenueError("Preencha nome do lugar, endereço, cidade e UF.");
+      return;
+    }
+    setVenueSaving(true);
+    setVenueError(null);
+    try {
+      await eventControls.update(eventId, { venue: next }, token);
+      setVenue(next);
+      setEditingVenue(false);
+    } catch (err) {
+      setVenueError(err instanceof Error ? err.message : "Não foi possível salvar o local");
+    } finally {
+      setVenueSaving(false);
     }
   }
 
@@ -251,6 +288,7 @@ function EventContent({ eventId }: { eventId: string }) {
   }
 
   const statusStyle = STATUS_STYLES[dashboard.event.status] ?? { bg: "bg-line", fg: "text-muted", label: dashboard.event.status };
+  const publicUrl = `${CHECKOUT_URL}/evento/${dashboard.event.slug}`;
 
   return (
     <main>
@@ -385,18 +423,93 @@ function EventContent({ eventId }: { eventId: string }) {
           </div>
         ))}
       </div>
+      {/* --- Local do evento ------------------------------------------------ */}
+      <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-extrabold">Local</h2>
+          {!editingVenue && (
+            <button type="button" className="btn-secondary px-3 py-1.5" onClick={openVenueForm}>
+              {venue ? "Editar" : "Adicionar local"}
+            </button>
+          )}
+        </div>
+
+        {editingVenue ? (
+          <div className="mt-3 space-y-2">
+            <input
+              placeholder="Nome do lugar (ex.: Arena BSB)"
+              className="w-full"
+              value={venueForm.name}
+              onChange={(e) => setVenueForm({ ...venueForm, name: e.target.value })}
+            />
+            <input
+              placeholder="Endereço (rua, número e bairro)"
+              className="w-full"
+              value={venueForm.address}
+              onChange={(e) => setVenueForm({ ...venueForm, address: e.target.value })}
+            />
+            <div className="flex gap-2">
+              <input
+                placeholder="Cidade"
+                className="w-full min-w-0"
+                value={venueForm.city}
+                onChange={(e) => setVenueForm({ ...venueForm, city: e.target.value })}
+              />
+              <select
+                className="w-24 shrink-0"
+                value={venueForm.state}
+                onChange={(e) => setVenueForm({ ...venueForm, state: e.target.value })}
+              >
+                <option value="">UF</option>
+                {UF_LIST.map((uf) => (
+                  <option key={uf} value={uf}>{uf}</option>
+                ))}
+              </select>
+            </div>
+            {venueError ? <p className="text-[13px] font-semibold text-danger">{venueError}</p> : null}
+            <div className="flex gap-2">
+              <button type="button" className="btn-primary" onClick={saveVenue} disabled={venueSaving}>
+                {venueSaving ? "Salvando…" : "Salvar local"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setEditingVenue(false)} disabled={venueSaving}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : venue ? (
+          <div className="mt-3 text-sm">
+            <p className="font-bold">{venue.name}</p>
+            <p className="text-muted">
+              {venue.address} — {venue.city}/{venue.state}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-[13px] font-semibold text-warning">
+            Este evento ainda não tem local. Sem local, ele não aparece na busca por cidade.
+          </p>
+        )}
+      </section>
+
       {/* --- Publicação (link público + pausar/reabrir + banner) ------------ */}
       <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
         <h2 className="text-lg font-extrabold">Publicação</h2>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <code className="max-w-full break-all rounded-lg bg-bg px-3 py-2 text-sm">
-            {`${CHECKOUT_URL}/evento/${dashboard.event.slug}`}
-          </code>
+          <a
+            href={publicUrl}
+            target="_blank"
+            rel="noopener"
+            className="max-w-full break-all rounded-lg bg-bg px-3 py-2 text-sm font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+          >
+            {publicUrl}
+          </a>
+          <a href={publicUrl} target="_blank" rel="noopener" className="btn-primary px-3 py-2">
+            Ver página do evento
+          </a>
           <button
             type="button"
             className="btn-secondary px-3 py-2"
             onClick={() => {
-              navigator.clipboard.writeText(`${CHECKOUT_URL}/evento/${dashboard.event.slug}`);
+              navigator.clipboard.writeText(publicUrl);
               setCopied(true); setTimeout(() => setCopied(false), 1500);
             }}
           >

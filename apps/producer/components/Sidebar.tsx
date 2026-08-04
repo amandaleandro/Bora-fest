@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { CHECKOUT_URL } from "@/lib/config";
 
 const ICON_PROPS = {
   width: 17,
@@ -64,6 +65,12 @@ const icons = {
   scan: (
     <svg {...ICON_PROPS}>
       <path d="M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M20 8V6a2 2 0 0 0-2-2h-2M20 16v2a2 2 0 0 1-2 2h-2M3 12h18" />
+    </svg>
+  ),
+  globe: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
     </svg>
   ),
   help: (
@@ -141,6 +148,16 @@ function Item({ href, icon, label, active }: NavLink & { active: boolean }) {
   );
 }
 
+/** Item que sai do painel (site do comprador) — sempre em nova aba. */
+function ExternalItem({ href, icon, label }: NavLink) {
+  return (
+    <a href={href} target="_blank" rel="noopener" className={`${itemBase} ${itemOff} my-0.5 w-full text-left`}>
+      <span className="flex w-[18px] justify-center">{icon}</span>
+      {label}
+    </a>
+  );
+}
+
 function useLogout() {
   const router = useRouter();
   const { logout } = useAuth();
@@ -162,7 +179,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
 
   return (
     <aside className="flex w-[244px] shrink-0 flex-col bg-sidebar px-3.5 pb-4 pt-[22px]">
-      <Link href={eventsHref} className="flex items-center gap-2.5 px-2 pb-5">
+      <a href={CHECKOUT_URL} target="_blank" rel="noopener" className="flex items-center gap-2.5 px-2 pb-5">
         <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-primary text-[15px] font-extrabold text-white">
           B
         </span>
@@ -170,7 +187,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
           <span className="block text-[15px] font-extrabold text-white">BoraFest</span>
           <span className="mt-[3px] block text-[10px] font-semibold text-white/45">Organizador</span>
         </span>
-      </Link>
+      </a>
 
       <Item href={eventsHref} icon={icons.calendar} label="Meus eventos" active={pathname === eventsHref} />
 
@@ -200,6 +217,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
 
       <div className="flex-1" />
 
+      <ExternalItem href={CHECKOUT_URL} icon={icons.globe} label="Ver o site" />
       <Item href="/ajuda" icon={icons.help} label="Ajuda" active={pathname === "/ajuda"} />
       <button type="button" onClick={signOut} className={`${itemBase} w-full font-semibold text-white/45 hover:text-white/70`}>
         <span className="flex w-[18px] justify-center">{icons.exit}</span>
@@ -235,6 +253,15 @@ export function SidebarStrip({ event, organizationId }: { event?: SidebarEventIn
           {link.label}
         </Link>
       ))}
+      <a
+        href={CHECKOUT_URL}
+        target="_blank"
+        rel="noopener"
+        className={`flex shrink-0 items-center gap-2 rounded-[11px] px-3 py-2 text-[12px] ${itemOff}`}
+      >
+        {icons.globe}
+        Ver o site
+      </a>
       <button
         type="button"
         onClick={signOut}

@@ -18,6 +18,14 @@ export class DashboardService {
 
   async getDashboard(eventId: string, actorUserId: string) {
     const event = await this.assertEventAccess(eventId, actorUserId);
+    // bannerUrl e local no payload — sem eles a prévia do banner "sumia" no
+    // F5 do painel e não havia como exibir o local (feedback 2026-08-03)
+    const venue = event.venueId
+      ? await prisma.venue.findUnique({
+          where: { id: event.venueId },
+          select: { name: true, address: true, city: true, state: true },
+        })
+      : null;
 
     const [ordersByStatus, ticketsByStatus, lots] = await Promise.all([
       prisma.order.groupBy({
@@ -61,6 +69,7 @@ export class DashboardService {
         bannerUrl: event.bannerUrl,
         waitingRoomEnabled: event.waitingRoomEnabled,
         waitingRoomConcurrency: event.waitingRoomConcurrency,
+        venue,
       },
       revenueCents,
       orders: {
