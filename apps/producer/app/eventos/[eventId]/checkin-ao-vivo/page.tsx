@@ -11,6 +11,8 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
   const [live, setLive] = useState<CheckinLive | null>(null);
   const [points, setPoints] = useState<CheckinPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -18,15 +20,34 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
     const fetchLive = () =>
       dashboardApi
         .checkinLive(token, eventId)
-        .then(setLive)
-        .catch(() => {})
+        .then((data) => {
+          setLive(data);
+          setError(null);
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar o check-in ao vivo"))
         .finally(() => setLoading(false));
     fetchLive();
     const id = setInterval(fetchLive, 10_000);
     return () => clearInterval(id);
-  }, [token, eventId]);
+  }, [token, eventId, attempt]);
 
   const pointName = (id: string | null) => points.find((p) => p.id === id)?.name ?? "Sem portão";
+
+  if (error && !live) {
+    return (
+      <main>
+        <div className="mt-6 rounded-2xl border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{error}</p>
+          <button
+            onClick={() => setAttempt((a) => a + 1)}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   if (loading || !live) {
     return (
@@ -54,6 +75,12 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
           Atualizado às {new Date(live.generatedAt).toLocaleTimeString("pt-BR")}
         </p>
       </div>
+
+      {error ? (
+        <p className="mt-3 text-[12px] font-semibold text-danger">
+          Falha ao atualizar ({error}) — mostrando os últimos dados carregados.
+        </p>
+      ) : null}
 
       <section className="mt-5 rounded-2xl border border-line bg-surface p-8 text-center">
         <p className="text-[13px] font-bold text-muted">Presentes no evento</p>

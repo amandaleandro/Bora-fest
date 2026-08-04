@@ -22,17 +22,35 @@ function EventsList({ orgId }: { orgId: string }) {
   const { token } = useAuth();
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) return;
     setLoading(true);
+    setError(null);
     eventsApi
       .list(token, orgId)
       .then(setEvents)
+      .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar os eventos"))
       .finally(() => setLoading(false));
-  }, [token, orgId]);
+  }, [token, orgId, attempt]);
 
   if (loading) return <p className="text-[13px] font-semibold text-muted">Carregando…</p>;
+
+  if (error) {
+    return (
+      <div className="rounded-[18px] border border-danger/30 bg-danger/5 p-6 text-center">
+        <p className="text-[13px] font-bold text-danger">{error}</p>
+        <button
+          onClick={() => setAttempt((a) => a + 1)}
+          className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
 
   if (events.length === 0) {
     return (

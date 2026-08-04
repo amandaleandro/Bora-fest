@@ -6,7 +6,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, catalogApi, UF_LIST, type EventVenue } from "@/lib/api";
+import { eventsApi, catalogApi, ApiError, UF_LIST, type EventVenue } from "@/lib/api";
 
 const inputCls = "mt-1 h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
 const labelCls = "text-[12px] font-bold text-ink-soft";
@@ -25,6 +25,13 @@ function parsePriceCents(value: string): number {
 function serviceFeeCents(priceCents: number): number {
   if (priceCents <= 0) return 0;
   return Math.max(Math.round(priceCents * 0.0499), 249);
+}
+
+/** Erros 5xx/rede não têm mensagem útil pra exibir — troca por texto amigável. */
+function friendlyError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.status >= 500) return "Erro no servidor. Tente novamente em instantes.";
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }
 
 interface DraftLot {
@@ -112,7 +119,7 @@ function NewEventContent() {
       setSlug(event.slug);
       setStep(1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível criar o evento");
+      setError(friendlyError(err, "Não foi possível criar o evento"));
     } finally {
       setBusy(false);
     }
@@ -137,7 +144,7 @@ function NewEventContent() {
       setCreatedLots((prev) => [...prev, lot.id]);
       setDraft({ typeName: draft.typeName, lotName: "", price: "", capacity: "" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível criar o lote");
+      setError(friendlyError(err, "Não foi possível criar o lote"));
     } finally {
       setBusy(false);
     }
@@ -151,7 +158,7 @@ function NewEventContent() {
       await eventsApi.publish(token, eventId);
       setPublished(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível publicar");
+      setError(friendlyError(err, "Não foi possível publicar"));
     } finally {
       setBusy(false);
     }
@@ -263,6 +270,31 @@ function NewEventContent() {
             {lots.length === 0 && <p className="text-[13px] text-muted">Nenhum ingresso ainda — adicione o primeiro acima.</p>}
           </div>
 
+          {lots.length > 0 && (
+            <div className="mt-4 rounded-xl bg-bg p-4 text-[13px] font-bold">
+              <p className="text-ink-soft">Resumo (se vender tudo, taxa cobrada do comprador)</p>
+              <div className="mt-1.5 flex items-center justify-between">
+                <span>Total em ingressos</span>
+                <span>
+                  {formatCents(
+                    lots.reduce((sum, l) => sum + parsePriceCents(l.price) * (Number(l.capacity) || 0), 0),
+                  )}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-muted">
+                <span>Total em taxas</span>
+                <span>
+                  {formatCents(
+                    lots.reduce(
+                      (sum, l) => sum + serviceFeeCents(parsePriceCents(l.price)) * (Number(l.capacity) || 0),
+                      0,
+                    ),
+                  )}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="mt-5 flex gap-2">
             <button onClick={() => setStep(0)} className="rounded-xl border-[1.5px] border-line-input px-6 py-2.5 text-[13px] font-bold">Voltar</button>
             <button onClick={() => setStep(2)} disabled={createdLots.length === 0}
@@ -284,6 +316,10 @@ function NewEventContent() {
           </div>
           <div className="mt-3 rounded-xl border border-success/30 bg-success/5 p-3 text-[12px] font-bold text-success">
             Ao publicar, a venda começa imediatamente — sem espera de aprovação.
+          </div>
+          <div className="mt-2 rounded-xl border border-accent/30 bg-accent/5 p-3 text-[12px] font-bold text-accent">
+            O evento ainda não tem banner. Você pode publicar assim mesmo e adicionar depois, mas um evento sem
+            banner tende a vender menos — recomendamos subir a imagem antes de divulgar o link.
           </div>
           {published ? (
             <div className="mt-4 space-y-3">

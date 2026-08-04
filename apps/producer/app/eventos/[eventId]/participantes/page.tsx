@@ -19,16 +19,21 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (!token) return;
+    setLoading(true);
+    setError(null);
     dashboardApi
       .participants(token, eventId)
       .then(setParticipants)
+      .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar os participantes"))
       .finally(() => setLoading(false));
-  }, [token, eventId]);
+  }, [token, eventId, attempt]);
 
   async function handleExport() {
     if (!token) return;
@@ -73,6 +78,16 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
 
       {loading ? (
         <p className="mt-6 text-muted">Carregando...</p>
+      ) : error ? (
+        <div className="mt-6 rounded-2xl border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{error}</p>
+          <button
+            onClick={() => setAttempt((a) => a + 1)}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
       ) : participants.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-line bg-surface p-10 text-center">
           <p className="text-[15px] font-extrabold">Nenhum ingresso emitido ainda</p>

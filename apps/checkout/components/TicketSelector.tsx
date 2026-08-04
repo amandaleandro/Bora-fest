@@ -18,10 +18,11 @@ const WAITING_ROOM_POLL_MS = 3_000;
  * Some sozinha para eventos sem sala de espera ativa (join nem é chamado).
  */
 function useWaitingRoom(event: PublicEvent) {
-  const [state, setState] = useState<"SKIP" | "JOINING" | "QUEUED" | "ADMITTED">(
+  const [state, setState] = useState<"SKIP" | "JOINING" | "QUEUED" | "ADMITTED" | "ERROR">(
     event.waitingRoomEnabled ? "JOINING" : "SKIP",
   );
   const [position, setPosition] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const ticketIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -30,24 +31,28 @@ function useWaitingRoom(event: PublicEvent) {
 
     async function join() {
       setState("JOINING");
-      const result = await api.joinWaitingRoom(event.slug).catch(() => null);
-      if (cancelled || !result) return;
-      if (result.status === "ADMITTED") {
-        ticketIdRef.current = result.ticketId || null;
-        setState("ADMITTED");
-        return;
+      try {
+        const result = await api.joinWaitingRoom(event.slug);
+        if (cancelled) return;
+        if (result.status === "ADMITTED") {
+          ticketIdRef.current = result.ticketId || null;
+          setState("ADMITTED");
+          return;
+        }
+        ticketIdRef.current = result.ticketId;
+        setPosition(result.position);
+        setState("QUEUED");
+      } catch {
+        if (!cancelled) setState("ERROR");
       }
-      ticketIdRef.current = result.ticketId;
-      setPosition(result.position);
-      setState("QUEUED");
     }
 
     join();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na entrada nesse evento
-  }, [event.slug, event.waitingRoomEnabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na entrada nesse evento (ou retry manual via `attempt`)
+  }, [event.slug, event.waitingRoomEnabled, attempt]);
 
   useEffect(() => {
     if (state !== "QUEUED" || !ticketIdRef.current) return;
@@ -71,7 +76,9 @@ function useWaitingRoom(event: PublicEvent) {
     }
   }, [state, position]);
 
-  return { state, position, ticketId: ticketIdRef.current };
+  const retry = () => setAttempt((a) => a + 1);
+
+  return { state, position, ticketId: ticketIdRef.current, retry };
 }
 
 /** Seleção de lotes com stepper/meia/esgotado — usada no mobile e no hotsite desktop. */
@@ -144,6 +151,21 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
       setError(e instanceof ApiError ? e.message : "Não foi possível reservar. Tente de novo.");
       setSubmitting(false);
     }
+  }
+
+  if (waitingRoom.state === "ERROR") {
+    return (
+      <div className={`rounded-2xl border-[1.5px] border-line bg-surface text-center ${compact ? "p-6" : "p-8"}`}>
+        <p className="font-extrabold text-danger">Não foi possível entrar na fila</p>
+        <p className="mt-1.5 text-[13px] font-semibold text-muted">Verifique sua conexão e tente de novo.</p>
+        <button
+          onClick={waitingRoom.retry}
+          className="mt-4 h-11 rounded-2xl bg-primary px-6 text-[14px] font-extrabold text-white shadow-cta"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
   }
 
   if (waitingRoom.state === "JOINING" || waitingRoom.state === "QUEUED") {

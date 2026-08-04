@@ -21,13 +21,21 @@ function DashboardContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // check-in ao vivo (polling 10s — §13 checkin-live)
   const [live, setLive] = useState<{ totalTickets: number; checkedIn: number; perMinute: number } | null>(null);
 
   useEffect(() => {
     if (!token) return;
-    dashboardApi.get(token, eventId).then(setDashboard).finally(() => setLoading(false));
+    setLoading(true);
+    setError(null);
+    dashboardApi
+      .get(token, eventId)
+      .then(setDashboard)
+      .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar o dashboard"))
+      .finally(() => setLoading(false));
     const fetchLive = () =>
       fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333"}/v1/events/${eventId}/checkin-live`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -38,7 +46,23 @@ function DashboardContent({ eventId }: { eventId: string }) {
     fetchLive();
     const id = setInterval(fetchLive, 10_000);
     return () => clearInterval(id);
-  }, [token, eventId]);
+  }, [token, eventId, attempt]);
+
+  if (error) {
+    return (
+      <main>
+        <div className="mt-6 rounded-2xl border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{error}</p>
+          <button
+            onClick={() => setAttempt((a) => a + 1)}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   if (loading || !dashboard) {
     return (

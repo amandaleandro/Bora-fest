@@ -1035,6 +1035,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
                 {tab === "carteira" && (
                   <div className="mt-5 space-y-2.5">
+                    <p className="text-center text-[12px] font-semibold text-muted-2">
+                      Nenhuma carteira digital disponível ainda — use Pix ou Cartão por enquanto.
+                    </p>
                     <button disabled className="h-14 w-full rounded-2xl bg-black text-[15px] font-bold text-white opacity-50">
                        Pay · em breve
                     </button>
@@ -1110,6 +1113,12 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                         setCoupon(e.target.value.toUpperCase());
                         setCouponPreview(null);
                         setCouponInfo(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          applyCouponPreview();
+                        }
                       }}
                       placeholder="EX.: ATLETICA10"
                       className="h-[44px] w-full rounded-xl border-[1.5px] border-dashed border-line-input bg-surface px-3.5 text-[13px] font-bold uppercase outline-none focus:border-primary"
