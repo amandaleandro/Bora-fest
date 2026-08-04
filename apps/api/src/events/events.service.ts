@@ -43,10 +43,15 @@ export class EventsService {
 
     const slug = `${slugify(input.title)}-${Math.random().toString(36).slice(2, 7)}`;
 
+    // local inline: reaproveita o mesmo (nome+cidade) da organização ou cria
+    const venueId = input.venue
+      ? (await this.upsertVenue(organizationId, input.venue)).id
+      : input.venueId;
+
     return prisma.event.create({
       data: {
         organizationId,
-        venueId: input.venueId,
+        venueId,
         title: input.title,
         slug,
         description: input.description,
@@ -72,13 +77,17 @@ export class EventsService {
 
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
 
+    const venueId = input.venue
+      ? (await this.upsertVenue(event.organizationId, input.venue)).id
+      : input.venueId;
+
     return prisma.event.update({
       where: { id: eventId },
       data: {
         title: input.title,
         description: input.description,
         bannerUrl: input.bannerUrl,
-        venueId: input.venueId,
+        venueId,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
         timezone: input.timezone,
@@ -175,5 +184,27 @@ export class EventsService {
     const bannerUrl = `${base}/uploads/${name}`;
     await prisma.event.update({ where: { id: eventId }, data: { bannerUrl } });
     return { bannerUrl };
+  }
+
+  /** Um Venue por (organização, nome, cidade) — evita duplicar a cada edição. */
+  private async upsertVenue(
+    organizationId: string,
+    venue: { name: string; address: string; city: string; state: string },
+  ) {
+    const existing = await prisma.venue.findFirst({
+      where: {
+        organizationId,
+        name: { equals: venue.name, mode: "insensitive" },
+        city: { equals: venue.city, mode: "insensitive" },
+      },
+    });
+    const state = venue.state.toUpperCase();
+    if (existing) {
+      return prisma.venue.update({
+        where: { id: existing.id },
+        data: { address: venue.address, state },
+      });
+    }
+    return prisma.venue.create({ data: { organizationId, ...venue, state } });
   }
 }

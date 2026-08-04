@@ -6,7 +6,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, catalogApi } from "@/lib/api";
+import { eventsApi, catalogApi, UF_LIST, type EventVenue } from "@/lib/api";
 
 const inputCls = "mt-1 h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
 const labelCls = "text-[12px] font-bold text-ink-soft";
@@ -70,6 +70,13 @@ function NewEventContent() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
 
+  // etapa 1 — local do evento (opcional no formulário; sem ele o evento fica
+  // fora da busca por cidade no site do comprador)
+  const [venueName, setVenueName] = useState("");
+  const [venueAddress, setVenueAddress] = useState("");
+  const [venueCity, setVenueCity] = useState("");
+  const [venueState, setVenueState] = useState("");
+
   // etapa 2
   const [lots, setLots] = useState<DraftLot[]>([]);
   const [draft, setDraft] = useState<DraftLot>({ typeName: "Pista", lotName: "1º Lote", price: "", capacity: "" });
@@ -80,6 +87,17 @@ function NewEventContent() {
 
   async function saveStep1() {
     if (!token || !orgId) { setError("Abra pelo botão Criar evento da organização"); return; }
+
+    // Local é opcional, mas a API exige os 4 campos juntos quando `venue` é enviado.
+    const venueFilled = [venueName.trim(), venueAddress.trim(), venueCity.trim(), venueState].filter(Boolean).length;
+    if (venueFilled > 0 && venueFilled < 4) {
+      setError("Complete o local do evento (nome, endereço, cidade e UF) ou deixe os 4 campos em branco.");
+      return;
+    }
+    const venue: EventVenue | undefined = venueFilled === 4
+      ? { name: venueName.trim(), address: venueAddress.trim(), city: venueCity.trim(), state: venueState }
+      : undefined;
+
     setBusy(true);
     setError(null);
     try {
@@ -88,6 +106,7 @@ function NewEventContent() {
         description: description || undefined,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
+        venue,
       }) as { id: string; slug: string };
       setEventId(event.id);
       setSlug(event.slug);
@@ -167,6 +186,37 @@ function NewEventContent() {
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
               className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
           </div>
+          <fieldset className="rounded-xl border border-line bg-bg p-4">
+            <legend className="px-1 text-[13px] font-extrabold">Local do evento</legend>
+            <div className="space-y-3">
+              <div>
+                <label className={labelCls}>Nome do lugar</label>
+                <input value={venueName} onChange={(e) => setVenueName(e.target.value)} placeholder="Ex.: Arena BSB" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Endereço</label>
+                <input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} placeholder="Rua, número e bairro" className={inputCls} />
+              </div>
+              <div className="grid grid-cols-[1fr_110px] gap-3">
+                <div>
+                  <label className={labelCls}>Cidade</label>
+                  <input value={venueCity} onChange={(e) => setVenueCity(e.target.value)} placeholder="Ex.: Brasília" className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>UF</label>
+                  <select value={venueState} onChange={(e) => setVenueState(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {UF_LIST.map((uf) => (
+                      <option key={uf} value={uf}>{uf}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-[12px] font-semibold text-warning">
+                Sem local, seu evento não aparece na busca por cidade.
+              </p>
+            </div>
+          </fieldset>
           <p className="text-[12px] font-semibold text-muted">
             O banner do evento é adicionado depois, na página do evento (upload direto do celular).
           </p>

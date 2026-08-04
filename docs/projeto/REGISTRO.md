@@ -136,6 +136,18 @@ Banner de evento virou UPLOAD de imagem (multipart 5MB jpg/png/webp,
 borafest_uploads no compose, servido em /uploads). Painel: contraste dos
 chips + upload no lugar de URL + taxa read-only (agente).
 
+**Feedback da Marcela — 1ª usuária real (2026-08-04)**: 3 achados, todos
+procediam. (1) LOCAL DO EVENTO não tinha UI nem rota — agora `venue` inline
+no criar/editar evento (API cria/reaproveita o Venue por nome+cidade da org,
+UF normalizada no serviço), seção no assistente + cartão Local na página do
+evento; sem local o evento não entra na busca por cidade e a UI avisa.
+(2) Banner sumia no F5 do painel: o dashboard não devolvia bannerUrl —
+corrigido (payload agora traz bannerUrl + venue). (3) Becos sem saída de
+navegação: link público da Publicação virou clicável + botão "Ver página do
+evento"; Sidebar ganhou "Ver o site" e o logo abre o site do comprador.
+Teste local-evento.test.ts cobre criação/reaproveitamento/dashboard.
+Build 14/14 · API 18/18.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

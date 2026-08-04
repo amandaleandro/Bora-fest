@@ -86,6 +86,20 @@ export const organizationsApi = {
 // Events
 // ---------------------------------------------------------------------------
 
+/** Local do evento — `state` é a UF com 2 letras maiúsculas (ex.: "SP"). */
+export interface EventVenue {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+}
+
+/** As 27 UFs aceitas em `EventVenue.state` (valores exatos do contrato da API). */
+export const UF_LIST = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
+  "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+] as const;
+
 export interface EventSummary {
   id: string;
   title: string;
@@ -96,6 +110,7 @@ export interface EventSummary {
   organizationId: string;
   description?: string | null;
   bannerUrl?: string | null;
+  venue?: EventVenue | null;
 }
 
 /**
@@ -117,7 +132,7 @@ export const eventsApi = {
   create: (
     token: string,
     organizationId: string,
-    input: { title: string; startsAt: string; endsAt: string; description?: string },
+    input: { title: string; startsAt: string; endsAt: string; description?: string; venue?: EventVenue },
   ) =>
     request<EventSummary>(`/v1/organizations/${organizationId}/events`, {
       method: "POST",
@@ -180,7 +195,14 @@ export const catalogApi = {
 // ---------------------------------------------------------------------------
 
 export interface Dashboard {
-  event: { id: string; title: string; slug: string; status: string; bannerUrl?: string | null };
+  event: {
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    bannerUrl?: string | null;
+    venue?: EventVenue | null;
+  };
   revenueCents: number;
   orders: { total: number; byStatus: Record<string, number> };
   tickets: { total: number; byStatus: Record<string, number> };
@@ -367,6 +389,8 @@ export interface UpdateEventInput {
   endsAt?: string;
   /** updateEventSchema valida `z.string().url().optional()` — null derruba a request. */
   bannerUrl?: string;
+  /** A API cria/atualiza o local e vincula ao evento. */
+  venue?: EventVenue;
 }
 
 export const eventControls = {
