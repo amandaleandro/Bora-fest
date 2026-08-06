@@ -268,10 +268,25 @@ export interface CheckinLive {
   generatedAt: string;
 }
 
+export interface SalesBySeller {
+  sellerId: string;
+  sellerName: string | null;
+  sellerEmail: string | null;
+  partnerId: string | null;
+  partnerName: string | null;
+  ordersOk: number;
+  ordersFailed: number;
+  ticketsSold: number;
+  revenueCents: number;
+  commissionCents: number;
+}
+
 export const dashboardApi = {
   get: (token: string, eventId: string) => request<Dashboard>(`/v1/events/${eventId}/dashboard`, { token }),
   checkinLive: (token: string, eventId: string) =>
     request<CheckinLive>(`/v1/events/${eventId}/checkin-live`, { token }),
+  salesBySeller: (token: string, eventId: string) =>
+    request<SalesBySeller[]>(`/v1/events/${eventId}/sales-by-seller`, { token }),
   participants: (token: string, eventId: string) =>
     request<Participant[]>(`/v1/events/${eventId}/participants`, { token }),
   /**

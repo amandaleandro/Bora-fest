@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { dashboardApi, ordersApi, type Dashboard, type OrderSummary, type OrderDetail } from "@/lib/api";
+import { dashboardApi, ordersApi, type Dashboard, type OrderSummary, type OrderDetail, type SalesBySeller } from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -32,9 +32,87 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${s.bg} ${s.fg}`}>{s.label}</span>;
 }
 
+function SellerRanking({ eventId }: { eventId: string }) {
+  const { token } = useAuth();
+  const [rows, setRows] = useState<SalesBySeller[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    dashboardApi
+      .salesBySeller(token, eventId)
+      .then(setRows)
+      .catch((err) => setError(err instanceof Error ? err.message : "Falha ao carregar vendas por vendedor"))
+      .finally(() => setLoading(false));
+  }, [token, eventId]);
+
+  if (loading) return <p className="mt-6 text-muted">Carregando...</p>;
+  if (error) return <p className="mt-4 text-[13px] font-semibold text-danger">{error}</p>;
+
+  if (rows.length === 0) {
+    return (
+      <div className="mt-6 rounded-2xl border border-line bg-surface p-10 text-center">
+        <p className="text-[15px] font-extrabold">Nenhuma venda de vendedor/atlética ainda</p>
+        <p className="mt-1 text-[13px] font-semibold text-muted">
+          Vendas feitas pelo PDV por um vendedor vinculado a uma atlética aparecem aqui.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-x-auto rounded-2xl border border-line bg-surface">
+      <table className="w-full min-w-[720px] text-left text-[13px]">
+        <thead>
+          <tr className="border-b border-line bg-bg/60 text-[12px] font-bold text-muted">
+            <th className="px-5 py-3">Vendedor</th>
+            <th className="px-5 py-3">Atlética</th>
+            <th className="px-5 py-3">Deram certo</th>
+            <th className="px-5 py-3">Falharam</th>
+            <th className="px-5 py-3">Ingressos</th>
+            <th className="px-5 py-3">Total vendido</th>
+            <th className="px-5 py-3">Comissão</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.sellerId} className="border-b border-line last:border-0">
+              <td className="px-5 py-3.5">
+                <p className="font-bold">{row.sellerName ?? row.sellerEmail ?? "—"}</p>
+                {row.sellerName && row.sellerEmail ? <p className="text-[12px] text-muted">{row.sellerEmail}</p> : null}
+              </td>
+              <td className="px-5 py-3.5 text-muted">{row.partnerName ?? "—"}</td>
+              <td className="px-5 py-3.5">
+                <span className="rounded-full bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">
+                  {row.ordersOk}
+                </span>
+              </td>
+              <td className="px-5 py-3.5">
+                {row.ordersFailed > 0 ? (
+                  <span className="rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">
+                    {row.ordersFailed}
+                  </span>
+                ) : (
+                  <span className="text-muted">0</span>
+                )}
+              </td>
+              <td className="px-5 py-3.5 text-muted">{row.ticketsSold}</td>
+              <td className="px-5 py-3.5 font-bold">{formatCents(row.revenueCents)}</td>
+              <td className="px-5 py-3.5 text-muted">{formatCents(row.commissionCents)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function VendasContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
-  const [tab, setTab] = useState<"pedidos" | "pdv">("pedidos");
+  const [tab, setTab] = useState<"pedidos" | "pdv" | "vendedores">("pedidos");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -222,6 +300,13 @@ function VendasContent({ eventId }: { eventId: string }) {
         >
           PDV (venda presencial)
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("vendedores")}
+          className={`rounded-xl px-4 py-2 text-[13px] font-bold ${tab === "vendedores" ? "bg-primary text-white" : "border border-line text-muted"}`}
+        >
+          Por vendedor
+        </button>
       </div>
 
       {error ? <p className="mt-4 text-[13px] font-semibold text-danger">{error}</p> : null}
@@ -327,6 +412,8 @@ function VendasContent({ eventId }: { eventId: string }) {
             </>
           )}
         </>
+      ) : tab === "vendedores" ? (
+        <SellerRanking eventId={eventId} />
       ) : (
         <section className="mt-5 max-w-xl rounded-2xl border border-line bg-surface p-5">
           <h2 className="text-[15px] font-extrabold">Registrar venda presencial</h2>

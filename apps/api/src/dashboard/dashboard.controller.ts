@@ -28,6 +28,11 @@ export class DashboardController {
     });
   }
 
+  @Get("sales-by-seller")
+  listSalesBySeller(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
+    return this.dashboardService.listSalesBySeller(eventId, userId);
+  }
+
   @Get("participants")
   listParticipants(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
     return this.dashboardService.listParticipants(eventId, userId);

@@ -137,6 +137,73 @@ export class DashboardService {
     return { total, page: options.page, pageSize: options.pageSize, orders };
   }
 
+  /** Ranking de vendas por vendedor/atlética — quem vendeu, quantos pedidos deram certo (pagos) e quantos falharam. */
+  async listSalesBySeller(eventId: string, actorUserId: string) {
+    await this.assertEventAccess(eventId, actorUserId);
+
+    const orders = await prisma.order.findMany({
+      where: { eventId, soldByUserId: { not: null } },
+      select: {
+        status: true,
+        totalCents: true,
+        partnerCommissionCents: true,
+        soldByUserId: true,
+        soldByUser: { select: { id: true, name: true, email: true } },
+        salesPartner: { select: { id: true, name: true } },
+        _count: { select: { tickets: true } },
+      },
+    });
+
+    const OK_STATUSES = new Set(["PAID", "FULFILLED"]);
+    const FAILED_STATUSES = new Set(["REFUNDED", "PARTIALLY_REFUNDED", "CHARGEBACK", "EXPIRED", "CANCELED"]);
+
+    const bySeller = new Map<
+      string,
+      {
+        sellerId: string;
+        sellerName: string | null;
+        sellerEmail: string | null;
+        partnerId: string | null;
+        partnerName: string | null;
+        ordersOk: number;
+        ordersFailed: number;
+        ticketsSold: number;
+        revenueCents: number;
+        commissionCents: number;
+      }
+    >();
+
+    for (const order of orders) {
+      const sellerId = order.soldByUserId as string;
+      const key = sellerId;
+      const entry = bySeller.get(key) ?? {
+        sellerId,
+        sellerName: order.soldByUser?.name ?? null,
+        sellerEmail: order.soldByUser?.email ?? null,
+        partnerId: order.salesPartner?.id ?? null,
+        partnerName: order.salesPartner?.name ?? null,
+        ordersOk: 0,
+        ordersFailed: 0,
+        ticketsSold: 0,
+        revenueCents: 0,
+        commissionCents: 0,
+      };
+
+      if (OK_STATUSES.has(order.status)) {
+        entry.ordersOk += 1;
+        entry.ticketsSold += order._count.tickets;
+        entry.revenueCents += order.totalCents;
+        entry.commissionCents += order.partnerCommissionCents;
+      } else if (FAILED_STATUSES.has(order.status)) {
+        entry.ordersFailed += 1;
+      }
+
+      bySeller.set(key, entry);
+    }
+
+    return Array.from(bySeller.values()).sort((a, b) => b.revenueCents - a.revenueCents);
+  }
+
   async listParticipants(eventId: string, actorUserId: string) {
     await this.assertEventAccess(eventId, actorUserId);
     return this.fetchParticipants(eventId);
