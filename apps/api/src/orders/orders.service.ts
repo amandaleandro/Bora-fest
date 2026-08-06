@@ -221,7 +221,18 @@ export class OrdersService {
   async createManualSale(eventId: string, actorUserId: string, input: PdvOrderInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+    const membership = await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+
+    const partnerId = membership.role.key === "seller"
+      ? membership.salesPartnerId ?? undefined
+      : input.salesPartnerId ?? undefined;
+    if (membership.role.key === "seller" && !partnerId) {
+      throw new ForbiddenException("Vendedor sem atlética/parceiro vinculado");
+    }
+    if (partnerId) {
+      const partner = await prisma.salesPartner.findFirst({ where: { id: partnerId, organizationId: event.organizationId, active: true } });
+      if (!partner) throw new ForbiddenException("Parceiro de vendas inválido para esta organização");
+    }
 
     const lot = await prisma.ticketLot.findFirst({
       where: { id: input.ticketLotId, ticketType: { eventId } },
@@ -231,6 +242,10 @@ export class OrdersService {
     const organization = await prisma.organization.findUniqueOrThrow({ where: { id: event.organizationId } });
     const unitCents = lot.priceCents + lot.feeCents;
     const totalCents = unitCents * input.quantity;
+    const partner = partnerId
+      ? await prisma.salesPartner.findUnique({ where: { id: partnerId }, select: { commissionBps: true } })
+      : null;
+    const partnerCommissionCents = partner ? Math.floor((totalCents * partner.commissionBps) / 10_000) : 0;
     // venda no PDV não passa por gateway; a comissão da plataforma segue a
     // tabela do Pix (menor custo) por não haver taxa de adquirente envolvida
     const feeCents = computePlatformFeeCents("PIX", totalCents, organization);
@@ -256,6 +271,9 @@ export class OrdersService {
           data: {
             eventId,
             reservationId: reservation.id,
+            salesPartnerId: partnerId,
+            soldByUserId: actorUserId,
+            partnerCommissionCents,
             contactEmail: buyerEmail,
             contactName: input.buyerName,
             status: "PAID",

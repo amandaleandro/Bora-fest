@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
-import type { CreateOrganizationInput, InviteMemberInput } from "@borafest/contracts";
+import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 
 function slugify(name: string): string {
@@ -70,15 +70,44 @@ export class OrganizationsService {
       create: { email: input.email },
     });
 
-    return prisma.organizationMember.upsert({
+    if (input.roleKey === "seller" && input.partnerId) {
+      const partner = await prisma.salesPartner.findFirst({ where: { id: input.partnerId, organizationId } });
+      if (!partner) throw new NotFoundException("Parceiro de vendas não encontrado");
+    }
+
+    const membership = await prisma.organizationMember.upsert({
       where: { organizationId_userId: { organizationId, userId: invitedUser.id } },
-      update: { roleId: role.id, status: "INVITED" },
+      update: { roleId: role.id, status: "INVITED", salesPartnerId: input.partnerId ?? null },
       create: {
         organizationId,
         userId: invitedUser.id,
         roleId: role.id,
         status: "INVITED",
+        salesPartnerId: input.partnerId,
       },
+    });
+
+    if (input.roleKey === "seller" && input.partnerId) {
+      await prisma.salesPartnerMember.upsert({
+        where: { partnerId_userId: { partnerId: input.partnerId, userId: invitedUser.id } },
+        update: {},
+        create: { partnerId: input.partnerId, userId: invitedUser.id },
+      });
+    }
+    return membership;
+  }
+
+  async createSalesPartner(organizationId: string, userId: string, input: CreateSalesPartnerInput) {
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+    return prisma.salesPartner.create({ data: { organizationId, name: input.name, commissionBps: input.commissionBps } });
+  }
+
+  async listSalesPartners(organizationId: string, userId: string) {
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+    return prisma.salesPartner.findMany({
+      where: { organizationId, active: true },
+      include: { members: { include: { user: { select: { id: true, name: true, email: true } } } } },
+      orderBy: { name: "asc" },
     });
   }
   async addBankAccount(organizationId: string, userId: string, input: {

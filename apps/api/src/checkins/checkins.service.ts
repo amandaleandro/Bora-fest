@@ -263,7 +263,7 @@ export class CheckinsService {
     );
 
     const oneMinuteAgo = new Date(Date.now() - 60_000);
-    const [totalValid, checkedIn, lastMinute, byPoint] = await Promise.all([
+    const [totalValid, checkedIn, lastMinute, byPoint, curve] = await Promise.all([
       prisma.ticket.count({
         where: { eventId, status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
       }),
@@ -276,6 +276,7 @@ export class CheckinsService {
         where: { eventId, status: "CONFIRMED" },
         _count: { _all: true },
       }),
+      this.checkinCurve(eventId),
     ]);
 
     return {
@@ -288,8 +289,43 @@ export class CheckinsService {
         checkinPointId: p.checkinPointId,
         count: p._count._all,
       })),
+      curve,
       generatedAt: new Date(),
     };
+  }
+
+  private readonly CURVE_BUCKET_MS = 5 * 60 * 1000;
+
+  /**
+   * Curva de entrada em buckets de 5 min, por portão — traz o histórico
+   * completo do evento (volume esperado é de milhares de check-ins, não
+   * milhões; bucketing em memória evita SQL específico de banco).
+   */
+  private async checkinCurve(eventId: string) {
+    const checkins = await prisma.checkin.findMany({
+      where: { eventId, status: "CONFIRMED" },
+      select: { receivedAt: true, checkinPointId: true },
+    });
+
+    const buckets = new Map<number, Map<string, number>>();
+    for (const c of checkins) {
+      const bucketStart = Math.floor(c.receivedAt.getTime() / this.CURVE_BUCKET_MS) * this.CURVE_BUCKET_MS;
+      const gateKey = c.checkinPointId ?? "SEM_PORTAO";
+      const byGate = buckets.get(bucketStart) ?? new Map<string, number>();
+      byGate.set(gateKey, (byGate.get(gateKey) ?? 0) + 1);
+      buckets.set(bucketStart, byGate);
+    }
+
+    return [...buckets.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([bucketStart, byGate]) => ({
+        bucketStart: new Date(bucketStart),
+        byCheckinPoint: [...byGate.entries()].map(([checkinPointId, count]) => ({
+          checkinPointId: checkinPointId === "SEM_PORTAO" ? null : checkinPointId,
+          count,
+        })),
+        total: [...byGate.values()].reduce((sum, n) => sum + n, 0),
+      }));
   }
 
   // -------------------------------------------------------------------------

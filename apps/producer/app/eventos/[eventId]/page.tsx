@@ -71,6 +71,11 @@ function EventContent({ eventId }: { eventId: string }) {
   const [waitingRoomConcurrency, setWaitingRoomConcurrency] = useState("300");
   const [waitingRoomSaving, setWaitingRoomSaving] = useState(false);
   const [waitingRoomError, setWaitingRoomError] = useState<string | null>(null);
+  const [metaPixelId, setMetaPixelId] = useState("");
+  const [ga4MeasurementId, setGa4MeasurementId] = useState("");
+  const [tiktokPixelId, setTiktokPixelId] = useState("");
+  const [pixelSaving, setPixelSaving] = useState(false);
+  const [pixelError, setPixelError] = useState<string | null>(null);
   const [venue, setVenue] = useState<EventVenue | null>(null);
   const [editingVenue, setEditingVenue] = useState(false);
   const [venueForm, setVenueForm] = useState<EventVenue>({ name: "", address: "", city: "", state: "" });
@@ -101,6 +106,9 @@ function EventContent({ eventId }: { eventId: string }) {
       setBannerUrl(d.event.bannerUrl ?? "");
       setWaitingRoomEnabled(d.event.waitingRoomEnabled);
       setWaitingRoomConcurrency(String(d.event.waitingRoomConcurrency));
+      setMetaPixelId(d.event.pixelSettings?.metaPixelId ?? "");
+      setGa4MeasurementId(d.event.pixelSettings?.ga4MeasurementId ?? "");
+      setTiktokPixelId(d.event.pixelSettings?.tiktokPixelId ?? "");
       setVenue(d.event.venue ?? null);
       couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
       complimentaryApi.list(eventId, token).then(setCourtesies).catch(() => {});
@@ -133,6 +141,29 @@ function EventContent({ eventId }: { eventId: string }) {
       setWaitingRoomError(err instanceof Error ? err.message : "Falha ao salvar a sala de espera");
     } finally {
       setWaitingRoomSaving(false);
+    }
+  }
+
+  async function savePixels() {
+    if (!token) return;
+    setPixelError(null);
+    setPixelSaving(true);
+    try {
+      await eventControls.update(
+        eventId,
+        {
+          pixelSettings: {
+            metaPixelId: metaPixelId.trim() || undefined,
+            ga4MeasurementId: ga4MeasurementId.trim() || undefined,
+            tiktokPixelId: tiktokPixelId.trim() || undefined,
+          },
+        },
+        token,
+      );
+    } catch (err) {
+      setPixelError(err instanceof Error ? err.message : "Falha ao salvar os pixels");
+    } finally {
+      setPixelSaving(false);
     }
   }
 
@@ -594,6 +625,41 @@ function EventContent({ eventId }: { eventId: string }) {
             </label>
           </div>
           {waitingRoomError ? <p className="mt-2 text-[13px] font-semibold text-danger">{waitingRoomError}</p> : null}
+        </div>
+
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-[13px] font-extrabold">Pixels de conversão</h3>
+          <p className="mt-1 text-[12px] font-semibold text-muted">
+            Cole os IDs das plataformas que você usa pra rastrear campanha — disparamos PageView na página do evento
+            e Purchase na confirmação do pedido.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <input
+              placeholder="Meta Pixel ID"
+              className="rounded-lg border border-line-input px-3 py-2 text-sm"
+              value={metaPixelId}
+              disabled={pixelSaving}
+              onChange={(e) => setMetaPixelId(e.target.value)}
+              onBlur={savePixels}
+            />
+            <input
+              placeholder="GA4 Measurement ID"
+              className="rounded-lg border border-line-input px-3 py-2 text-sm"
+              value={ga4MeasurementId}
+              disabled={pixelSaving}
+              onChange={(e) => setGa4MeasurementId(e.target.value)}
+              onBlur={savePixels}
+            />
+            <input
+              placeholder="TikTok Pixel ID"
+              className="rounded-lg border border-line-input px-3 py-2 text-sm"
+              value={tiktokPixelId}
+              disabled={pixelSaving}
+              onChange={(e) => setTiktokPixelId(e.target.value)}
+              onBlur={savePixels}
+            />
+          </div>
+          {pixelError ? <p className="mt-2 text-[13px] font-semibold text-danger">{pixelError}</p> : null}
         </div>
       </section>
 

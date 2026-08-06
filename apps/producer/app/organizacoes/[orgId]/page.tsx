@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, type EventSummary } from "@/lib/api";
+import { eventsApi, organizationsApi, type EventSummary, type SalesPartner } from "@/lib/api";
 
 const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
   DRAFT: { bg: "bg-warning/10", fg: "text-warning", label: "Rascunho" },
@@ -108,6 +108,60 @@ function EventsList({ orgId }: { orgId: string }) {
   );
 }
 
+function SalesPartners({ orgId }: { orgId: string }) {
+  const { token } = useAuth();
+  const [partners, setPartners] = useState<SalesPartner[]>([]);
+  const [name, setName] = useState("");
+  const [commission, setCommission] = useState("10");
+  const [email, setEmail] = useState("");
+  const [selected, setSelected] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function load() {
+    if (token) setPartners(await organizationsApi.listSalesPartners(token, orgId));
+  }
+  useEffect(() => { load().catch(() => setMessage("Não foi possível carregar as atléticas")); }, [token, orgId]);
+
+  async function createPartner() {
+    if (!token || !name.trim()) return;
+    const partner = await organizationsApi.createSalesPartner(token, orgId, {
+      name: name.trim(), commissionBps: Math.round(Number(commission || 0) * 100),
+    });
+    setName(""); setSelected(partner.id); setMessage("Atlética cadastrada"); await load();
+  }
+
+  async function inviteSeller() {
+    if (!token || !selected || !email.includes("@")) return;
+    await organizationsApi.inviteMember(token, orgId, email, "seller", selected);
+    setEmail(""); setMessage("Convite de vendedor enviado"); await load();
+  }
+
+  return (
+    <section className="mt-8 rounded-[18px] border border-line bg-surface p-5">
+      <div className="mb-4">
+        <h2 className="text-[17px] font-extrabold">Atléticas e parceiros de venda</h2>
+        <p className="mt-1 text-[12px] font-semibold text-muted">A comissão pertence à atlética; os vendedores internos não recebem comissão individual.</p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-[1fr_140px_auto]">
+        <input className="h-11 rounded-xl border border-line-input px-3 text-[13px]" placeholder="Nome da atlética" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="h-11 rounded-xl border border-line-input px-3 text-[13px]" type="number" min="0" max="100" placeholder="Comissão %" value={commission} onChange={(e) => setCommission(e.target.value)} />
+        <button type="button" onClick={createPartner} className="h-11 rounded-xl bg-primary px-4 text-[13px] font-extrabold text-white">Cadastrar atlética</button>
+      </div>
+      {partners.length > 0 ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+          <select className="h-11 rounded-xl border border-line-input px-3 text-[13px]" value={selected} onChange={(e) => setSelected(e.target.value)}>
+            <option value="">Escolha a atlética</option>
+            {partners.map((partner) => <option key={partner.id} value={partner.id}>{partner.name} · {(partner.commissionBps / 100).toFixed(2)}%</option>)}
+          </select>
+          <input className="h-11 rounded-xl border border-line-input px-3 text-[13px]" type="email" placeholder="E-mail do vendedor" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button type="button" onClick={inviteSeller} className="h-11 rounded-xl border border-primary px-4 text-[13px] font-extrabold text-primary">Convidar vendedor</button>
+        </div>
+      ) : null}
+      {message ? <p className="mt-3 text-[12px] font-bold text-success">{message}</p> : null}
+    </section>
+  );
+}
+
 export default function OrganizationPage({ params }: { params: { orgId: string } }) {
   return (
     <GuardedPanelShell
@@ -123,6 +177,7 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
       }
     >
       <EventsList orgId={params.orgId} />
+      <SalesPartners orgId={params.orgId} />
     </GuardedPanelShell>
   );
 }

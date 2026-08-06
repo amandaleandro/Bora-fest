@@ -7,6 +7,7 @@ import { api, type PublicEvent } from "../../../lib/api";
 import { formatCents } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { TicketSelector } from "../../../components/TicketSelector";
+import { PixelTracker } from "../../../components/PixelTracker";
 
 function minPriceCents(event: PublicEvent): number | null {
   const prices = event.ticketTypes.flatMap((t) =>
@@ -45,6 +46,7 @@ export default function EventPage({ params }: { params: { slug: string } }) {
 
   return (
     <main className="pb-32 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8">
+      <PixelTracker pixelSettings={event.pixelSettings} />
       {/* ---------- hotsite desktop: 2 colunas ---------- */}
       <div className="hidden gap-8 lg:grid lg:grid-cols-[1fr_400px]">
         <div>

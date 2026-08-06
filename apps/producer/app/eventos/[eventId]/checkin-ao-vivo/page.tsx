@@ -132,6 +132,34 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
           </div>
         )}
       </section>
+
+      <section className="mt-5 rounded-2xl border border-line bg-surface p-5">
+        <h2 className="text-[15px] font-extrabold">Curva de entrada</h2>
+        <p className="mt-1 text-[12px] font-semibold text-muted">Check-ins confirmados a cada 5 minutos.</p>
+        {live.curve.length === 0 ? (
+          <p className="mt-4 text-[13px] font-semibold text-muted">Nenhum check-in registrado ainda.</p>
+        ) : (
+          <div className="mt-4 flex h-32 items-end gap-1 overflow-x-auto">
+            {(() => {
+              const max = Math.max(...live.curve.map((b) => b.total), 1);
+              return live.curve.map((b) => (
+                <div key={b.bucketStart} className="flex min-w-[10px] flex-1 flex-col items-center gap-1" title={`${b.total} check-ins às ${new Date(b.bucketStart).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}>
+                  <div
+                    className="w-full rounded-t bg-primary"
+                    style={{ height: `${Math.max((b.total / max) * 100, 4)}%` }}
+                  />
+                </div>
+              ));
+            })()}
+          </div>
+        )}
+        {live.curve.length > 0 && (
+          <div className="mt-1 flex justify-between text-[11px] font-semibold text-muted">
+            <span>{new Date(live.curve[0].bucketStart).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+            <span>{new Date(live.curve[live.curve.length - 1].bucketStart).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+          </div>
+        )}
+      </section>
     </main>
   );
 }

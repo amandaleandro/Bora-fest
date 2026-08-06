@@ -20,10 +20,28 @@ export const createEventSchema = z.object({
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
+/** IDs de pixel de conversão são sempre alfanuméricos (+ "-"/"_") nos provedores suportados; restringir o
+ * formato evita que o valor seja usado pra quebrar fora da string JS onde é interpolado no checkout (XSS). */
+const pixelId = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/, "Use apenas letras, números, - e _");
+
+/** IDs de pixel de conversão do evento — cada campo é opcional e independente. */
+export const pixelSettingsSchema = z.object({
+  metaPixelId: pixelId.optional(),
+  ga4MeasurementId: pixelId.optional(),
+  tiktokPixelId: pixelId.optional(),
+});
+export type PixelSettingsInput = z.infer<typeof pixelSettingsSchema>;
+
 export const updateEventSchema = createEventSchema.partial().extend({
   bannerUrl: z.string().url().optional(),
   /** sala de espera: admite N compradores por vez no checkout deste evento */
   waitingRoomEnabled: z.boolean().optional(),
   waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
+  pixelSettings: pixelSettingsSchema.optional(),
 });
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;

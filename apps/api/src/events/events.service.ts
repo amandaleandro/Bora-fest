@@ -63,7 +63,11 @@ export class EventsService {
   }
 
   async listForOrganization(organizationId: string, actorUserId: string) {
-    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+    try {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+    } catch {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    }
 
     return prisma.event.findMany({
       where: { organizationId },
@@ -81,6 +85,11 @@ export class EventsService {
       ? (await this.upsertVenue(event.organizationId, input.venue)).id
       : input.venueId;
 
+    // merge parcial: enviar só um pixel (ex. metaPixelId) não deve apagar os outros já salvos
+    const pixelSettings = input.pixelSettings
+      ? { ...(event.pixelSettings as Record<string, string> | null), ...input.pixelSettings }
+      : undefined;
+
     return prisma.event.update({
       where: { id: eventId },
       data: {
@@ -89,6 +98,7 @@ export class EventsService {
         bannerUrl: input.bannerUrl,
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,
+        pixelSettings,
         venueId,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,

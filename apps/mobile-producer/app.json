@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "BoraFest Produtor",
+    "slug": "borafest-producer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": { "backgroundColor": "#111827" },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.borafest.producer"
+    },
+    "android": {
+      "package": "com.borafest.producer"
+    },
+    "plugins": ["react-native-webview"]
+  }
+}

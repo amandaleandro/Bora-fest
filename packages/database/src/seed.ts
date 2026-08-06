@@ -5,6 +5,7 @@ const BASE_ROLES = [
   { key: "admin", name: "Administrador" },
   { key: "operator", name: "Operador de portaria" },
   { key: "finance", name: "Financeiro" },
+  { key: "seller", name: "Vendedor" },
 ];
 
 async function main() {

@@ -5,6 +5,7 @@ export const PERMISSIONS = {
   ORDER_REFUND: "order:refund",
   FINANCE_VIEW: "finance:view",
   CHECKIN_PERFORM: "checkin:perform",
+  SALES_PERFORM: "sales:perform",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -17,9 +18,11 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.EVENT_PUBLISH,
     PERMISSIONS.ORDER_REFUND,
     PERMISSIONS.FINANCE_VIEW,
+    PERMISSIONS.SALES_PERFORM,
   ],
   finance: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.ORDER_REFUND],
   operator: [PERMISSIONS.CHECKIN_PERFORM],
+  seller: [PERMISSIONS.SALES_PERFORM],
 };
 
 export function roleHasPermission(roleKey: string, permission: PermissionKey): boolean {

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import QRCode from "react-qr-code";
-import { api, ApiError, type Order, type OrderTicketsResponse } from "../../../lib/api";
+import { api, ApiError, type Order, type OrderTicketsResponse, type PixelSettings } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
+import { PixelTracker } from "../../../components/PixelTracker";
 
 /** Evento do Chrome/Edge para instalar o PWA (não existe no Safari). */
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
@@ -93,6 +94,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   const [whatsPhone, setWhatsPhone] = useState("");
   const [whatsState, setWhatsState] = useState<"idle" | "sending" | "ok" | "error">("idle");
   const [whatsError, setWhatsError] = useState<string | null>(null);
+  const [pixelSettings, setPixelSettings] = useState<PixelSettings | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -116,6 +118,12 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   useEffect(() => {
     if (order?.contactPhone) setWhatsPhone(maskBrPhone(order.contactPhone));
   }, [order?.contactPhone]);
+
+  // pixels do evento (rota pública já cacheada) só depois que sabemos o slug pelos ingressos
+  useEffect(() => {
+    if (!ticketsData?.event.slug) return;
+    api.getPublicEvent(ticketsData.event.slug).then((e) => setPixelSettings(e.pixelSettings)).catch(() => {});
+  }, [ticketsData?.event.slug]);
 
   // pendente: polling
   useEffect(() => {
@@ -285,6 +293,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   // --- confirmação (aprovado) ---
   return (
     <main className="flex min-h-dvh flex-col bg-gradient-to-b from-emerald-50 to-bg px-6 pb-10 pt-16 text-center lg:mx-auto lg:max-w-[660px] lg:px-7 lg:pb-16 lg:pt-12">
+      <PixelTracker pixelSettings={pixelSettings} purchase={{ orderId: order.id, valueCents: order.totalCents }} />
       <div className="mx-auto flex h-[92px] w-[92px] animate-pop items-center justify-center rounded-full bg-success text-white">
         <Icon d={paths.check} size={44} stroke={2.5} />
       </div>

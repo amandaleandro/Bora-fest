@@ -42,6 +42,7 @@ function VendasContent({ eventId }: { eventId: string }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportingOrders, setExportingOrders] = useState(false);
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
@@ -95,6 +96,16 @@ function VendasContent({ eventId }: { eventId: string }) {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, eventId, page, statusFilter]);
+
+  async function handleExportOrders() {
+    if (!token) return;
+    setExportingOrders(true);
+    try {
+      await dashboardApi.downloadOrdersCsv(token, eventId);
+    } finally {
+      setExportingOrders(false);
+    }
+  }
 
   async function openDetail(orderId: string) {
     if (!token) return;
@@ -233,6 +244,14 @@ function VendasContent({ eventId }: { eventId: string }) {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={handleExportOrders}
+              disabled={exportingOrders}
+              className="ml-auto rounded-lg border border-line px-3 py-2 text-[13px] font-bold text-ink"
+            >
+              {exportingOrders ? "Exportando..." : "Exportar CSV"}
+            </button>
           </div>
 
           {loading ? (

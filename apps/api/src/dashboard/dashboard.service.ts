@@ -12,7 +12,11 @@ export class DashboardService {
   private async assertEventAccess(eventId: string, actorUserId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+    try {
+      await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+    } catch {
+      await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    }
     return event;
   }
 
@@ -69,6 +73,7 @@ export class DashboardService {
         bannerUrl: event.bannerUrl,
         waitingRoomEnabled: event.waitingRoomEnabled,
         waitingRoomConcurrency: event.waitingRoomConcurrency,
+        pixelSettings: event.pixelSettings,
         venue,
       },
       revenueCents,
@@ -155,6 +160,54 @@ export class DashboardService {
         .map((value) => `"${String(value).replace(/"/g, '""')}"`)
         .join(","),
     );
+
+    return [header, ...rows].join("\n");
+  }
+
+  /** CSV de pedidos p/ prestação de contas do produtor (bruto, taxa e líquido por pedido). */
+  async exportOrdersCsv(eventId: string, actorUserId: string): Promise<string> {
+    await this.assertEventAccess(eventId, actorUserId);
+
+    const orders = await prisma.order.findMany({
+      where: { eventId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        publicToken: true,
+        contactName: true,
+        contactEmail: true,
+        status: true,
+        totalCents: true,
+        discountCents: true,
+        createdAt: true,
+        paidAt: true,
+        items: { select: { quantity: true, priceCents: true, feeCents: true } },
+        payments: { select: { method: true, status: true }, orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+
+    const header =
+      "pedido,data,comprador,email,itens,valor_bruto,taxa_servico,valor_liquido,desconto,status,meio_pagamento";
+    const rows = orders.map((o) => {
+      const itemCount = o.items.reduce((sum, i) => sum + i.quantity, 0);
+      const feeCents = o.items.reduce((sum, i) => sum + i.feeCents * i.quantity, 0);
+      const grossCents = o.totalCents + o.discountCents; // bruto antes do desconto do cupom
+      const netCents = grossCents - feeCents - o.discountCents;
+      return [
+        o.publicToken,
+        o.createdAt.toISOString(),
+        o.contactName ?? "",
+        o.contactEmail,
+        itemCount,
+        (grossCents / 100).toFixed(2),
+        (feeCents / 100).toFixed(2),
+        (netCents / 100).toFixed(2),
+        (o.discountCents / 100).toFixed(2),
+        o.status,
+        o.payments[0]?.method ?? "",
+      ]
+        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .join(",");
+    });
 
     return [header, ...rows].join("\n");
   }

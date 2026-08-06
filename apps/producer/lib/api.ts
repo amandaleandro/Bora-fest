@@ -74,12 +74,16 @@ export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
   create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string }) =>
     request<Organization & { members: unknown[] }>("/v1/organizations", { method: "POST", body: input, token }),
-  inviteMember: (token: string, organizationId: string, email: string, roleKey: MemberRoleKey) =>
+  inviteMember: (token: string, organizationId: string, email: string, roleKey: MemberRoleKey, partnerId?: string) =>
     request(`/v1/organizations/${organizationId}/members`, {
       method: "POST",
-      body: { email, roleKey },
+      body: { email, roleKey, partnerId },
       token,
     }),
+  createSalesPartner: (token: string, organizationId: string, input: { name: string; commissionBps: number }) =>
+    request<SalesPartner>(`/v1/organizations/${organizationId}/sales-partners`, { method: "POST", body: input, token }),
+  listSalesPartners: (token: string, organizationId: string) =>
+    request<SalesPartner[]>(`/v1/organizations/${organizationId}/sales-partners`, { token }),
 };
 
 // ---------------------------------------------------------------------------
@@ -122,7 +126,15 @@ export const MEMBER_ROLES = [
   { key: "admin", label: "Administrador", description: "Tudo, inclusive financeiro e saques" },
   { key: "finance", label: "Gestor do evento", description: "Ingressos, vendas e participantes" },
   { key: "operator", label: "Check-in", description: "Só o app de validação e o painel ao vivo" },
+  { key: "seller", label: "Vendedor", description: "Pode registrar vendas no PDV da atlética/parceiro" },
 ] as const;
+
+export interface SalesPartner {
+  id: string;
+  name: string;
+  commissionBps: number;
+  members: Array<{ user: { id: string; name?: string | null; email?: string | null } }>;
+}
 
 export type MemberRoleKey = (typeof MEMBER_ROLES)[number]["key"];
 
@@ -194,6 +206,12 @@ export const catalogApi = {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+export interface PixelSettings {
+  metaPixelId?: string;
+  ga4MeasurementId?: string;
+  tiktokPixelId?: string;
+}
+
 export interface Dashboard {
   event: {
     id: string;
@@ -203,6 +221,7 @@ export interface Dashboard {
     bannerUrl?: string | null;
     waitingRoomEnabled: boolean;
     waitingRoomConcurrency: number;
+    pixelSettings?: PixelSettings | null;
     venue?: EventVenue | null;
   };
   revenueCents: number;
@@ -241,6 +260,11 @@ export interface CheckinLive {
   remaining: number;
   perMinute: number;
   byCheckinPoint: Array<{ checkinPointId: string | null; count: number }>;
+  curve: Array<{
+    bucketStart: string;
+    total: number;
+    byCheckinPoint: Array<{ checkinPointId: string | null; count: number }>;
+  }>;
   generatedAt: string;
 }
 
@@ -266,6 +290,20 @@ export const dashboardApi = {
     const link = document.createElement("a");
     link.href = url;
     link.download = "participantes.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  },
+  downloadOrdersCsv: async (token: string, eventId: string): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/orders/export`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new ApiError(response.status, "Não foi possível exportar");
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "pedidos.csv";
     link.click();
     URL.revokeObjectURL(url);
   },
@@ -393,6 +431,7 @@ export interface UpdateEventInput {
   bannerUrl?: string;
   waitingRoomEnabled?: boolean;
   waitingRoomConcurrency?: number;
+  pixelSettings?: PixelSettings;
   /** A API cria/atualiza o local e vincula ao evento. */
   venue?: EventVenue;
 }

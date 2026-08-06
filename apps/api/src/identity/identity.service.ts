@@ -27,6 +27,13 @@ const log = withContext({ module: "identity" });
 
 @Injectable()
 export class IdentityService {
+  private async activateInvitedMemberships(userId: string) {
+    await prisma.organizationMember.updateMany({
+      where: { userId, status: "INVITED" },
+      data: { status: "ACTIVE", joinedAt: new Date() },
+    });
+  }
+
   async requestOtp(input: RequestOtpInput) {
     const code = generateOtpCode();
     const codeHash = hashOtpCode(code, input.destination);
@@ -134,6 +141,7 @@ export class IdentityService {
           },
         });
 
+    await this.activateInvitedMemberships(user.id);
     log.info({ userId: user.id }, "conta de produtor criada (senha)");
     const token = await createSessionToken({ sub: user.id });
     return { token, user: { id: user.id, name: user.name, email: user.email } };
@@ -144,6 +152,7 @@ export class IdentityService {
     if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
       throw new UnauthorizedException("E-mail ou senha inválidos");
     }
+    await this.activateInvitedMemberships(user.id);
     const token = await createSessionToken({ sub: user.id });
     return { token, user: { id: user.id, name: user.name, email: user.email } };
   }

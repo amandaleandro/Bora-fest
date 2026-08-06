@@ -39,4 +39,11 @@ export class DashboardController {
   exportParticipants(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
     return this.dashboardService.exportParticipantsCsv(eventId, userId);
   }
+
+  @Get("orders/export")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", "attachment; filename=pedidos.csv")
+  exportOrders(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
+    return this.dashboardService.exportOrdersCsv(eventId, userId);
+  }
 }

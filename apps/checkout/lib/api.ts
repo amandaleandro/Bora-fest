@@ -56,6 +56,12 @@ export interface PublicTicketType {
   lots: PublicTicketLot[];
 }
 
+export interface PixelSettings {
+  metaPixelId?: string;
+  ga4MeasurementId?: string;
+  tiktokPixelId?: string;
+}
+
 export interface PublicEvent {
   id: string;
   title: string;
@@ -69,6 +75,7 @@ export interface PublicEvent {
   venue: { name: string; address: string; city: string; state: string } | null;
   ticketTypes: PublicTicketType[];
   waitingRoomEnabled: boolean;
+  pixelSettings: PixelSettings | null;
 }
 
 export type WaitingRoomJoinResult =

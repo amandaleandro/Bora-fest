@@ -43,5 +43,6 @@ export const pdvOrderSchema = z.object({
   buyerName: z.string().min(2),
   buyerDocument: z.string().min(5).max(20).optional(),
   buyerEmail: z.string().email().optional(),
+  salesPartnerId: z.string().uuid().optional(),
 });
 export type PdvOrderInput = z.infer<typeof pdvOrderSchema>;

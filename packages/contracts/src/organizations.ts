@@ -9,9 +9,16 @@ export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 
 export const inviteMemberSchema = z.object({
   email: z.string().email(),
-  roleKey: z.enum(["owner", "admin", "operator", "finance"]),
+  roleKey: z.enum(["owner", "admin", "operator", "finance", "seller"]),
+  partnerId: z.string().uuid().optional(),
 });
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
+
+export const createSalesPartnerSchema = z.object({
+  name: z.string().min(2),
+  commissionBps: z.number().int().min(0).max(10000).default(0),
+});
+export type CreateSalesPartnerInput = z.infer<typeof createSalesPartnerSchema>;
 
 export const createBankAccountSchema = z.object({
   holderName: z.string().min(2),
