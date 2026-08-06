@@ -15,6 +15,13 @@
     "android": {
       "package": "com.borafest.app"
     },
-    "plugins": ["expo-notifications"]
+    "plugins": [
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f55481d0-f6a4-4261-8dc3-a0cca36086f2"
+      }
+    }
   }
 }
