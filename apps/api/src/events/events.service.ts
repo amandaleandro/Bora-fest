@@ -56,6 +56,7 @@ export class EventsService {
         title: input.title,
         slug,
         description: input.description,
+        category: input.category,
         startsAt: new Date(input.startsAt),
         endsAt: new Date(input.endsAt),
         timezone: input.timezone,
@@ -96,6 +97,7 @@ export class EventsService {
       data: {
         title: input.title,
         description: input.description,
+        category: input.category,
         bannerUrl: input.bannerUrl,
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,

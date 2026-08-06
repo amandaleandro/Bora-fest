@@ -77,9 +77,29 @@ export class OrdersService {
       ? await this.coupons.findUsable(reservation.eventId, input.couponCode)
       : null;
     const discountCents = coupon ? CouponsService.discountFor(coupon, itemsTotalCents) : 0;
-    const totalCents = itemsTotalCents - discountCents;
+    const ticketTotalCents = itemsTotalCents - discountCents;
 
-    // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV
+    // itens adicionais (upsell) — não entram na base de comissão do parceiro, só na venda
+    const addOnSelections = input.addOns ?? [];
+    let addOns: { id: string; priceCents: number }[] = [];
+    if (addOnSelections.length > 0) {
+      addOns = await prisma.eventAddOn.findMany({
+        where: { id: { in: addOnSelections.map((a) => a.addOnId) }, eventId: reservation.eventId, active: true },
+        select: { id: true, priceCents: true },
+      });
+      if (addOns.length !== new Set(addOnSelections.map((a) => a.addOnId)).size) {
+        throw new BadRequestException("Item adicional inválido para este evento");
+      }
+    }
+    const addOnById = new Map(addOns.map((a) => [a.id, a]));
+    const addOnsTotalCents = addOnSelections.reduce(
+      (sum, sel) => sum + (addOnById.get(sel.addOnId)?.priceCents ?? 0) * sel.quantity,
+      0,
+    );
+
+    const totalCents = ticketTotalCents + addOnsTotalCents;
+
+    // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV, só sobre ingressos
     let salesPartnerId: string | undefined;
     let partnerCommissionCents = 0;
     if (input.partnerSlug) {
@@ -92,7 +112,7 @@ export class OrdersService {
         : null;
       if (partner) {
         salesPartnerId = partner.id;
-        partnerCommissionCents = Math.floor((totalCents * partner.commissionBps) / 10_000);
+        partnerCommissionCents = Math.floor((ticketTotalCents * partner.commissionBps) / 10_000);
       }
     }
 
@@ -137,6 +157,17 @@ export class OrdersService {
         },
         include: { items: true },
       });
+
+      if (addOnSelections.length > 0) {
+        await tx.orderAddOnItem.createMany({
+          data: addOnSelections.map((sel) => ({
+            orderId: created.id,
+            addOnId: sel.addOnId,
+            quantity: sel.quantity,
+            priceCents: addOnById.get(sel.addOnId)!.priceCents,
+          })),
+        });
+      }
 
       if (input.attendees?.length) {
         await tx.orderAttendee.createMany({

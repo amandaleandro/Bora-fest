@@ -105,13 +105,14 @@ export class CatalogService {
   }
 
   /** Descoberta de eventos (Fase 12): lista eventos publicados, futuros primeiro. */
-  async listPublicEvents(options: { page: number; pageSize: number; city?: string }) {
+  async listPublicEvents(options: { page: number; pageSize: number; city?: string; category?: string }) {
     const where = {
       status: "PUBLISHED" as const,
       endsAt: { gt: new Date() },
       ...(options.city
         ? { venue: { is: { city: { equals: options.city, mode: "insensitive" as const } } } }
         : {}),
+      ...(options.category ? { category: options.category as never } : {}),
     };
 
     const [total, events] = await Promise.all([
@@ -126,6 +127,7 @@ export class CatalogService {
           title: true,
           slug: true,
           bannerUrl: true,
+          category: true,
           startsAt: true,
           timezone: true,
           venue: { select: { name: true, city: true, state: true } },
@@ -147,6 +149,7 @@ export class CatalogService {
           title: event.title,
           slug: event.slug,
           bannerUrl: event.bannerUrl,
+          category: event.category,
           startsAt: event.startsAt,
           timezone: event.timezone,
           venue: event.venue,
@@ -170,6 +173,10 @@ export class CatalogService {
               orderBy: { createdAt: "asc" },
             },
           },
+        },
+        addOns: {
+          where: { active: true },
+          orderBy: { createdAt: "asc" },
         },
       },
     });

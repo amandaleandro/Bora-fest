@@ -8,12 +8,17 @@ export const eventVenueSchema = z.object({
 });
 export type EventVenueInput = z.infer<typeof eventVenueSchema>;
 
+export const eventCategorySchema = z.enum(["SHOWS", "FESTAS", "ESPORTES", "TEATRO"]);
+export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
+
 export const createEventSchema = z.object({
   title: z.string().min(3),
   description: z.string().optional(),
   venueId: z.string().uuid().optional(),
   /** local inline (feedback 2026-08-03): a API cria o Venue e vincula */
   venue: eventVenueSchema.optional(),
+  /** categoria de descoberta na home pública — livre = sem categoria */
+  category: eventCategorySchema.optional(),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   timezone: z.string().default("America/Sao_Paulo"),

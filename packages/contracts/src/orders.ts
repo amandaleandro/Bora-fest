@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { orderAddOnSelectionSchema } from "./add-ons";
 
 export const createOrderSchema = z.object({
   reservationId: z.string().uuid(),
@@ -9,6 +10,8 @@ export const createOrderSchema = z.object({
   couponCode: z.string().min(3).max(24).optional(),
   /// slug do parceiro de vendas capturado do link público (?p=slug) — atribui a comissão
   partnerSlug: z.string().min(1).max(80).optional(),
+  /// itens adicionais escolhidos no checkout (upsell) — ex.: camiseta do evento
+  addOns: z.array(orderAddOnSelectionSchema).optional(),
   /// participantes de ingressos nominais (1 por unidade do lote nominal)
   attendees: z
     .array(
