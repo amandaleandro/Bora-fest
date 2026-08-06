@@ -4,9 +4,10 @@
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').accessSync('dist/main.js')\"",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test": "tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "@borafest/database": "workspace:*",
