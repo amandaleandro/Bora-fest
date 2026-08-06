@@ -115,6 +115,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [couponInfo, setCouponInfo] = useState<string | null>(null);
   const [couponPreview, setCouponPreview] = useState<{ code: string; discountCents: number } | null>(null);
 
+  // itens adicionais (upsell)
+  const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
+
   // pagamento
   const [consent, setConsent] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -233,9 +236,13 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   );
   const validCoupon = couponPreview && couponPreview.code === coupon.trim().toUpperCase() ? couponPreview : null;
   const discountCents = order ? order.discountCents ?? 0 : validCoupon?.discountCents ?? 0;
+  const addOnsTotalCents = (event?.addOns ?? []).reduce(
+    (sum, addOn) => sum + addOn.priceCents * (addOnQty[addOn.id] ?? 0),
+    0,
+  );
   const totalCents = order
     ? order.totalCents
-    : Math.max(0, subtotalCents + feeTotalCents - discountCents);
+    : Math.max(0, subtotalCents + feeTotalCents - discountCents + addOnsTotalCents);
 
   // um formulário por ingresso nominal
   const nominalSlots = useMemo(() => {
@@ -352,6 +359,11 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           contactPhone: phone || undefined,
           couponCode: validCoupon ? coupon.trim().toUpperCase() : undefined,
           partnerSlug: getAttributedPartnerSlug(),
+          addOns: Object.entries(addOnQty).some(([, qty]) => qty > 0)
+            ? Object.entries(addOnQty)
+                .filter(([, qty]) => qty > 0)
+                .map(([addOnId, quantity]) => ({ addOnId, quantity }))
+            : undefined,
           attendees: attendeesPayload.length ? attendeesPayload : undefined,
           consent: { version: CONSENT_VERSION, terms: true, privacy: true },
         },
@@ -557,6 +569,43 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         <div className="lg:flex lg:items-start lg:gap-6">
           <div className="lg:flex-[1.5]">
             {/* ETAPA 1 — identificação */}
+            {step === "ident" && (event?.addOns.length ?? 0) > 0 && (
+              <section className={`${cardClass} mb-4`}>
+                <h2 className="text-[15px] font-extrabold">Quer adicionar algo?</h2>
+                <div className="mt-3 space-y-2.5">
+                  {event!.addOns.map((addOn) => {
+                    const qty = addOnQty[addOn.id] ?? 0;
+                    return (
+                      <div key={addOn.id} className="flex items-center justify-between gap-3 rounded-2xl border-[1.5px] border-line bg-surface p-3.5">
+                        <div>
+                          <p className="text-[13px] font-extrabold">{addOn.name}</p>
+                          <p className="text-[12px] font-semibold text-muted">{formatCents(addOn.priceCents)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setAddOnQty((prev) => ({ ...prev, [addOn.id]: Math.max(0, qty - 1) }))}
+                            disabled={qty === 0}
+                            aria-label="Remover"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-line-input text-lg font-bold disabled:opacity-40"
+                          >
+                            −
+                          </button>
+                          <span className="w-5 text-center text-[15px] font-extrabold">{qty}</span>
+                          <button
+                            onClick={() => setAddOnQty((prev) => ({ ...prev, [addOn.id]: Math.min(20, qty + 1) }))}
+                            aria-label="Adicionar"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-lg font-bold text-white shadow-cta"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
             {step === "ident" && (
               <section className={cardClass}>
                 <h2 className="text-[22px] font-extrabold lg:text-[18px]">Quase lá! Como quer continuar?</h2>
@@ -1087,6 +1136,16 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     <span className="shrink-0">{formatCents(line.priceTotalCents)}</span>
                   </div>
                 ))}
+                {(event?.addOns ?? [])
+                  .filter((addOn) => (addOnQty[addOn.id] ?? 0) > 0)
+                  .map((addOn) => (
+                    <div key={addOn.id} className="flex justify-between gap-3 text-[13px] font-semibold text-ink-soft">
+                      <span>
+                        {addOnQty[addOn.id]}× {addOn.name}
+                      </span>
+                      <span className="shrink-0">{formatCents(addOn.priceCents * addOnQty[addOn.id])}</span>
+                    </div>
+                  ))}
                 <div className="flex justify-between gap-3 text-[13px] font-medium text-muted-2">
                   <span>Taxa de serviço</span>
                   <span className="shrink-0">

@@ -47,6 +47,8 @@ export interface PublicTicketLot {
   /** exige nome (e CPF quando requiresCpf) de cada participante no checkout */
   nominal: boolean;
   requiresCpf: boolean;
+  /** quando o lote fecha (vira o próximo lote) — usado pro contador de urgência */
+  endsAt: string | null;
 }
 
 export interface PublicTicketType {
@@ -62,6 +64,13 @@ export interface PixelSettings {
   tiktokPixelId?: string;
 }
 
+export interface PublicEventAddOn {
+  id: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+}
+
 export interface PublicEvent {
   id: string;
   organizationId: string;
@@ -70,12 +79,14 @@ export interface PublicEvent {
   slug: string;
   description: string | null;
   bannerUrl: string | null;
+  category: EventCategory | null;
   status: string;
   startsAt: string;
   endsAt: string;
   timezone: string;
   venue: { name: string; address: string; city: string; state: string } | null;
   ticketTypes: PublicTicketType[];
+  addOns: PublicEventAddOn[];
   waitingRoomEnabled: boolean;
   pixelSettings: PixelSettings | null;
 }
@@ -95,11 +106,14 @@ export type WaitingRoomStatusResult =
   | { status: "QUEUED"; position: number }
   | { status: "EXPIRED" };
 
+export type EventCategory = "SHOWS" | "FESTAS" | "ESPORTES" | "TEATRO";
+
 export interface EventListItem {
   id: string;
   title: string;
   slug: string;
   bannerUrl: string | null;
+  category: EventCategory | null;
   startsAt: string;
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
@@ -193,10 +207,15 @@ export interface ConsentInput {
 export const api = {
   listPublicEvents: () =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
-  listPublicEventsByCity: (city?: string) =>
-    request<{ total: number; events: EventListItem[] }>(
-      `/v1/public/events${city ? `?city=${encodeURIComponent(city)}` : ""}`,
-    ).then((r) => r.events),
+  listPublicEventsByCity: (city?: string, category?: EventCategory) => {
+    const params = new URLSearchParams();
+    if (city) params.set("city", city);
+    if (category) params.set("category", category);
+    const qs = params.toString();
+    return request<{ total: number; events: EventListItem[] }>(
+      `/v1/public/events${qs ? `?${qs}` : ""}`,
+    ).then((r) => r.events);
+  },
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
@@ -256,6 +275,7 @@ export const api = {
       contactPhone?: string;
       couponCode?: string;
       partnerSlug?: string;
+      addOns?: Array<{ addOnId: string; quantity: number }>;
       attendees?: OrderAttendeeInput[];
       consent?: ConsentInput;
     },

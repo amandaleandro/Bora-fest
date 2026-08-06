@@ -2,11 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { api, type EventListItem } from "../lib/api";
+import { api, type EventListItem, type EventCategory } from "../lib/api";
 import { formatCents } from "../lib/format";
 import { Icon, paths } from "../components/icons";
 
-const CATEGORIES = ["Todos", "Shows", "Festas", "Esportes", "Teatro"];
+const CATEGORIES: Array<{ label: string; value: EventCategory | null }> = [
+  { label: "Todos", value: null },
+  { label: "Shows", value: "SHOWS" },
+  { label: "Festas", value: "FESTAS" },
+  { label: "Esportes", value: "ESPORTES" },
+  { label: "Teatro", value: "TEATRO" },
+];
 
 function DateBlock({ iso }: { iso: string }) {
   const d = new Date(iso);
@@ -25,7 +31,7 @@ function DateBlock({ iso }: { iso: string }) {
 export default function HomePage() {
   const [events, setEvents] = useState<EventListItem[] | null>(null);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("Todos");
+  const [category, setCategory] = useState<EventCategory | null>(null);
 
   const [cities, setCities] = useState<Array<{ city: string; state: string }>>([]);
   // cidade escolhida fica no aparelho; null = todas as cidades
@@ -40,10 +46,10 @@ export default function HomePage() {
 
   useEffect(() => {
     api
-      .listPublicEventsByCity(city ?? undefined)
+      .listPublicEventsByCity(city ?? undefined, category ?? undefined)
       .then(setEvents)
       .catch(() => setEvents([]));
-  }, [city]);
+  }, [city, category]);
 
   function pickCity(next: string | null) {
     setCity(next);
@@ -150,18 +156,18 @@ export default function HomePage() {
       </div>
 
       {/* chips de categoria */}
-      <div className="mt-4 flex gap-2 lg:hidden overflow-x-auto pb-1">
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
         {CATEGORIES.map((c) => (
           <button
-            key={c}
-            onClick={() => setCategory(c)}
+            key={c.label}
+            onClick={() => setCategory(c.value)}
             className={`shrink-0 rounded-full px-4 py-2 text-[12px] font-bold ${
-              category === c
+              category === c.value
                 ? "bg-ink text-white"
                 : "border border-line-input bg-surface text-muted"
             }`}
           >
-            {c}
+            {c.label}
           </button>
         ))}
       </div>

@@ -10,6 +10,20 @@ interface Selection {
   half: boolean;
 }
 
+const LOT_COUNTDOWN_WINDOW_MS = 48 * 60 * 60 * 1000; // só mostra contagem se faltar menos de 48h
+
+/** "Termina em 3h42" / "Termina em 2 dias" — só quando está perto o suficiente pra criar urgência real. */
+function lotCountdownLabel(endsAt: string | null): string | null {
+  if (!endsAt) return null;
+  const diffMs = new Date(endsAt).getTime() - Date.now();
+  if (diffMs <= 0 || diffMs > LOT_COUNTDOWN_WINDOW_MS) return null;
+  const hours = Math.floor(diffMs / (60 * 60 * 1000));
+  if (hours >= 24) return "Termina em 1 dia";
+  if (hours >= 1) return `Termina em ${hours}h`;
+  const minutes = Math.max(1, Math.floor(diffMs / (60 * 1000)));
+  return `Termina em ${minutes}min`;
+}
+
 const WAITING_ROOM_POLL_MS = 3_000;
 
 /**
@@ -100,6 +114,7 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
             available,
             soldOut: lot.status !== "ACTIVE" || available <= 0,
             few: lot.status === "ACTIVE" && available > 0 && available <= Math.max(3, lot.capacity * 0.1),
+            countdownLabel: lotCountdownLabel(lot.endsAt),
             // feeMode PRODUCER: o produtor absorve a taxa — o comprador paga só o preço
             buyerPaysFee: lot.feeMode !== "PRODUCER",
           };
@@ -206,8 +221,15 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
                   {lot.soldOut ? (
                     <span className="mt-1 inline-block rounded-full bg-line px-2.5 py-0.5 text-[10px] font-bold text-muted">Esgotado</span>
                   ) : lot.few ? (
-                    <span className="mt-1 inline-block rounded-full bg-accent/10 px-2.5 py-0.5 text-[10px] font-bold text-accent">Poucos</span>
+                    <span className="mt-1 inline-block rounded-full bg-accent/10 px-2.5 py-0.5 text-[10px] font-bold text-accent">
+                      Restam {lot.available}
+                    </span>
                   ) : null}
+                  {!lot.soldOut && lot.countdownLabel && (
+                    <span className="mt-1 ml-1 inline-block rounded-full bg-danger/10 px-2.5 py-0.5 text-[10px] font-bold text-danger">
+                      {lot.countdownLabel}
+                    </span>
+                  )}
                   {lot.nominal && !lot.soldOut && (
                     <span className="mt-1 ml-1 inline-block rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">
                       Nominal

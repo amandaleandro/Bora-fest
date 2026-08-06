@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { SiteFooter, SiteFrame, SiteHeader } from "../components/SiteChrome";
+import { SITE_URL } from "../lib/config";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -10,7 +11,8 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "BoraFest",
+  metadataBase: new URL(SITE_URL),
+  title: { default: "BoraFest", template: "%s" },
   description: "Compre seu ingresso sem precisar de conta ou aplicativo.",
   manifest: "/manifest.json",
 };
