@@ -4,18 +4,16 @@ import { prisma } from "@borafest/database";
 import { applyGatewayStatus } from "@borafest/payments";
 import { closeRedisConnection } from "@borafest/queues";
 import { generateEventKeyPair } from "@borafest/tickets";
-import { ReservationsService } from "../reservations/reservations.service";
-import { CouponsService } from "../coupons/coupons.service";
-import { OrgAccessService } from "../common/org-access.service";
-import { OrdersService } from "../orders/orders.service";
-import { PaymentsService } from "../payments/payments.service";
-import { InventoryService } from "../inventory/inventory.service";
-import { WaitingRoomService } from "../waiting-room/waiting-room.service";
-import { IdempotencyService } from "../common/idempotency.service";
-// emissão é responsabilidade do worker — importada direto para o teste cobrir
-// o caminho real sem depender da fila
-import { issueTicketsForOrder } from "../../../worker/src/issue-tickets";
-import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
+import { ReservationsService } from "../../../api/src/reservations/reservations.service";
+import { CouponsService } from "../../../api/src/coupons/coupons.service";
+import { OrgAccessService } from "../../../api/src/common/org-access.service";
+import { OrdersService } from "../../../api/src/orders/orders.service";
+import { PaymentsService } from "../../../api/src/payments/payments.service";
+import { InventoryService } from "../../../api/src/inventory/inventory.service";
+import { WaitingRoomService } from "../../../api/src/waiting-room/waiting-room.service";
+import { IdempotencyService } from "../../../api/src/common/idempotency.service";
+import { issueTicketsForOrder } from "../issue-tickets";
+import { createFixtureEvent, cleanupFixtureEvent } from "../../../api/src/__tests__/helpers";
 
 after(async () => {
   await closeRedisConnection();
