@@ -6,6 +6,7 @@ import {
   renderTicketDeliveryEmail,
   renderTicketDeliveryPush,
   renderOtpEmail,
+  renderTicketTransferredEmail,
   renderOtpWhatsApp,
   type OtpCodePayload,
   renderPasswordResetEmail,
@@ -99,6 +100,14 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para password_reset: ${channel}`);
+  }
+
+  if (template === "ticket_transferred") {
+    if (channel === "EMAIL") {
+      await getEmailSender().send(renderTicketTransferredEmail(recipient, payload as any));
+      return;
+    }
+    throw new Error(`Canal não suportado para ticket_transferred: ${channel}`);
   }
 
   if (template !== "ticket_delivery") {

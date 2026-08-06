@@ -102,6 +102,14 @@ export default function ProfilePage() {
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
   const [resentFor, setResentFor] = useState<string | null>(null);
 
+  // transferência de ingresso (painel inline por cartão)
+  const [transferFor, setTransferFor] = useState<string | null>(null); // ticket.id com painel aberto
+  const [transferEmail, setTransferEmail] = useState("");
+  const [transferSending, setTransferSending] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [transferNeedsAccount, setTransferNeedsAccount] = useState(false); // 404: destino sem conta
+  const [transferredTo, setTransferredTo] = useState<string | null>(null); // e-mail destino do sucesso
+
   const [waNotif, setWaNotif] = useState(true);
   const [emailOffers, setEmailOffers] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -199,6 +207,56 @@ export default function ProfilePage() {
     setTickets(null);
     setOrders(null);
     requested.current.clear();
+  }
+
+  function openTransfer(ticketId: string) {
+    setTransferFor(ticketId);
+    setTransferEmail("");
+    setTransferError(null);
+    setTransferNeedsAccount(false);
+    setTransferredTo(null);
+  }
+
+  function closeTransfer() {
+    setTransferFor(null);
+    setTransferEmail("");
+    setTransferError(null);
+    setTransferNeedsAccount(false);
+  }
+
+  async function doTransfer(ticket: MyTicket) {
+    const toEmail = transferEmail.trim().toLowerCase();
+    setTransferError(null);
+    setTransferNeedsAccount(false);
+    if (!/^\S+@\S+\.\S+$/.test(toEmail)) {
+      setTransferError("Informe um e-mail válido da conta destino");
+      return;
+    }
+    const ok = window.confirm(
+      `Transferir o ingresso de ${ticket.event.title} para ${toEmail}?\n\nO ingresso sai da sua conta, o QR atual deixa de valer e a ação não pode ser desfeita.`,
+    );
+    if (!ok) return;
+    setTransferSending(true);
+    try {
+      await api.transferTicket(ticket.id, { orderPublicToken: ticket.orderPublicToken, toEmail });
+      const keptInWallet = (profile?.email ?? "").trim().toLowerCase() === toEmail;
+      setTransferredTo(toEmail);
+      setTransferFor(null);
+      setTransferEmail("");
+      if (!keptInWallet) {
+        setTickets((prev) => (prev ? prev.filter((t) => t.id !== ticket.id) : prev));
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        // destino ainda não tem conta BoraFest: aviso amigável em vez de erro
+        setTransferNeedsAccount(true);
+        setTransferError(e.message);
+      } else {
+        setTransferError(e instanceof ApiError ? e.message : "Não foi possível transferir agora");
+      }
+    } finally {
+      setTransferSending(false);
+    }
   }
 
   async function resend(publicToken: string) {
@@ -303,6 +361,11 @@ export default function ProfilePage() {
         <div className="mt-6 lg:mt-0 lg:flex-1">
           {section === "ingressos" && (
             <section>
+              {transferredTo && (
+                <p className="mb-3.5 rounded-2xl bg-success/10 p-3.5 text-[12.5px] font-bold leading-relaxed text-success">
+                  Ingresso transferido para {transferredTo} — já está na conta dela 🎟️
+                </p>
+              )}
               {tickets === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando seus ingressos…</p>
               ) : tickets.length === 0 ? (
@@ -348,9 +411,58 @@ export default function ProfilePage() {
                               Apple/Google Wallet · em breve
                             </button>
                             <Link href="/minhas-compras" className="flex h-10 items-center rounded-[11px] border-[1.5px] border-line-input px-[15px] text-[12px] font-bold text-ink">
-                              Reenviar ou transferir
+                              Reenviar
                             </Link>
+                            {ticket.transferable && (
+                              <button
+                                onClick={() => (transferFor === ticket.id ? closeTransfer() : openTransfer(ticket.id))}
+                                className="h-10 rounded-[11px] border-[1.5px] border-line-input px-[15px] text-[12px] font-bold text-ink"
+                              >
+                                Transferir
+                              </button>
+                            )}
                           </div>
+                          {transferFor === ticket.id && (
+                            <div className="mt-3 rounded-2xl border border-line bg-[#faf9fd] p-4 text-left">
+                              <p className="text-[12px] font-semibold leading-relaxed text-ink-soft">
+                                O ingresso sai da sua conta e o QR antigo deixa de valer. A pessoa precisa já ter
+                                conta BoraFest.
+                              </p>
+                              <input
+                                type="email"
+                                value={transferEmail}
+                                onChange={(e) => setTransferEmail(e.target.value)}
+                                placeholder="E-mail da conta destino"
+                                disabled={transferSending}
+                                className="mt-3 h-12 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[13px] font-medium outline-none focus:border-primary"
+                              />
+                              {transferError &&
+                                (transferNeedsAccount ? (
+                                  <p className="mt-2.5 rounded-xl bg-warning/10 p-3 text-[12px] font-semibold leading-relaxed text-warning">
+                                    {transferError} Dica: compartilhe borafest.com.br/perfil — criar a conta leva
+                                    menos de um minuto, sem senha.
+                                  </p>
+                                ) : (
+                                  <p className="mt-2.5 text-[12px] font-semibold leading-relaxed text-danger">{transferError}</p>
+                                ))}
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => doTransfer(ticket)}
+                                  disabled={transferSending}
+                                  className="h-11 rounded-xl bg-primary px-[18px] text-[13px] font-bold text-white disabled:opacity-60"
+                                >
+                                  {transferSending ? "Enviando…" : "Confirmar transferência"}
+                                </button>
+                                <button
+                                  onClick={closeTransfer}
+                                  disabled={transferSending}
+                                  className="h-11 rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-ink disabled:opacity-60"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </article>

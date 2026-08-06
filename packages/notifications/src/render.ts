@@ -160,3 +160,24 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+export interface TicketTransferredPayload {
+  eventTitle: string;
+  lotLabel: string;
+  code: string;
+  toName: string;
+  fromEmail: string;
+  walletUrl: string;
+}
+
+export function renderTicketTransferredEmail(
+  to: string,
+  payload: TicketTransferredPayload,
+): EmailMessage {
+  return {
+    to,
+    subject: `Você recebeu um ingresso — ${payload.eventTitle} 🎟️`,
+    text: `${payload.toName}, ${payload.fromEmail} transferiu um ingresso (${payload.lotLabel}, código ${payload.code}) para a sua conta BoraFest. Ele já está na sua carteira: ${payload.walletUrl}`,
+    html: `<p>${payload.toName}, <b>${payload.fromEmail}</b> transferiu um ingresso para a sua conta BoraFest.</p><p><b>${payload.eventTitle}</b><br/>${payload.lotLabel} · código ${payload.code}</p><p>Ele já está na sua carteira — o QR novo vale na portaria: <a href="${payload.walletUrl}">${payload.walletUrl}</a></p>`,
+  };
+}

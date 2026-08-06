@@ -74,24 +74,46 @@ test("transferência de ingresso troca titular, reassina o QR e audita", async (
     const { order, ticket } = await buildPaidOrderWithTicket(event.id, lot.id);
     const ticketsService = new TicketsService();
 
+    const email = `novo-titular-${Math.random().toString(36).slice(2, 8)}@example.com`;
+    // destino sem conta → recusa com orientação (decisão 2026-08-06)
+    await assert.rejects(
+      () =>
+        ticketsService.transferTicket(ticket.id, {
+          orderPublicToken: order.publicToken,
+          toEmail: email,
+        }),
+      /criar a conta/i,
+    );
+
+    const toUser = await prisma.user.create({ data: { name: "Novo Titular", email } });
     const result = await ticketsService.transferTicket(ticket.id, {
       orderPublicToken: order.publicToken,
-      toName: "Novo Titular",
-      toEmail: "novo-titular@example.com",
+      toEmail: email,
     });
 
     assert.equal(result.attendeeName, "Novo Titular");
 
     const updated = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+    assert.equal(updated.ownerUserId, toUser.id, "POSSE muda para a conta destino");
     assert.equal(updated.attendeeName, "Novo Titular");
-    assert.equal(updated.attendeeEmail, "novo-titular@example.com");
+    assert.equal(updated.attendeeEmail, email);
     assert.notEqual(updated.qrToken, ticket.qrToken, "QR deve ser reassinado (nonce novo)");
+
+    // carteira: aparece para o novo dono, some para quem não é dono
+    const carteiraNova = await ticketsService.findByUser(toUser.id);
+    assert.ok(carteiraNova.some((t: any) => t.id === ticket.id), "ingresso na carteira destino");
+
+    // aviso ao novo dono entrou na fila
+    const aviso = await prisma.notification.findFirst({
+      where: { recipient: email, template: "ticket_transferred" },
+    });
+    assert.ok(aviso, "notificação de transferência enfileirada");
 
     const audit = await prisma.auditLog.findFirst({
       where: { entityType: "ticket", entityId: ticket.id, action: "ticket.transfer" },
     });
     assert.ok(audit, "deveria ter registrado auditoria da transferência");
-    assert.equal((audit!.metadata as any).toEmail, "novo-titular@example.com");
+    assert.equal((audit!.metadata as any).toEmail, email);
   } finally {
     await cleanupFixtureEvent(organization.id);
   }
@@ -108,7 +130,6 @@ test("transferência com orderPublicToken errado é recusada (403)", async () =>
       () =>
         ticketsService.transferTicket(ticket.id, {
           orderPublicToken: "00000000-0000-0000-0000-000000000000",
-          toName: "Golpista",
           toEmail: "golpista@example.com",
         }),
       /Forbidden|não confere/i,

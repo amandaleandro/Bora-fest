@@ -49,17 +49,26 @@ export class TicketsService {
   /** Carteira do usuário autenticado. */
   async findByUser(userId: string) {
     const tickets = await prisma.ticket.findMany({
-      where: { order: { userId }, status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
+      where: {
+        status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] },
+        OR: [{ ownerUserId: userId }, { ownerUserId: null, order: { userId } }],
+      },
       orderBy: { issuedAt: "desc" },
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
         event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
+        order: { select: { publicToken: true } },
       },
     });
 
+    const now = Date.now();
     return tickets.map((ticket) => ({
       ...this.toPublicTicket(ticket),
       event: (ticket as any).event,
+      orderPublicToken: (ticket as any).order.publicToken,
+      transferable:
+        (ticket.status === "ISSUED" || ticket.status === "ACTIVE") &&
+        new Date((ticket as any).event.endsAt).getTime() > now,
     }));
   }
 
@@ -74,9 +83,11 @@ export class TicketsService {
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
       include: {
-        order: { select: { publicToken: true } },
-        event: { select: { signingKey: true } },
-        ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+        order: { select: { publicToken: true, contactEmail: true } },
+        event: { select: { title: true, endsAt: true, signingKey: true } },
+        ticketLot: {
+          select: { name: true, requiresCpf: true, ticketType: { select: { name: true } } },
+        },
       },
     });
     if (!ticket) throw new NotFoundException("Ingresso não encontrado");
@@ -86,12 +97,31 @@ export class TicketsService {
     if (ticket.status !== "ISSUED" && ticket.status !== "ACTIVE") {
       throw new BadRequestException("Este ingresso não pode ser transferido no estado atual");
     }
+    if (new Date(ticket.event.endsAt).getTime() <= Date.now()) {
+      throw new BadRequestException("O evento já terminou — ingresso não pode ser transferido");
+    }
     if (!ticket.event.signingKey) {
       throw new BadRequestException("Evento sem chave de assinatura configurada");
     }
 
+    // a posse só muda para uma conta que EXISTE (decisão 2026-08-06: destino
+    // já validado) — e com CPF na conta quando o lote exige documento
+    const toUser = await prisma.user.findUnique({
+      where: { email: input.toEmail.toLowerCase().trim() },
+    });
+    if (!toUser) {
+      throw new NotFoundException(
+        "A pessoa precisa criar a conta BoraFest primeiro (com este e-mail)",
+      );
+    }
+    if (ticket.ticketLot.requiresCpf && !toUser.cpf) {
+      throw new BadRequestException(
+        "Este lote exige CPF: a conta destino precisa completar o cadastro (Dados pessoais) antes de receber o ingresso",
+      );
+    }
+
     const fromName = ticket.attendeeName;
-    const fromEmail = ticket.attendeeEmail;
+    const fromEmail = ticket.attendeeEmail ?? ticket.order.contactEmail;
 
     const qrToken = signTicketToken(
       {
@@ -105,20 +135,46 @@ export class TicketsService {
       ticket.event.signingKey.privateKeyPem,
     );
 
-    const updated = await prisma.ticket.update({
-      where: { id: ticket.id },
-      data: { attendeeName: input.toName, attendeeEmail: input.toEmail, qrToken },
-      include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
-    });
+    const toName = toUser.name ?? input.toEmail;
+    const lotLabel = `${ticket.ticketLot.ticketType.name} — ${ticket.ticketLot.name}`;
 
-    await prisma.auditLog.create({
-      data: {
-        action: "ticket.transfer",
-        entityType: "ticket",
-        entityId: ticket.id,
-        metadata: { fromName, fromEmail, toName: input.toName, toEmail: input.toEmail },
-      },
-    });
+    const [updated] = await prisma.$transaction([
+      prisma.ticket.update({
+        where: { id: ticket.id },
+        data: {
+          ownerUserId: toUser.id,
+          attendeeName: toName,
+          attendeeEmail: toUser.email,
+          attendeeCpf: ticket.ticketLot.requiresCpf ? toUser.cpf : ticket.attendeeCpf,
+          qrToken,
+        },
+        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
+      }),
+      prisma.auditLog.create({
+        data: {
+          action: "ticket.transfer",
+          entityType: "ticket",
+          entityId: ticket.id,
+          metadata: { fromName, fromEmail, toUserId: toUser.id, toEmail: toUser.email },
+        },
+      }),
+      // aviso ao novo dono pela fila persistente (worker entrega com retry)
+      prisma.notification.create({
+        data: {
+          channel: "EMAIL",
+          recipient: toUser.email!,
+          template: "ticket_transferred",
+          payload: {
+            eventTitle: ticket.event.title,
+            lotLabel,
+            code: ticket.code,
+            toName,
+            fromEmail,
+            walletUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/perfil`,
+          },
+        },
+      }),
+    ]);
 
     return this.toPublicTicket(updated);
   }

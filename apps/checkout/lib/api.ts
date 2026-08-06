@@ -280,7 +280,8 @@ export const api = {
       body: phone ? { phone } : {},
     }),
 
-  transferTicket: (ticketId: string, input: { orderPublicToken: string; toName: string; toEmail: string }) =>
+  /** Transfere para a CONTA do e-mail destino (o nome vem da conta no servidor; toName é legado). */
+  transferTicket: (ticketId: string, input: { orderPublicToken: string; toEmail: string; toName?: string }) =>
     request<OrderTicket>(`/v1/tickets/${ticketId}/transfer`, { method: "POST", body: input }),
 
   requestOtp: (destination: string) =>
@@ -296,10 +297,12 @@ export const api = {
     ),
 
   myTickets: (token: string) =>
-    request<Array<OrderTicket & { event: { title: string; slug: string; startsAt: string } }>>(
-      "/v1/me/tickets",
-      { token },
-    ),
+    request<Array<OrderTicket & {
+      event: { title: string; slug: string; startsAt: string };
+      orderPublicToken: string;
+      /** só ACTIVE/ISSUED de evento não-encerrado podem ser transferidos */
+      transferable: boolean;
+    }>>("/v1/me/tickets", { token }),
 
   myProfile: (token: string) =>
     request<{

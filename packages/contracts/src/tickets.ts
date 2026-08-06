@@ -7,7 +7,6 @@ import { z } from "zod";
  */
 export const transferTicketSchema = z.object({
   orderPublicToken: z.string().uuid(),
-  toName: z.string().min(2).max(120),
   toEmail: z.string().email(),
 });
 export type TransferTicketInput = z.infer<typeof transferTicketSchema>;

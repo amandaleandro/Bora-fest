@@ -148,6 +148,21 @@ evento"; Sidebar ganhou "Ver o site" e o logo abre o site do comprador.
 Teste local-evento.test.ts cobre criação/reaproveitamento/dashboard.
 Build 14/14 · API 18/18.
 
+**Dia de testes de pagamento (2026-08-06)** — pedido do Arthur: tudo de
+pagamento ativo + compra múltipla + transferência de ingresso entre contas.
+- **Transferência conta a conta**: Ticket.ownerUserId (migração ticket_owner);
+  a base da Amanda (QR reassinado + auditoria) ganhou posse real — a conta
+  destino PRECISA existir (404 orienta criar conta), lote com requiresCpf
+  exige CPF no cadastro destino, carteira lista por dono atual, e-mail
+  'ticket_transferred' pro novo dono via fila. Contrato: toEmail apenas (nome
+  vem da conta destino). UI na carteira (/perfil): botão Transferir + modal
+  com confirmação de irreversibilidade. Testes 2/2.
+- **Compra múltipla**: provada com teste (3 unidades no pedido → 3 códigos e
+  3 QRs únicos, estoque 3 vendidos) — compra-multipla.test.ts.
+- Pacotes da Amanda re-buildados (auth SALES_PERFORM, queues waiting-room,
+  payments resilience) — dists estavam atrás das fontes.
+API 22/22 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
