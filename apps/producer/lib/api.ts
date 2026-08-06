@@ -90,10 +90,11 @@ export const organizationsApi = {
 // Events
 // ---------------------------------------------------------------------------
 
-/** Local do evento — `state` é a UF com 2 letras maiúsculas (ex.: "SP"). */
+/** Local do evento — `state` é a UF com 2 letras maiúsculas (ex.: "SP"). Endereço e link do mapa são independentes e opcionais. */
 export interface EventVenue {
   name: string;
-  address: string;
+  address?: string;
+  mapsUrl?: string;
   city: string;
   state: string;
 }

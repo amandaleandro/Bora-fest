@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const eventVenueSchema = z.object({
   name: z.string().min(2).max(120),
-  address: z.string().min(3).max(200),
+  address: z.string().min(3).max(200).optional(),
+  mapsUrl: z.string().url().max(500).optional(),
   city: z.string().min(2).max(80),
   state: z.string().length(2).transform((v) => v.toUpperCase()),
 });

@@ -86,7 +86,20 @@ export function EventPageClient({ slug }: { slug: string }) {
               <div className="min-w-0">
                 <p className="truncate text-[14px] font-bold">{event.venue?.name ?? "Local a confirmar"}</p>
                 <p className="truncate text-[12px] font-medium text-muted">
-                  {event.venue ? `${event.venue.address} · ${event.venue.city}/${event.venue.state}` : ""}
+                  {event.venue ? (
+                    <>
+                      {event.venue.address ? `${event.venue.address} · ` : ""}
+                      {event.venue.city}/{event.venue.state}
+                      {event.venue.mapsUrl && (
+                        <>
+                          {" · "}
+                          <a href={event.venue.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                            Ver no mapa
+                          </a>
+                        </>
+                      )}
+                    </>
+                  ) : ""}
                 </p>
               </div>
             </div>
@@ -174,7 +187,19 @@ export function EventPageClient({ slug }: { slug: string }) {
             <div className="min-w-0">
               <p className="truncate text-[14px] font-bold">{event.venue?.name ?? "Local a confirmar"}</p>
               <p className="truncate text-[12px] font-medium text-muted">
-                {event.venue ? `${event.venue.address} · ${event.venue.city}/${event.venue.state}` : ""}
+                {event.venue ? (
+                  <>
+                    {event.venue.city}/{event.venue.state}
+                    {event.venue.address && (
+                      <>
+                        {" · "}
+                        <a href={event.venue.address} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                          Ver no mapa
+                        </a>
+                      </>
+                    )}
+                  </>
+                ) : ""}
               </p>
             </div>
           </div>

@@ -335,7 +335,8 @@ model Venue {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
   name           String
-  address        String
+  address        String?
+  mapsUrl        String?  @map("maps_url")
   city           String
   state          String
   createdAt      DateTime @default(now()) @map("created_at")

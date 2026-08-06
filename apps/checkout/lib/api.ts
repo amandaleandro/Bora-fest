@@ -84,7 +84,7 @@ export interface PublicEvent {
   startsAt: string;
   endsAt: string;
   timezone: string;
-  venue: { name: string; address: string; city: string; state: string } | null;
+  venue: { name: string; address: string | null; mapsUrl: string | null; city: string; state: string } | null;
   ticketTypes: PublicTicketType[];
   addOns: PublicEventAddOn[];
   waitingRoomEnabled: boolean;

@@ -235,7 +235,7 @@ export class EventsService {
   /** Um Venue por (organização, nome, cidade) — evita duplicar a cada edição. */
   private async upsertVenue(
     organizationId: string,
-    venue: { name: string; address: string; city: string; state: string },
+    venue: { name: string; address?: string; mapsUrl?: string; city: string; state: string },
   ) {
     const existing = await prisma.venue.findFirst({
       where: {
@@ -248,7 +248,7 @@ export class EventsService {
     if (existing) {
       return prisma.venue.update({
         where: { id: existing.id },
-        data: { address: venue.address, state },
+        data: { address: venue.address, mapsUrl: venue.mapsUrl, state },
       });
     }
     return prisma.venue.create({ data: { organizationId, ...venue, state } });

@@ -87,6 +87,23 @@ function EventContent({ eventId }: { eventId: string }) {
   const [venue, setVenue] = useState<EventVenue | null>(null);
   const [editingVenue, setEditingVenue] = useState(false);
   const [venueForm, setVenueForm] = useState<EventVenue>({ name: "", address: "", city: "", state: "" });
+  const [venueCityOptions, setVenueCityOptions] = useState<string[]>([]);
+  const [loadingVenueCities, setLoadingVenueCities] = useState(false);
+
+  useEffect(() => {
+    if (!venueForm.state) { setVenueCityOptions([]); return; }
+    let cancelled = false;
+    setLoadingVenueCities(true);
+    fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${venueForm.state}/municipios`)
+      .then((res) => res.json())
+      .then((data: Array<{ nome: string }>) => {
+        if (cancelled) return;
+        setVenueCityOptions(data.map((m) => m.nome).sort((a, b) => a.localeCompare(b, "pt-BR")));
+      })
+      .catch(() => { if (!cancelled) setVenueCityOptions([]); })
+      .finally(() => { if (!cancelled) setLoadingVenueCities(false); });
+    return () => { cancelled = true; };
+  }, [venueForm.state]);
   const [venueSaving, setVenueSaving] = useState(false);
   const [venueError, setVenueError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -243,7 +260,7 @@ function EventContent({ eventId }: { eventId: string }) {
   }
 
   function openVenueForm() {
-    setVenueForm(venue ?? { name: "", address: "", city: "", state: "" });
+    setVenueForm(venue ?? { name: "", address: "", mapsUrl: "", city: "", state: "" });
     setVenueError(null);
     setEditingVenue(true);
   }
@@ -252,12 +269,13 @@ function EventContent({ eventId }: { eventId: string }) {
     if (!token) return;
     const next: EventVenue = {
       name: venueForm.name.trim(),
-      address: venueForm.address.trim(),
+      address: venueForm.address?.trim() || undefined,
+      mapsUrl: venueForm.mapsUrl?.trim() || undefined,
       city: venueForm.city.trim(),
       state: venueForm.state,
     };
-    if (!next.name || !next.address || !next.city || !next.state) {
-      setVenueError("Preencha nome do lugar, endereço, cidade e UF.");
+    if (!next.name || !next.city || !next.state) {
+      setVenueError("Preencha nome do lugar, cidade e UF.");
       return;
     }
     setVenueSaving(true);
@@ -457,7 +475,7 @@ function EventContent({ eventId }: { eventId: string }) {
           <input placeholder="Nome do lote" className="w-full" value={lotName} onChange={(e) => setLotName(e.target.value)} />
           <div className="flex gap-2">
             <input
-              placeholder="Preço (R$)"
+              placeholder="Quanto você quer receber (R$)"
               className="w-full min-w-0"
               inputMode="decimal"
               value={lotPrice}
@@ -474,7 +492,11 @@ function EventContent({ eventId }: { eventId: string }) {
           <p className="rounded-lg bg-bg px-3 py-2 text-[13px] font-semibold text-ink-soft">
             Taxa de serviço (automática):{" "}
             <strong className="text-ink">{formatCents(serviceFeeCents(parsePriceCents(lotPrice)))}</strong> — cobrada
-            do comprador
+            do comprador, não desconta do seu valor ·{" "}
+            <span className="text-success">
+              preço final para o comprador{" "}
+              {formatCents(parsePriceCents(lotPrice) + serviceFeeCents(parsePriceCents(lotPrice)))}
+            </span>
           </p>
           <button
             type="button"
@@ -524,30 +546,44 @@ function EventContent({ eventId }: { eventId: string }) {
               value={venueForm.name}
               onChange={(e) => setVenueForm({ ...venueForm, name: e.target.value })}
             />
-            <input
-              placeholder="Endereço (rua, número e bairro)"
-              className="w-full"
-              value={venueForm.address}
-              onChange={(e) => setVenueForm({ ...venueForm, address: e.target.value })}
-            />
             <div className="flex gap-2">
-              <input
-                placeholder="Cidade"
-                className="w-full min-w-0"
-                value={venueForm.city}
-                onChange={(e) => setVenueForm({ ...venueForm, city: e.target.value })}
-              />
               <select
                 className="w-24 shrink-0"
                 value={venueForm.state}
-                onChange={(e) => setVenueForm({ ...venueForm, state: e.target.value })}
+                onChange={(e) => setVenueForm({ ...venueForm, state: e.target.value, city: "" })}
               >
                 <option value="">UF</option>
                 {UF_LIST.map((uf) => (
                   <option key={uf} value={uf}>{uf}</option>
                 ))}
               </select>
+              <input
+                list="venue-edit-city-options"
+                placeholder={!venueForm.state ? "Selecione a UF primeiro" : loadingVenueCities ? "Carregando cidades…" : "Cidade"}
+                disabled={!venueForm.state}
+                className="w-full min-w-0 disabled:opacity-50"
+                value={venueForm.city}
+                onChange={(e) => setVenueForm({ ...venueForm, city: e.target.value })}
+              />
+              <datalist id="venue-edit-city-options">
+                {venueCityOptions.map((city) => (
+                  <option key={city} value={city} />
+                ))}
+              </datalist>
             </div>
+            <input
+              placeholder="Endereço (opcional)"
+              className="w-full"
+              value={venueForm.address ?? ""}
+              onChange={(e) => setVenueForm({ ...venueForm, address: e.target.value })}
+            />
+            <input
+              placeholder="Link do local no Google Maps (opcional)"
+              type="url"
+              className="w-full"
+              value={venueForm.mapsUrl ?? ""}
+              onChange={(e) => setVenueForm({ ...venueForm, mapsUrl: e.target.value })}
+            />
             {venueError ? <p className="text-[13px] font-semibold text-danger">{venueError}</p> : null}
             <div className="flex gap-2">
               <button type="button" className="btn-primary" onClick={saveVenue} disabled={venueSaving}>
@@ -562,7 +598,16 @@ function EventContent({ eventId }: { eventId: string }) {
           <div className="mt-3 text-sm">
             <p className="font-bold">{venue.name}</p>
             <p className="text-muted">
-              {venue.address} — {venue.city}/{venue.state}
+              {venue.address ? `${venue.address} — ` : ""}
+              {venue.city}/{venue.state}
+              {venue.mapsUrl && (
+                <>
+                  {" — "}
+                  <a href={venue.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                    Ver no mapa
+                  </a>
+                </>
+              )}
             </p>
           </div>
         ) : (

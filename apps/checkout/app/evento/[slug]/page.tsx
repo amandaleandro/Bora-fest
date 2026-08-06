@@ -63,9 +63,10 @@ export default async function EventPage({ params }: { params: { slug: string } }
           ? {
               "@type": "Place",
               name: event.venue.name,
+              hasMap: event.venue.mapsUrl || undefined,
               address: {
                 "@type": "PostalAddress",
-                streetAddress: event.venue.address,
+                streetAddress: event.venue.address || undefined,
                 addressLocality: event.venue.city,
                 addressRegion: event.venue.state,
                 addressCountry: "BR",
