@@ -18,10 +18,48 @@
 | Campo | Valor |
 |---|---|
 | **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
-| **Status da fase** | 🟢 API testes 25/25 · typecheck limpo (api/checkout/producer) |
+| **Status da fase** | 🟢 API testes 26/26 · typecheck limpo · `next build` do checkout validado |
 | **Última atualização** | 2026-08-06 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
+
+### Onde estamos (2026-08-06, continuação) — Categoria, urgência e upsell
+
+Terceira rodada de growth na mesma sessão (itens 3–5 do punch list:
+descoberta/SEO, urgência de venda, upsell no checkout):
+
+- **Categoria de evento**: retomei de vez a migração `add_event_category`
+  (schema + contrato `eventCategorySchema` + `EventsService` grava no
+  create/update). Filtro público `?category=` em `listPublicEvents`.
+  Produtor escolhe categoria na criação e pode trocar na página do evento;
+  home do checkout tem chips (Shows/Festas/Esportes/Teatro) agora
+  conectados ao filtro de verdade (antes eram só visuais).
+- **SEO técnico**: `/evento/[slug]` virou Server Component —
+  `generateMetadata` por evento (title/description/OG/Twitter card usando
+  banner do evento) + JSON-LD `schema.org/Event` (data, local, ofertas).
+  A lógica client (reserva, follow, review) foi isolada em
+  `EventPageClient.tsx`. `app/sitemap.ts` lista todo evento publicado,
+  `app/robots.ts` novo. Validado com `next build` real (11/11 páginas),
+  não só typecheck.
+- **Urgência de venda**: badge "Restam N" (antes era só "Poucos" genérico)
+  e "Termina em Xh"/"Xmin" quando o lote fecha em menos de 48h — usa
+  `TicketLot.endsAt`, que já existia no schema mas não estava exposto no
+  tipo do client.
+- **Itens adicionais (upsell)**: `EventAddOn`/`OrderAddOnItem` novos —
+  produtor cadastra item (nome+preço, sem controle de estoque) na página
+  do evento; comprador escolhe quantidade no checkout, ativo entra no
+  total do pedido **fora** da base de comissão do parceiro (parceiro só
+  ganha sobre ingresso, não sobre merch). `POST /v1/orders` valida que o
+  add-on pertence ao evento e está ativo.
+
+Checkpoints commitados em separado (schema → backend → producer UI →
+checkout UI → testes) para sobreviver a um `git pull` no meio do
+trabalho sem perder o que já estava pronto — lição da rodada anterior.
+Teste novo `category-and-addons.test.ts`.
+
+**Fora do escopo desta rodada**: controle de estoque para itens
+adicionais (hoje é só preço, sem capacidade) — se um item precisar de
+limite (ex.: tamanho de camiseta esgotando), fica pra quando pedirem.
 
 ### Onde estamos (2026-08-06) — Growth: link de promoter, seguir produtor, avaliação
 
