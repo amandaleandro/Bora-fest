@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, inviteMemberSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
@@ -42,6 +42,21 @@ export class OrganizationsController {
   listSalesPartners(@Param("id") organizationId: string, @CurrentUserId() userId: string) {
     return this.organizationsService.listSalesPartners(organizationId, userId);
   }
+  @Post(":id/follow")
+  follow(@Param("id") organizationId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.follow(organizationId, userId);
+  }
+
+  @Delete(":id/follow")
+  unfollow(@Param("id") organizationId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.unfollow(organizationId, userId);
+  }
+
+  @Get(":id/follow")
+  isFollowing(@Param("id") organizationId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.isFollowing(organizationId, userId);
+  }
+
   @Post(":id/bank-accounts")
   addBankAccount(
     @Param("id") id: string,

@@ -79,6 +79,23 @@ export class OrdersService {
     const discountCents = coupon ? CouponsService.discountFor(coupon, itemsTotalCents) : 0;
     const totalCents = itemsTotalCents - discountCents;
 
+    // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV
+    let salesPartnerId: string | undefined;
+    let partnerCommissionCents = 0;
+    if (input.partnerSlug) {
+      const event = await prisma.event.findUnique({ where: { id: reservation.eventId }, select: { organizationId: true } });
+      const partner = event
+        ? await prisma.salesPartner.findFirst({
+            where: { organizationId: event.organizationId, slug: input.partnerSlug, active: true },
+            select: { id: true, commissionBps: true },
+          })
+        : null;
+      if (partner) {
+        salesPartnerId = partner.id;
+        partnerCommissionCents = Math.floor((totalCents * partner.commissionBps) / 10_000);
+      }
+    }
+
     const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
 
     const order = await prisma.$transaction(async (tx) => {
@@ -105,6 +122,9 @@ export class OrdersService {
           totalCents,
           discountCents,
           expiresAt,
+          salesPartnerId,
+          partnerCommissionCents,
+          attributionSource: salesPartnerId ? "LINK" : undefined,
           items: {
             create: reservation.items.map((item) => ({
               ticketLotId: item.ticketLotId,

@@ -183,6 +183,17 @@ function DashboardContent({ eventId }: { eventId: string }) {
           </div>
         </section>
       </div>
+
+      {/* avaliação pós-evento */}
+      {dashboard.reviews.count > 0 ? (
+        <section className="mt-5 rounded-2xl border border-line bg-surface p-5">
+          <h2 className="text-[15px] font-extrabold">Avaliação do evento</h2>
+          <p className="mt-2 text-[28px] font-extrabold">
+            {dashboard.reviews.average?.toFixed(1)}
+            <span className="text-[15px] font-bold text-muted"> / 5 · {dashboard.reviews.count} avaliações</span>
+          </p>
+        </section>
+      ) : null}
     </main>
   );
 }

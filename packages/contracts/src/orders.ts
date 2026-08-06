@@ -7,6 +7,8 @@ export const createOrderSchema = z.object({
   /** celular com DDD — habilita entrega do ingresso por WhatsApp */
   contactPhone: z.string().min(10).max(20).optional(),
   couponCode: z.string().min(3).max(24).optional(),
+  /// slug do parceiro de vendas capturado do link público (?p=slug) — atribui a comissão
+  partnerSlug: z.string().min(1).max(80).optional(),
   /// participantes de ingressos nominais (1 por unidade do lote nominal)
   attendees: z
     .array(

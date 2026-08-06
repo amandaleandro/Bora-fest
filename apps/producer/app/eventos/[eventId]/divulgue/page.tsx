@@ -4,17 +4,19 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { dashboardApi, type Dashboard } from "@/lib/api";
+import { dashboardApi, organizationsApi, type Dashboard, type SalesPartner } from "@/lib/api";
 
 const CHECKOUT_URL = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "http://localhost:3000";
 
 function DivulgueContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [partners, setPartners] = useState<SalesPartner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copiedPartnerId, setCopiedPartnerId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -22,7 +24,11 @@ function DivulgueContent({ eventId }: { eventId: string }) {
     setError(null);
     dashboardApi
       .get(token, eventId)
-      .then(setDashboard)
+      .then((data) => {
+        setDashboard(data);
+        return organizationsApi.listSalesPartners(token, data.event.organizationId);
+      })
+      .then(setPartners)
       .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar os dados do evento"))
       .finally(() => setLoading(false));
   }, [token, eventId, attempt]);
@@ -65,6 +71,12 @@ function DivulgueContent({ eventId }: { eventId: string }) {
     await navigator.clipboard.writeText(shareText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function copyPartnerLink(partner: SalesPartner) {
+    await navigator.clipboard.writeText(`${link}?p=${partner.slug}`);
+    setCopiedPartnerId(partner.id);
+    setTimeout(() => setCopiedPartnerId(null), 1500);
   }
 
   const notPublished = dashboard.event.status !== "PUBLISHED";
@@ -115,6 +127,32 @@ function DivulgueContent({ eventId }: { eventId: string }) {
           {copied ? "Copiado!" : "Copiar texto"}
         </button>
       </section>
+
+      {partners.length > 0 ? (
+        <section className="mt-5 rounded-2xl border border-line bg-surface p-6">
+          <h2 className="text-[15px] font-extrabold">Links de parceiros</h2>
+          <p className="mt-1 text-[13px] font-semibold text-muted">
+            Cada atlética/parceiro tem seu próprio link — vendas por ele contam a comissão automaticamente.
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
+            {partners.map((partner) => (
+              <div key={partner.id} className="flex flex-wrap items-center gap-3">
+                <span className="w-full text-[13px] font-bold sm:w-32 sm:shrink-0">{partner.name}</span>
+                <code className="min-w-0 flex-1 break-all rounded-xl bg-bg px-4 py-3 text-[13px]">
+                  {link}?p={partner.slug}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copyPartnerLink(partner)}
+                  className="rounded-xl bg-primary px-4 py-3 text-[13px] font-bold text-white"
+                >
+                  {copiedPartnerId === partner.id ? "Copiado!" : "Copiar link"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mt-5 rounded-2xl border border-line bg-surface p-6">
         <h2 className="text-[15px] font-extrabold">Redes sociais</h2>

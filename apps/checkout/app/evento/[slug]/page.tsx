@@ -8,6 +8,8 @@ import { formatCents } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { TicketSelector } from "../../../components/TicketSelector";
 import { PixelTracker } from "../../../components/PixelTracker";
+import { capturePartnerFromUrl } from "../../../lib/attribution";
+import { FollowButton } from "../../../components/FollowButton";
 
 function minPriceCents(event: PublicEvent): number | null {
   const prices = event.ticketTypes.flatMap((t) =>
@@ -21,9 +23,12 @@ export default function EventPage({ params }: { params: { slug: string } }) {
   const router = useRouter();
   const [event, setEvent] = useState<PublicEvent | null>(null);
   const [error, setError] = useState(false);
+  const [reviews, setReviews] = useState<{ average: number | null; count: number } | null>(null);
 
   useEffect(() => {
+    capturePartnerFromUrl();
     api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
+    api.getReviews(slug).then(setReviews).catch(() => {});
   }, [slug]);
 
   if (error) {
@@ -61,6 +66,13 @@ export default function EventPage({ params }: { params: { slug: string } }) {
               </span>
               <h1 className="mt-2 text-[32px] font-extrabold leading-tight text-white">{event.title}</h1>
             </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <p className="text-[13px] font-semibold text-muted">
+              Por {event.organization.name}
+              {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
+            </p>
+            <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3">
             <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
@@ -139,6 +151,13 @@ export default function EventPage({ params }: { params: { slug: string } }) {
 
       {/* corpo sobreposto */}
       <div className="relative -mt-[22px] rounded-t-3xl bg-bg px-5 pt-6">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-[13px] font-semibold text-muted">
+            Por {event.organization.name}
+            {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
+          </p>
+          <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
+        </div>
         <div className="space-y-3">
           <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3.5">
             <div className="flex h-[46px] w-[46px] items-center justify-center rounded-xl bg-primary/10 text-primary">

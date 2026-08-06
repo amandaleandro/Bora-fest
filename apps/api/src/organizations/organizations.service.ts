@@ -99,7 +99,15 @@ export class OrganizationsService {
 
   async createSalesPartner(organizationId: string, userId: string, input: CreateSalesPartnerInput) {
     await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
-    return prisma.salesPartner.create({ data: { organizationId, name: input.name, commissionBps: input.commissionBps } });
+    const baseSlug = slugify(input.name) || "parceiro";
+    let slug = baseSlug;
+    let suffix = 2;
+    // slug precisa ser único por organização — tenta o nome puro, senão vai incrementando
+    while (await prisma.salesPartner.findFirst({ where: { organizationId, slug } })) {
+      slug = `${baseSlug}-${suffix}`;
+      suffix += 1;
+    }
+    return prisma.salesPartner.create({ data: { organizationId, name: input.name, slug, commissionBps: input.commissionBps } });
   }
 
   async listSalesPartners(organizationId: string, userId: string) {
@@ -110,6 +118,30 @@ export class OrganizationsService {
       orderBy: { name: "asc" },
     });
   }
+
+  /** Comprador segue o produtor — qualquer usuário logado, sem checagem de membership. */
+  async follow(organizationId: string, userId: string) {
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+    return prisma.organizationFollow.upsert({
+      where: { organizationId_userId: { organizationId, userId } },
+      create: { organizationId, userId },
+      update: {},
+    });
+  }
+
+  async unfollow(organizationId: string, userId: string) {
+    await prisma.organizationFollow.deleteMany({ where: { organizationId, userId } });
+    return { following: false };
+  }
+
+  async isFollowing(organizationId: string, userId: string) {
+    const follow = await prisma.organizationFollow.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+    });
+    return { following: !!follow };
+  }
+
   async addBankAccount(organizationId: string, userId: string, input: {
     holderName: string; holderDocument: string; bankCode: string;
     agency: string; account: string; accountType: string; pixKey?: string;

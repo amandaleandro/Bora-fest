@@ -18,10 +18,67 @@
 | Campo | Valor |
 |---|---|
 | **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
-| **Status da fase** | 🟢 Build 14/14 · testes 27/27 · fluxo v2 (nominal + LGPD + taxa) validado no navegador |
-| **Última atualização** | 2026-07-25 |
-| **Atualizado por** | Arthur + Claude |
+| **Status da fase** | 🟢 API testes 25/25 · typecheck limpo (api/checkout/producer) |
+| **Última atualização** | 2026-08-06 |
+| **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
+
+### Onde estamos (2026-08-06) — Growth: link de promoter, seguir produtor, avaliação
+
+Resposta a "o que fazemos pra ganhar o mercado de ingressos" — 4 features de
+growth que faltavam frente a Sympla/Ingresse/Eventbrite, todas com schema,
+API, UI e testes:
+
+- **Link de promoter/atlética** (`SalesPartner.slug`, migração
+  `sales_partner_slug_and_order_attribution`): slug único por org gerado do
+  nome no cadastro (com dedup); comprador que entra por
+  `/evento/:slug?p=slug` grava o slug em localStorage (janela de 7 dias,
+  last-click); `POST /v1/orders` resolve o parceiro e credita
+  `partnerCommissionCents` igual ao PDV. `Order.attributionSource`
+  (MANUAL/LINK) distingue a origem. Painel do produtor → Divulgue lista o
+  link de cada parceiro com botão copiar. Teste
+  `partner-link-attribution.test.ts`.
+- **Vendas por parceiro**: descoberto no meio do caminho que já existe
+  `GET /v1/events/:id/dashboard/sales-by-seller` (ranking por
+  vendedor/parceiro com receita e comissão) com UI pronta na página Vendas
+  — não duplicado; só o dashboard geral ganhou `reviews` (média/contagem).
+- **Seguir produtor** (`OrganizationFollow`, migração
+  `organization_follow_and_event_review`): `POST/DELETE/GET
+  /v1/organizations/:id/follow`, sem checagem de membership (qualquer
+  usuário logado). `EventsService.publish()` notifica os seguidores por
+  e-mail (melhor esforço, não bloqueia a publicação). Botão "Seguir" no
+  checkout, visível só com sessão ativa (`bf.token`).
+- **Avaliação pós-evento** (`EventReview`, mesma migração acima): só quem
+  teve pedido `PAID`/`FULFILLED` no evento pode avaliar, e só depois que o
+  evento termina (`endsAt` no passado); um review por comprador (upsert,
+  não duplica). `POST/GET /v1/events/:id/reviews[/mine]`,
+  `GET /v1/public/events/:slug/reviews` (público). Widget de estrelas na
+  carteira do comprador + nota média na página pública do evento. Teste
+  `follow-and-review.test.ts`.
+
+**Incidente real desta sessão**: a Amanda rodou `git pull` no meio do
+trabalho (fast-forward `721ff8c → 9d2fc78`, trazendo o commit paralelo
+"transferência de conta a conta + prova de compra múltipla"). O pull
+sobrescreveu, sem aviso nem conflito, as edições locais não commitadas em
+todo arquivo já rastreado que eu tinha tocado (schema.prisma,
+events/orders/dashboard/catalog/organizations services e controllers,
+contracts, app.module.ts, e os arquivos de checkout/producer) — só os
+arquivos novos (migrações, módulo `reviews`, componentes, testes)
+sobreviveram por não estarem rastreados. Reconstruí tudo a partir do
+histórico da conversa e revalidei (typecheck + 25/25 testes). **Lição**:
+`git pull` com working tree sujo pode descartar trabalho não commitado
+silenciosamente quando o fast-forward não detecta conflito textual —
+sempre `git stash` (ou commitar/WIP) antes de puxar com mudanças locais
+pendentes, inclusive as feitas por uma sessão do Claude em andamento.
+
+De passagem: apliquei a migração `add_event_category` que já estava no
+repo (outra sessão, sem commit) mas pendente — só para destravar os
+testes locais, sem relação com o trabalho acima.
+
+**Fora do escopo** (decisão consciente): repasse automático da comissão
+do parceiro — hoje `partnerCommissionCents` só fica registrado no pedido,
+o acerto com a atlética continua manual. Fica para quando houver decisão
+de produto sobre o modelo de pagamento.
 
 ### Onde estamos (2026-07-25)
 

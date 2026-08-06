@@ -11,3 +11,4 @@ export * from "./tickets";
 export * from "./refunds";
 export * from "./push";
 export * from "./coupons";
+export * from "./reviews";

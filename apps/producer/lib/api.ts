@@ -132,6 +132,7 @@ export const MEMBER_ROLES = [
 export interface SalesPartner {
   id: string;
   name: string;
+  slug: string;
   commissionBps: number;
   members: Array<{ user: { id: string; name?: string | null; email?: string | null } }>;
 }
@@ -215,6 +216,7 @@ export interface PixelSettings {
 export interface Dashboard {
   event: {
     id: string;
+    organizationId: string;
     title: string;
     slug: string;
     status: string;
@@ -240,6 +242,7 @@ export interface Dashboard {
     available: number;
     status: string;
   }>;
+  reviews: { average: number | null; count: number };
 }
 
 export interface Participant {

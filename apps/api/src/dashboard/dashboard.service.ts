@@ -31,7 +31,7 @@ export class DashboardService {
         })
       : null;
 
-    const [ordersByStatus, ticketsByStatus, lots] = await Promise.all([
+    const [ordersByStatus, ticketsByStatus, reviewStats, lots] = await Promise.all([
       prisma.order.groupBy({
         by: ["status"],
         where: { eventId },
@@ -41,6 +41,11 @@ export class DashboardService {
       prisma.ticket.groupBy({
         by: ["status"],
         where: { eventId },
+        _count: { _all: true },
+      }),
+      prisma.eventReview.aggregate({
+        where: { eventId },
+        _avg: { rating: true },
         _count: { _all: true },
       }),
       prisma.ticketLot.findMany({
@@ -67,6 +72,7 @@ export class DashboardService {
     return {
       event: {
         id: event.id,
+        organizationId: event.organizationId,
         title: event.title,
         slug: event.slug,
         status: event.status,
@@ -98,6 +104,10 @@ export class DashboardService {
         available: Math.max(lot.capacity - lot.soldCount - lot.reservedCount, 0),
         status: lot.status,
       })),
+      reviews: {
+        average: reviewStats._avg.rating ?? null,
+        count: reviewStats._count._all,
+      },
     };
   }
 

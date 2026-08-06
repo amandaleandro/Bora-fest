@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { PERMISSIONS } from "@borafest/auth";
+import { getEmailSender } from "@borafest/notifications";
 import type { CreateEventInput, UpdateEventInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
@@ -117,10 +118,41 @@ export class EventsService {
       return event;
     }
 
-    return prisma.event.update({
+    const published = await prisma.event.update({
       where: { id: eventId },
       data: { status: "PUBLISHED", publishedAt: new Date() },
     });
+
+    // melhor esforço — não bloqueia a publicação se o envio falhar
+    this.notifyFollowers(published).catch(() => undefined);
+
+    return published;
+  }
+
+  private async notifyFollowers(event: { id: string; organizationId: string; title: string; slug: string }) {
+    const [followers, organization] = await Promise.all([
+      prisma.organizationFollow.findMany({
+        where: { organizationId: event.organizationId },
+        include: { user: { select: { email: true } } },
+      }),
+      prisma.organization.findUnique({ where: { id: event.organizationId }, select: { name: true } }),
+    ]);
+    const recipients = followers.map((f) => f.user.email).filter((email): email is string => !!email);
+    if (recipients.length === 0) return;
+
+    const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+    const link = `${webBaseUrl}/evento/${event.slug}`;
+    const sender = getEmailSender();
+    await Promise.allSettled(
+      recipients.map((to) =>
+        sender.send({
+          to,
+          subject: `${organization?.name ?? "Um produtor que você segue"} publicou um novo evento`,
+          html: `<p>${event.title} já está com vendas abertas.</p><p><a href="${link}">${link}</a></p>`,
+          text: `${event.title} já está com vendas abertas: ${link}`,
+        }),
+      ),
+    );
   }
 
   /** Despublicar = pausar vendas (máquina de estados §9: PUBLISHED → SALES_PAUSED). */

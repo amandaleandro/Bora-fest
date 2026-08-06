@@ -161,6 +161,7 @@ export class CatalogService {
       where: { slug, status: "PUBLISHED" },
       include: {
         venue: true,
+        organization: { select: { id: true, name: true, slug: true } },
         ticketTypes: {
           orderBy: { position: "asc" },
           include: {

@@ -64,6 +64,8 @@ export interface PixelSettings {
 
 export interface PublicEvent {
   id: string;
+  organizationId: string;
+  organization: { id: string; name: string; slug: string };
   title: string;
   slug: string;
   description: string | null;
@@ -76,6 +78,12 @@ export interface PublicEvent {
   ticketTypes: PublicTicketType[];
   waitingRoomEnabled: boolean;
   pixelSettings: PixelSettings | null;
+}
+
+export interface ReviewSummary {
+  average: number | null;
+  count: number;
+  recent: Array<{ rating: number; comment: string | null; createdAt: string; user: { name: string | null } }>;
 }
 
 export type WaitingRoomJoinResult =
@@ -226,6 +234,20 @@ export const api = {
       `/v1/public/events/${slug}/coupons/${encodeURIComponent(code)}`,
     ),
 
+  getReviews: (slug: string) => request<ReviewSummary>(`/v1/public/events/${slug}/reviews`),
+
+  isFollowing: (organizationId: string, token: string) =>
+    request<{ following: boolean }>(`/v1/organizations/${organizationId}/follow`, { token }),
+  follow: (organizationId: string, token: string) =>
+    request<{ following: boolean }>(`/v1/organizations/${organizationId}/follow`, { method: "POST", token }),
+  unfollow: (organizationId: string, token: string) =>
+    request<{ following: boolean }>(`/v1/organizations/${organizationId}/follow`, { method: "DELETE", token }),
+
+  getMyReview: (eventId: string, token: string) =>
+    request<{ rating: number; comment: string | null } | null>(`/v1/events/${eventId}/reviews/mine`, { token }),
+  submitReview: (eventId: string, input: { rating: number; comment?: string }, token: string) =>
+    request(`/v1/events/${eventId}/reviews`, { method: "POST", body: input, token }),
+
   createOrder: (
     input: {
       reservationId: string;
@@ -233,6 +255,7 @@ export const api = {
       contactName?: string;
       contactPhone?: string;
       couponCode?: string;
+      partnerSlug?: string;
       attendees?: OrderAttendeeInput[];
       consent?: ConsentInput;
     },

@@ -7,6 +7,7 @@ import { api, ApiError, type Order, type OrderTicketsResponse, type PixelSetting
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
+import { EventReview } from "../../../components/EventReview";
 
 /** Evento do Chrome/Edge para instalar o PWA (não existe no Safari). */
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
@@ -251,6 +252,8 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
         {resendMessage && <p className="mt-3 text-center text-[12px] font-semibold text-muted">{resendMessage}</p>}
         {transferMsg && <p className="mt-3 text-center text-[12px] font-semibold text-success">{transferMsg}</p>}
+
+        <EventReview eventId={order.eventId} endsAt={ticketsData.event.endsAt} />
 
         <Link href="/" className="mt-8 block text-center text-[13px] font-bold text-primary">Explorar mais eventos</Link>
 

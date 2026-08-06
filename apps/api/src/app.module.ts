@@ -23,6 +23,7 @@ import { AdminModule } from "./admin/admin.module";
 import { FinanceModule } from "./finance/finance.module";
 import { RefundRequestsModule } from "./refund-requests/refund-requests.module";
 import { WaitingRoomModule } from "./waiting-room/waiting-room.module";
+import { ReviewsModule } from "./reviews/reviews.module";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
@@ -50,6 +51,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     FinanceModule,
     RefundRequestsModule,
     WaitingRoomModule,
+    ReviewsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
