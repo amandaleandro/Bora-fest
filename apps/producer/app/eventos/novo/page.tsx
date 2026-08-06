@@ -6,7 +6,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, catalogApi, ApiError, UF_LIST, type EventVenue } from "@/lib/api";
+import { eventsApi, catalogApi, ApiError, UF_LIST, EVENT_CATEGORIES, type EventVenue, type EventCategory } from "@/lib/api";
 
 const inputCls = "mt-1 h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
 const labelCls = "text-[12px] font-bold text-ink-soft";
@@ -72,6 +72,7 @@ function NewEventContent() {
   // etapa 1
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<EventCategory | "">("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [eventId, setEventId] = useState<string | null>(null);
@@ -111,6 +112,7 @@ function NewEventContent() {
       const event = await eventsApi.create(token, orgId, {
         title,
         description: description || undefined,
+        category: category || undefined,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
         venue,
@@ -192,6 +194,18 @@ function NewEventContent() {
             <label className={labelCls}>Descrição</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
               className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+          </div>
+          <div>
+            <label className={labelCls}>Categoria</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value as EventCategory | "")} className={inputCls}>
+              <option value="">Sem categoria</option>
+              {EVENT_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[12px] font-semibold text-muted">
+              Ajuda seu evento a aparecer nos filtros de busca do site.
+            </p>
           </div>
           <fieldset className="rounded-xl border border-line bg-bg p-4">
             <legend className="px-1 text-[13px] font-extrabold">Local do evento</legend>

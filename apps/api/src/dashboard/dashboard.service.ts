@@ -76,6 +76,7 @@ export class DashboardService {
         title: event.title,
         slug: event.slug,
         status: event.status,
+        category: event.category,
         bannerUrl: event.bannerUrl,
         waitingRoomEnabled: event.waitingRoomEnabled,
         waitingRoomConcurrency: event.waitingRoomConcurrency,

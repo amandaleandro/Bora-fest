@@ -104,6 +104,16 @@ export const UF_LIST = [
   "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
 ] as const;
 
+export type EventCategory = "SHOWS" | "FESTAS" | "ESPORTES" | "TEATRO";
+
+/** Categoria alimenta os chips de busca da home pública — sem ela o evento só some do filtro, não da listagem. */
+export const EVENT_CATEGORIES: Array<{ value: EventCategory; label: string }> = [
+  { value: "SHOWS", label: "Shows" },
+  { value: "FESTAS", label: "Festas" },
+  { value: "ESPORTES", label: "Esportes" },
+  { value: "TEATRO", label: "Teatro" },
+];
+
 export interface EventSummary {
   id: string;
   title: string;
@@ -114,6 +124,7 @@ export interface EventSummary {
   organizationId: string;
   description?: string | null;
   bannerUrl?: string | null;
+  category?: EventCategory | null;
   venue?: EventVenue | null;
 }
 
@@ -145,7 +156,7 @@ export const eventsApi = {
   create: (
     token: string,
     organizationId: string,
-    input: { title: string; startsAt: string; endsAt: string; description?: string; venue?: EventVenue },
+    input: { title: string; startsAt: string; endsAt: string; description?: string; venue?: EventVenue; category?: EventCategory },
   ) =>
     request<EventSummary>(`/v1/organizations/${organizationId}/events`, {
       method: "POST",
@@ -154,6 +165,27 @@ export const eventsApi = {
     }),
   publish: (token: string, eventId: string) =>
     request<EventSummary>(`/v1/events/${eventId}/publish`, { method: "POST", token }),
+};
+
+// ---------------------------------------------------------------------------
+// Itens adicionais (upsell no checkout)
+// ---------------------------------------------------------------------------
+
+export interface EventAddOn {
+  id: string;
+  name: string;
+  description: string | null;
+  priceCents: number;
+  active: boolean;
+}
+
+export const addOnsApi = {
+  list: (token: string, eventId: string) =>
+    request<EventAddOn[]>(`/v1/events/${eventId}/add-ons`, { token }),
+  create: (token: string, eventId: string, input: { name: string; description?: string; priceCents: number }) =>
+    request<EventAddOn>(`/v1/events/${eventId}/add-ons`, { method: "POST", body: input, token }),
+  update: (token: string, addOnId: string, input: Partial<{ name: string; description: string; priceCents: number; active: boolean }>) =>
+    request<EventAddOn>(`/v1/add-ons/${addOnId}`, { method: "PATCH", body: input, token }),
 };
 
 // ---------------------------------------------------------------------------
@@ -220,6 +252,7 @@ export interface Dashboard {
     title: string;
     slug: string;
     status: string;
+    category?: EventCategory | null;
     bannerUrl?: string | null;
     waitingRoomEnabled: boolean;
     waitingRoomConcurrency: number;
@@ -443,6 +476,7 @@ export const passwordAuth = {
 export interface UpdateEventInput {
   title?: string;
   description?: string;
+  category?: EventCategory;
   startsAt?: string;
   endsAt?: string;
   /** updateEventSchema valida `z.string().url().optional()` — null derruba a request. */

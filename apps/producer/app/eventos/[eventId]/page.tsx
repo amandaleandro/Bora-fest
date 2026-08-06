@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, UF_LIST, type Dashboard, type EventVenue } from "@/lib/api";
+import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn } from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -76,6 +76,14 @@ function EventContent({ eventId }: { eventId: string }) {
   const [tiktokPixelId, setTiktokPixelId] = useState("");
   const [pixelSaving, setPixelSaving] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
+  const [category, setCategory] = useState<EventCategory | "">("");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [addOns, setAddOns] = useState<EventAddOn[]>([]);
+  const [addOnName, setAddOnName] = useState("");
+  const [addOnPrice, setAddOnPrice] = useState("");
+  const [addOnSaving, setAddOnSaving] = useState(false);
+  const [addOnError, setAddOnError] = useState<string | null>(null);
   const [venue, setVenue] = useState<EventVenue | null>(null);
   const [editingVenue, setEditingVenue] = useState(false);
   const [venueForm, setVenueForm] = useState<EventVenue>({ name: "", address: "", city: "", state: "" });
@@ -110,8 +118,10 @@ function EventContent({ eventId }: { eventId: string }) {
       setGa4MeasurementId(d.event.pixelSettings?.ga4MeasurementId ?? "");
       setTiktokPixelId(d.event.pixelSettings?.tiktokPixelId ?? "");
       setVenue(d.event.venue ?? null);
+      setCategory(d.event.category ?? "");
       couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
       complimentaryApi.list(eventId, token).then(setCourtesies).catch(() => {});
+      addOnsApi.list(token, eventId).then(setAddOns).catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -164,6 +174,47 @@ function EventContent({ eventId }: { eventId: string }) {
       setPixelError(err instanceof Error ? err.message : "Falha ao salvar os pixels");
     } finally {
       setPixelSaving(false);
+    }
+  }
+
+  async function saveCategory(next: EventCategory | "") {
+    if (!token) return;
+    setCategoryError(null);
+    setCategorySaving(true);
+    try {
+      await eventControls.update(eventId, { category: next || undefined }, token);
+      setCategory(next);
+    } catch (err) {
+      setCategoryError(err instanceof Error ? err.message : "Falha ao salvar a categoria");
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
+  async function createAddOn() {
+    if (!token || !addOnName.trim() || !addOnPrice) return;
+    setAddOnError(null);
+    setAddOnSaving(true);
+    try {
+      const priceCents = Math.round(Number(addOnPrice.replace(",", ".")) * 100) || 0;
+      const created = await addOnsApi.create(token, eventId, { name: addOnName.trim(), priceCents });
+      setAddOns((prev) => [...prev, created]);
+      setAddOnName("");
+      setAddOnPrice("");
+    } catch (err) {
+      setAddOnError(err instanceof Error ? err.message : "Falha ao criar o item adicional");
+    } finally {
+      setAddOnSaving(false);
+    }
+  }
+
+  async function toggleAddOnActive(addOn: EventAddOn) {
+    if (!token) return;
+    try {
+      const updated = await addOnsApi.update(token, addOn.id, { active: !addOn.active });
+      setAddOns((prev) => prev.map((a) => (a.id === addOn.id ? updated : a)));
+    } catch {
+      // silencioso — o toggle não é uma ação crítica
     }
   }
 
@@ -660,6 +711,73 @@ function EventContent({ eventId }: { eventId: string }) {
             />
           </div>
           {pixelError ? <p className="mt-2 text-[13px] font-semibold text-danger">{pixelError}</p> : null}
+        </div>
+
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-[13px] font-extrabold">Categoria</h3>
+          <p className="mt-1 text-[12px] font-semibold text-muted">
+            Ajuda seu evento a aparecer nos filtros de busca do site.
+          </p>
+          <select
+            className="mt-3 h-11 rounded-lg border border-line-input px-3 text-sm"
+            value={category}
+            disabled={categorySaving}
+            onChange={(e) => saveCategory(e.target.value as EventCategory | "")}
+          >
+            <option value="">Sem categoria</option>
+            {EVENT_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+          {categoryError ? <p className="mt-2 text-[13px] font-semibold text-danger">{categoryError}</p> : null}
+        </div>
+
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-[13px] font-extrabold">Itens adicionais (upsell)</h3>
+          <p className="mt-1 text-[12px] font-semibold text-muted">
+            Itens opcionais que o comprador soma ao ingresso no checkout — ex.: camiseta do evento.
+          </p>
+          <div className="mt-3 space-y-2">
+            {addOns.map((addOn) => (
+              <div key={addOn.id} className="flex items-center justify-between gap-2 rounded-lg border border-line-input px-3 py-2">
+                <div>
+                  <p className="text-[13px] font-bold">{addOn.name}</p>
+                  <p className="text-[12px] text-muted">{formatCents(addOn.priceCents)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleAddOnActive(addOn)}
+                  className={`rounded-full px-3 py-1 text-[11px] font-bold ${addOn.active ? "bg-success/10 text-success" : "bg-line text-muted"}`}
+                >
+                  {addOn.active ? "Ativo" : "Inativo"}
+                </button>
+              </div>
+            ))}
+            {addOns.length === 0 ? <p className="text-[12px] font-semibold text-muted">Nenhum item cadastrado ainda.</p> : null}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+            <input
+              placeholder="Nome (ex.: Camiseta do evento)"
+              className="rounded-lg border border-line-input px-3 py-2 text-sm"
+              value={addOnName}
+              onChange={(e) => setAddOnName(e.target.value)}
+            />
+            <input
+              placeholder="Preço (R$)"
+              className="rounded-lg border border-line-input px-3 py-2 text-sm"
+              value={addOnPrice}
+              onChange={(e) => setAddOnPrice(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={createAddOn}
+              disabled={addOnSaving || !addOnName.trim() || !addOnPrice}
+              className="rounded-lg bg-primary px-4 py-2 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              {addOnSaving ? "Criando…" : "Adicionar"}
+            </button>
+          </div>
+          {addOnError ? <p className="mt-2 text-[13px] font-semibold text-danger">{addOnError}</p> : null}
         </div>
       </section>
 
