@@ -645,6 +645,47 @@ export interface PayoutRequest {
   resolvedAt: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Lista de convidados
+// ---------------------------------------------------------------------------
+
+export type GuestListStatus = "CONFIRMED" | "CHECKED_IN" | "CANCELED";
+
+export interface GuestListEntry {
+  id: string;
+  eventId: string;
+  ticketLotId: string;
+  salesPartnerId: string | null;
+  addedByUserId: string;
+  orderId: string | null;
+  guestName: string;
+  guestDocument: string | null;
+  guestPhone: string | null;
+  status: GuestListStatus;
+  ticketId: string | null;
+  createdAt: string;
+  ticketLot: { name: string };
+  salesPartner: { id: string; name: string } | null;
+  ticket: { id: string; status: string; code: string; checkedInAt: string | null } | null;
+}
+
+export interface CreateGuestListEntryInput {
+  ticketLotId: string;
+  guestName: string;
+  guestDocument?: string;
+  guestPhone?: string;
+  salesPartnerId?: string;
+}
+
+export const guestListApi = {
+  list: (token: string, eventId: string) =>
+    request<GuestListEntry[]>(`/v1/events/${eventId}/guest-list`, { token }),
+  create: (token: string, eventId: string, input: CreateGuestListEntryInput) =>
+    request<GuestListEntry>(`/v1/events/${eventId}/guest-list`, { method: "POST", body: input, token }),
+  cancel: (token: string, eventId: string, id: string) =>
+    request<GuestListEntry>(`/v1/events/${eventId}/guest-list/${id}`, { method: "DELETE", token }),
+};
+
 export const payoutsApi = {
   list: (organizationId: string, token: string) =>
     request<Payout[]>(`/v1/organizations/${organizationId}/payouts`, { token }),

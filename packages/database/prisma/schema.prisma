@@ -48,6 +48,7 @@ model User {
   reservations          Reservation[]
   orders                Order[]
   salesPartnerMemberships SalesPartnerMember[]
+  guestListEntriesAdded  GuestListEntry[]
   salesOrders            Order[]              @relation("SalesOrderSeller")
   organizationFollows     OrganizationFollow[]
   eventReviews            EventReview[]
@@ -253,6 +254,7 @@ model SalesPartner {
   organizationMembers OrganizationMember[]
   orders       Order[]
   events       EventSalesPartner[]
+  guestListEntries GuestListEntry[]
 
   @@index([organizationId])
   @@unique([organizationId, name])
@@ -283,6 +285,44 @@ model EventSalesPartner {
   @@id([eventId, partnerId])
   @@index([partnerId])
   @@map("event_sales_partners")
+}
+
+enum GuestListEntryStatus {
+  CONFIRMED
+  CHECKED_IN
+  CANCELED
+}
+
+/// Lista de convidados: entradas gratuitas que um parceiro de vendas cadastra
+/// para um evento, dentro da autonomia da cota do lote (sem aprovação nome a
+/// nome do produtor). Emite um Ticket real reaproveitando a mesma máquina de
+/// emissão de pedidos pagos (pedido-tronco de R$ 0 + outbox `order.paid`).
+model GuestListEntry {
+  id             String               @id @default(uuid()) @db.Uuid
+  eventId        String               @map("event_id") @db.Uuid
+  ticketLotId    String               @map("ticket_lot_id") @db.Uuid
+  salesPartnerId String?              @map("sales_partner_id") @db.Uuid
+  addedByUserId  String               @map("added_by_user_id") @db.Uuid
+  /// pedido-tronco de R$ 0 criado para emitir o ticket pela máquina real
+  orderId        String?              @map("order_id") @db.Uuid
+  guestName      String               @map("guest_name")
+  guestDocument  String?              @map("guest_document")
+  guestPhone     String?              @map("guest_phone")
+  status         GuestListEntryStatus @default(CONFIRMED)
+  ticketId       String?              @unique @map("ticket_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketLot    TicketLot     @relation(fields: [ticketLotId], references: [id])
+  salesPartner SalesPartner? @relation(fields: [salesPartnerId], references: [id], onDelete: SetNull)
+  addedByUser  User          @relation(fields: [addedByUserId], references: [id])
+  order        Order?        @relation(fields: [orderId], references: [id])
+  ticket       Ticket?       @relation(fields: [ticketId], references: [id])
+
+  @@index([eventId, status])
+  @@index([salesPartnerId])
+  @@map("guest_list_entries")
 }
 
 enum VerificationStatus {
@@ -397,6 +437,7 @@ model Event {
   salesPartners        EventSalesPartner[]
   reviews              EventReview[]
   addOns               EventAddOn[]
+  guestListEntries     GuestListEntry[]
 
   @@index([organizationId])
   @@index([status])
@@ -514,6 +555,7 @@ model TicketLot {
   reservationItems ReservationItem[]
   orderItems       OrderItem[]
   tickets          Ticket[]
+  guestListEntries GuestListEntry[]
 
   @@index([ticketTypeId])
   @@index([status])
@@ -620,6 +662,7 @@ model Order {
   refundRequests RefundRequest[]
   pushTokens  PushToken[]
   addOnItems  OrderAddOnItem[]
+  guestListEntries GuestListEntry[]
 
   @@index([eventId])
   @@index([status])
@@ -804,6 +847,7 @@ model Ticket {
   event     Event     @relation(fields: [eventId], references: [id])
   ticketLot TicketLot @relation(fields: [ticketLotId], references: [id])
   checkins  Checkin[]
+  guestListEntry GuestListEntry?
 
   @@unique([orderItemId, seq])
   @@index([eventId, status])

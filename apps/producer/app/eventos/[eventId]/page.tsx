@@ -420,6 +420,9 @@ function EventContent({ eventId }: { eventId: string }) {
         <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="chip-nav">
           Check-in ao vivo
         </Link>
+        <Link href={`/eventos/${eventId}/lista-convidados`} className="chip-nav">
+          Lista de convidados
+        </Link>
         <Link href={`/eventos/${eventId}/divulgue`} className="chip-nav">
           Divulgue
         </Link>

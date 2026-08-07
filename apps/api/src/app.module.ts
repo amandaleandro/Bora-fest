@@ -25,6 +25,7 @@ import { RefundRequestsModule } from "./refund-requests/refund-requests.module";
 import { WaitingRoomModule } from "./waiting-room/waiting-room.module";
 import { ReviewsModule } from "./reviews/reviews.module";
 import { AddOnsModule } from "./add-ons/add-ons.module";
+import { GuestListModule } from "./guest-list/guest-list.module";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
@@ -54,6 +55,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     WaitingRoomModule,
     ReviewsModule,
     AddOnsModule,
+    GuestListModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
