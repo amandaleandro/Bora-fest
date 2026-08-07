@@ -190,10 +190,10 @@ export function EventPageClient({ slug }: { slug: string }) {
                 {event.venue ? (
                   <>
                     {event.venue.city}/{event.venue.state}
-                    {event.venue.address && (
+                    {event.venue.mapsUrl && (
                       <>
                         {" · "}
-                        <a href={event.venue.address} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                        <a href={event.venue.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
                           Ver no mapa
                         </a>
                       </>
