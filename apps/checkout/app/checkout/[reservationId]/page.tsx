@@ -103,6 +103,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+  // CPF do pagador: exigência do Asaas para emitir Pix/cartão
+  const [buyerCpf, setBuyerCpf] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [otpResendIn, setOtpResendIn] = useState(0);
@@ -386,7 +388,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     if (!target) return;
     setPaying(true);
     try {
-      const pix = await api.createPixPayment(target.id, {});
+      const pix = await api.createPixPayment(target.id, {
+        payerDocument: onlyDigits(buyerCpf),
+        payerPhone: onlyDigits(phone) || undefined,
+      });
       if (!pix.pixQrCodeText) {
         setError("Não foi possível gerar o Pix agora. Tente de novo em instantes.");
         return;
@@ -459,6 +464,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           addressNumber: cardAddrNum.trim() || "S/N",
         },
         installments,
+        payerDocument: onlyDigits(buyerCpf),
       });
       if (res.status === "FAILED") {
         setCardError(res.failReason ?? "Pagamento recusado — sua reserva continua valendo.");
@@ -648,6 +654,20 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     />
                   </div>
 
+                  <div>
+                    <label className={labelClass}>CPF</label>
+                    <input
+                      inputMode="numeric"
+                      value={buyerCpf}
+                      onChange={(e) => setBuyerCpf(maskCpf(e.target.value))}
+                      placeholder="000.000.000-00"
+                      className={inputClass}
+                    />
+                    <p className="mt-1 text-[11.5px] font-semibold text-muted-2">
+                      Exigido pelo banco para emitir o Pix e a nota do pagamento.
+                    </p>
+                  </div>
+
                   {mode === "guest" ? (
                     <div>
                       <label className={labelClass}>Celular / WhatsApp</label>
@@ -697,6 +717,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     }
                     if (!email.includes("@")) {
                       setError("Informe um e-mail válido");
+                      return;
+                    }
+                    if (onlyDigits(buyerCpf).length !== 11) {
+                      setError("Informe um CPF válido — o banco exige para emitir o pagamento");
                       return;
                     }
                     setError(null);
