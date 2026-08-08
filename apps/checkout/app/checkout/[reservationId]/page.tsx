@@ -17,7 +17,7 @@ import { getAttributedPartnerSlug } from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
 
 type Step = "ident" | "participantes" | "pagamento";
-type PayTab = "pix" | "cartao" | "carteira";
+type PayTab = "pix" | "cartao";
 
 /** Versão vigente de Termos/Privacidade — vai junto do pedido para auditoria LGPD. */
 const CONSENT_VERSION = "v2026-07";
@@ -119,6 +119,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
   // itens adicionais (upsell)
   const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
+
+  // resumo compacto no celular: o comprador vê O QUE está comprando enquanto
+  // preenche — no desktop o aside sticky já resolve
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   // pagamento
   const [consent, setConsent] = useState(false);
@@ -397,6 +401,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         return;
       }
       setPixCode(pix.pixQrCodeText);
+      setError(null); // sucesso apaga erro de tentativa anterior
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Falha ao gerar o Pix");
     } finally {
@@ -562,7 +567,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
             {timerVisible && (
               <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-bold text-warning">
                 <Icon d={paths.clock} size={14} />
-                <span className="hidden sm:inline">{order ? "Pagamento:" : "Reserva:"}</span> {timerLabel}
+                {order ? "Pague em" : "Reservado por"} {timerLabel}
               </span>
             )}
           </div>
@@ -572,6 +577,55 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       </header>
 
       <div className="mx-auto max-w-[1160px] px-5 pt-5 lg:px-7 lg:pt-7">
+        {event && (
+          <button
+            type="button"
+            onClick={() => setSummaryOpen((v) => !v)}
+            className="mb-4 w-full rounded-[18px] border border-line bg-surface p-4 text-left lg:hidden"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-[14px] font-extrabold">{event.title}</p>
+                <p className="mt-0.5 truncate text-[12px] font-medium text-muted-2">
+                  {formatDateTime(event.startsAt, event.timezone)}
+                  {event.venue ? ` · ${event.venue.name}` : ""}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-[11px] font-semibold text-muted-2">
+                  {lines.reduce((s, l) => s + l.quantity, 0)} ingresso
+                  {lines.reduce((s, l) => s + l.quantity, 0) === 1 ? "" : "s"}
+                </p>
+                <p className="text-[16px] font-extrabold">{formatCents(totalCents)}</p>
+              </div>
+            </div>
+            {summaryOpen && (
+              <div className="mt-3 space-y-1.5 border-t border-dashed border-line pt-3">
+                {lines.map((line) => (
+                  <div key={line.key} className="flex justify-between gap-3 text-[12.5px] font-semibold text-ink-soft">
+                    <span>{line.quantity}× {line.label}</span>
+                    <span className="shrink-0">{formatCents(line.priceTotalCents)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between gap-3 text-[12.5px] font-medium text-muted-2">
+                  <span>Taxa de serviço</span>
+                  <span className="shrink-0">
+                    {feeTotalCents > 0 ? formatCents(feeTotalCents) : "por conta do produtor"}
+                  </span>
+                </div>
+                {discountCents > 0 && (
+                  <div className="flex justify-between gap-3 text-[12.5px] font-bold text-success">
+                    <span>Desconto</span>
+                    <span className="shrink-0">− {formatCents(discountCents)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="mt-2 text-center text-[11px] font-semibold text-primary">
+              {summaryOpen ? "Esconder detalhes" : "Ver detalhes do pedido"}
+            </p>
+          </button>
+        )}
         <div className="lg:flex lg:items-start lg:gap-6">
           <div className="lg:flex-[1.5]">
             {/* ETAPA 1 — identificação */}
@@ -733,20 +787,6 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   {mode === "otp" && otpSent ? "Entrar" : mode === "otp" ? "Enviar código" : "Continuar"}
                 </button>
 
-                <div className="mt-5 space-y-2">
-                  <button
-                    disabled
-                    className="h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[13px] font-bold text-muted-3"
-                  >
-                    Continuar com Google · em breve
-                  </button>
-                  <button
-                    disabled
-                    className="h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[13px] font-bold text-muted-3"
-                  >
-                    Continuar com Apple · em breve
-                  </button>
-                </div>
               </section>
             )}
 
@@ -848,7 +888,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
             {step === "pagamento" && (
               <section className={cardClass}>
                 <div className="flex rounded-2xl bg-line p-1">
-                  {([["pix", "Pix"], ["cartao", "Cartão"], ["carteira", "Carteira"]] as const).map(
+                  {([["pix", "Pix"], ["cartao", "Cartão"]] as const).map(
                     ([key, labelTab]) => (
                       <button
                         key={key}
@@ -1108,28 +1148,6 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   </div>
                 )}
 
-                {tab === "carteira" && (
-                  <div className="mt-5 space-y-2.5">
-                    <p className="text-center text-[12px] font-semibold text-muted-2">
-                      Nenhuma carteira digital disponível ainda — use Pix ou Cartão por enquanto.
-                    </p>
-                    <button disabled className="h-14 w-full rounded-2xl bg-black text-[15px] font-bold text-white opacity-50">
-                       Pay · em breve
-                    </button>
-                    <button
-                      disabled
-                      className="h-14 w-full rounded-2xl border-[1.5px] border-line-input bg-white text-[15px] font-bold text-ink opacity-50"
-                    >
-                      Google Pay · em breve
-                    </button>
-                    <button
-                      disabled
-                      className="h-14 w-full rounded-2xl bg-[#009ee3] text-[15px] font-bold text-white opacity-50"
-                    >
-                      Mercado Pago · em breve
-                    </button>
-                  </div>
-                )}
               </section>
             )}
           </div>
