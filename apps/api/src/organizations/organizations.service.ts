@@ -1,3 +1,4 @@
+import type { UpdateOrganizationInput } from "@borafest/contracts";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
@@ -51,11 +52,26 @@ export class OrganizationsService {
     return memberships.map((membership) => ({
       id: membership.organization.id,
       name: membership.organization.name,
+      displayName: membership.organization.displayName,
       slug: membership.organization.slug,
       kind: membership.organization.kind,
       status: membership.organization.status,
       roleKey: membership.role.key,
     }));
+  }
+
+  /** Perfil público da organização (nome comercial). Só quem gerencia membros edita. */
+  async update(organizationId: string, actorUserId: string, input: UpdateOrganizationInput) {
+    await this.orgAccess.assertPermission(
+      organizationId,
+      actorUserId,
+      PERMISSIONS.ORG_MANAGE_MEMBERS,
+    );
+    return prisma.organization.update({
+      where: { id: organizationId },
+      data: { displayName: input.displayName === undefined ? undefined : input.displayName },
+      select: { id: true, name: true, displayName: true, slug: true },
+    });
   }
 
   async inviteMember(organizationId: string, actorUserId: string, input: InviteMemberInput) {

@@ -33,7 +33,11 @@ export function SiteHeader() {
   return (
     <header className="hidden border-b border-line bg-surface lg:block">
       <div className="mx-auto flex h-16 max-w-[1160px] items-center justify-between px-6">
-        <Link href="/" className="text-[20px] font-extrabold text-primary">BoraFest</Link>
+        <Link href="/" className="flex items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/logo-b.svg" alt="" className="h-8 w-8" />
+          <span className="text-[20px] font-extrabold italic tracking-tight text-ink">BoraFest</span>
+        </Link>
         <nav className="flex items-center gap-3">
           <a href={`${PANEL}/cadastro`} className="rounded-xl border-[1.5px] border-line-input px-4 py-2 text-[13px] font-bold text-ink">
             Produza seu evento
@@ -64,7 +68,11 @@ export function SiteFooter() {
     <footer className="hidden border-t border-line bg-surface lg:block">
       <div className="mx-auto grid max-w-[1160px] grid-cols-4 gap-8 px-6 py-10 text-[13px]">
         <div>
-          <p className="text-[16px] font-extrabold text-primary">BoraFest</p>
+          <p className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/logo-b.svg" alt="" className="h-6 w-6" />
+            <span className="text-[16px] font-extrabold italic tracking-tight text-ink">BoraFest</span>
+          </p>
           <p className="mt-2 font-medium text-muted">A compra de ingresso mais simples do Brasil — sem senha, sem app obrigatório.</p>
         </div>
         <div>

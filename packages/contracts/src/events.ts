@@ -15,11 +15,19 @@ export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
 export const createEventSchema = z.object({
   title: z.string().min(3),
   description: z.string().optional(),
+  /** atrações/line-up, um nome por linha — o hotsite monta a seção */
+  lineup: z.string().max(2000).optional(),
+  /** o que está incluso (open bar, copo…), um item por linha */
+  amenities: z.string().max(2000).optional(),
+  /** idade mínima em anos; ausente = evento livre */
+  minAge: z.number().int().min(0).max(99).optional(),
   venueId: z.string().uuid().optional(),
   /** local inline (feedback 2026-08-03): a API cria o Venue e vincula */
   venue: eventVenueSchema.optional(),
-  /** categoria de descoberta na home pública — livre = sem categoria */
-  category: eventCategorySchema.optional(),
+  /** categoria de descoberta na home pública — OBRIGATÓRIA (decisão
+   * 2026-08-08): catálogo sem categoria consistente é impossível de
+   * arrumar depois; as prateleiras da home dependem disso */
+  category: eventCategorySchema,
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   timezone: z.string().default("America/Sao_Paulo"),

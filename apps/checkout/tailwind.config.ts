@@ -1,12 +1,13 @@
 import type { Config } from "tailwindcss";
 
-// Tokens do handoff (docs/design/README.md) — cores, sombras e raios finais.
+// Identidade visual 2026-08 (logo oficial): gradiente magenta→rosa→laranja
+// extraído dos ativos da marca (Ativo 8/11/13). Roxo antigo aposentado.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        primary: { DEFAULT: "#6d28d9", hover: "#5b21b6" },
+        primary: { DEFAULT: "#D9128F", hover: "#B30E76" },
         ink: { DEFAULT: "#16121f", soft: "#544e60" },
         muted: { DEFAULT: "#6b6577", 2: "#8b8598", 3: "#a49eb0", 4: "#c5bed6" },
         bg: { DEFAULT: "#f6f5fb", dark: "#0b0910" },
@@ -16,18 +17,19 @@ const config: Config = {
         warning: "#b45309",
         danger: "#e11d48",
         pix: { DEFAULT: "#17b0a0", text: "#0f766e" },
-        accent: "#ec4899",
+        accent: "#E8590C",
+        brand: { magenta: "#C913DB", pink: "#F1126E", orange: "#FB7032" },
       },
       fontFamily: {
         sans: ["var(--font-jakarta)", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        cta: "0 12px 24px -8px rgba(109,40,217,.5)",
+        cta: "0 12px 24px -8px rgba(217,18,143,.45)",
         "cta-green": "0 12px 24px -8px rgba(18,161,80,.5)",
         card: "0 18px 40px -18px rgba(30,20,60,.25)",
       },
       backgroundImage: {
-        "brand-gradient": "linear-gradient(135deg,#6d28d9,#9333ea)",
+        "brand-gradient": "linear-gradient(135deg,#C913DB 0%,#F1126E 55%,#FB7032 100%)",
       },
       keyframes: {
         pop: { "0%": { transform: "scale(.5)", opacity: "0" }, "100%": { transform: "scale(1)", opacity: "1" } },

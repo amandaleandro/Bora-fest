@@ -259,7 +259,13 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
                   <input type="checkbox" checked={sel.half}
                     onChange={(e) => setSelection((prev) => ({ ...prev, [lot.id]: { ...sel, half: e.target.checked } }))}
                     className="h-4 w-4 accent-primary" />
-                  Meia-entrada (documento na portaria)
+                  <span>
+                    Meia-entrada por{" "}
+                    <span className="font-extrabold text-ink">{formatCents(Math.round(lot.priceCents / 2))}</span>
+                    <span className="block text-[11px] font-medium text-muted">
+                      Leve documento com foto que comprove o direito — é conferido na portaria.
+                    </span>
+                  </span>
                 </label>
               )}
             </div>
@@ -278,7 +284,7 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
           <p className="text-[20px] font-extrabold">{formatCents(totalCents)}</p>
         </div>
         <button onClick={submit} disabled={count === 0 || submitting}
-          className={`h-12 rounded-2xl px-6 text-[14px] font-extrabold text-white ${count === 0 || submitting ? "bg-[#d9d2e8]" : "bg-primary shadow-cta"}`}>
+          className={`h-12 rounded-2xl px-6 text-[14px] font-extrabold text-white ${count === 0 || submitting ? "bg-[#ecd6e4]" : "bg-primary shadow-cta"}`}>
           {submitting ? "Reservando…" : "Continuar para pagamento"}
         </button>
       </div>

@@ -275,6 +275,86 @@ produção achou DOIS bloqueios reais, nenhum deles visível ao usuário:
 Provado contra o Asaas real: cobrança + QR Pix gerados a R$ 5,00 com CPF.
 API 22/22 · build 14/14.
 
+**UX da jornada do comprador — Blocos B e A (2026-08-08)** — auditoria
+como usuário no celular em produção, depois correção testada tela a tela
+contra pilha local (API mock + evento demo com banner real):
+- Bloco B (checkout blindado): resumo do pedido no TOPO do celular
+  (título, data/local, qtde, total; toque expande) — antes preenchia 4
+  campos às cegas; cronômetro explicado ("Reservado por 09:24"/"Pague em
+  14:50"); tela de escolher ingressos com contexto (banner/data/local);
+  fim dos botões de enfeite (Google/Apple "em breve" e aba Carteira
+  inteira); erro antigo some quando o Pix sai.
+- Bloco A (vitrine que vende): banner do evento na home (destaque com
+  imagem de fundo + cards com miniatura; fallback bonito sem banner);
+  PREÇO HONESTO — vitrine mostra o que se paga (preço+taxa, "com taxas",
+  "Grátis" quando 0) na home E no CTA do hotsite; selo "Últimos
+  ingressos" fixo (mentira) trocado por urgência REAL: "Lote atual
+  termina em Xh" vindo de currentLotEndsAt (novo campo da API, fim do
+  lote ativo mais próximo).
+Bugs pegos no ciclo testar→corrigir: estado de hook depois de return
+condicional (quebrava o checkout inteiro) e erro persistente pós-sucesso.
+API 27/27 · build 14/14. Pendente de deploy pelo Arthur.
+
+**Bloco C — identidade do evento e do produtor (2026-08-08)** —
+plataforma "redonda" a pedido do Arthur:
+- **Nome comercial** (Organization.displayName): campo "Perfil público" na
+  página da organização do painel; o site mostra "Por Atlética XANA" em vez
+  do nome civil do produtor — e o nome civil NEM TRAFEGA no payload público
+  (displayName é resolvido no servidor). PATCH /v1/organizations/:id
+  (permissão ORG_MANAGE_MEMBERS).
+- **Campos estruturados do evento** (Event.lineup/amenities/minAge):
+  wizard de criação e etapa de detalhes ganham Atrações (um por linha),
+  O que está incluso (um por linha) e Idade mínima (Livre/14+/16+/18+);
+  o hotsite monta as seções sozinho — chips de atrações, checklist verde
+  do incluso e cartão "18+" com aviso de documento.
+- Migração 20260808172047_org_display_name_event_structured_info.
+Teste de integração novo (identidade.test.ts): nome comercial no público,
+displayName não vaza, fallback para o nome cadastral, campos estruturados.
+Verificado no navegador contra pilha local. API 28/28 · build 14/14.
+⚠️ Deploy: a migração roda sozinha no boot da API (migrate deploy no CMD).
+
+**Identidade visual oficial aplicada (2026-08-08)** — Arthur entregou a
+marca final (Ativos 8/11/13: ícone B, logo horizontal p/ fundo escuro,
+logo branco) e pediu o sistema inteiro nela. Gradiente magenta→rosa→
+laranja (pegada Instagram) extraído por amostragem dos próprios arquivos:
+- Tokens: #C913DB (magenta) · #F1126E (rosa) · #FB7032 (laranja);
+  primária sólida #D9128F (contraste 4,74:1 sobre branco), hover #B30E76;
+  brand-gradient linear 135° nos 3 pontos. Urgência (accent) virou
+  laranja #E8590C para não sumir no rosa.
+- Superfícies: site do comprador (tailwind config + varredura de roxos
+  hardcoded), painel do produtor (config + Sidebar com logo horizontal),
+  backoffice (preset @borafest/ui tema escuro), portaria (colors.ts),
+  e-mails (render.ts) e manifests PWA (theme_color).
+- Ativos versionados: public/brand/{logo-b, logo-horizontal-escuro,
+  logo-horizontal-branco}.svg (extraídos dos PDFs via pdftocairo);
+  favicons/app icons novos (app/icon.png + apple-icon.png + icons/ PWA)
+  — os pwa-icons do handoff eram da marca ROXA antiga e foram descartados.
+- Headers: logo real no site (B + wordmark) e no painel (horizontal).
+Verificado no navegador (home/hotsite/seleção, mobile e desktop).
+Build 14/14. ⚠️ App comprador (APK Expo) segue com tema próprio — não
+rebrandado ainda; tratar quando gerar o próximo APK.
+
+**Home viva: categorias obrigatórias + Em alta por vendas + prateleiras
+(2026-08-08)** — plano aprovado pelo Arthur ("em alta = o que mais vende
+naquela noite"), executado com regras de honestidade:
+- **Categoria obrigatória** no cadastro de evento (contracts + wizard sem
+  "Sem categoria" + validação); migração category_backfill põe FESTAS nos
+  eventos antigos. Não expandir categorias sem densidade!
+- **Em alta por PLACAR**: pontos = vendas 24h × 3 + vendas 7 dias × 1
+  (tickets emitidos, exclui cancelado/reembolsado). A noite domina quando
+  há movimento; a semana segura o ranking em noite parada. Seção SÓ
+  aparece com 2+ eventos com venda real — nunca finge popularidade.
+- **Prateleiras por categoria**: nascem sozinhas com 3+ eventos ativos
+  (categoria rala fica em "Próximos"), ordenadas por procura, com "Ver
+  todos" caindo no filtro; endpoint GET /v1/public/events/home/sections
+  (cache 120s) devolve highlights+shelves+upcoming numa chamada só.
+- Home (mobile e desktop): Destaque → fileira "Em alta 🔥" → prateleiras
+  → Próximos; busca/chip mantém a lista plana antiga.
+- **Banner v2 do produtor** (arte refinada do Arthur, mesmo webp 54 KB).
+Testes novos (home-sections.test.ts): ordem do placar, honestidade do Em
+alta, densidade da prateleira. API 30/30 · build 14/14 · verificado no
+navegador com vendas fabricadas no banco local.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

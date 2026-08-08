@@ -78,6 +78,12 @@ export interface PublicEvent {
   title: string;
   slug: string;
   description: string | null;
+  /** atrações, uma por linha */
+  lineup: string | null;
+  /** o que está incluso, um item por linha */
+  amenities: string | null;
+  /** idade mínima em anos; null = livre */
+  minAge: number | null;
   bannerUrl: string | null;
   category: EventCategory | null;
   status: string;
@@ -118,6 +124,8 @@ export interface EventListItem {
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
   fromPriceCents: number | null;
+  /** fim do lote ativo mais próximo (urgência honesta na vitrine) */
+  currentLotEndsAt: string | null;
 }
 
 export interface AvailabilityItem {
@@ -215,6 +223,14 @@ export const api = {
     return request<{ total: number; events: EventListItem[] }>(
       `/v1/public/events${qs ? `?${qs}` : ""}`,
     ).then((r) => r.events);
+  },
+  getHomeSections: (city?: string) => {
+    const params = city ? `?city=${encodeURIComponent(city)}` : "";
+    return request<{
+      highlights: EventListItem[];
+      shelves: Array<{ category: EventCategory; events: EventListItem[] }>;
+      upcoming: EventListItem[];
+    }>(`/v1/public/events/home/sections${params}`);
   },
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),

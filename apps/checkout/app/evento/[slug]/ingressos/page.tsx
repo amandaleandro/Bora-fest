@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../../../lib/api";
+import { formatDateTime } from "../../../../lib/format";
 import { Icon, paths } from "../../../../components/icons";
 import { TicketSelector } from "../../../../components/TicketSelector";
 
@@ -32,6 +33,32 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
         </div>
       </header>
       <div className="px-5 pt-4">
+        {/* contexto do evento: quem decide quantos comprar não deve perder de
+            vista qual festa é, quando e onde */}
+        <div className="mb-4 flex items-center gap-3 rounded-[18px] border border-line bg-surface p-3.5">
+          {event.bannerUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={event.bannerUrl}
+              alt=""
+              className="h-14 w-14 shrink-0 rounded-xl object-cover"
+            />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-magenta via-brand-pink to-brand-orange text-[20px] font-extrabold text-white">
+              {event.title.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="text-[13px] font-extrabold leading-tight">
+              {formatDateTime(event.startsAt, event.timezone)}
+            </p>
+            <p className="mt-0.5 truncate text-[12px] font-medium text-muted-2">
+              {event.venue
+                ? `${event.venue.name} · ${event.venue.city}/${event.venue.state}`
+                : "Local a confirmar"}
+            </p>
+          </div>
+        </div>
         <TicketSelector event={event} />
       </div>
     </main>

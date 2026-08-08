@@ -191,7 +191,7 @@ function FinanceContent({ orgId }: { orgId: string }) {
                 type="button"
                 onClick={() => setShowWithdraw(true)}
                 disabled={withdrawableCents < 100}
-                className="mt-3 h-11 w-full rounded-xl bg-primary text-[13px] font-extrabold text-white shadow-cta disabled:bg-[#d9d2e8] disabled:shadow-none"
+                className="mt-3 h-11 w-full rounded-xl bg-primary text-[13px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none"
               >
                 Solicitar saque
               </button>
@@ -374,7 +374,7 @@ function FinanceContent({ orgId }: { orgId: string }) {
                     type="button"
                     onClick={addBankAccount}
                     disabled={savingAccount}
-                    className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta disabled:bg-[#d9d2e8] disabled:shadow-none"
+                    className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none"
                   >
                     {savingAccount ? "Salvando…" : "Salvar conta"}
                   </button>

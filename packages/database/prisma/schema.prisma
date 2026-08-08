@@ -131,6 +131,9 @@ model Organization {
   slug      String             @unique
   kind      OrganizationKind
   document  String             @unique
+  /// nome comercial mostrado ao público (marca/atlética); null = usa `name`.
+  /// Criado porque produtor pessoa física aparecia com o nome civil no site.
+  displayName String?          @map("display_name")
   status    OrganizationStatus @default(PENDING_VERIFICATION)
   /// Overrides de taxa (basis points; 499 = 4,99%). null = usa o padrão da plataforma.
   pixFeeBps        Int?      @map("pix_fee_bps")
@@ -404,6 +407,12 @@ model Event {
   title          String
   slug           String      @unique
   description    String?
+  /// atrações/line-up, um por linha — o hotsite monta a seção sozinho
+  lineup         String?
+  /// o que está incluso (open bar, copo, estacionamento…), um por linha
+  amenities      String?
+  /// idade mínima em anos; null = livre
+  minAge         Int?        @map("min_age")
   bannerUrl      String?     @map("banner_url")
   /// categoria de descoberta na home pública (SHOWS/FESTAS/ESPORTES/TEATRO); livre = sem categoria
   category       EventCategory? @map("category")

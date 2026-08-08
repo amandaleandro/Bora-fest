@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/common";
-import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, inviteMemberSchema } from "@borafest/contracts";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, inviteMemberSchema, updateOrganizationSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -18,6 +18,15 @@ export class OrganizationsController {
   @Get()
   listForUser(@CurrentUserId() userId: string) {
     return this.organizationsService.listForUser(userId);
+  }
+
+  @Patch(":id")
+  update(
+    @Param("id") organizationId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(updateOrganizationSchema)) body: unknown,
+  ) {
+    return this.organizationsService.update(organizationId, userId, body as any);
   }
 
   @Post(":id/members")

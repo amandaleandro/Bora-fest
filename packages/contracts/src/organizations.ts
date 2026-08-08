@@ -30,3 +30,10 @@ export const createBankAccountSchema = z.object({
   pixKey: z.string().optional(),
 });
 export type CreateBankAccountInput = z.infer<typeof createBankAccountSchema>;
+
+/** Atualização do perfil público da organização (nome comercial etc.). */
+export const updateOrganizationSchema = z.object({
+  /** nome mostrado ao público no lugar do nome civil/razão social */
+  displayName: z.string().trim().min(2).max(80).nullable().optional(),
+});
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
