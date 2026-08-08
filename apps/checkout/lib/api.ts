@@ -224,6 +224,14 @@ export const api = {
       `/v1/public/events${qs ? `?${qs}` : ""}`,
     ).then((r) => r.events);
   },
+  getHomeSections: (city?: string) => {
+    const params = city ? `?city=${encodeURIComponent(city)}` : "";
+    return request<{
+      highlights: EventListItem[];
+      shelves: Array<{ category: EventCategory; events: EventListItem[] }>;
+      upcoming: EventListItem[];
+    }>(`/v1/public/events/home/sections${params}`);
+  },
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),

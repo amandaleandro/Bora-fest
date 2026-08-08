@@ -170,7 +170,7 @@ export const eventsApi = {
       amenities?: string;
       minAge?: number;
       venue?: EventVenue;
-      category?: EventCategory;
+      category: EventCategory;
     },
   ) =>
     request<EventSummary>(`/v1/organizations/${organizationId}/events`, {

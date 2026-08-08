@@ -36,6 +36,17 @@ export class PublicCatalogController {
     return this.catalogService.listPublicCities();
   }
 
+  /** Home viva: Em alta (placar de vendas com peso na noite) + prateleiras
+   * por categoria + próximos. Cache curto: o Em alta reage à noite. */
+  @Get("home/sections")
+  homeSections(
+    @Query("city") city: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header("Cache-Control", "public, max-age=120, stale-while-revalidate=300");
+    return this.catalogService.getHomeSections(city?.trim() || undefined);
+  }
+
   @Get(":slug")
   getEvent(@Param("slug") slug: string, @Res({ passthrough: true }) reply: FastifyReply) {
     reply.header("Cache-Control", PUBLIC_CACHE_HEADER);

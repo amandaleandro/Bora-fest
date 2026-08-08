@@ -219,6 +219,10 @@ function NewEventContent() {
   async function saveStep1() {
     if (!token || !orgId) { setError("Abra pelo botão Criar evento da organização"); return; }
 
+    if (!category) {
+      setError("Escolha a categoria do evento — é ela que define a prateleira da home.");
+      return;
+    }
     // Local é opcional; endereço e link do Maps são independentes (nenhum dos dois é obrigatório).
     // Mas nome, cidade e UF precisam vir juntos quando algum dado de local é informado.
     const venueCoreFilled = [venueName.trim(), venueCity.trim(), venueState].filter(Boolean).length;
@@ -245,7 +249,7 @@ function NewEventContent() {
         lineup: lineup.trim() || undefined,
         amenities: amenities.trim() || undefined,
         minAge: minAge ? Number(minAge) : undefined,
-        category: category || undefined,
+        category,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
         venue,
@@ -357,13 +361,13 @@ function NewEventContent() {
           <div>
             <label className={labelCls}>Categoria</label>
             <select value={category} onChange={(e) => setCategory(e.target.value as EventCategory | "")} className={inputCls}>
-              <option value="">Sem categoria</option>
+              <option value="">Escolha a categoria…</option>
               {EVENT_CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>
             <p className="mt-1 text-[12px] font-semibold text-muted">
-              Ajuda seu evento a aparecer nos filtros de busca do site.
+              Obrigatória — define em qual prateleira da home seu evento aparece.
             </p>
           </div>
           <fieldset className="rounded-xl border border-line bg-bg p-4">
@@ -577,7 +581,7 @@ function NewEventContent() {
               <div>
                 <label className={labelCls}>Categoria</label>
                 <select value={category} onChange={(e) => setCategory(e.target.value as EventCategory | "")} className={inputCls}>
-                  <option value="">Sem categoria</option>
+                  <option value="">Escolha a categoria…</option>
                   {EVENT_CATEGORIES.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
                   ))}

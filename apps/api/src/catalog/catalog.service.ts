@@ -6,6 +6,66 @@ import type { CreateTicketLotInput, CreateTicketTypeInput } from "@borafest/cont
 import { OrgAccessService } from "../common/org-access.service";
 import { InventoryService } from "../inventory/inventory.service";
 
+
+/** Campos do cartão de vitrine (home/listas) — um só select para lista e home. */
+const showcaseSelect = {
+  id: true,
+  title: true,
+  slug: true,
+  bannerUrl: true,
+  category: true,
+  startsAt: true,
+  timezone: true,
+  venue: { select: { name: true, city: true, state: true } },
+  ticketTypes: {
+    select: {
+      lots: {
+        where: { status: "ACTIVE" as const },
+        select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
+      },
+    },
+  },
+} as const;
+
+type ShowcaseRow = {
+  id: string;
+  title: string;
+  slug: string;
+  bannerUrl: string | null;
+  category: string | null;
+  startsAt: Date;
+  timezone: string;
+  venue: { name: string; city: string; state: string } | null;
+  ticketTypes: Array<{
+    lots: Array<{ priceCents: number; feeCents: number; feeMode: string; endsAt: Date | null }>;
+  }>;
+};
+
+/** preço honesto (o que o comprador paga) + urgência real (fim do lote ativo). */
+function toShowcaseCard(event: ShowcaseRow) {
+  const lots = event.ticketTypes.flatMap((type) => type.lots);
+  const totals = lots.map(
+    (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
+  );
+  const now = Date.now();
+  const ends = lots
+    .map((lot) => lot.endsAt)
+    .filter((d): d is Date => d !== null && d.getTime() > now)
+    .sort((a, b) => a.getTime() - b.getTime());
+  return {
+    id: event.id,
+    title: event.title,
+    slug: event.slug,
+    bannerUrl: event.bannerUrl,
+    category: event.category,
+    startsAt: event.startsAt,
+    timezone: event.timezone,
+    venue: event.venue,
+    fromPriceCents: totals.length > 0 ? Math.min(...totals) : null,
+    currentLotEndsAt: ends[0] ?? null,
+  };
+}
+
 @Injectable()
 export class CatalogService {
   constructor(
@@ -122,24 +182,7 @@ export class CatalogService {
         orderBy: { startsAt: "asc" },
         skip: (options.page - 1) * options.pageSize,
         take: options.pageSize,
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          bannerUrl: true,
-          category: true,
-          startsAt: true,
-          timezone: true,
-          venue: { select: { name: true, city: true, state: true } },
-          ticketTypes: {
-            select: {
-              lots: {
-                where: { status: "ACTIVE" },
-                select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
-              },
-            },
-          },
-        },
+        select: showcaseSelect,
       }),
     ]);
 
@@ -147,33 +190,92 @@ export class CatalogService {
       total,
       page: options.page,
       pageSize: options.pageSize,
-      events: events.map((event) => {
-        const lots = event.ticketTypes.flatMap((type) => type.lots);
-        // preço da vitrine = o que o comprador PAGA (preço + taxa quando é
-        // dele) — mostrar valor sem taxa e cobrar outro quebra a confiança
-        const totals = lots.map(
-          (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
-        );
-        // urgência honesta: fim mais próximo entre os lotes ativos com prazo
-        const now = Date.now();
-        const ends = lots
-          .map((lot) => lot.endsAt)
-          .filter((d): d is Date => d !== null && d.getTime() > now)
-          .sort((a, b) => a.getTime() - b.getTime());
-        return {
-          id: event.id,
-          title: event.title,
-          slug: event.slug,
-          bannerUrl: event.bannerUrl,
-          category: event.category,
-          startsAt: event.startsAt,
-          timezone: event.timezone,
-          venue: event.venue,
-          fromPriceCents: totals.length > 0 ? Math.min(...totals) : null,
-          currentLotEndsAt: ends[0] ?? null,
-        };
-      }),
+      events: events.map(toShowcaseCard),
     };
+  }
+
+
+  /**
+   * Home viva (decisão 2026-08-08): Em alta por PLACAR DE VENDAS com peso na
+   * noite — pontos = vendas 24h × 3 + vendas 7 dias × 1 — e prateleiras por
+   * categoria que só nascem com densidade (3+ eventos). Regras de
+   * honestidade: Em alta só existe com 2+ eventos vendendo de verdade;
+   * prateleira rala devolve os eventos para "Próximos".
+   */
+  async getHomeSections(city?: string) {
+    const where = {
+      status: "PUBLISHED" as const,
+      endsAt: { gt: new Date() },
+      ...(city
+        ? { venue: { is: { city: { equals: city, mode: "insensitive" as const } } } }
+        : {}),
+    };
+    const rows = await prisma.event.findMany({
+      where,
+      orderBy: { startsAt: "asc" },
+      take: 200,
+      select: showcaseSelect,
+    });
+    const events = rows.map(toShowcaseCard);
+    const ids = events.map((e) => e.id);
+
+    const now = Date.now();
+    const soldSince = async (since: Date) => {
+      const grouped = await prisma.ticket.groupBy({
+        by: ["eventId"],
+        where: {
+          eventId: { in: ids },
+          issuedAt: { gte: since },
+          status: { notIn: ["CANCELED", "REFUNDED"] },
+        },
+        _count: { eventId: true },
+      });
+      return new Map(grouped.map((g) => [g.eventId, g._count.eventId]));
+    };
+    const [sold24h, sold7d] = ids.length
+      ? await Promise.all([
+          soldSince(new Date(now - 24 * 3600_000)),
+          soldSince(new Date(now - 7 * 24 * 3600_000)),
+        ])
+      : [new Map<string, number>(), new Map<string, number>()];
+
+    const score = (id: string) => (sold24h.get(id) ?? 0) * 3 + (sold7d.get(id) ?? 0);
+    const comVenda = events.filter((e) => score(e.id) > 0);
+    // Em alta honesto: precisa de 2+ eventos com venda real na janela
+    const highlights =
+      comVenda.length >= 2
+        ? [...comVenda].sort((a, b) => score(b.id) - score(a.id)).slice(0, 8)
+        : [];
+
+    // prateleiras: categoria com 3+ eventos ativos; ordenadas por procura
+    const porCategoria = new Map<string, typeof events>();
+    for (const event of events) {
+      if (!event.category) continue;
+      const lista = porCategoria.get(event.category) ?? [];
+      lista.push(event);
+      porCategoria.set(event.category, lista);
+    }
+    const shelves = [...porCategoria.entries()]
+      .filter(([, lista]) => lista.length >= 3)
+      .map(([category, lista]) => ({
+        category,
+        events: [...lista]
+          .sort((a, b) => score(b.id) - score(a.id) || +a.startsAt - +b.startsAt)
+          .slice(0, 8),
+      }))
+      .sort(
+        (a, b) =>
+          b.events.reduce((s, e) => s + score(e.id), 0) -
+          a.events.reduce((s, e) => s + score(e.id), 0),
+      );
+
+    // remanescente: quem não ganhou prateleira segue na lista geral
+    const emPrateleira = new Set(shelves.flatMap((shelf) => shelf.events.map((e) => e.id)));
+    const upcoming = shelves.length
+      ? events.filter((e) => !emPrateleira.has(e.id))
+      : events;
+
+    return { highlights, shelves, upcoming };
   }
 
   async getPublicEvent(slug: string) {

@@ -24,8 +24,10 @@ export const createEventSchema = z.object({
   venueId: z.string().uuid().optional(),
   /** local inline (feedback 2026-08-03): a API cria o Venue e vincula */
   venue: eventVenueSchema.optional(),
-  /** categoria de descoberta na home pública — livre = sem categoria */
-  category: eventCategorySchema.optional(),
+  /** categoria de descoberta na home pública — OBRIGATÓRIA (decisão
+   * 2026-08-08): catálogo sem categoria consistente é impossível de
+   * arrumar depois; as prateleiras da home dependem disso */
+  category: eventCategorySchema,
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   timezone: z.string().default("America/Sao_Paulo"),

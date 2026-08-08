@@ -334,6 +334,27 @@ Verificado no navegador (home/hotsite/seleção, mobile e desktop).
 Build 14/14. ⚠️ App comprador (APK Expo) segue com tema próprio — não
 rebrandado ainda; tratar quando gerar o próximo APK.
 
+**Home viva: categorias obrigatórias + Em alta por vendas + prateleiras
+(2026-08-08)** — plano aprovado pelo Arthur ("em alta = o que mais vende
+naquela noite"), executado com regras de honestidade:
+- **Categoria obrigatória** no cadastro de evento (contracts + wizard sem
+  "Sem categoria" + validação); migração category_backfill põe FESTAS nos
+  eventos antigos. Não expandir categorias sem densidade!
+- **Em alta por PLACAR**: pontos = vendas 24h × 3 + vendas 7 dias × 1
+  (tickets emitidos, exclui cancelado/reembolsado). A noite domina quando
+  há movimento; a semana segura o ranking em noite parada. Seção SÓ
+  aparece com 2+ eventos com venda real — nunca finge popularidade.
+- **Prateleiras por categoria**: nascem sozinhas com 3+ eventos ativos
+  (categoria rala fica em "Próximos"), ordenadas por procura, com "Ver
+  todos" caindo no filtro; endpoint GET /v1/public/events/home/sections
+  (cache 120s) devolve highlights+shelves+upcoming numa chamada só.
+- Home (mobile e desktop): Destaque → fileira "Em alta 🔥" → prateleiras
+  → Próximos; busca/chip mantém a lista plana antiga.
+- **Banner v2 do produtor** (arte refinada do Arthur, mesmo webp 54 KB).
+Testes novos (home-sections.test.ts): ordem do placar, honestidade do Em
+alta, densidade da prateleira. API 30/30 · build 14/14 · verificado no
+navegador com vendas fabricadas no banco local.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
