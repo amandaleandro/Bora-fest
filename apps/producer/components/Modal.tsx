@@ -55,4 +55,4 @@ export const modalLabel = "mb-1.5 block text-[12px] font-bold text-ink-soft";
 export const ghostBtn =
   "h-[46px] rounded-xl border-[1.5px] border-line-input px-5 text-[14px] font-bold text-ink-soft";
 export const solidBtn =
-  "h-[46px] rounded-xl bg-primary px-5 text-[14px] font-extrabold text-white disabled:bg-[#d9d2e8]";
+  "h-[46px] rounded-xl bg-primary px-5 text-[14px] font-extrabold text-white disabled:bg-[#ecd6e4]";

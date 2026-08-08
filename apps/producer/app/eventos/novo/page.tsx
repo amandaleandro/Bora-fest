@@ -436,7 +436,7 @@ function NewEventContent() {
             O banner do evento é adicionado depois, na página do evento (upload direto do celular).
           </p>
           <button onClick={saveStep1} disabled={busy || title.length < 3 || !startsAt || !endsAt}
-            className="h-12 rounded-xl bg-primary px-8 text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#d9d2e8] disabled:shadow-none">
+            className="h-12 rounded-xl bg-primary px-8 text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none">
             {busy ? "Salvando…" : "Continuar"}
           </button>
         </section>
