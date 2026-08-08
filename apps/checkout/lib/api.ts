@@ -78,6 +78,12 @@ export interface PublicEvent {
   title: string;
   slug: string;
   description: string | null;
+  /** atrações, uma por linha */
+  lineup: string | null;
+  /** o que está incluso, um item por linha */
+  amenities: string | null;
+  /** idade mínima em anos; null = livre */
+  minAge: number | null;
   bannerUrl: string | null;
   category: EventCategory | null;
   status: string;

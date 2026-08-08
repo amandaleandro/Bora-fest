@@ -295,6 +295,24 @@ Bugs pegos no ciclo testar→corrigir: estado de hook depois de return
 condicional (quebrava o checkout inteiro) e erro persistente pós-sucesso.
 API 27/27 · build 14/14. Pendente de deploy pelo Arthur.
 
+**Bloco C — identidade do evento e do produtor (2026-08-08)** —
+plataforma "redonda" a pedido do Arthur:
+- **Nome comercial** (Organization.displayName): campo "Perfil público" na
+  página da organização do painel; o site mostra "Por Atlética XANA" em vez
+  do nome civil do produtor — e o nome civil NEM TRAFEGA no payload público
+  (displayName é resolvido no servidor). PATCH /v1/organizations/:id
+  (permissão ORG_MANAGE_MEMBERS).
+- **Campos estruturados do evento** (Event.lineup/amenities/minAge):
+  wizard de criação e etapa de detalhes ganham Atrações (um por linha),
+  O que está incluso (um por linha) e Idade mínima (Livre/14+/16+/18+);
+  o hotsite monta as seções sozinho — chips de atrações, checklist verde
+  do incluso e cartão "18+" com aviso de documento.
+- Migração 20260808172047_org_display_name_event_structured_info.
+Teste de integração novo (identidade.test.ts): nome comercial no público,
+displayName não vaza, fallback para o nome cadastral, campos estruturados.
+Verificado no navegador contra pilha local. API 28/28 · build 14/14.
+⚠️ Deploy: a migração roda sozinha no boot da API (migrate deploy no CMD).
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

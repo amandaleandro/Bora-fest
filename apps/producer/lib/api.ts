@@ -64,6 +64,8 @@ export const identityApi = {
 export interface Organization {
   id: string;
   name: string;
+  /** nome comercial mostrado ao público; null = usa `name` */
+  displayName?: string | null;
   slug: string;
   kind: string;
   status: string;
@@ -74,6 +76,8 @@ export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
   create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string }) =>
     request<Organization & { members: unknown[] }>("/v1/organizations", { method: "POST", body: input, token }),
+  update: (token: string, organizationId: string, input: { displayName?: string | null }) =>
+    request<Organization>(`/v1/organizations/${organizationId}`, { method: "PATCH", body: input, token }),
   inviteMember: (token: string, organizationId: string, email: string, roleKey: MemberRoleKey, partnerId?: string) =>
     request(`/v1/organizations/${organizationId}/members`, {
       method: "POST",
@@ -157,7 +161,17 @@ export const eventsApi = {
   create: (
     token: string,
     organizationId: string,
-    input: { title: string; startsAt: string; endsAt: string; description?: string; venue?: EventVenue; category?: EventCategory },
+    input: {
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      description?: string;
+      lineup?: string;
+      amenities?: string;
+      minAge?: number;
+      venue?: EventVenue;
+      category?: EventCategory;
+    },
   ) =>
     request<EventSummary>(`/v1/organizations/${organizationId}/events`, {
       method: "POST",
@@ -477,6 +491,12 @@ export const passwordAuth = {
 export interface UpdateEventInput {
   title?: string;
   description?: string;
+  /** atrações, uma por linha */
+  lineup?: string;
+  /** o que está incluso, um item por linha */
+  amenities?: string;
+  /** idade mínima em anos */
+  minAge?: number;
   category?: EventCategory;
   startsAt?: string;
   endsAt?: string;

@@ -72,6 +72,9 @@ function NewEventContent() {
   // etapa 1
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [lineup, setLineup] = useState("");
+  const [amenities, setAmenities] = useState("");
+  const [minAge, setMinAge] = useState("");
   const [category, setCategory] = useState<EventCategory | "">("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -148,6 +151,9 @@ function NewEventContent() {
     try {
       await eventControls.update(eventId, {
         description: description || undefined,
+        lineup: lineup.trim() || undefined,
+        amenities: amenities.trim() || undefined,
+        minAge: minAge ? Number(minAge) : undefined,
         category: category || undefined,
         venue,
       }, token);
@@ -236,6 +242,9 @@ function NewEventContent() {
       const event = await eventsApi.create(token, orgId, {
         title,
         description: description || undefined,
+        lineup: lineup.trim() || undefined,
+        amenities: amenities.trim() || undefined,
+        minAge: minAge ? Number(minAge) : undefined,
         category: category || undefined,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
@@ -318,6 +327,32 @@ function NewEventContent() {
             <label className={labelCls}>Descrição</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
               className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelCls}>Atrações / line-up</label>
+              <textarea value={lineup} onChange={(e) => setLineup(e.target.value)} rows={3}
+                placeholder={"Um por linha. Ex.:\nDJ Fulano\nBanda Tal"}
+                className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+            </div>
+            <div>
+              <label className={labelCls}>O que está incluso</label>
+              <textarea value={amenities} onChange={(e) => setAmenities(e.target.value)} rows={3}
+                placeholder={"Um por linha. Ex.:\nOpen bar até 22h\nEstacionamento"}
+                className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Idade mínima</label>
+            <select value={minAge} onChange={(e) => setMinAge(e.target.value)} className={inputCls}>
+              <option value="">Livre</option>
+              <option value="14">14+</option>
+              <option value="16">16+</option>
+              <option value="18">18+</option>
+            </select>
+            <p className="mt-1 text-[12px] font-semibold text-muted">
+              Aparece em destaque na página do evento — evita atrito na portaria.
+            </p>
           </div>
           <div>
             <label className={labelCls}>Categoria</label>
@@ -519,6 +554,25 @@ function NewEventContent() {
                 <label className={labelCls}>Descrição</label>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
                   className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className={labelCls}>Atrações / line-up (um por linha)</label>
+                <textarea value={lineup} onChange={(e) => setLineup(e.target.value)} rows={3}
+                  className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className={labelCls}>O que está incluso (um por linha)</label>
+                <textarea value={amenities} onChange={(e) => setAmenities(e.target.value)} rows={3}
+                  className="mt-1 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 py-3 text-[14px] font-medium outline-none focus:border-primary" />
+              </div>
+              <div>
+                <label className={labelCls}>Idade mínima</label>
+                <select value={minAge} onChange={(e) => setMinAge(e.target.value)} className={inputCls}>
+                  <option value="">Livre</option>
+                  <option value="14">14+</option>
+                  <option value="16">16+</option>
+                  <option value="18">18+</option>
+                </select>
               </div>
               <div>
                 <label className={labelCls}>Categoria</label>

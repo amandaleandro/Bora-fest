@@ -181,7 +181,7 @@ export class CatalogService {
       where: { slug, status: "PUBLISHED" },
       include: {
         venue: true,
-        organization: { select: { id: true, name: true, slug: true } },
+        organization: { select: { id: true, name: true, displayName: true, slug: true } },
         ticketTypes: {
           orderBy: { position: "asc" },
           include: {
@@ -199,7 +199,12 @@ export class CatalogService {
     });
 
     if (!event) throw new NotFoundException("Evento não encontrado");
-    return event;
+    // público vê o nome comercial; o nome civil/razão social nem trafega
+    const { displayName, ...organization } = event.organization;
+    return {
+      ...event,
+      organization: { ...organization, name: displayName ?? organization.name },
+    };
   }
 
   async getPublicAvailability(slug: string) {

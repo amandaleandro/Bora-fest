@@ -6,6 +6,78 @@ import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { eventsApi, organizationsApi, type EventSummary, type SalesPartner } from "@/lib/api";
 
+function PublicProfile({ orgId }: { orgId: string }) {
+  const { token } = useAuth();
+  const [displayName, setDisplayName] = useState("");
+  const [legalName, setLegalName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    organizationsApi
+      .list(token)
+      .then((orgs) => {
+        const org = orgs.find((o) => o.id === orgId);
+        if (org) {
+          setLegalName(org.name);
+          setDisplayName(org.displayName ?? "");
+        }
+      })
+      .catch(() => undefined);
+  }, [token, orgId]);
+
+  async function save() {
+    if (!token || saving) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await organizationsApi.update(token, orgId, {
+        displayName: displayName.trim() || null,
+      });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível salvar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 rounded-[18px] border border-line bg-surface p-5">
+      <h2 className="text-[17px] font-extrabold">Perfil público</h2>
+      <p className="mt-1 text-[12px] font-semibold text-muted">
+        É este nome que o comprador vê na página dos seus eventos ("Por …"). Deixe em branco para
+        usar o nome cadastral{legalName ? ` (${legalName})` : ""}.
+      </p>
+      <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+        <input
+          className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
+          placeholder="Ex.: Atlética XANA"
+          maxLength={80}
+          value={displayName}
+          onChange={(e) => {
+            setDisplayName(e.target.value);
+            setSaved(false);
+          }}
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white disabled:opacity-50"
+        >
+          {saving ? "Salvando…" : "Salvar"}
+        </button>
+      </div>
+      {saved ? <p className="mt-2 text-[12px] font-bold text-success">Salvo — já vale para todos os seus eventos.</p> : null}
+      {error ? <p className="mt-2 text-[12px] font-bold text-danger">{error}</p> : null}
+    </section>
+  );
+}
+
 const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
   DRAFT: { bg: "bg-warning/10", fg: "text-warning", label: "Rascunho" },
   PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
@@ -290,6 +362,7 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
       }
     >
       <EventsList orgId={params.orgId} />
+      <PublicProfile orgId={params.orgId} />
       <SalesPartners orgId={params.orgId} />
     </GuardedPanelShell>
   );

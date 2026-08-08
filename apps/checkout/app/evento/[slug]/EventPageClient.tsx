@@ -11,6 +11,54 @@ import { PixelTracker } from "../../../components/PixelTracker";
 import { capturePartnerFromUrl } from "../../../lib/attribution";
 import { FollowButton } from "../../../components/FollowButton";
 
+
+/** Seções estruturadas do evento (line-up, incluso, idade) — página rica sem o produtor redigir nada. */
+function EventInfoSections({ event, compact = false }: { event: PublicEvent; compact?: boolean }) {
+  const lineup = (event.lineup ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const amenities = (event.amenities ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const h2 = compact ? "text-[16px] font-extrabold" : "text-[18px] font-extrabold";
+  if (!lineup.length && !amenities.length && event.minAge === null) return null;
+  return (
+    <>
+      {lineup.length > 0 && (
+        <section className="mt-6">
+          <h2 className={h2}>Atrações</h2>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {lineup.map((item) => (
+              <li key={item} className="rounded-full bg-primary/10 px-3.5 py-1.5 text-[13px] font-bold text-primary">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {amenities.length > 0 && (
+        <section className="mt-6">
+          <h2 className={h2}>O que está incluso</h2>
+          <ul className="mt-2 space-y-1.5">
+            {amenities.map((item) => (
+              <li key={item} className="flex items-center gap-2 text-[14px] font-medium text-ink-soft">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-success/15 text-[11px] font-extrabold text-success">✓</span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {event.minAge !== null && event.minAge > 0 && (
+        <section className="mt-6 flex items-center gap-2.5 rounded-2xl border border-line bg-surface p-4">
+          <span className="rounded-lg bg-danger/10 px-2.5 py-1 text-[13px] font-extrabold text-danger">
+            {event.minAge}+
+          </span>
+          <p className="text-[13px] font-semibold text-ink-soft">
+            Evento para maiores de {event.minAge} anos — documento com foto na portaria.
+          </p>
+        </section>
+      )}
+    </>
+  );
+}
+
 function minPriceCents(event: PublicEvent): number | null {
   // preço anunciado = o que o comprador paga (com taxa quando é dele)
   const prices = event.ticketTypes.flatMap((t) =>
@@ -113,6 +161,7 @@ export function EventPageClient({ slug }: { slug: string }) {
               <p className="mt-2 whitespace-pre-line text-[14px] font-medium leading-relaxed text-ink-soft">{event.description}</p>
             </section>
           )}
+          <EventInfoSections event={event} />
         </div>
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-3xl border border-line bg-bg p-5 shadow-card">
@@ -216,6 +265,7 @@ export function EventPageClient({ slug }: { slug: string }) {
             </p>
           </section>
         )}
+        <EventInfoSections event={event} compact />
       </div>
 
       {/* CTA sticky */}
