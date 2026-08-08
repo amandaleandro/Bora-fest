@@ -275,6 +275,26 @@ produção achou DOIS bloqueios reais, nenhum deles visível ao usuário:
 Provado contra o Asaas real: cobrança + QR Pix gerados a R$ 5,00 com CPF.
 API 22/22 · build 14/14.
 
+**UX da jornada do comprador — Blocos B e A (2026-08-08)** — auditoria
+como usuário no celular em produção, depois correção testada tela a tela
+contra pilha local (API mock + evento demo com banner real):
+- Bloco B (checkout blindado): resumo do pedido no TOPO do celular
+  (título, data/local, qtde, total; toque expande) — antes preenchia 4
+  campos às cegas; cronômetro explicado ("Reservado por 09:24"/"Pague em
+  14:50"); tela de escolher ingressos com contexto (banner/data/local);
+  fim dos botões de enfeite (Google/Apple "em breve" e aba Carteira
+  inteira); erro antigo some quando o Pix sai.
+- Bloco A (vitrine que vende): banner do evento na home (destaque com
+  imagem de fundo + cards com miniatura; fallback bonito sem banner);
+  PREÇO HONESTO — vitrine mostra o que se paga (preço+taxa, "com taxas",
+  "Grátis" quando 0) na home E no CTA do hotsite; selo "Últimos
+  ingressos" fixo (mentira) trocado por urgência REAL: "Lote atual
+  termina em Xh" vindo de currentLotEndsAt (novo campo da API, fim do
+  lote ativo mais próximo).
+Bugs pegos no ciclo testar→corrigir: estado de hook depois de return
+condicional (quebrava o checkout inteiro) e erro persistente pós-sucesso.
+API 27/27 · build 14/14. Pendente de deploy pelo Arthur.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

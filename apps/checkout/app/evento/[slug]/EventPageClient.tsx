@@ -12,8 +12,11 @@ import { capturePartnerFromUrl } from "../../../lib/attribution";
 import { FollowButton } from "../../../components/FollowButton";
 
 function minPriceCents(event: PublicEvent): number | null {
+  // preço anunciado = o que o comprador paga (com taxa quando é dele)
   const prices = event.ticketTypes.flatMap((t) =>
-    t.lots.filter((l) => l.status === "ACTIVE").map((l) => l.priceCents),
+    t.lots
+      .filter((l) => l.status === "ACTIVE")
+      .map((l) => l.priceCents + (l.feeMode !== "PRODUCER" ? l.feeCents : 0)),
   );
   return prices.length ? Math.min(...prices) : null;
 }

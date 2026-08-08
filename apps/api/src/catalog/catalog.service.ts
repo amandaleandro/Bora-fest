@@ -132,7 +132,12 @@ export class CatalogService {
           timezone: true,
           venue: { select: { name: true, city: true, state: true } },
           ticketTypes: {
-            select: { lots: { where: { status: "ACTIVE" }, select: { priceCents: true } } },
+            select: {
+              lots: {
+                where: { status: "ACTIVE" },
+                select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
+              },
+            },
           },
         },
       }),
@@ -143,7 +148,18 @@ export class CatalogService {
       page: options.page,
       pageSize: options.pageSize,
       events: events.map((event) => {
-        const prices = event.ticketTypes.flatMap((type) => type.lots.map((lot) => lot.priceCents));
+        const lots = event.ticketTypes.flatMap((type) => type.lots);
+        // preço da vitrine = o que o comprador PAGA (preço + taxa quando é
+        // dele) — mostrar valor sem taxa e cobrar outro quebra a confiança
+        const totals = lots.map(
+          (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
+        );
+        // urgência honesta: fim mais próximo entre os lotes ativos com prazo
+        const now = Date.now();
+        const ends = lots
+          .map((lot) => lot.endsAt)
+          .filter((d): d is Date => d !== null && d.getTime() > now)
+          .sort((a, b) => a.getTime() - b.getTime());
         return {
           id: event.id,
           title: event.title,
@@ -153,7 +169,8 @@ export class CatalogService {
           startsAt: event.startsAt,
           timezone: event.timezone,
           venue: event.venue,
-          fromPriceCents: prices.length > 0 ? Math.min(...prices) : null,
+          fromPriceCents: totals.length > 0 ? Math.min(...totals) : null,
+          currentLotEndsAt: ends[0] ?? null,
         };
       }),
     };

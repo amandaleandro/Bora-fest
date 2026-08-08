@@ -14,6 +14,26 @@ const CATEGORIES: Array<{ label: string; value: EventCategory | null }> = [
   { label: "Teatro", value: "TEATRO" },
 ];
 
+/** "R$ 45,00" honesto (com taxas) ou "Grátis" — nunca um preço que muda depois. */
+function priceLabel(cents: number | null): string | null {
+  if (cents === null) return null;
+  return cents === 0 ? "Grátis" : `a partir de ${formatCents(cents)}`;
+}
+
+/** Selo do destaque: urgência REAL (fim de lote < 48h) ou "Em alta" — nunca inventado. */
+function highlightBadge(event: EventListItem): string {
+  if (event.currentLotEndsAt) {
+    const diffMs = new Date(event.currentLotEndsAt).getTime() - Date.now();
+    if (diffMs > 0 && diffMs <= 48 * 60 * 60 * 1000) {
+      const hours = Math.floor(diffMs / 3_600_000);
+      if (hours < 1) return "Lote atual termina em minutos";
+      if (hours < 24) return `Lote atual termina em ${hours}h`;
+      return "Lote atual termina amanhã";
+    }
+  }
+  return "Em alta agora";
+}
+
 function DateBlock({ iso }: { iso: string }) {
   const d = new Date(iso);
   const day = d.toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Sao_Paulo" });
@@ -78,20 +98,31 @@ export default function HomePage() {
         <section className="mb-8 hidden lg:block">
           <Link href={`/evento/${highlight.slug}`}
             className="relative block overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
-            <div className="absolute -right-16 -top-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-3 py-1 text-[12px] font-bold backdrop-blur">
-              <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
-              Em alta agora
-            </span>
-            <h2 className="mt-4 max-w-2xl text-[40px] font-extrabold leading-tight">{highlight.title}</h2>
-            <p className="mt-2 text-[15px] font-semibold text-white/85">
-              {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
-            </p>
-            {highlight.fromPriceCents !== null && (
-              <span className="mt-6 inline-block rounded-full bg-white px-6 py-3 text-[15px] font-extrabold text-ink">
-                a partir de {formatCents(highlight.fromPriceCents)}
-              </span>
+            {highlight.bannerUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={highlight.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
             )}
+            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/75 via-black/40 to-transparent" : ""}`}>
+              {!highlight.bannerUrl && (
+                <div className="absolute -right-16 -top-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
+              )}
+            </div>
+            <div className="relative">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-3 py-1 text-[12px] font-bold backdrop-blur">
+                <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
+                {highlightBadge(highlight)}
+              </span>
+              <h2 className="mt-4 max-w-2xl text-[40px] font-extrabold leading-tight">{highlight.title}</h2>
+              <p className="mt-2 text-[15px] font-semibold text-white/85">
+                {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
+              </p>
+              {priceLabel(highlight.fromPriceCents) && (
+                <span className="mt-6 inline-block rounded-full bg-white px-6 py-3 text-[15px] font-extrabold text-ink">
+                  {priceLabel(highlight.fromPriceCents)}
+                  {highlight.fromPriceCents ? <span className="font-bold text-muted"> · com taxas</span> : null}
+                </span>
+              )}
+            </div>
           </Link>
         </section>
       )}
@@ -186,20 +217,30 @@ export default function HomePage() {
                 href={`/evento/${highlight.slug}`}
                 className="relative mt-3 block h-[190px] overflow-hidden rounded-3xl bg-brand-gradient p-5 text-white"
               >
-                <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/40 blur-2xl" />
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-3 py-1 text-[11px] font-bold backdrop-blur">
-                  <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
-                  Últimos ingressos
-                </span>
-                <h3 className="mt-3 max-w-[85%] text-[22px] font-extrabold leading-tight">
-                  {highlight.title}
-                </h3>
-                <p className="mt-1 text-[12px] font-semibold text-white/85">
-                  {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
-                </p>
-                {highlight.fromPriceCents !== null && (
+                {highlight.bannerUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={highlight.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                )}
+                {highlight.bannerUrl ? (
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
+                ) : (
+                  <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/40 blur-2xl" />
+                )}
+                <div className="relative">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-3 py-1 text-[11px] font-bold backdrop-blur">
+                    <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
+                    {highlightBadge(highlight)}
+                  </span>
+                  <h3 className="mt-3 max-w-[85%] text-[22px] font-extrabold leading-tight">
+                    {highlight.title}
+                  </h3>
+                  <p className="mt-1 text-[12px] font-semibold text-white/85">
+                    {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
+                  </p>
+                </div>
+                {priceLabel(highlight.fromPriceCents) && (
                   <span className="absolute bottom-5 left-5 rounded-full bg-white px-4 py-2 text-[13px] font-extrabold text-ink">
-                    a partir de {formatCents(highlight.fromPriceCents!)}
+                    {priceLabel(highlight.fromPriceCents)}
                   </span>
                 )}
               </Link>
@@ -219,16 +260,31 @@ export default function HomePage() {
                         href={`/evento/${event.slug}`}
                         className="flex items-center gap-3.5 rounded-2xl border border-line bg-surface p-3.5"
                       >
-                        <DateBlock iso={event.startsAt} />
+                        {event.bannerUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={event.bannerUrl}
+                            alt=""
+                            className="h-14 w-14 shrink-0 rounded-2xl object-cover"
+                          />
+                        ) : (
+                          <DateBlock iso={event.startsAt} />
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[14px] font-bold">{event.title}</p>
                           <p className="truncate text-[12px] font-medium text-muted">
+                            {event.bannerUrl
+                              ? `${new Date(event.startsAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" }).replace(".", "")} · `
+                              : ""}
                             {event.venue ? `${event.venue.name} · ${event.venue.city}` : "Local a definir"}
                           </p>
                         </div>
                         {min !== null && (
-                          <span className="shrink-0 text-[13px] font-extrabold text-primary">
-                            {formatCents(min)}
+                          <span className="shrink-0 text-right text-[13px] font-extrabold leading-tight text-primary">
+                            {min === 0 ? "Grátis" : formatCents(min)}
+                            {min !== 0 && (
+                              <span className="block text-[10px] font-semibold text-muted">com taxas</span>
+                            )}
                           </span>
                         )}
                       </Link>
@@ -245,15 +301,27 @@ export default function HomePage() {
               {filtered.map((event) => (
                 <Link key={event.id} href={`/evento/${event.slug}`}
                   className="overflow-hidden rounded-2xl border border-line bg-surface transition-shadow hover:shadow-card">
-                  <div className="h-36 bg-brand-gradient" />
+                  {event.bannerUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={event.bannerUrl} alt="" className="h-36 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-36 items-center justify-center bg-brand-gradient text-[40px] font-extrabold text-white/80">
+                      {event.title.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
                   <div className="p-4">
                     <p className="truncate text-[15px] font-extrabold">{event.title}</p>
                     <p className="mt-0.5 truncate text-[12px] font-medium text-muted">
                       {new Date(event.startsAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                       {event.venue ? ` · ${event.venue.city}` : ""}
                     </p>
-                    {event.fromPriceCents !== null && (
-                      <p className="mt-2 text-[13px] font-extrabold text-primary">a partir de {formatCents(event.fromPriceCents)}</p>
+                    {priceLabel(event.fromPriceCents) && (
+                      <p className="mt-2 text-[13px] font-extrabold text-primary">
+                        {priceLabel(event.fromPriceCents)}
+                        {event.fromPriceCents ? (
+                          <span className="font-semibold text-muted"> · com taxas</span>
+                        ) : null}
+                      </p>
                     )}
                   </div>
                 </Link>

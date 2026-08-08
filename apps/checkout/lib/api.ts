@@ -118,6 +118,8 @@ export interface EventListItem {
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
   fromPriceCents: number | null;
+  /** fim do lote ativo mais próximo (urgência honesta na vitrine) */
+  currentLotEndsAt: string | null;
 }
 
 export interface AvailabilityItem {
