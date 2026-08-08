@@ -329,15 +329,21 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* faixa Produza seu evento (desktop) */}
-          <section className="mt-10 hidden overflow-hidden rounded-3xl bg-gradient-to-br from-[#1D1016] to-[#4A0B3C] p-10 text-white lg:block">
-            <h2 className="text-[26px] font-extrabold">Produza seu evento com a BoraFest</h2>
-            <p className="mt-1 max-w-xl text-[14px] font-semibold text-white/80">
-              Publique em minutos, venda com Pix na tela e sem travar aguardando verificação.
-            </p>
-            <a href={`${PANEL}/cadastro`}
-              className="mt-5 inline-block rounded-2xl bg-white px-6 py-3 text-[14px] font-extrabold text-ink">
-              Criar conta de produtor
+          {/* faixa Produza seu evento (desktop) — arte oficial da marca; o
+              botão "Criar conta de produtor" faz parte da imagem, então o
+              banner INTEIRO é o link */}
+          <section className="mt-10 hidden lg:block">
+            <a
+              href={`${PANEL}/cadastro`}
+              aria-label="Criar conta de produtor — do bora ao ingresso vendido em minutos, sem burocracia"
+              className="group block overflow-hidden rounded-3xl shadow-card transition-transform duration-200 hover:-translate-y-0.5"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brand/banner-produtores.webp"
+                alt="Do bora? ao ingresso vendido em minutos. Sem burocracia — publique em minutos, Pix direto na tela, sem trava de verificação. Grátis para começar."
+                className="w-full transition-transform duration-300 group-hover:scale-[1.01]"
+              />
             </a>
           </section>
         </>
