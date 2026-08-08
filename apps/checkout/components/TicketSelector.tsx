@@ -284,7 +284,7 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
           <p className="text-[20px] font-extrabold">{formatCents(totalCents)}</p>
         </div>
         <button onClick={submit} disabled={count === 0 || submitting}
-          className={`h-12 rounded-2xl px-6 text-[14px] font-extrabold text-white ${count === 0 || submitting ? "bg-[#d9d2e8]" : "bg-primary shadow-cta"}`}>
+          className={`h-12 rounded-2xl px-6 text-[14px] font-extrabold text-white ${count === 0 || submitting ? "bg-[#ecd6e4]" : "bg-primary shadow-cta"}`}>
           {submitting ? "Reservando…" : "Continuar para pagamento"}
         </button>
       </div>

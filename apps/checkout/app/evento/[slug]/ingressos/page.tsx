@@ -44,7 +44,7 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
               className="h-14 w-14 shrink-0 rounded-xl object-cover"
             />
           ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#a855f7] text-[20px] font-extrabold text-white">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-magenta via-brand-pink to-brand-orange text-[20px] font-extrabold text-white">
               {event.title.slice(0, 1).toUpperCase()}
             </div>
           )}

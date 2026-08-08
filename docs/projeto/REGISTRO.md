@@ -313,6 +313,27 @@ displayName não vaza, fallback para o nome cadastral, campos estruturados.
 Verificado no navegador contra pilha local. API 28/28 · build 14/14.
 ⚠️ Deploy: a migração roda sozinha no boot da API (migrate deploy no CMD).
 
+**Identidade visual oficial aplicada (2026-08-08)** — Arthur entregou a
+marca final (Ativos 8/11/13: ícone B, logo horizontal p/ fundo escuro,
+logo branco) e pediu o sistema inteiro nela. Gradiente magenta→rosa→
+laranja (pegada Instagram) extraído por amostragem dos próprios arquivos:
+- Tokens: #C913DB (magenta) · #F1126E (rosa) · #FB7032 (laranja);
+  primária sólida #D9128F (contraste 4,74:1 sobre branco), hover #B30E76;
+  brand-gradient linear 135° nos 3 pontos. Urgência (accent) virou
+  laranja #E8590C para não sumir no rosa.
+- Superfícies: site do comprador (tailwind config + varredura de roxos
+  hardcoded), painel do produtor (config + Sidebar com logo horizontal),
+  backoffice (preset @borafest/ui tema escuro), portaria (colors.ts),
+  e-mails (render.ts) e manifests PWA (theme_color).
+- Ativos versionados: public/brand/{logo-b, logo-horizontal-escuro,
+  logo-horizontal-branco}.svg (extraídos dos PDFs via pdftocairo);
+  favicons/app icons novos (app/icon.png + apple-icon.png + icons/ PWA)
+  — os pwa-icons do handoff eram da marca ROXA antiga e foram descartados.
+- Headers: logo real no site (B + wordmark) e no painel (horizontal).
+Verificado no navegador (home/hotsite/seleção, mobile e desktop).
+Build 14/14. ⚠️ App comprador (APK Expo) segue com tema próprio — não
+rebrandado ainda; tratar quando gerar o próximo APK.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

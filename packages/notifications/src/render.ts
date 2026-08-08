@@ -52,7 +52,7 @@ export function renderTicketDeliveryEmail(
   <p>Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} para <strong>${escapeHtml(payload.eventTitle)}</strong> ${plural ? "estão prontos" : "está pronto"}! 🎉</p>
   <p><strong>Data do evento:</strong> ${escapeHtml(payload.eventStartsAt)}</p>
   <p style="margin:24px 0">
-    <a href="${escapeHtml(payload.orderUrl)}" style="background:#6d28d9;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Ver meus ingressos</a>
+    <a href="${escapeHtml(payload.orderUrl)}" style="background:#D9128F;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Ver meus ingressos</a>
   </p>
   <ul>${listaHtml}</ul>
   <p style="color:#666;font-size:13px">Guarde este e-mail. Você pode reabrir seus ingressos a qualquer momento pelo link acima, sem precisar de conta ou aplicativo.</p>
@@ -108,7 +108,7 @@ export function renderOtpEmail(to: string, payload: OtpCodePayload): EmailMessag
   const html = `
 <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
   <p>Seu código de acesso BoraFest:</p>
-  <p style="font-size:32px;font-weight:800;letter-spacing:8px;color:#6d28d9">${escapeHtml(payload.code)}</p>
+  <p style="font-size:32px;font-weight:800;letter-spacing:8px;color:#D9128F">${escapeHtml(payload.code)}</p>
   <p style="color:#666;font-size:13px">Ele vale por ${payload.ttlMinutes} minutos. Se você não pediu este código, ignore este e-mail.</p>
   <p>Equipe BoraFest</p>
 </div>`.trim();
@@ -144,7 +144,7 @@ export function renderPasswordResetEmail(to: string, payload: PasswordResetPaylo
 <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
   <p>Recebemos um pedido para redefinir sua senha do painel BoraFest.</p>
   <p style="margin:24px 0">
-    <a href="${escapeHtml(payload.resetUrl)}" style="background:#6d28d9;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none">Redefinir senha</a>
+    <a href="${escapeHtml(payload.resetUrl)}" style="background:#D9128F;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none">Redefinir senha</a>
   </p>
   <p style="color:#666;font-size:13px">O link vale por ${payload.ttlMinutes} minutos. Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.</p>
   <p>Equipe BoraFest</p>

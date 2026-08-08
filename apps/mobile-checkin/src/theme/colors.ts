@@ -1,10 +1,10 @@
-/** Paleta dark do hi-fi (`docs/design/BoraFest - App Validacao.html`): fundo quase preto + roxo de destaque. */
+/** Paleta dark da portaria — identidade 2026-08: fundo quase preto + rosa da marca (gradiente magenta→rosa→laranja). */
 export const colors = {
-  bg: "#0b0910",
-  surface: "#18141f",
-  surfaceAlt: "#221c2e",
-  border: "#2e2738",
-  primary: "#6d28d9",
+  bg: "#100910",
+  surface: "#1d1420",
+  surfaceAlt: "#2b1c2e",
+  border: "#382737",
+  primary: "#F1126E",
   primaryText: "#ffffff",
   text: "#ffffff",
   textMuted: "#9a92a8",

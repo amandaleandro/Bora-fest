@@ -179,14 +179,10 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
 
   return (
     <aside className="flex w-[244px] shrink-0 flex-col bg-sidebar px-3.5 pb-4 pt-[22px]">
-      <a href={CHECKOUT_URL} target="_blank" rel="noopener" className="flex items-center gap-2.5 px-2 pb-5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-primary text-[15px] font-extrabold text-white">
-          B
-        </span>
-        <span>
-          <span className="block text-[15px] font-extrabold text-white">BoraFest</span>
-          <span className="mt-[3px] block text-[10px] font-semibold text-white/45">Organizador</span>
-        </span>
+      <a href={CHECKOUT_URL} target="_blank" rel="noopener" className="block px-2 pb-5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/logo-horizontal-escuro.svg" alt="BoraFest" className="h-9 w-auto" />
+        <span className="mt-1 block text-[10px] font-semibold text-white/45">Painel do organizador</span>
       </a>
 
       <Item href={eventsHref} icon={icons.calendar} label="Meus eventos" active={pathname === eventsHref} />
@@ -197,7 +193,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
             href={`/eventos/${event.id}`}
             className="mx-2 mb-2 mt-4 flex items-center gap-2.5 rounded-xl bg-white/[.06] px-3 py-[11px] hover:bg-white/10"
           >
-            <span className="h-[30px] w-[30px] shrink-0 rounded-lg bg-gradient-to-br from-primary to-[#9333ea]" />
+            <span className="h-[30px] w-[30px] shrink-0 rounded-lg bg-brand-gradient" />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[12px] font-bold leading-[1.1] text-white">{event.title}</span>
               <span className="mt-[3px] block text-[10px] font-medium text-white/45">

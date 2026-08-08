@@ -93,7 +93,7 @@ export function NominalFields({
           type="checkbox"
           checked={nominal}
           onChange={(e) => onChange({ nominal: e.target.checked, requiresCpf: e.target.checked && requiresCpf })}
-          className="mt-0.5 h-4 w-4 accent-[#6d28d9]"
+          className="mt-0.5 h-4 w-4 accent-[#D9128F]"
         />
         Ingresso nominal — exige nome do participante
       </label>
@@ -105,7 +105,7 @@ export function NominalFields({
           disabled={!nominal}
           checked={requiresCpf}
           onChange={(e) => onChange({ nominal, requiresCpf: e.target.checked })}
-          className="mt-0.5 h-4 w-4 accent-[#6d28d9]"
+          className="mt-0.5 h-4 w-4 accent-[#D9128F]"
         />
         Exigir CPF
       </label>

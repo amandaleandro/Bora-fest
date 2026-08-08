@@ -31,7 +31,7 @@ const cardClass = "lg:rounded-[20px] lg:border lg:border-line lg:bg-surface lg:p
 
 function ctaClass(disabled: boolean) {
   return `h-14 w-full rounded-2xl text-[15px] font-extrabold text-white ${
-    disabled ? "cursor-not-allowed bg-[#d9d2e8]" : "bg-primary shadow-cta"
+    disabled ? "cursor-not-allowed bg-[#ecd6e4]" : "bg-primary shadow-cta"
   }`;
 }
 
@@ -951,7 +951,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                           onClick={payWithPix}
                           disabled={payDisabled}
                           className={`mt-4 h-14 w-full rounded-2xl text-[15px] font-extrabold text-white ${
-                            payDisabled ? "cursor-not-allowed bg-[#d9d2e8]" : "bg-pix"
+                            payDisabled ? "cursor-not-allowed bg-[#ecd6e4]" : "bg-pix"
                           }`}
                         >
                           {creating || paying ? "Gerando Pix…" : `Pagar ${formatCents(totalCents)} com Pix`}
@@ -1228,7 +1228,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     />
                     <button
                       onClick={applyCouponPreview}
-                      className="h-[44px] shrink-0 rounded-xl bg-[#efedf5] px-4 text-[13px] font-bold text-primary"
+                      className="h-[44px] shrink-0 rounded-xl bg-[#fbe9f3] px-4 text-[13px] font-bold text-primary"
                     >
                       Aplicar
                     </button>

@@ -330,7 +330,7 @@ export default function HomePage() {
           </section>
 
           {/* faixa Produza seu evento (desktop) */}
-          <section className="mt-10 hidden overflow-hidden rounded-3xl bg-gradient-to-br from-[#17131f] to-[#2b1157] p-10 text-white lg:block">
+          <section className="mt-10 hidden overflow-hidden rounded-3xl bg-gradient-to-br from-[#1D1016] to-[#4A0B3C] p-10 text-white lg:block">
             <h2 className="text-[26px] font-extrabold">Produza seu evento com a BoraFest</h2>
             <p className="mt-1 max-w-xl text-[14px] font-semibold text-white/80">
               Publique em minutos, venda com Pix na tela e sem travar aguardando verificação.
