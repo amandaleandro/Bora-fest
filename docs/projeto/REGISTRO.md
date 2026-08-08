@@ -258,6 +258,23 @@ pagamento ativo + compra múltipla + transferência de ingresso entre contas.
   payments resilience) — dists estavam atrás das fontes.
 API 22/22 · build 14/14.
 
+**Pix real destravado (2026-08-07/08)** — Arthur tentou pagar e viu
+"Internal server error". Diagnóstico direto contra a API do Asaas de
+produção achou DOIS bloqueios reais, nenhum deles visível ao usuário:
+1. **CPF do pagador é obrigatório** no Asaas ("Para criar esta cobrança é
+   necessário preencher o CPF ou CNPJ do cliente") e o checkout não pedia —
+   campo CPF adicionado na identificação (validado, com o porquê explicado)
+   e enviado em Pix e cartão.
+2. **Valor mínimo de R$ 5,00 por cobrança** — o pedido de teste era R$ 4,99
+   (um centavo abaixo!). Trava nova barra antes com mensagem clara
+   ("adicione mais um ingresso"), configurável por PAYMENT_MIN_CHARGE_CENTS.
+   ⚠️ Impacto de negócio: nenhum pedido abaixo de R$ 5,00 é cobrável.
+3. **Erro do provedor deixou de virar 500 genérico**: recusa 4xx do gateway
+   agora vira 400 com a mensagem do Asaas na tela — foi isso que escondeu as
+   duas causas acima.
+Provado contra o Asaas real: cobrança + QR Pix gerados a R$ 5,00 com CPF.
+API 22/22 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

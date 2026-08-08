@@ -91,3 +91,50 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
     await cleanupFixtureEvent(fixture.organization.id);
   }
 });
+
+test("pagamento abaixo do mínimo do provedor é barrado com mensagem clara", async () => {
+  const fixture = await createFixtureEvent({ lotCapacity: 5, priceCents: 250, feeCents: 0 });
+  try {
+    const member = await prisma.user.create({
+      data: { email: `min-${Math.random().toString(36).slice(2, 8)}@borafest.dev` },
+    });
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: fixture.organization.id,
+        userId: member.id,
+        roleId: fixture.ownerRoleId,
+        status: "ACTIVE",
+      },
+    });
+    const catalog = new CatalogService(new OrgAccessService(), new InventoryService());
+    const lot = await catalog.createLot(fixture.ticketType.id, member.id, {
+      name: "Barato demais",
+      priceCents: 250,
+      feeCents: 0,
+      capacity: 5,
+      maxPerOrder: 4,
+    } as any);
+    await catalog.activateLot(lot.id, member.id);
+
+    const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
+    const payments = new PaymentsService(new IdempotencyService());
+    const reservation = await reservations.create(undefined, {
+      eventId: fixture.event.id,
+      items: [{ ticketLotId: lot.id, quantity: 1 }],
+    });
+    const order = await orders.createFromReservation(undefined, {
+      reservationId: reservation.id,
+      contactEmail: "minimo@borafest.dev",
+    });
+    // 250 + 249 de taxa = 499, um centavo abaixo do mínimo do Asaas
+    assert.equal(order.totalCents, 499);
+
+    await assert.rejects(
+      () => payments.createPix(order.id, {}),
+      /pagamento mínimo é de R\$\s?5,00/,
+    );
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});

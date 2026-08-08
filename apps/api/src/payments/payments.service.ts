@@ -3,17 +3,46 @@ import { prisma } from "@borafest/database";
 import {
   applyGatewayStatus,
   getDefaultGateway,
+  AsaasApiError,
   CircuitOpenError,
   GatewayTimeoutError,
 } from "@borafest/payments";
 import type { CreateCardPaymentInput, CreatePixPaymentInput } from "@borafest/contracts";
 import { IdempotencyService } from "../common/idempotency.service";
 
+/**
+ * Valor mínimo por cobrança do provedor (Asaas: R$ 5,00). Abaixo disso a
+ * cobrança nem é criada — melhor barrar com mensagem clara do que deixar o
+ * comprador chegar no "pagar" e tomar erro do banco.
+ */
+function assertMinimumCharge(totalCents: number): void {
+  const minimo = Number(process.env.PAYMENT_MIN_CHARGE_CENTS ?? 500);
+  if (totalCents < minimo) {
+    const formatado = (minimo / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+    throw new BadRequestException(
+      `O pagamento mínimo é de ${formatado} — adicione mais um ingresso ao pedido`,
+    );
+  }
+}
+
 /** Erro do gateway já é fail-fast (timeout/circuito) — devolve 503 claro em vez de 500 genérico. */
 function toApiError(error: unknown): never {
   if (error instanceof CircuitOpenError || error instanceof GatewayTimeoutError) {
     throw new ServiceUnavailableException(
       "Pagamento indisponível no momento — tente novamente em alguns segundos",
+    );
+  }
+  // recusa do gateway (dado faltando/inválido) é erro do PEDIDO, não do
+  // servidor: devolve 400 com a mensagem do provedor em vez de 500 genérico
+  // — foi o "Internal server error" que escondeu "falta o CPF do cliente".
+  if (error instanceof AsaasApiError && error.status >= 400 && error.status < 500) {
+    const body = error.body as { errors?: Array<{ description?: string }> } | undefined;
+    const descricao = body?.errors?.[0]?.description;
+    throw new BadRequestException(
+      descricao ?? "O provedor de pagamento recusou a cobrança — confira os dados informados",
     );
   }
   throw error;
@@ -30,6 +59,7 @@ export class PaymentsService {
       { orderId, ...input },
       async () => {
         const order = await this.loadPayableOrder(orderId);
+        assertMinimumCharge(order.totalCents);
 
         // reaproveita cobrança Pix pendente e ainda válida (evita QR duplicado)
         const existing = await prisma.payment.findFirst({
@@ -107,6 +137,7 @@ export class PaymentsService {
       { orderId, cardRef, installments: input.installments },
       async () => {
         const order = await this.loadPayableOrder(orderId);
+        assertMinimumCharge(order.totalCents);
         const gateway = getDefaultGateway();
 
         const payment = await prisma.payment.create({
