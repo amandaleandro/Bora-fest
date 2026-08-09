@@ -65,7 +65,9 @@ async function main() {
   });
   await createAutoPayoutsQueue().upsertJobScheduler(
     AUTO_PAYOUTS_JOB_ID,
-    { every: 30 * 60_000 },
+    // 5 min por padrão: com transferência automática ligada, "repasse na
+    // hora" precisa ser quase na hora mesmo (mínimo por casa segura o volume)
+    { every: Number(process.env.AUTO_PAYOUTS_SWEEP_MS ?? 5 * 60_000) },
     { name: "sweep", data: {} },
   );
 

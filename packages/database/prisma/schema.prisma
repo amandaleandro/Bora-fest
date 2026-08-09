@@ -147,6 +147,9 @@ model Organization {
   refundHoldDays Int            @default(7) @map("refund_hold_days")
   /// repasse automático: worker cria os payouts do saldo recém-liberado
   autoPayout     Boolean        @default(false) @map("auto_payout")
+  /// mínimo por repasse DESTA casa (centavos); null = padrão da plataforma
+  /// (AUTO_PAYOUT_MIN_CENTS) — evita chuva de transferência pequena
+  autoPayoutMinCents Int?       @map("auto_payout_min_cents")
   createdAt DateTime           @default(now()) @map("created_at")
   updatedAt DateTime           @updatedAt @map("updated_at")
 
@@ -1078,6 +1081,11 @@ model Payout {
   status         PayoutStatus @default(PENDING)
   requestedAt    DateTime     @default(now()) @map("requested_at")
   paidAt         DateTime?    @map("paid_at")
+  /// id da transferência no provedor (Asaas/banco) — uma vez preenchido,
+  /// NUNCA criar nova transferência para este payout (proteção contra dupla)
+  externalId     String?      @map("external_id")
+  /// motivo da última falha de transferência (aparece no backoffice)
+  failReason     String?      @map("fail_reason")
   notes          String?
   createdAt      DateTime     @default(now()) @map("created_at")
 

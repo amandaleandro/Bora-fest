@@ -508,7 +508,12 @@ export class AdminService {
   async updateSettlement(
     organizationId: string,
     userId: string,
-    input: { settlementMode?: "STANDARD" | "INSTANT"; autoPayout?: boolean; refundHoldDays?: number },
+    input: {
+      settlementMode?: "STANDARD" | "INSTANT";
+      autoPayout?: boolean;
+      refundHoldDays?: number;
+      autoPayoutMinCents?: number | null;
+    },
   ) {
     const actor = await this.platformAccess.assertAdmin(userId);
 
@@ -524,6 +529,7 @@ export class AdminService {
         ...(input.settlementMode !== undefined ? { settlementMode: input.settlementMode } : {}),
         ...(input.autoPayout !== undefined ? { autoPayout: input.autoPayout } : {}),
         ...(input.refundHoldDays !== undefined ? { refundHoldDays: input.refundHoldDays } : {}),
+        ...(input.autoPayoutMinCents !== undefined ? { autoPayoutMinCents: input.autoPayoutMinCents } : {}),
       },
     });
 

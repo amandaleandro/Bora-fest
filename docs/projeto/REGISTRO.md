@@ -355,6 +355,32 @@ Testes novos (home-sections.test.ts): ordem do placar, honestidade do Em
 alta, densidade da prateleira. API 30/30 · build 14/14 · verificado no
 navegador com vendas fabricadas no banco local.
 
+**Repasse 100% automático (2026-08-09)** — exigência do Arthur: "precisa
+ser automático, senão a plataforma fica atrás das demais", com config por
+casa. Última milha fechada:
+- **Pix de SAÍDA pelo provedor**: AsaasGateway.transferPix (POST /transfers
+  com chave Pix da conta bancária padrão da organização; tipo da chave
+  detectado) + getTransferStatus para conciliação; mock idem. Interface
+  opcional no PaymentGateway — o futuro adaptador de banco (Pix direto)
+  encaixa aqui sem mexer no worker.
+- **Worker executa sozinho**: varredura (agora a cada 5 min,
+  AUTO_PAYOUTS_SWEEP_MS) cria o payout e, com AUTO_TRANSFER_ENABLED=true,
+  dispara o Pix na hora; DONE→PAID, BANK_PROCESSING→concilia depois,
+  FAILED→FAILED com motivo no backoffice. **Anti-duplicidade fail-closed**:
+  com externalId gravado nunca se cria 2ª transferência; erro de rede sem
+  resposta → FAILED pedindo conferência manual (dinheiro nunca sai dobrado
+  sozinho). Trilha em audit_logs (payout.auto_transfer).
+- **Mínimo POR CASA**: Organization.autoPayoutMinCents (null = padrão
+  global AUTO_PAYOUT_MIN_CENTS) — POST /v1/admin/organizations/:id/
+  settlement aceita autoPayoutMinCents. Casas de confiança: INSTANT +
+  autoPayout + mínimo contratual = repasse na hora sem chuva de Pix.
+- Migração auto_transfer (payout.external_id/fail_reason + org.auto_
+  payout_min_cents). AUTO_TRANSFER_ENABLED=false por padrão — Arthur liga
+  no Environment quando quiser estrear (sem chave Pix cadastrada o payout
+  fica PENDING para o backoffice, sem drama).
+Testes: ciclo saldo→payout→Pix→PAID com auditoria e mínimo por casa
+segurando/soltando o repasse. API 30/30 · worker 3/3 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

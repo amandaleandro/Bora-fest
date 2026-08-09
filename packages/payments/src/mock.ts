@@ -76,6 +76,14 @@ export class MockGateway implements PaymentGateway {
     return this.statuses.get(externalId) ?? "PENDING";
   }
 
+  async transferPix(input: import("./types").PixTransferInput): Promise<import("./types").PixTransferResult> {
+    return { externalId: `mock_transfer_${input.externalReference}`, status: "DONE" };
+  }
+
+  async getTransferStatus(externalId: string): Promise<import("./types").PixTransferResult> {
+    return { externalId, status: "DONE" };
+  }
+
   verifyWebhook(headers: WebhookHeaders, rawBody: string): VerifiedWebhookEvent {
     const received = headers[MOCK_SIGNATURE_HEADER];
     const signature = Array.isArray(received) ? received[0] : received;

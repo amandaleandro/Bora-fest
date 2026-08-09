@@ -32,6 +32,8 @@ export const updateSettlementSchema = z.object({
   settlementMode: z.enum(["STANDARD", "INSTANT"]).optional(),
   autoPayout: z.boolean().optional(),
   refundHoldDays: z.number().int().min(0).max(90).optional(),
+  /** mínimo por repasse desta casa em centavos; null volta ao padrão da plataforma */
+  autoPayoutMinCents: z.number().int().min(100).max(10_000_000).nullable().optional(),
 });
 export type UpdateSettlementInput = z.infer<typeof updateSettlementSchema>;
 

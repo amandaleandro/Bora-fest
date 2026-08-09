@@ -1,10 +1,16 @@
 import { prisma } from "@borafest/database";
+import { getDefaultGateway } from "@borafest/payments";
 import { withContext } from "@borafest/observability";
 
 const log = withContext({ module: "auto-payouts" });
 
-function minPayoutCents(): number {
+function defaultMinPayoutCents(): number {
   return Number(process.env.AUTO_PAYOUT_MIN_CENTS ?? 5000); // R$ 50 por padrão
+}
+
+/** Chave-geral do Pix de saída automático — Arthur liga quando quiser estrear. */
+function autoTransferEnabled(): boolean {
+  return process.env.AUTO_TRANSFER_ENABLED === "true";
 }
 
 function anticipationBpsMonthly(): number {
@@ -27,7 +33,7 @@ function anticipationBpsMonthly(): number {
 export async function sweepAutoPayouts(): Promise<void> {
   const orgs = await prisma.organization.findMany({
     where: { autoPayout: true, status: "ACTIVE" },
-    select: { id: true, name: true, settlementMode: true },
+    select: { id: true, name: true, settlementMode: true, autoPayoutMinCents: true },
   });
 
   for (const org of orgs) {
@@ -37,12 +43,119 @@ export async function sweepAutoPayouts(): Promise<void> {
       log.error({ organizationId: org.id, err: error }, "falha no repasse automático");
     }
   }
+
+  // última milha: o dinheiro sai sozinho (Pix via provedor) quando habilitado
+  if (autoTransferEnabled()) {
+    await executeAutoTransfers();
+  }
+}
+
+/**
+ * Executa/concilia as transferências dos repasses automáticos.
+ *
+ * Anti-duplicidade FAIL-CLOSED (é dinheiro saindo): uma vez que o provedor
+ * devolve um id, ele fica gravado e NUNCA se cria outra transferência para o
+ * mesmo payout — só se concilia o status. Se a chamada falhar sem sabermos se
+ * a transferência foi criada (erro de rede), o payout vai para FAILED com
+ * pedido de verificação manual em vez de arriscar pagar duas vezes.
+ */
+export async function executeAutoTransfers(): Promise<void> {
+  const gateway = getDefaultGateway();
+  if (!gateway.transferPix || !gateway.getTransferStatus) return;
+
+  // 1) concilia as que já foram criadas e ainda não concluíram
+  const emAndamento = await prisma.payout.findMany({
+    where: { status: "PENDING", externalId: { not: null } },
+    take: 50,
+  });
+  for (const payout of emAndamento) {
+    try {
+      const status = await gateway.getTransferStatus(payout.externalId!);
+      if (status.status === "DONE") {
+        await prisma.payout.update({
+          where: { id: payout.id },
+          data: { status: "PAID", paidAt: new Date() },
+        });
+        log.info({ payoutId: payout.id }, "repasse concluído pelo provedor");
+      } else if (status.status === "FAILED") {
+        await prisma.payout.update({
+          where: { id: payout.id },
+          data: { status: "FAILED", failReason: status.failReason ?? "transferência falhou no provedor" },
+        });
+        log.error({ payoutId: payout.id, failReason: status.failReason }, "repasse falhou no provedor");
+      }
+    } catch (error) {
+      log.error({ payoutId: payout.id, err: error }, "falha ao conciliar transferência");
+    }
+  }
+
+  // 2) dispara as novas (payout automático de org com autoPayout + chave Pix)
+  const pendentes = await prisma.payout.findMany({
+    where: { status: "PENDING", externalId: null, organization: { autoPayout: true } },
+    include: { organization: { select: { id: true, name: true } } },
+    take: 50,
+  });
+  for (const payout of pendentes) {
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { organizationId: payout.organizationId, isDefault: true },
+    });
+    if (!bankAccount?.pixKey) {
+      // sem chave Pix: fica para o backoffice pagar manualmente — sem drama
+      continue;
+    }
+    try {
+      const result = await gateway.transferPix({
+        amountCents: payout.amountCents,
+        pixKey: bankAccount.pixKey,
+        description: `Repasse BoraFest — ${payout.organization.name}`,
+        externalReference: payout.id,
+      });
+      await prisma.payout.update({
+        where: { id: payout.id },
+        data:
+          result.status === "DONE"
+            ? { status: "PAID", paidAt: new Date(), externalId: result.externalId }
+            : result.status === "FAILED"
+              ? { status: "FAILED", externalId: result.externalId, failReason: result.failReason ?? "transferência recusada" }
+              : { externalId: result.externalId }, // PENDING: concilia na próxima varredura
+      });
+      await prisma.auditLog.create({
+        data: {
+          action: "payout.auto_transfer",
+          entityType: "payout",
+          entityId: payout.id,
+          metadata: {
+            provider: gateway.provider,
+            externalId: result.externalId,
+            status: result.status,
+            amountCents: payout.amountCents,
+          },
+        },
+      });
+      log.info(
+        { payoutId: payout.id, externalId: result.externalId, status: result.status },
+        "transferência de repasse disparada",
+      );
+    } catch (error) {
+      // não sabemos se o provedor criou a transferência — NUNCA repetir sozinho
+      await prisma.payout.update({
+        where: { id: payout.id },
+        data: {
+          status: "FAILED",
+          failReason:
+            "Falha na comunicação com o provedor — confira no extrato antes de pagar manualmente (risco de duplicidade)",
+        },
+      });
+      log.error({ payoutId: payout.id, err: error }, "transferência com resultado desconhecido — fail closed");
+    }
+  }
 }
 
 async function sweepOrganization(org: {
   id: string;
   name: string;
   settlementMode: "STANDARD" | "INSTANT";
+  autoPayoutMinCents: number | null;
 }): Promise<void> {
   const bankAccount = await prisma.bankAccount.findFirst({
     where: { organizationId: org.id, isDefault: true },
@@ -78,7 +191,8 @@ async function sweepOrganization(org: {
       ? Math.max(balance - reservedCents, 0)
       : Math.max(balance - heldCents - reservedCents, 0);
 
-  if (available < minPayoutCents()) return;
+  // mínimo POR CASA (contrato) com fallback no padrão da plataforma
+  if (available < (org.autoPayoutMinCents ?? defaultMinPayoutCents())) return;
 
   // idempotência da varredura: transação garante payout + taxa juntos
   await prisma.$transaction(async (tx) => {
