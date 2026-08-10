@@ -188,6 +188,12 @@ test("antecipação (padrão): pede acima do liberado com taxa e vai para análi
       /acima do saldo/,
     );
 
+    // teto de 80%: liberado 10k + 80% de 40k = 42k; pedir 45k é barrado
+    await assert.rejects(
+      () => finance.requestPayout(f.organization.id, user.id, 45_000, true),
+      /80% do valor em janela/,
+    );
+
     // com antecipação: passa, calcula taxa e exige análise
     const req = await finance.requestPayout(f.organization.id, user.id, 30_000, true);
     assert.equal(req.needsApproval, true, "antecipação sempre passa por análise");

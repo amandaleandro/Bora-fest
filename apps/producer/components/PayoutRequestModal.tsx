@@ -41,7 +41,9 @@ export function PayoutRequestModal({
   const [error, setError] = useState<string | null>(null);
 
   const canAnticipate = settlementMode === "STANDARD" && heldCents > 0;
-  const maxCents = anticipate ? availableCents + heldCents : availableCents;
+  // espelho do servidor: antecipação libera até 80% do saldo em janela
+  const anticipatableCents = Math.floor(heldCents * 0.8);
+  const maxCents = anticipate ? availableCents + anticipatableCents : availableCents;
 
   async function confirm() {
     if (!token) return;
@@ -113,12 +115,12 @@ export function PayoutRequestModal({
                 checked={anticipate}
                 onChange={(e) => {
                   setAnticipate(e.target.checked);
-                  setAmountCents(e.target.checked ? availableCents + heldCents : availableCents);
+                  setAmountCents(e.target.checked ? availableCents + anticipatableCents : availableCents);
                 }}
                 className="mt-0.5 h-4 w-4 accent-[#D9128F]"
               />
               <span>
-                Antecipar o saldo ainda em janela ({brl(heldCents)})
+                Antecipar até 80% do saldo em janela ({brl(anticipatableCents)})
                 <span className="block text-[11.5px] font-medium text-muted">
                   Tem taxa de antecipação (1,25% a.m. pró-rata, mostrada antes de cair) e passa pela
                   análise da BoraFest.

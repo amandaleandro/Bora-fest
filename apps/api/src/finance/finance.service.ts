@@ -7,6 +7,15 @@ import { computeAnticipationFeeCents, getPayoutAvailability } from "../common/le
 
 const QUARANTINE_HOURS = 48;
 
+/**
+ * Antecipação (plano padrão) libera no máximo 80% do saldo em janela — os
+ * 20% retidos são o colchão de reembolso caso o evento dê problema (mesmo
+ * teto da Sympla). Casas de confiança (INSTANT) não passam por aqui.
+ */
+function anticipationMaxBps(): number {
+  return Number(process.env.ANTICIPATION_MAX_BPS ?? 8000);
+}
+
 function minWithdrawalCents(org: { autoPayoutMinCents: number | null }): number {
   return org.autoPayoutMinCents ?? Number(process.env.AUTO_PAYOUT_MIN_CENTS ?? 5000);
 }
@@ -124,15 +133,22 @@ export class FinanceService {
     }
 
     // --- saldo -------------------------------------------------------------
-    const { availableForPayoutCents, balanceCents, settlementMode } = await this.getBalance(
+    const { availableForPayoutCents, heldCents, settlementMode } = await this.getBalance(
       organizationId,
       userId,
     );
-    // antecipação (PADRÃO): pode pedir acima do liberado, até o saldo total
+    // antecipação (PADRÃO): liberado + até 80% do que está em janela — o
+    // restante fica de colchão para reembolsos até o evento acontecer
     const tetoDePedido =
-      anticipation && settlementMode === "STANDARD" ? balanceCents : availableForPayoutCents;
+      anticipation && settlementMode === "STANDARD"
+        ? availableForPayoutCents + Math.floor((heldCents * anticipationMaxBps()) / 10000)
+        : availableForPayoutCents;
     if (amountCents > tetoDePedido) {
-      throw new BadRequestException("Valor acima do saldo disponível para saque");
+      throw new BadRequestException(
+        anticipation
+          ? "A antecipação libera até 80% do valor em janela — o restante fica de colchão para reembolsos"
+          : "Valor acima do saldo disponível para saque",
+      );
     }
 
     const anticipationFeeCents =

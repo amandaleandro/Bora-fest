@@ -409,6 +409,16 @@ Testes (6): confiança saca na hora; teto roteia para análise; 1º saque com
 análise; 1/dia; quarentena; antecipação com taxa no caixa. API 30/30 ·
 worker 6/6 · build 14/14.
 
+**Teto de 80% na antecipação (2026-08-10)** — decisão estratégica do
+Arthur (benchmark: Sympla antecipa até 80% mediante análise; Cheers, o
+concorrente direto, NÃO publica regras de dinheiro — brecha para a
+BoraFest ser a plataforma de regras públicas e cravadas). Antecipação do
+plano padrão libera liberado + 80% do em-janela (ANTICIPATION_MAX_BPS=
+8000); os 20% retidos são colchão de reembolso até o evento. Mensagem
+clara no erro e no modal ("antecipar até 80%..."). Casas de confiança
+não passam por aqui. Teste do teto no repasse-automatico.test.ts.
+Worker 6/6 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
