@@ -3,6 +3,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { resolve } from "node:path";
 import { HealthModule } from "./health/health.module";
+import { MetricsModule } from "./observability/metrics.module";
 import { IdentityModule } from "./identity/identity.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
 import { EventsModule } from "./events/events.module";
@@ -39,6 +40,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
       envFilePath: [resolve(process.cwd(), ".env"), resolve(process.cwd(), "../../.env")],
     }),
     HealthModule,
+    MetricsModule,
     IdentityModule,
     OrganizationsModule,
     EventsModule,

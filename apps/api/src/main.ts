@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
+import { httpRequestDuration, httpRequestsTotal } from "@borafest/observability";
 import { AppModule } from "./app.module";
 import { UPLOADS_DIR } from "./uploads/uploads.constants";
 
@@ -62,6 +63,20 @@ async function bootstrap() {
   );
 
   app.enableCors({ origin: corsOrigins(), credentials: true });
+
+  // rota usa o path da definição (ex: /events/:id), não a URL crua, para não
+  // explodir a cardinalidade das labels do Prometheus com IDs de recurso
+  app.getHttpAdapter().getInstance().addHook("onResponse", (request: any, reply: any, done: any) => {
+    const route = request.routeOptions?.url ?? request.raw.url;
+    const labels = {
+      method: request.method,
+      route,
+      status_code: String(reply.statusCode),
+    };
+    httpRequestsTotal.inc(labels);
+    httpRequestDuration.observe(labels, reply.elapsedTime / 1000);
+    done();
+  });
 
   // uploads (banner de evento): multipart limitado + serviço estático dos
   // arquivos gravados em UPLOADS_DIR (volume no deploy)

@@ -14,6 +14,15 @@
 # na aba Scale; o Traefik já distribui entre as instâncias. Confirme antes
 # que connection_limit×réplicas continua abaixo do max_connections do
 # Postgres (ver comentário na variável DATABASE_URL abaixo).
+#
+# Observabilidade (Prometheus + Grafana): api/worker expõem /metrics em
+# 3333 e 9464, coletados pelo prometheus abaixo. Ele NÃO tem domínio — fica
+# só na rede interna, o Grafana consulta pelo nome do serviço. Pra acessar o
+# Grafana, aponte um domínio (ex.: metrics.borafest.com.br) pro serviço
+# `grafana` porta 3000 na aba Domains do EasyPanel, e defina no Environment
+# do painel: GRAFANA_ADMIN_PASSWORD (obrigatório) e GRAFANA_ROOT_URL (ex.:
+# https://metrics.borafest.com.br — sem isso os links internos do Grafana
+# ficam com o host errado atrás do Traefik).
 
 services:
   postgres:
@@ -141,7 +150,32 @@ services:
       dockerfile: infra/docker/easypanel/Dockerfile.admin
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    volumes:
+      - ./infra/docker/prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - borafest_prometheus:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD é obrigatório em produção}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # URL completa (ex.: https://metrics.borafest.com.br) — sem isso os links
+      # internos do Grafana ficam com o host errado atrás do Traefik
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-}
+    volumes:
+      - ./infra/docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - borafest_grafana:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   borafest_pg:
   borafest_redis:
   borafest_uploads:
+  borafest_prometheus:
+  borafest_grafana:

@@ -1,0 +1,16 @@
+# Em produção api/worker rodam como serviços do próprio compose (EasyPanel ou
+# standalone com Caddy) — por isso o scrape usa os nomes de serviço, não
+# host.docker.internal como no prometheus.yml de dev.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: borafest-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:3333"]
+
+  - job_name: borafest-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["worker:9464"]

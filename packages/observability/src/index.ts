@@ -13,3 +13,5 @@ export const logger = pino({
 export function withContext(bindings: Record<string, unknown>) {
   return logger.child(bindings);
 }
+
+export * from "./metrics";

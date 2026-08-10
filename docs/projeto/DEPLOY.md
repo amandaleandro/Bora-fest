@@ -8,11 +8,12 @@
 ## Pré-requisitos
 
 1. Servidor Linux (Ubuntu 22.04+) com Docker + Docker Compose plugin.
-2. DNS dos 4 domínios apontando para o IP do servidor:
+2. DNS dos 5 domínios apontando para o IP do servidor:
    - loja/checkout → `CHECKOUT_DOMAIN` (ex.: `borafest.com.br`)
    - painel do produtor → `PRODUCER_DOMAIN` (ex.: `painel.borafest.com.br`)
    - backoffice → `ADMIN_DOMAIN` (ex.: `admin.borafest.com.br`)
    - API → `API_DOMAIN` (ex.: `api.borafest.com.br`)
+   - Grafana → `GRAFANA_DOMAIN` (ex.: `metrics.borafest.com.br`)
 3. Portas 80 e 443 liberadas (o Caddy emite os certificados sozinho).
 
 ## Subindo
@@ -54,6 +55,10 @@ docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.productio
 
 - Logs: `docker compose -f ... logs -f api worker`
 - Saúde: `https://API_DOMAIN/health`; filas/webhooks no backoffice (`/filas`, `/webhooks`)
+- Métricas: `https://GRAFANA_DOMAIN` (login `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`),
+  dashboard "BoraFest — Visão Geral" já provisionado (requisições/s, latência p95, erro 5xx,
+  jobs por fila, memória). Prometheus fica só na rede interna (sem domínio nem porta
+  publicada) — quem consulta é o Grafana, por nome de serviço.
 
 ### Backup e restauração (obrigatório antes do piloto — §15)
 
@@ -91,8 +96,9 @@ docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.productio
 
 ## Pendências conhecidas desta configuração
 
-- Sem observabilidade externa tipo Sentry/Prometheus ainda (§16) — os logs continuam
-  JSON no stdout; o `healthcheck-alert.sh` acima é o mínimo de alerta de disponibilidade,
-  não substitui uma solução de observabilidade de verdade pra escala maior.
+- Prometheus + Grafana cobrem métricas (HTTP, filas, processo) — ver "Operação" acima.
+  Ainda sem tracing distribuído nem captura de exceções tipo Sentry; os logs continuam
+  JSON no stdout. O `healthcheck-alert.sh` acima segue como alerta mínimo de
+  disponibilidade — considerar alertas do Grafana (Alertmanager) quando o volume justificar.
 - Chave privada Ed25519 dos eventos vive no banco (TODO produção: KMS).
 - Rate limiting de borda (WAF/bots — §15) não configurado; avaliar Cloudflare na frente.

@@ -29,6 +29,37 @@ services:
       timeout: 5s
       retries: 10
 
+  # api/worker rodam no host (via `pnpm dev`) e expõem /metrics em
+  # 3333 e 9464 — o prometheus.yml aqui aponta pra host.docker.internal
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - borafest_prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "3010:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - borafest_grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   borafest_postgres_data:
   borafest_redis_data:
+  borafest_prometheus_data:
+  borafest_grafana_data:

@@ -22,7 +22,13 @@ import {
   RESERVATION_RECONCILIATION_JOB_ID,
   WAITING_ROOM_SWEEP_JOB_ID,
 } from "@borafest/queues";
-import { withContext } from "@borafest/observability";
+import {
+  withContext,
+  startMetricsServer,
+  jobsCompletedTotal,
+  jobsFailedTotal,
+  jobDuration,
+} from "@borafest/observability";
 import { expireReservation, reconcileExpiredReservations } from "./expire-reservation";
 import { processOutboxBatch } from "./process-outbox";
 import { reconcilePendingPayments } from "./reconcile-payments";
@@ -35,6 +41,8 @@ import { sweepWaitingRooms } from "./sweep-waiting-room";
 const log = withContext({ module: "worker" });
 
 async function main() {
+  startMetricsServer(Number(process.env.WORKER_METRICS_PORT ?? 9464));
+
   // --- reservas: expiração pontual + reconciliação -------------------------
   const reservationWorker = createReservationExpirationWorker(async (job) => {
     if (job.name === "reconcile") {
@@ -129,7 +137,14 @@ async function main() {
     ["sala de espera", waitingRoomWorker],
   ] as const) {
     worker.on("failed", (job, error) => {
+      jobsFailedTotal.inc({ queue: name });
       log.error({ queue: name, jobId: job?.id, error: error.message }, "job falhou");
+    });
+    worker.on("completed", (job) => {
+      jobsCompletedTotal.inc({ queue: name });
+      if (job.processedOn && job.finishedOn) {
+        jobDuration.observe({ queue: name }, (job.finishedOn - job.processedOn) / 1000);
+      }
     });
   }
 

@@ -16,3 +16,7 @@
 {$ADMIN_DOMAIN} {
 	reverse_proxy admin:3000
 }
+
+{$GRAFANA_DOMAIN} {
+	reverse_proxy grafana:3000
+}
