@@ -177,8 +177,8 @@ function FinanceContent({ orgId }: { orgId: string }) {
                 </p>
               ) : (balance?.heldCents ?? 0) > 0 ? (
                 <p className="mt-1 text-[11.5px] font-semibold text-muted">
-                  {formatCents(balance?.heldCents ?? 0)} liberam após a janela de reembolso (7 dias da
-                  venda)
+                  {formatCents(balance?.heldCents ?? 0)} liberam em D+2 úteis após o evento — dá para
+                  antecipar com taxa no botão de saque
                 </p>
               ) : null}
             </div>
@@ -197,7 +197,7 @@ function FinanceContent({ orgId }: { orgId: string }) {
               </button>
               {lastRequest?.status === "PENDING" ? (
                 <p className="mt-2.5 flex items-center gap-2 rounded-xl bg-success/10 px-3 py-2.5 text-[12px] font-bold text-success">
-                  ✓ Saque solicitado — cai em até 1 dia útil
+                  ✓ Saque em andamento — acompanhe abaixo
                 </p>
               ) : null}
             </div>
@@ -408,6 +408,8 @@ function FinanceContent({ orgId }: { orgId: string }) {
         <PayoutRequestModal
           organizationId={orgId}
           availableCents={withdrawableCents}
+          heldCents={balance?.heldCents ?? 0}
+          settlementMode={balance?.settlementMode === "INSTANT" ? "INSTANT" : "STANDARD"}
           account={defaultAccount}
           onClose={() => setShowWithdraw(false)}
           onRequested={load}

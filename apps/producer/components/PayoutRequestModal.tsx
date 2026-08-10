@@ -18,29 +18,38 @@ function parseCents(masked: string): number {
 export function PayoutRequestModal({
   organizationId,
   availableCents,
+  heldCents = 0,
+  settlementMode = "STANDARD",
   account,
   onClose,
   onRequested,
 }: {
   organizationId: string;
   availableCents: number;
+  /** saldo ainda em janela (libera D+2 pós-evento) — antecipável com taxa */
+  heldCents?: number;
+  settlementMode?: "STANDARD" | "INSTANT";
   account: BankAccount | null;
   onClose: () => void;
   onRequested: () => void;
 }) {
   const { token } = useAuth();
   const [amountCents, setAmountCents] = useState(availableCents);
+  const [anticipate, setAnticipate] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<null | { needsApproval: boolean; feeCents: number }>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const canAnticipate = settlementMode === "STANDARD" && heldCents > 0;
+  const maxCents = anticipate ? availableCents + heldCents : availableCents;
 
   async function confirm() {
     if (!token) return;
     setBusy(true);
     setError(null);
     try {
-      await payoutsApi.requestPayout(organizationId, amountCents, token);
-      setDone(true);
+      const res = await payoutsApi.requestPayout(organizationId, amountCents, token, anticipate);
+      setDone({ needsApproval: res.needsApproval, feeCents: res.anticipationFeeCents });
       onRequested();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível solicitar o saque");
@@ -49,7 +58,7 @@ export function PayoutRequestModal({
     }
   }
 
-  const invalid = amountCents < 100 || amountCents > availableCents || !account;
+  const invalid = amountCents < 100 || amountCents > maxCents || !account;
 
   return (
     <Modal
@@ -80,7 +89,9 @@ export function PayoutRequestModal({
     >
       {done ? (
         <p className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3.5 text-[13px] font-bold text-success">
-          ✓ Saque solicitado — cai em até 1 dia útil
+          {done.needsApproval
+            ? `✓ Saque em análise — você recebe assim que a BoraFest aprovar${done.feeCents > 0 ? ` (taxa de antecipação: ${brl(done.feeCents)})` : ""}`
+            : "✓ Saque aprovado — o Pix está a caminho da sua conta"}
         </p>
       ) : (
         <>
@@ -91,9 +102,30 @@ export function PayoutRequestModal({
             id="payout-amount"
             inputMode="numeric"
             value={brl(amountCents)}
-            onChange={(e) => setAmountCents(Math.min(parseCents(e.target.value), availableCents))}
+            onChange={(e) => setAmountCents(Math.min(parseCents(e.target.value), maxCents))}
             className={`${modalInput} text-[18px] font-extrabold`}
           />
+
+          {canAnticipate ? (
+            <label className="mt-3.5 flex items-start gap-2.5 rounded-[13px] border-[1.5px] border-line-input px-4 py-3.5 text-[12.5px] font-semibold text-ink-soft">
+              <input
+                type="checkbox"
+                checked={anticipate}
+                onChange={(e) => {
+                  setAnticipate(e.target.checked);
+                  setAmountCents(e.target.checked ? availableCents + heldCents : availableCents);
+                }}
+                className="mt-0.5 h-4 w-4 accent-[#D9128F]"
+              />
+              <span>
+                Antecipar o saldo ainda em janela ({brl(heldCents)})
+                <span className="block text-[11.5px] font-medium text-muted">
+                  Tem taxa de antecipação (1,25% a.m. pró-rata, mostrada antes de cair) e passa pela
+                  análise da BoraFest.
+                </span>
+              </span>
+            </label>
+          ) : null}
 
           <p className={`${modalLabel} mt-3.5`}>Conta de destino</p>
           {account ? (

@@ -169,7 +169,7 @@ async function creditOrganizationLedger(
 ): Promise<void> {
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
-    select: { event: { select: { organizationId: true } } },
+    select: { event: { select: { organizationId: true, endsAt: true } } },
   });
   if (!order) return;
 
@@ -192,10 +192,15 @@ async function creditOrganizationLedger(
   });
   const feeCents = items.reduce((sum, item) => sum + item.feeCents * item.quantity, 0);
 
-  // fim da janela de reembolso — fato imutável do lançamento; quem decide se
-  // o valor pode ser sacado antes disso é o settlementMode da org NA HORA do
-  // saque (INSTANT paga antecipação sobre a parcela ainda na janela)
-  const availableAt = new Date(Date.now() + organization.refundHoldDays * 24 * 60 * 60 * 1000);
+  // Molde de saque v2 (decisão 2026-08-09, padrão de mercado): o crédito da
+  // venda LIBERA D+N úteis DEPOIS DO EVENTO — o maior risco de ticketeria é
+  // o evento não acontecer, e aí todo mundo tem reembolso. INSTANT (casas de
+  // confiança) continua sacando antes, pagando antecipação sobre o que ainda
+  // não liberou; a data em si é fato imutável do lançamento.
+  const availableAt = addBusinessDays(
+    order.event.endsAt,
+    Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
+  );
 
   await tx.ledgerEntry.createMany({
     data: [
@@ -282,7 +287,7 @@ async function reverseOrganizationLedgerAndStock(
 ): Promise<void> {
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
-    select: { event: { select: { organizationId: true } } },
+    select: { event: { select: { organizationId: true, endsAt: true } } },
   });
   if (!order) return;
 
@@ -371,4 +376,16 @@ async function applyReversal(
 
     return result;
   });
+}
+
+/** Soma N dias ÚTEIS (sábado/domingo pulam; feriado não é considerado). */
+export function addBusinessDays(from: Date, businessDays: number): Date {
+  const date = new Date(from);
+  let remaining = businessDays;
+  while (remaining > 0) {
+    date.setDate(date.getDate() + 1);
+    const dow = date.getDay();
+    if (dow !== 0 && dow !== 6) remaining -= 1;
+  }
+  return date;
 }

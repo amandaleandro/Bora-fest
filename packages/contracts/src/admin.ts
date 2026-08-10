@@ -25,6 +25,8 @@ export type MarkPayoutPaidInput = z.infer<typeof markPayoutPaidSchema>;
 
 export const requestPayoutSchema = z.object({
   amountCents: z.number().int().min(100),
+  /** antecipação: receber ANTES da liberação (D+2 pós-evento), com taxa — sempre passa por análise */
+  anticipation: z.boolean().optional(),
 });
 export type RequestPayoutInput = z.infer<typeof requestPayoutSchema>;
 
@@ -34,6 +36,8 @@ export const updateSettlementSchema = z.object({
   refundHoldDays: z.number().int().min(0).max(90).optional(),
   /** mínimo por repasse desta casa em centavos; null volta ao padrão da plataforma */
   autoPayoutMinCents: z.number().int().min(100).max(10_000_000).nullable().optional(),
+  /** teto de UM saque imediato (contrato de confiança); null = sem teto */
+  instantMaxPerWithdrawalCents: z.number().int().min(1000).max(100_000_000).nullable().optional(),
 });
 export type UpdateSettlementInput = z.infer<typeof updateSettlementSchema>;
 

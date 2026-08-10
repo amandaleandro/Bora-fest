@@ -670,10 +670,13 @@ export const payoutsApi = {
     request<Payout[]>(`/v1/organizations/${organizationId}/payouts`, { token }),
   listRequests: (organizationId: string, token: string) =>
     request<PayoutRequest[]>(`/v1/organizations/${organizationId}/payout-requests`, { token }),
-  requestPayout: (organizationId: string, amountCents: number, token: string) =>
-    request<PayoutRequest>(`/v1/organizations/${organizationId}/payout-requests`, {
-      method: "POST",
-      body: { amountCents },
-      token,
-    }),
+  requestPayout: (organizationId: string, amountCents: number, token: string, anticipation = false) =>
+    request<PayoutRequest & { needsApproval: boolean; payoutId: string | null; anticipationFeeCents: number }>(
+      `/v1/organizations/${organizationId}/payout-requests`,
+      {
+        method: "POST",
+        body: { amountCents, anticipation },
+        token,
+      },
+    ),
 };

@@ -150,6 +150,9 @@ model Organization {
   /// mínimo por repasse DESTA casa (centavos); null = padrão da plataforma
   /// (AUTO_PAYOUT_MIN_CENTS) — evita chuva de transferência pequena
   autoPayoutMinCents Int?       @map("auto_payout_min_cents")
+  /// teto de UM saque imediato desta casa (contrato de confiança); acima
+  /// disso o pedido cai para aprovação do backoffice. null = sem teto.
+  instantMaxPerWithdrawalCents Int? @map("instant_max_per_withdrawal_cents")
   createdAt DateTime           @default(now()) @map("created_at")
   updatedAt DateTime           @updatedAt @map("updated_at")
 
@@ -324,6 +327,9 @@ model BankAccount {
   account        String
   accountType    String   @map("account_type")
   pixKey         String?  @map("pix_key")
+  /// quando a chave Pix foi definida/alterada — saque fica em quarentena de
+  /// 48h após troca (defesa contra conta de produtor invadida)
+  pixKeyUpdatedAt DateTime? @map("pix_key_updated_at")
   isDefault      Boolean  @default(false) @map("is_default")
   createdAt      DateTime @default(now()) @map("created_at")
 
@@ -1179,6 +1185,11 @@ model PayoutRequest {
   organizationId String              @map("organization_id") @db.Uuid
   amountCents    Int                 @map("amount_cents")
   status         PayoutRequestStatus @default(PENDING)
+  /// pedido de ANTECIPAÇÃO (receber antes do evento, com taxa) — sempre
+  /// passa pela análise do backoffice
+  anticipation   Boolean             @default(false)
+  /// taxa pró-rata simulada na solicitação (cobrada na aprovação)
+  anticipationFeeCents Int           @default(0) @map("anticipation_fee_cents")
   bankAccountId  String?             @map("bank_account_id") @db.Uuid
   payoutId       String?             @map("payout_id") @db.Uuid
   notes          String?

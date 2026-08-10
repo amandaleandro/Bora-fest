@@ -233,6 +233,22 @@ export const adminApi = {
   createPayout: (token: string, organizationId: string) =>
     request<Payout>(`/v1/admin/organizations/${organizationId}/payouts`, { method: "POST", token }),
 
+  listPayoutRequests: (token: string, status = "PENDING") =>
+    request<
+      Array<{
+        id: string;
+        amountCents: number;
+        status: string;
+        anticipation: boolean;
+        anticipationFeeCents: number;
+        createdAt: string;
+        organization: { id: string; name: string; settlementMode: string };
+      }>
+    >(`/v1/admin/payout-requests?status=${status}`, { token }),
+  approvePayoutRequest: (token: string, id: string) =>
+    request(`/v1/admin/payout-requests/${id}/approve`, { method: "POST", token }),
+  rejectPayoutRequest: (token: string, id: string, note?: string) =>
+    request(`/v1/admin/payout-requests/${id}/reject`, { method: "POST", body: { note }, token }),
   markPayoutPaid: (token: string, id: string, notes?: string) =>
     request<Payout>(`/v1/admin/payouts/${id}/mark-paid`, { method: "POST", body: { notes }, token }),
 };

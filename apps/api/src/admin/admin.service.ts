@@ -16,6 +16,7 @@ import type {
   RejectRefundRequestInput,
   SetOrganizationFeeInput,
 } from "@borafest/contracts";
+import { FinanceService } from "../finance/finance.service";
 import { PlatformAccessService } from "../common/platform-access.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { getOrganizationBalanceCents, getPayoutAvailability } from "../common/ledger";
@@ -31,6 +32,7 @@ export class AdminService {
   constructor(
     private readonly platformAccess: PlatformAccessService,
     private readonly notifications: NotificationsService,
+    private readonly finance: FinanceService,
   ) {}
 
   async listOrganizations(userId: string) {
@@ -505,6 +507,51 @@ export class AdminService {
    * ligado para casas de confiança E após aceite da cláusula de
    * responsabilidade de reembolso (docs/juridico/REPASSE-INSTANTANEO-MINUTA.md).
    */
+  async listPayoutRequests(userId: string, filters: { status?: string }) {
+    await this.platformAccess.assertAdmin(userId);
+    return prisma.payoutRequest.findMany({
+      where: filters.status ? { status: filters.status as never } : undefined,
+      include: { organization: { select: { id: true, name: true, settlementMode: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+  }
+
+  async approvePayoutRequest(requestId: string, userId: string) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+    const payoutId = await this.finance.approveRequestInternal(requestId, actor.id);
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "payout.request_approved",
+        entityType: "payout_request",
+        entityId: requestId,
+        metadata: { payoutId },
+      },
+    });
+    return { requestId, payoutId };
+  }
+
+  async rejectPayoutRequest(requestId: string, userId: string, note?: string) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+    const request = await prisma.payoutRequest.findUniqueOrThrow({ where: { id: requestId } });
+    if (request.status !== "PENDING") throw new BadRequestException("Solicitação já resolvida");
+    await prisma.payoutRequest.update({
+      where: { id: requestId },
+      data: { status: "REJECTED", resolvedAt: new Date(), notes: note ?? null },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "payout.request_rejected",
+        entityType: "payout_request",
+        entityId: requestId,
+        metadata: { note: note ?? null },
+      },
+    });
+    return { requestId, status: "REJECTED" };
+  }
+
   async updateSettlement(
     organizationId: string,
     userId: string,

@@ -163,11 +163,24 @@ export class OrganizationsService {
     agency: string; account: string; accountType: string; pixKey?: string;
   }) {
     await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
-    // a conta nova vira a padrão de repasse
+    // a conta nova vira a padrão de repasse; trocar destino do dinheiro
+    // carimba a quarentena de saque (48h) — defesa contra conta invadida
     const [, created] = await prisma.$transaction([
       prisma.bankAccount.updateMany({ where: { organizationId }, data: { isDefault: false } }),
-      prisma.bankAccount.create({ data: { organizationId, ...input, isDefault: true } }),
+      prisma.bankAccount.create({
+        data: { organizationId, ...input, isDefault: true, pixKeyUpdatedAt: new Date() },
+      }),
     ]);
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: userId,
+        organizationId,
+        action: "bank_account.changed",
+        entityType: "bank_account",
+        entityId: created.id,
+        metadata: { quarantineHours: 48 },
+      },
+    });
     return created;
   }
 

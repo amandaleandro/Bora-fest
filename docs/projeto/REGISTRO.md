@@ -381,6 +381,34 @@ casa. Última milha fechada:
 Testes: ciclo saldo→payout→Pix→PAID com auditoria e mínimo por casa
 segurando/soltando o repasse. API 30/30 · worker 3/3 · build 14/14.
 
+**Regras de saque v2 — molde aprovado pelo Arthur (2026-08-09)** — o
+produtor APERTA O BOTÃO; as regras decidem o caminho. Substitui a
+varredura que criava repasse sozinha (Arthur vetou: "não quero 100%
+automático, o cliente aperta um botão"):
+- **Liberação (plano padrão)**: crédito de venda agora amadurece D+2
+  ÚTEIS APÓS O EVENTO (padrão de mercado — o risco real é evento não
+  acontecer; Sympla usa ~D+5, somos 2× mais rápidos). addBusinessDays em
+  apply-status; RELEASE_BUSINESS_DAYS_AFTER_EVENT=2. Lançamentos antigos
+  mantêm a data em que nasceram.
+- **Clique do produtor** (requestPayout v2): mínimo por casa → 1 saque em
+  andamento → 1/dia → quarentena de 48h após troca de conta/chave Pix
+  (pixKeyUpdatedAt carimbado no addBankAccount) → saldo. Rotas: casa de
+  CONFIANÇA (INSTANT) sob o teto contratual
+  (instantMaxPerWithdrawalCents) = payout direto + fila do worker acordada
+  (Pix em segundos com AUTO_TRANSFER_ENABLED); 1º saque da casa,
+  ANTECIPAÇÃO e acima do teto = análise no backoffice.
+- **Antecipação (padrão de mercado, receita)**: checkbox no modal de
+  saque quando há saldo em janela; taxa pró-rata 1,25% a.m. simulada
+  antes e lançada na aprovação; sempre passa por análise.
+- **Backoffice**: fila "Saques aguardando análise" em /payouts com
+  aprovar (dispara o Pix) e recusar com motivo; endpoints
+  /v1/admin/payout-requests(+approve/reject).
+- Worker: executeAutoTransfers vira o único papel da varredura (executa e
+  concilia; NUNCA decide) — anti-duplicidade fail-closed mantida.
+Testes (6): confiança saca na hora; teto roteia para análise; 1º saque com
+análise; 1/dia; quarentena; antecipação com taxa no caixa. API 30/30 ·
+worker 6/6 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
