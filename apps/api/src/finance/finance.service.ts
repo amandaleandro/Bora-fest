@@ -165,15 +165,31 @@ export class FinanceService {
       amountCents > org.instantMaxPerWithdrawalCents;
     const precisaAnalise = primeiroSaque || anticipation || acimaDoTeto;
 
-    const request = await prisma.payoutRequest.create({
-      data: {
-        organizationId,
-        amountCents,
-        anticipation,
-        anticipationFeeCents,
-        bankAccountId: bankAccount.id,
-        requestedBy: userId,
-      },
+    // TOCTOU (auditoria 2026-08-10): dois cliques simultâneos passavam os dois
+    // pela checagem e criavam dois saques do mesmo saldo. A criação re-checa
+    // DENTRO da transação; o índice único parcial no banco é a rede final.
+    const request = await prisma.$transaction(async (tx) => {
+      const concorrente = await tx.payoutRequest.findFirst({
+        where: { organizationId, status: "PENDING" },
+      });
+      const payoutConcorrente = await tx.payout.findFirst({
+        where: { organizationId, status: "PENDING" },
+      });
+      if (concorrente || payoutConcorrente) {
+        throw new BadRequestException(
+          "Você já tem um saque em andamento — aguarde a conclusão para pedir outro",
+        );
+      }
+      return tx.payoutRequest.create({
+        data: {
+          organizationId,
+          amountCents,
+          anticipation,
+          anticipationFeeCents,
+          bankAccountId: bankAccount.id,
+          requestedBy: userId,
+        },
+      });
     });
 
     let payoutId: string | null = null;
@@ -220,10 +236,16 @@ export class FinanceService {
    */
   async approveRequestInternal(requestId: string, approvedBy: string | null): Promise<string> {
     const payout = await prisma.$transaction(async (tx) => {
-      const request = await tx.payoutRequest.findUniqueOrThrow({ where: { id: requestId } });
-      if (request.status !== "PENDING") {
+      // guarda ATÔMICA: sem isso, dois cliques de aprovar criavam dois Payouts
+      // para a mesma solicitação (auditoria 2026-08-10)
+      const travada = await tx.payoutRequest.updateMany({
+        where: { id: requestId, status: "PENDING" },
+        data: { resolvedAt: new Date() },
+      });
+      if (travada.count === 0) {
         throw new BadRequestException("Solicitação já resolvida");
       }
+      const request = await tx.payoutRequest.findUniqueOrThrow({ where: { id: requestId } });
       const created = await tx.payout.create({
         data: { organizationId: request.organizationId, amountCents: request.amountCents },
       });

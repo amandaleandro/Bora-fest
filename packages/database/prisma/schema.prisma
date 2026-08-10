@@ -703,6 +703,10 @@ model Order {
   salesPartnerId String?    @map("sales_partner_id") @db.Uuid
   promoterLinkId String?    @map("promoter_link_id") @db.Uuid
   promoterCommissionCents Int @default(0) @map("promoter_commission_cents")
+  /// a conta do comprador NASCEU deste pedido (checkout sem sessão). Só nesse
+  /// caso o e-mail pode ser corrigido pela sessão pagante — do contrário
+  /// qualquer um sequestraria conta alheia informando o e-mail dela.
+  accountCreatedByOrder Boolean @default(false) @map("account_created_by_order")
   soldByUserId  String?     @map("sold_by_user_id") @db.Uuid
   partnerCommissionCents Int @default(0) @map("partner_commission_cents")
   /// como o pedido foi atribuído ao parceiro: PDV/vendedor (MANUAL) ou link público (LINK)

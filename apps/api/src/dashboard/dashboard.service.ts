@@ -9,9 +9,19 @@ const PAID_ORDER_STATUSES = ["PAID", "FULFILLED"] as const;
 export class DashboardService {
   constructor(private readonly orgAccess: OrgAccessService) {}
 
-  private async assertEventAccess(eventId: string, actorUserId: string) {
+  /**
+   * Painel do evento: vendedor (SALES_PERFORM) enxerga o painel, mas dados
+   * sensíveis do evento inteiro (lista de pedidos, PII de participantes e
+   * exportações) exigem FINANCE_VIEW — auditoria 2026-08-10 mostrou vendedor
+   * de atlética baixando CSV com nome/e-mail/CPF de todo mundo.
+   */
+  private async assertEventAccess(eventId: string, actorUserId: string, sensitive = false) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
+    if (sensitive) {
+      await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+      return event;
+    }
     try {
       await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
     } catch {
@@ -27,7 +37,7 @@ export class DashboardService {
     const venue = event.venueId
       ? await prisma.venue.findUnique({
           where: { id: event.venueId },
-          select: { name: true, address: true, city: true, state: true },
+          select: { name: true, address: true, mapsUrl: true, city: true, state: true },
         })
       : null;
 
@@ -117,7 +127,7 @@ export class DashboardService {
     actorUserId: string,
     options: { status?: string; page: number; pageSize: number },
   ) {
-    await this.assertEventAccess(eventId, actorUserId);
+    await this.assertEventAccess(eventId, actorUserId, true);
 
     const where = {
       eventId,
@@ -216,12 +226,12 @@ export class DashboardService {
   }
 
   async listParticipants(eventId: string, actorUserId: string) {
-    await this.assertEventAccess(eventId, actorUserId);
+    await this.assertEventAccess(eventId, actorUserId, true);
     return this.fetchParticipants(eventId);
   }
 
   async exportParticipantsCsv(eventId: string, actorUserId: string): Promise<string> {
-    await this.assertEventAccess(eventId, actorUserId);
+    await this.assertEventAccess(eventId, actorUserId, true);
     const participants = await this.fetchParticipants(eventId);
 
     const header = "codigo,nome,email,tipo,lote,status,checkin_em";
@@ -244,7 +254,7 @@ export class DashboardService {
 
   /** CSV de pedidos p/ prestação de contas do produtor (bruto, taxa e líquido por pedido). */
   async exportOrdersCsv(eventId: string, actorUserId: string): Promise<string> {
-    await this.assertEventAccess(eventId, actorUserId);
+    await this.assertEventAccess(eventId, actorUserId, true);
 
     const orders = await prisma.order.findMany({
       where: { eventId },

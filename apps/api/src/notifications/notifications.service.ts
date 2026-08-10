@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { getWhatsAppSender } from "@borafest/notifications";
 import type { OrderWhatsAppInput, RegisterPushTokenInput } from "@borafest/contracts";
 
@@ -29,6 +31,7 @@ export class NotificationsService {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
+        user: { select: { emailVerifiedAt: true } },
         event: { select: { title: true, startsAt: true, timezone: true } },
         tickets: {
           where: { status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
@@ -40,6 +43,10 @@ export class NotificationsService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
+    // portão do 1º ingresso: nada de QR por reenvio/WhatsApp antes de verificar
+    if (order.user && !order.user.emailVerifiedAt) {
+      throw new ForbiddenException(TICKET_GATE_MESSAGE);
+    }
     if (order.status !== "FULFILLED" || order.tickets.length === 0) {
       throw new BadRequestException("Pedido ainda não tem ingressos emitidos");
     }
@@ -125,6 +132,7 @@ export class NotificationsService {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
+        user: { select: { emailVerifiedAt: true } },
         event: { select: { title: true, startsAt: true, timezone: true } },
         tickets: {
           where: { status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
@@ -136,6 +144,10 @@ export class NotificationsService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
+    // portão do 1º ingresso: nada de QR por reenvio/WhatsApp antes de verificar
+    if (order.user && !order.user.emailVerifiedAt) {
+      throw new ForbiddenException(TICKET_GATE_MESSAGE);
+    }
     if (!["PAID", "FULFILLED"].includes(order.status) || order.tickets.length === 0) {
       throw new ConflictException("Pedido ainda não tem ingressos para enviar");
     }
@@ -151,7 +163,9 @@ export class NotificationsService {
       );
     }
 
-    if (input?.phone && phone !== order.contactPhone) {
+    // não sobrescreve o contato do pedido: quem manda um telefone avulso não
+    // deve sequestrar o canal oficial (auditoria 2026-08-10)
+    if (input?.phone && !order.contactPhone) {
       await prisma.order.update({ where: { id: order.id }, data: { contactPhone: phone } });
     }
 

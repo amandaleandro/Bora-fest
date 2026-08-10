@@ -122,7 +122,7 @@ test("corrigir e-mail digitado errado: sessão pagante troca e o aviso reenvia",
     await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
     await assert.rejects(
       () => orders.correctEmail(pedido.publicToken, "outro@borafest.dev"),
-      /verificada/,
+      /Não é possível alterar/,
     );
   } finally {
     await cleanupFixtureEvent(f.organization.id);

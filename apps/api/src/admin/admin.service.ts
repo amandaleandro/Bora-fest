@@ -630,6 +630,12 @@ export class AdminService {
       create: { organizationId: payout.organizationId },
     });
 
+    // idempotente: nunca debitar duas vezes o mesmo repasse
+    const jaDebitado = await prisma.ledgerEntry.findFirst({
+      where: { ledgerAccountId: ledgerAccount.id, type: "PAYOUT_DEBIT", referenceId: payoutId },
+    });
+    if (jaDebitado) return prisma.payout.findUniqueOrThrow({ where: { id: payoutId } });
+
     await prisma.ledgerEntry.create({
       data: {
         ledgerAccountId: ledgerAccount.id,

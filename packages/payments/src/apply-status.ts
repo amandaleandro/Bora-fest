@@ -275,6 +275,26 @@ async function applyPartialRefund(
           referenceId: payment.id,
         },
       });
+
+      // Auditoria 2026-08-10: dois estornos parciais somando o total deixavam
+      // os ingressos VÁLIDOS e a comissão do promoter no bolso dele. Quando o
+      // acumulado alcança o valor pago, o pedido vira reembolso TOTAL de fato.
+      const debitos = await tx.ledgerEntry.aggregate({
+        where: { referenceType: "payment", referenceId: payment.id, type: "REFUND_DEBIT" },
+        _sum: { amountCents: true },
+      });
+      const devolvido = Math.abs(debitos._sum.amountCents ?? 0);
+      if (devolvido >= payment.amountCents) {
+        await tx.order.updateMany({
+          where: { id: payment.orderId },
+          data: { status: "REFUNDED" },
+        });
+        await tx.ticket.updateMany({
+          where: { orderId: payment.orderId, status: { in: ["ISSUED", "ACTIVE"] } },
+          data: { status: "REFUNDED", canceledAt: new Date() },
+        });
+        await clawbackPromoterCommission(tx, payment);
+      }
     }
 
     return result;

@@ -45,13 +45,17 @@ const pixelId = z
 
 /** IDs de pixel de conversão do evento — cada campo é opcional e independente. */
 export const pixelSettingsSchema = z.object({
-  metaPixelId: pixelId.optional(),
-  ga4MeasurementId: pixelId.optional(),
-  tiktokPixelId: pixelId.optional(),
+  // null limpa o pixel no servidor — sem isso, apagar no painel não removia
+  // e o checkout seguia disparando Purchase (auditoria 2026-08-10)
+  metaPixelId: pixelId.nullable().optional(),
+  ga4MeasurementId: pixelId.nullable().optional(),
+  tiktokPixelId: pixelId.nullable().optional(),
 });
 export type PixelSettingsInput = z.infer<typeof pixelSettingsSchema>;
 
 export const updateEventSchema = createEventSchema.partial().extend({
+  /** null limpa a categoria (a opção "Sem categoria" do painel era no-op) */
+  category: eventCategorySchema.nullable().optional(),
   bannerUrl: z.string().url().optional(),
   /** sala de espera: admite N compradores por vez no checkout deste evento */
   waitingRoomEnabled: z.boolean().optional(),

@@ -39,6 +39,35 @@ function anticipationBpsMonthly(): number {
  * a transferência foi criada (erro de rede), o payout vai para FAILED com
  * pedido de verificação manual em vez de arriscar pagar duas vezes.
  */
+
+/**
+ * Repasse concluído = dinheiro FORA da conta: lança PAYOUT_DEBIT no caixa da
+ * organização (idempotente por payoutId). Sem isso o saldo nunca caía e a
+ * mesma quantia podia ser sacada de novo — descoberto ao corrigir a dupla
+ * contagem de reservado (auditoria 2026-08-10).
+ */
+async function debitPayoutOnce(payoutId: string, organizationId: string, amountCents: number) {
+  const account = await prisma.ledgerAccount.upsert({
+    where: { organizationId },
+    update: {},
+    create: { organizationId },
+  });
+  const existente = await prisma.ledgerEntry.findFirst({
+    where: { ledgerAccountId: account.id, type: "PAYOUT_DEBIT", referenceId: payoutId },
+  });
+  if (existente) return;
+  await prisma.ledgerEntry.create({
+    data: {
+      ledgerAccountId: account.id,
+      type: "PAYOUT_DEBIT",
+      amountCents: -amountCents,
+      referenceType: "payout",
+      referenceId: payoutId,
+      description: "Repasse enviado por Pix",
+    },
+  });
+}
+
 export async function executeAutoTransfers(): Promise<void> {
   if (!autoTransferEnabled()) return;
   const gateway = getDefaultGateway();
@@ -57,6 +86,7 @@ export async function executeAutoTransfers(): Promise<void> {
           where: { id: payout.id },
           data: { status: "PAID", paidAt: new Date() },
         });
+        await debitPayoutOnce(payout.id, payout.organizationId, payout.amountCents);
         log.info({ payoutId: payout.id }, "repasse concluído pelo provedor");
       } else if (status.status === "FAILED") {
         await prisma.payout.update({
@@ -92,6 +122,9 @@ export async function executeAutoTransfers(): Promise<void> {
         description: `Repasse BoraFest — ${payout.organization.name}`,
         externalReference: payout.id,
       });
+      if (result.status === "DONE") {
+        await debitPayoutOnce(payout.id, payout.organizationId, payout.amountCents);
+      }
       await prisma.payout.update({
         where: { id: payout.id },
         data:

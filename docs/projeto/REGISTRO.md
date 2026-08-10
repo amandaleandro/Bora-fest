@@ -523,6 +523,46 @@ trancada → link mágico verifica/loga/destrava → 2ª compra entrega
 normal) e correção de e-mail com reenvio + trava pós-verificação.
 API 34/34 · worker 6/6 · build 14/14.
 
+**AUDITORIA DE SEGURANÇA + correções críticas (2026-08-10)** — depois do
+incidente da Amanda ("sem permissão de edição"), varredura com 29 agentes
+em 5 dimensões + verificação adversarial. 24 achados, 6 CRÍTICOS. TUDO
+corrigido com teste de regressão (auditoria-seguranca.test.ts, 4 casos):
+- **CRÍTICO — sequestro de conta**: informar e-mail de terceiro no
+  checkout anônimo anexava o pedido À CONTA DELE; com correctEmail
+  (público) o atacante trocava o e-mail da vítima e recebia link mágico =
+  tomada total (inclusive de produtor com senha, que nunca tinha
+  emailVerifiedAt). Correção: checkout sem sessão NÃO anexa a conta
+  existente (o verifyOtp reivindica depois); correctEmail exige
+  Order.accountCreatedByOrder (campo novo) e recusa conta com senha.
+- **CRÍTICO — QR vazava por 4 portas**: qr.png, /status (ids), reenvio e
+  WhatsApp ignoravam o portão do 1º ingresso (só a carteira travava); a
+  rota de WhatsApp ainda mandava o QR para telefone arbitrário e
+  sequestrava contactPhone. Portão agora é helper único
+  (common/ticket-gate.ts) aplicado em todas; WhatsApp não sobrescreve
+  contato existente.
+- **CRÍTICO — saque duplicado**: TOCTOU (2 cliques = 2 saques) e aprovação
+  dupla da mesma solicitação. Correção: criação em transação com
+  re-checagem + índice único PARCIAL no banco (1 PENDING por org, em
+  payout_requests e payouts) e updateMany com guarda de status.
+- **CRÍTICO — estorno por partes**: 2 parciais somando o total deixavam
+  ingressos VÁLIDOS e a comissão do promoter no bolso. Agora, ao alcançar
+  o valor pago, vira REFUNDED de fato (ingressos cancelados + clawback).
+- **CRÍTICO — escalação**: admin promovia alguém a OWNER. Só dono cria
+  dono. Conta bancária (destino do dinheiro) passou a exigir gestão, não
+  FINANCE_VIEW. Busca de organizações restrita a quem administra org.
+- **ALTA — PII**: vendedor exportava CSV com nome/e-mail/CPF de todos.
+  listOrders/participants/exports agora exigem FINANCE_VIEW.
+- **ALTA — caixa**: repasse PAGO era contado como reservado E debitado
+  (dupla subtração); e o repasse automático marcava PAGO sem debitar
+  (dinheiro saía sem baixar saldo → risco de sacar 2×). Reservado agora é
+  só PENDING e todo repasse concluído lança PAYOUT_DEBIT idempotente.
+- **Funcionais**: papéis "Gestor do evento"/"Check-in" tomavam 403 ao
+  listar eventos (painel inutilizável); admin tomava 403 no check-in ao
+  vivo; apagar pixel não removia no servidor (checkout seguia disparando);
+  "Sem categoria" era no-op; dashboard não devolvia mapsUrl.
+API 42/42 · worker 6/6 · build 14/14.
+⚠️ PRODUÇÃO ESTAVA EXPOSTA (rotas no ar desde f9ccb49) — deploy urgente.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

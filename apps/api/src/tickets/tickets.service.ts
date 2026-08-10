@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
@@ -54,10 +55,20 @@ export class TicketsService {
   async renderTicketQrPng(orderPublicToken: string, ticketId: string): Promise<Buffer> {
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
-      select: { qrToken: true, order: { select: { publicToken: true } } },
+      select: {
+        qrToken: true,
+        order: {
+          select: { id: true, publicToken: true, user: { select: { emailVerifiedAt: true } } },
+        },
+      },
     });
     if (!ticket || ticket.order.publicToken !== orderPublicToken) {
       throw new NotFoundException("Ingresso não encontrado neste pedido");
+    }
+    // portão do 1º ingresso também na IMAGEM (auditoria 2026-08-10: a carteira
+    // trancava, mas o PNG servia o mesmo QR para quem tivesse o link)
+    if (ticket.order.user && !ticket.order.user.emailVerifiedAt) {
+      throw new ForbiddenException(TICKET_GATE_MESSAGE);
     }
     return QRCode.toBuffer(ticket.qrToken, { type: "png", width: 512, margin: 2 });
   }

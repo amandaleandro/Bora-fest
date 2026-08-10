@@ -37,10 +37,17 @@ export async function getMaturedBalanceCents(organizationId: string): Promise<nu
   return (total._sum.amountCents ?? 0) - (held._sum.amountCents ?? 0);
 }
 
-/** Saldo já reservado por repasses pendentes/pagos (não pode ser pedido de novo). */
+/**
+ * Saldo reservado por repasses AINDA NÃO debitados do caixa.
+ *
+ * Auditoria 2026-08-10: contávamos PENDING + PAID, mas o repasse PAGO já vira
+ * PAYOUT_DEBIT no ledger (markPayoutPaid / execução automática) — a mesma
+ * quantia saía duas vezes do saldo disponível, e o produtor via menos dinheiro
+ * do que tem. Reservado agora é só o que está EM TRÂNSITO (PENDING).
+ */
 export async function getReservedPayoutCents(organizationId: string): Promise<number> {
   const sum = await prisma.payout.aggregate({
-    where: { organizationId, status: { in: ["PENDING", "PAID"] } },
+    where: { organizationId, status: "PENDING" },
     _sum: { amountCents: true },
   });
   return sum._sum.amountCents ?? 0;

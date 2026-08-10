@@ -147,11 +147,16 @@ export class OrdersService {
     // existente = pedido anexa à conta). CPF/telefone só entram se ainda
     // livres (são únicos); e-mail verificado é o portão do 1º ingresso.
     let effectiveUserId = userId;
+    let accountCreatedByOrder = false;
     if (!effectiveUserId && input.contactEmail) {
       const email = input.contactEmail.trim().toLowerCase();
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing) {
-        effectiveUserId = existing.id;
+        // INCIDENTE 2026-08-10: anexar o pedido à conta de um e-mail informado
+        // sem prova de posse dava acesso a pedidos alheios (e abria a correção
+        // de e-mail como sequestro de conta). Sem sessão, o pedido nasce SEM
+        // dono — o verifyOtp reivindica quando a pessoa provar o e-mail dela.
+        effectiveUserId = undefined;
       } else {
         const cpf = input.contactCpf?.replace(/\D/g, "") || undefined;
         const phone = input.contactPhone?.replace(/\D/g, "") || undefined;
@@ -169,9 +174,11 @@ export class OrdersService {
           },
         });
         effectiveUserId = created.id;
+        accountCreatedByOrder = true;
       }
     }
-    // conta já existente sem CPF ganha o CPF da compra (vínculo do ingresso)
+    // CPF na conta só quando a sessão é do próprio dono ou a conta nasceu
+    // deste pedido — nunca escrevendo em conta de terceiro
     if (effectiveUserId && input.contactCpf) {
       const cpf = input.contactCpf.replace(/\D/g, "");
       const dono = await prisma.user.findUnique({ where: { cpf } });
@@ -202,6 +209,7 @@ export class OrdersService {
           eventId: reservation.eventId,
           reservationId: reservation.id,
           userId: effectiveUserId ?? reservation.userId,
+          accountCreatedByOrder,
           contactEmail: input.contactEmail,
           contactName: input.contactName,
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
@@ -309,10 +317,15 @@ export class OrdersService {
           },
         },
         tickets: { select: { id: true, code: true, status: true } },
+        user: { select: { emailVerifiedAt: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
-    return order;
+    // portão do 1º ingresso: sem verificar, o /status não entrega nem os ids
+    // dos ingressos (eram a porta de entrada para o PNG do QR)
+    const locked = Boolean(order.user && !order.user.emailVerifiedAt);
+    const { user: _user, ...rest } = order;
+    return { ...rest, tickets: locked ? [] : order.tickets, requiresVerification: locked };
   }
 
   /** Detalhe de um pedido para o painel do produtor (tela Vendas). */
@@ -586,14 +599,21 @@ export class OrdersService {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
-        user: { select: { id: true, emailVerifiedAt: true } },
+        user: { select: { id: true, emailVerifiedAt: true, passwordHash: true } },
         event: { select: { title: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
-    if (!order.user || order.user.emailVerifiedAt) {
+    // conta com senha = conta de produtor real; jamais tocável por aqui
+    if (order.user?.passwordHash) {
+      throw new BadRequestException("Não é possível alterar o e-mail deste pedido");
+    }
+    // Só corrige o e-mail quando a conta NASCEU deste pedido e ainda não foi
+    // verificada. Sem isso, informar o e-mail de terceiro no checkout viraria
+    // sequestro de conta (incidente 2026-08-10).
+    if (!order.user || !order.accountCreatedByOrder || order.user.emailVerifiedAt) {
       throw new BadRequestException(
-        "Este pedido já está vinculado a uma conta verificada — fale com o suporte",
+        "Não é possível alterar o e-mail deste pedido — fale com o suporte",
       );
     }
     const ocupado = await prisma.user.findUnique({ where: { email } });

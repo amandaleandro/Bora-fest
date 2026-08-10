@@ -68,10 +68,27 @@ export class EventsService {
   }
 
   async listForOrganization(organizationId: string, actorUserId: string) {
-    try {
+    // qualquer papel com trabalho no evento precisa LISTAR os eventos, senão
+    // o painel abre vazio (auditoria 2026-08-10: "Gestor do evento" e
+    // "Check-in" recebiam 403 na primeira tela)
+    const permitido = [
+      PERMISSIONS.EVENT_CREATE,
+      PERMISSIONS.SALES_PERFORM,
+      PERMISSIONS.FINANCE_VIEW,
+      PERMISSIONS.CHECKIN_PERFORM,
+    ];
+    let liberado = false;
+    for (const permissao of permitido) {
+      try {
+        await this.orgAccess.assertPermission(organizationId, actorUserId, permissao);
+        liberado = true;
+        break;
+      } catch {
+        // tenta o próximo papel
+      }
+    }
+    if (!liberado) {
       await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
-    } catch {
-      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
     }
 
     return prisma.event.findMany({
@@ -91,9 +108,18 @@ export class EventsService {
       : input.venueId;
 
     // merge parcial: enviar só um pixel (ex. metaPixelId) não deve apagar os outros já salvos
-    const pixelSettings = input.pixelSettings
-      ? { ...(event.pixelSettings as Record<string, string> | null), ...input.pixelSettings }
-      : undefined;
+    let pixelSettings: Record<string, string> | undefined;
+    if (input.pixelSettings) {
+      const merged = {
+        ...(event.pixelSettings as Record<string, string> | null),
+        ...input.pixelSettings,
+      } as Record<string, string | null>;
+      // null/"" = apagar de verdade (não deixar o pixel antigo disparando)
+      for (const [k, v] of Object.entries(merged)) {
+        if (v === null || v === undefined || v === "") delete merged[k];
+      }
+      pixelSettings = merged as Record<string, string>;
+    }
 
     return prisma.event.update({
       where: { id: eventId },
@@ -103,7 +129,7 @@ export class EventsService {
         lineup: input.lineup,
         amenities: input.amenities,
         minAge: input.minAge,
-        category: input.category,
+        category: input.category === null ? null : input.category,
         bannerUrl: input.bannerUrl,
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,

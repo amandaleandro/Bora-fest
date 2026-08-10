@@ -256,11 +256,21 @@ export class CheckinsService {
   async live(userId: string, eventId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    await this.orgAccess.assertPermission(
-      event.organizationId,
-      userId,
-      PERMISSIONS.CHECKIN_PERFORM,
-    );
+    // painel ao vivo é acompanhamento: quem opera a portaria E quem gere o
+    // evento (dono/admin) veem — auditoria 2026-08-10: admin tomava 403
+    try {
+      await this.orgAccess.assertPermission(
+        event.organizationId,
+        userId,
+        PERMISSIONS.CHECKIN_PERFORM,
+      );
+    } catch {
+      await this.orgAccess.assertPermission(
+        event.organizationId,
+        userId,
+        PERMISSIONS.EVENT_CREATE,
+      );
+    }
 
     const oneMinuteAgo = new Date(Date.now() - 60_000);
     const [totalValid, checkedIn, lastMinute, byPoint, curve] = await Promise.all([

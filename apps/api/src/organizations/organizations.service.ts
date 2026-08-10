@@ -1,5 +1,5 @@
 import type { UpdateOrganizationInput } from "@borafest/contracts";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput } from "@borafest/contracts";
@@ -80,6 +80,18 @@ export class OrganizationsService {
 
     const role = await prisma.role.findUnique({ where: { key: input.roleKey } });
     if (!role) throw new NotFoundException("Papel invalido");
+
+    // só DONO cria outro dono — admin promovendo alguém a owner era escalação
+    // de privilégio (auditoria 2026-08-10)
+    if (input.roleKey === "owner") {
+      const ator = await prisma.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId, userId: actorUserId } },
+        include: { role: true },
+      });
+      if (ator?.role.key !== "owner") {
+        throw new ForbiddenException("Apenas o dono da organização pode convidar outro dono");
+      }
+    }
 
     const invitedUser = await prisma.user.upsert({
       where: { email: input.email },
@@ -196,7 +208,9 @@ export class OrganizationsService {
     holderName: string; holderDocument: string; bankCode: string;
     agency: string; account: string; accountType: string; pixKey?: string;
   }) {
-    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
+    // trocar o DESTINO DO DINHEIRO é ato de gestão, não de leitura financeira
+    // (auditoria 2026-08-10: bastava FINANCE_VIEW)
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     // a conta nova vira a padrão de repasse; trocar destino do dinheiro
     // carimba a quarentena de saque (48h) — defesa contra conta invadida
     const [, created] = await prisma.$transaction([
@@ -224,6 +238,15 @@ export class OrganizationsService {
    * (nada de varrer por prefixo de CPF) e volta mascarado.
    */
   async searchOrganizations(userId: string, query: string) {
+    // busca por CPF/CNPJ é para convidar promoter — restrita a quem administra
+    // uma organização (auditoria 2026-08-10: qualquer sessão enumerava)
+    const administra = await prisma.organizationMember.findFirst({
+      where: { userId, status: "ACTIVE", role: { key: { in: ["owner", "admin"] } } },
+      select: { id: true },
+    });
+    if (!administra) {
+      throw new ForbiddenException("Só produtores podem buscar contas para convidar");
+    }
     const q = query.trim();
     if (q.length < 3) return [];
     const digits = q.replace(/\D/g, "");
