@@ -162,7 +162,11 @@ services:
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD é obrigatório em produção}
+      # NÃO usar ${VAR:?...} aqui: a interpolação do compose é global e uma
+      # variável faltando no Grafana derrubava o deploy da PLATAFORMA INTEIRA
+      # (incidente 2026-08-10). Defina GRAFANA_ADMIN_PASSWORD no Environment —
+      # obrigatório antes de apontar qualquer domínio para o Grafana.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       # URL completa (ex.: https://metrics.borafest.com.br) — sem isso os links
       # internos do Grafana ficam com o host errado atrás do Traefik
