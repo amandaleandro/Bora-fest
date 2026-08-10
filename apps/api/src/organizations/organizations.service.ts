@@ -92,6 +92,39 @@ export class OrganizationsService {
       if (!partner) throw new NotFoundException("Parceiro de vendas não encontrado");
     }
 
+    // NUNCA rebaixar quem já é membro (incidente 2026-08-10: convidar um
+    // e-mail que já era DONO sobrescrevia papel e status — a pessoa perdia a
+    // edição dos próprios eventos). Membro ATIVO: papel e status são
+    // intocáveis pelo convite; só o vínculo de parceiro pode ser somado.
+    const existing = await prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId: invitedUser.id } },
+      include: { role: true },
+    });
+    if (existing && existing.status === "ACTIVE") {
+      if (existing.role.key === input.roleKey) {
+        // idempotente: mesmo papel — no máximo anexa o parceiro
+        const membership =
+          input.partnerId && existing.salesPartnerId !== input.partnerId
+            ? await prisma.organizationMember.update({
+                where: { id: existing.id },
+                data: { salesPartnerId: input.partnerId },
+              })
+            : existing;
+        if (input.roleKey === "seller" && input.partnerId) {
+          await prisma.salesPartnerMember.upsert({
+            where: { partnerId_userId: { partnerId: input.partnerId, userId: invitedUser.id } },
+            update: {},
+            create: { partnerId: input.partnerId, userId: invitedUser.id },
+          });
+        }
+        return membership;
+      }
+      throw new BadRequestException(
+        `Este e-mail já é membro da organização (papel: ${existing.role.key}). ` +
+          "Para trocar o papel, remova o membro e convide de novo.",
+      );
+    }
+
     const membership = await prisma.organizationMember.upsert({
       where: { organizationId_userId: { organizationId, userId: invitedUser.id } },
       update: { roleId: role.id, status: "INVITED", salesPartnerId: input.partnerId ?? null },
