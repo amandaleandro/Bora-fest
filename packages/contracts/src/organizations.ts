@@ -1,9 +1,14 @@
 import { z } from "zod";
 
+export const producerTypeSchema = z.enum(["CASA", "ATLETICA", "PRODUTORA", "INDEPENDENTE", "OUTRO"]);
+export type ProducerTypeInput = z.infer<typeof producerTypeSchema>;
+
 export const createOrganizationSchema = z.object({
   name: z.string().min(2),
   kind: z.enum(["INDIVIDUAL", "COMPANY"]),
   document: z.string().min(11),
+  /** classificação comercial — obrigatória no cadastro novo */
+  producerType: producerTypeSchema,
 });
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 
@@ -37,3 +42,11 @@ export const updateOrganizationSchema = z.object({
   displayName: z.string().trim().min(2).max(80).nullable().optional(),
 });
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+
+/** Convite de promoter (afiliado por conta de produtor). commissionBps = 0 → só contabiliza. */
+export const invitePromoterSchema = z.object({
+  promoterOrgId: z.string().uuid(),
+  /** % do valor dos INGRESSOS (bps: 500 = 5%); 0 = sem repasse, só contagem */
+  commissionBps: z.number().int().min(0).max(5000).default(0),
+});
+export type InvitePromoterInput = z.infer<typeof invitePromoterSchema>;

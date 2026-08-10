@@ -419,6 +419,32 @@ clara no erro e no modal ("antecipar até 80%..."). Casas de confiança
 não passam por aqui. Teste do teto no repasse-automatico.test.ts.
 Worker 6/6 · build 14/14.
 
+**Tipo de produtor + Promoter v2 (2026-08-10)** — pedido do Arthur com
+molde dele:
+- **ProducerType obrigatório no cadastro** (CASA/ATLETICA/PRODUTORA/
+  INDEPENDENTE/OUTRO) — segmenta contratos de confiança, promoters e
+  relatórios; contas legadas ficam null até editar.
+- **Promoter v2 = afiliado por CONTA DE PRODUTOR** (qualquer organização
+  ativa, confirmado pelo Arthur): anfitriã busca por nome/nome comercial
+  ou CPF/CNPJ (igualdade exata, resposta mascarada ***1234), convida com
+  % sobre ingressos OU só-contabiliza (bps=0). Convite aceito no painel
+  do promoter (seção Convites na lista de organizações); "Sou promoter"
+  mostra link (?pr=slug), vendas e — SÓ quando há comissão — o dinheiro
+  (a UI nunca diz "você não vai receber").
+- **Link rastreável ?pr=** com last-click de 7 dias (mesmo mecanismo do
+  ?p= de atlética); quando os dois existem, PROMOTER VENCE — nunca
+  comissão dupla.
+- **Split no caixa**: pagamento confirmado lança COMMISSION_DEBIT na
+  anfitriã e COMMISSION_CREDIT na CARTEIRA do promoter, amadurecendo na
+  MESMA regra da venda (D+2 úteis pós-evento) — saque pelas regras gerais
+  já construídas, zero regra nova de dinheiro. Estorno total faz clawback
+  idempotente (promoter devolve, anfitriã recebe de volta).
+- Migração producer_type_promoter_v2 (enum + promoter_links + campos no
+  pedido + tipos novos de lançamento).
+Testes: ciclo completo (busca→convite→aceite→venda 10% = R$10→carteira→
+estorno zera) e só-contabiliza (atribui sem dinheiro, payload sem campos
+de comissão). API 32/32 · worker 6/6 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

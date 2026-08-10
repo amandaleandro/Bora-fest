@@ -99,10 +99,35 @@ export class OrdersService {
 
     const totalCents = ticketTotalCents + addOnsTotalCents;
 
+    // atribuição de PROMOTER (?pr=slug) — afiliado por conta de produtor;
+    // quando válido, VENCE o link de atlética (nunca comissão dupla)
+    let promoterLinkId: string | undefined;
+    let promoterCommissionCents = 0;
+    if (input.promoterSlug) {
+      const event = await prisma.event.findUnique({
+        where: { id: reservation.eventId },
+        select: { organizationId: true },
+      });
+      const promoter = event
+        ? await prisma.promoterLink.findFirst({
+            where: {
+              organizationId: event.organizationId,
+              slug: input.promoterSlug,
+              status: "ACTIVE",
+            },
+            select: { id: true, commissionBps: true },
+          })
+        : null;
+      if (promoter) {
+        promoterLinkId = promoter.id;
+        promoterCommissionCents = Math.floor((ticketTotalCents * promoter.commissionBps) / 10_000);
+      }
+    }
+
     // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV, só sobre ingressos
     let salesPartnerId: string | undefined;
     let partnerCommissionCents = 0;
-    if (input.partnerSlug) {
+    if (!promoterLinkId && input.partnerSlug) {
       const event = await prisma.event.findUnique({ where: { id: reservation.eventId }, select: { organizationId: true } });
       const partner = event
         ? await prisma.salesPartner.findFirst({
@@ -144,6 +169,8 @@ export class OrdersService {
           expiresAt,
           salesPartnerId,
           partnerCommissionCents,
+          promoterLinkId,
+          promoterCommissionCents,
           attributionSource: salesPartnerId ? "LINK" : undefined,
           items: {
             create: reservation.items.map((item) => ({

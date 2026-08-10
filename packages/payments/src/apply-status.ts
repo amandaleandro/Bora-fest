@@ -147,6 +147,7 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
     }
 
     await creditOrganizationLedger(tx, payment);
+    await splitPromoterCommission(tx, payment);
 
     await tx.outboxEvent.create({
       data: {
@@ -329,6 +330,9 @@ async function reverseOrganizationLedgerAndStock(
     }
   }
 
+  // comissão de promoter volta junto (idempotente)
+  await clawbackPromoterCommission(tx, payment);
+
   const items = await tx.orderItem.findMany({ where: { orderId: payment.orderId } });
   for (const item of items) {
     await returnSaleInventory(tx, item.ticketLotId, item.quantity);
@@ -388,4 +392,109 @@ export function addBusinessDays(from: Date, businessDays: number): Date {
     if (dow !== 0 && dow !== 6) remaining -= 1;
   }
   return date;
+}
+
+/**
+ * Split de comissão do promoter (Promoter v2, 2026-08-10): débito na org do
+ * evento + crédito no CAIXA da org do promoter — que saca pelas regras
+ * gerais. O crédito amadurece na MESMA data da venda (D+N úteis pós-evento):
+ * comissão não pode ser sacável antes do dinheiro que a gerou.
+ */
+async function splitPromoterCommission(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string },
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: {
+      promoterCommissionCents: true,
+      promoterLink: { select: { promoterOrgId: true } },
+      event: { select: { organizationId: true, endsAt: true } },
+    },
+  });
+  if (!order?.promoterLink || order.promoterCommissionCents <= 0) return;
+
+  const hostAccount = await tx.ledgerAccount.upsert({
+    where: { organizationId: order.event.organizationId },
+    update: {},
+    create: { organizationId: order.event.organizationId },
+  });
+  const promoterAccount = await tx.ledgerAccount.upsert({
+    where: { organizationId: order.promoterLink.promoterOrgId },
+    update: {},
+    create: { organizationId: order.promoterLink.promoterOrgId },
+  });
+  const availableAt = addBusinessDays(
+    order.event.endsAt,
+    Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
+  );
+  await tx.ledgerEntry.createMany({
+    data: [
+      {
+        ledgerAccountId: hostAccount.id,
+        type: "COMMISSION_DEBIT",
+        amountCents: -order.promoterCommissionCents,
+        referenceType: "payment",
+        referenceId: payment.id,
+        description: "Comissão de promoter",
+      },
+      {
+        ledgerAccountId: promoterAccount.id,
+        type: "COMMISSION_CREDIT",
+        amountCents: order.promoterCommissionCents,
+        referenceType: "payment",
+        referenceId: payment.id,
+        availableAt,
+        description: "Comissão de promoter",
+      },
+    ],
+  });
+}
+
+/** Estorno TOTAL devolve a comissão: promoter debita, org do evento credita. */
+export async function clawbackPromoterCommission(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string },
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: {
+      promoterCommissionCents: true,
+      promoterLink: { select: { promoterOrgId: true } },
+      event: { select: { organizationId: true } },
+    },
+  });
+  if (!order?.promoterLink || order.promoterCommissionCents <= 0) return;
+  const jaDevolvida = await tx.ledgerEntry.findFirst({
+    where: { referenceType: "payment", referenceId: payment.id, type: "COMMISSION_DEBIT", amountCents: { gt: 0 } },
+  });
+  if (jaDevolvida) return; // idempotente
+
+  const hostAccount = await tx.ledgerAccount.findUnique({
+    where: { organizationId: order.event.organizationId },
+  });
+  const promoterAccount = await tx.ledgerAccount.findUnique({
+    where: { organizationId: order.promoterLink.promoterOrgId },
+  });
+  if (!hostAccount || !promoterAccount) return;
+  await tx.ledgerEntry.createMany({
+    data: [
+      {
+        ledgerAccountId: promoterAccount.id,
+        type: "COMMISSION_CREDIT",
+        amountCents: -order.promoterCommissionCents,
+        referenceType: "payment",
+        referenceId: payment.id,
+        description: "Estorno de comissão (pedido reembolsado)",
+      },
+      {
+        ledgerAccountId: hostAccount.id,
+        type: "COMMISSION_DEBIT",
+        amountCents: order.promoterCommissionCents,
+        referenceType: "payment",
+        referenceId: payment.id,
+        description: "Estorno de comissão (pedido reembolsado)",
+      },
+    ],
+  });
 }

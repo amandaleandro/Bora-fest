@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, organizationsApi, type EventSummary, type SalesPartner } from "@/lib/api";
+import { eventsApi, organizationsApi, type EventSummary, type PromoterRow, type SalesPartner } from "@/lib/api";
 
 function PublicProfile({ orgId }: { orgId: string }) {
   const { token } = useAuth();
@@ -302,6 +302,186 @@ function PartnerCard({ orgId, partner, onChanged }: { orgId: string; partner: Sa
   );
 }
 
+
+function Promoters({ orgId }: { orgId: string }) {
+  const { token } = useAuth();
+  const [promoters, setPromoters] = useState<PromoterRow[]>([]);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Array<{ id: string; name: string; producerType: string | null; documentMasked: string }>>([]);
+  const [searching, setSearching] = useState(false);
+  const [inviting, setInviting] = useState<string | null>(null);
+  const [commission, setCommission] = useState("10");
+  const [payMode, setPayMode] = useState<"paga" | "conta">("paga");
+  const [message, setMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function load() {
+    if (!token) return;
+    setPromoters(await organizationsApi.listPromoters(token, orgId).catch(() => []));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, orgId]);
+
+  async function search() {
+    if (!token || query.trim().length < 3) return;
+    setSearching(true);
+    setMessage(null);
+    try {
+      setResults(await organizationsApi.searchOrganizations(token, query));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Busca falhou");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function invite(promoterOrgId: string) {
+    if (!token) return;
+    setMessage(null);
+    try {
+      const bps = payMode === "paga" ? Math.round(Number(commission || 0) * 100) : 0;
+      await organizationsApi.invitePromoter(token, orgId, promoterOrgId, bps);
+      setMessage("Convite enviado — aparece na conta do promoter para aceitar.");
+      setInviting(null);
+      setResults([]);
+      setQuery("");
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Não foi possível convidar");
+    }
+  }
+
+  function copyLink(slug: string, id: string) {
+    const base = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "https://borafest.com.br";
+    navigator.clipboard.writeText(`${base}/?pr=${slug}`);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  return (
+    <section className="mt-8">
+      <div className="mb-4">
+        <h2 className="text-[17px] font-extrabold">Promoters</h2>
+        <p className="mt-1 text-[12px] font-semibold text-muted">
+          Convide outra conta de produtor pelo nome, CPF ou CNPJ. O link é rastreável e, se houver
+          comissão, ela cai direto na carteira do promoter.
+        </p>
+      </div>
+
+      <div className="rounded-[16px] border border-dashed border-line bg-bg/40 p-4">
+        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
+            placeholder="Nome, CPF ou CNPJ da conta de produtor"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && search()}
+          />
+          <button
+            type="button"
+            onClick={search}
+            disabled={searching || query.trim().length < 3}
+            className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white disabled:opacity-50"
+          >
+            {searching ? "Buscando…" : "Buscar"}
+          </button>
+        </div>
+
+        {results.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            {results.map((r) => (
+              <div key={r.id} className="rounded-xl bg-surface px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[13.5px] font-extrabold">{r.name}</p>
+                    <p className="text-[12px] font-semibold text-muted">
+                      {r.producerType ?? "—"} · doc. {r.documentMasked}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInviting(inviting === r.id ? null : r.id)}
+                    className="h-9 rounded-xl border border-line px-4 text-[12.5px] font-bold text-primary"
+                  >
+                    Convidar
+                  </button>
+                </div>
+                {inviting === r.id ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-divider pt-3">
+                    <select
+                      className="h-10 rounded-xl border border-line-input px-3 text-[13px]"
+                      value={payMode}
+                      onChange={(e) => setPayMode(e.target.value as "paga" | "conta")}
+                    >
+                      <option value="paga">Recebe % do ingresso</option>
+                      <option value="conta">Só contabiliza vendas</option>
+                    </select>
+                    {payMode === "paga" ? (
+                      <input
+                        className="h-10 w-24 rounded-xl border border-line-input px-3 text-[13px]"
+                        type="number"
+                        min="0.5"
+                        max="50"
+                        step="0.5"
+                        value={commission}
+                        onChange={(e) => setCommission(e.target.value)}
+                        placeholder="%"
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => invite(r.id)}
+                      className="h-10 rounded-xl bg-primary px-4 text-[13px] font-extrabold text-white"
+                    >
+                      Enviar convite
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {message ? <p className="mt-2 text-[12px] font-bold text-brand">{message}</p> : null}
+      </div>
+
+      {promoters.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {promoters.map((p) => (
+            <div
+              key={p.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-line bg-surface px-4 py-3"
+            >
+              <div>
+                <p className="text-[13.5px] font-extrabold">{p.promoterName}</p>
+                <p className="text-[12px] font-semibold text-muted">
+                  {p.status === "INVITED" ? "Aguardando aceite" : "Ativo"} ·{" "}
+                  {p.commissionBps > 0
+                    ? `${(p.commissionBps / 100).toFixed(1).replace(".", ",")}% · ${(p.commissionCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em comissões`
+                    : "só contabiliza"}
+                  {" · "}
+                  {p.paidOrders} venda{p.paidOrders === 1 ? "" : "s"}
+                </p>
+              </div>
+              {p.status === "ACTIVE" ? (
+                <button
+                  type="button"
+                  onClick={() => copyLink(p.slug, p.id)}
+                  className="h-9 rounded-xl border border-line px-4 text-[12.5px] font-bold text-primary"
+                >
+                  {copied === p.id ? "Copiado ✓" : "Copiar link"}
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function SalesPartners({ orgId }: { orgId: string }) {
   const { token } = useAuth();
   const [partners, setPartners] = useState<SalesPartner[]>([]);
@@ -363,6 +543,7 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
     >
       <EventsList orgId={params.orgId} />
       <PublicProfile orgId={params.orgId} />
+      <Promoters orgId={params.orgId} />
       <SalesPartners orgId={params.orgId} />
     </GuardedPanelShell>
   );

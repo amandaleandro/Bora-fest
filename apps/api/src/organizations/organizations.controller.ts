@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, inviteMemberSchema, updateOrganizationSchema } from "@borafest/contracts";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, invitePromoterSchema, inviteMemberSchema, updateOrganizationSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -18,6 +18,46 @@ export class OrganizationsController {
   @Get()
   listForUser(@CurrentUserId() userId: string) {
     return this.organizationsService.listForUser(userId);
+  }
+
+  /** busca para convite de promoter — rota estática ANTES de :id */
+  @Get("search")
+  search(@CurrentUserId() userId: string, @Query("q") q: string | undefined) {
+    return this.organizationsService.searchOrganizations(userId, q ?? "");
+  }
+
+  @Get("promoter-invites/mine")
+  myPromoterInvites(@CurrentUserId() userId: string) {
+    return this.organizationsService.listMyPromoterInvites(userId);
+  }
+
+  @Get("promoter-engagements/mine")
+  myPromoterEngagements(@CurrentUserId() userId: string) {
+    return this.organizationsService.listMyPromoterEngagements(userId);
+  }
+
+  @Post("promoter-links/:linkId/accept")
+  acceptPromoterInvite(@Param("linkId") linkId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.respondPromoterInvite(linkId, userId, true);
+  }
+
+  @Post("promoter-links/:linkId/decline")
+  declinePromoterInvite(@Param("linkId") linkId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.respondPromoterInvite(linkId, userId, false);
+  }
+
+  @Post(":id/promoters")
+  invitePromoter(
+    @Param("id") organizationId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(invitePromoterSchema)) body: unknown,
+  ) {
+    return this.organizationsService.invitePromoter(organizationId, userId, body as any);
+  }
+
+  @Get(":id/promoters")
+  listPromoters(@Param("id") organizationId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.listPromoters(organizationId, userId);
   }
 
   @Patch(":id")

@@ -117,6 +117,17 @@ enum OrganizationKind {
   COMPANY
 }
 
+/// Classificação comercial do produtor (decisão 2026-08-10): segmenta
+/// relatórios, contratos de confiança (casas) e funcionalidades (atléticas
+/// → promoters). Obrigatória no cadastro novo; null = conta legada.
+enum ProducerType {
+  CASA
+  ATLETICA
+  PRODUTORA
+  INDEPENDENTE
+  OUTRO
+}
+
 enum OrganizationStatus {
   PENDING_VERIFICATION
   ACTIVE
@@ -129,6 +140,7 @@ model Organization {
   name      String
   slug      String             @unique
   kind      OrganizationKind
+  producerType ProducerType?   @map("producer_type")
   document  String             @unique
   /// nome comercial mostrado ao público (marca/atlética); null = usa `name`.
   /// Criado porque produtor pessoa física aparecia com o nome civil no site.
@@ -165,6 +177,8 @@ model Organization {
   ledgerAccount LedgerAccount?
   payouts       Payout[]
   salesPartners SalesPartner[]
+  promoterHosts  PromoterLink[] @relation("PromoterHost")
+  promoterGuests PromoterLink[] @relation("PromoterGuest")
   followers     OrganizationFollow[]
 
   @@map("organizations")
@@ -244,6 +258,39 @@ model OrganizationMember {
   @@unique([organizationId, userId])
   @@index([userId])
   @@map("organization_members")
+}
+
+/// Promoter v2 (2026-08-10): afiliado POR CONTA DE PRODUTOR. A organização
+/// convidada divulga com link rastreável (?pr=slug); a comissão (quando
+/// houver) entra como crédito no CAIXA DELA e sai pelas regras gerais de
+/// saque. commissionBps = 0 → só contabilização de vendas (a UI nunca diz
+/// "você não vai receber").
+model PromoterLink {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  promoterOrgId  String              @map("promoter_org_id") @db.Uuid
+  status         PromoterLinkStatus  @default(INVITED)
+  commissionBps  Int                 @default(0) @map("commission_bps")
+  /// slug global do link rastreável (?pr=slug) — único entre todos os promoters
+  slug           String              @unique
+  invitedBy      String?             @map("invited_by") @db.Uuid
+  invitedAt      DateTime            @default(now()) @map("invited_at")
+  respondedAt    DateTime?           @map("responded_at")
+
+  organization Organization @relation("PromoterHost", fields: [organizationId], references: [id], onDelete: Cascade)
+  promoterOrg  Organization @relation("PromoterGuest", fields: [promoterOrgId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([organizationId, promoterOrgId])
+  @@index([promoterOrgId, status])
+  @@map("promoter_links")
+}
+
+enum PromoterLinkStatus {
+  INVITED
+  ACTIVE
+  DECLINED
+  REMOVED
 }
 
 model SalesPartner {
@@ -609,6 +656,8 @@ model Order {
   reservationId String      @unique @map("reservation_id") @db.Uuid
   userId        String?     @map("user_id") @db.Uuid
   salesPartnerId String?    @map("sales_partner_id") @db.Uuid
+  promoterLinkId String?    @map("promoter_link_id") @db.Uuid
+  promoterCommissionCents Int @default(0) @map("promoter_commission_cents")
   soldByUserId  String?     @map("sold_by_user_id") @db.Uuid
   partnerCommissionCents Int @default(0) @map("partner_commission_cents")
   /// como o pedido foi atribuído ao parceiro: PDV/vendedor (MANUAL) ou link público (LINK)
@@ -628,6 +677,7 @@ model Order {
   reservation Reservation  @relation(fields: [reservationId], references: [id])
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   salesPartner SalesPartner? @relation(fields: [salesPartnerId], references: [id], onDelete: SetNull)
+  promoterLink PromoterLink? @relation(fields: [promoterLinkId], references: [id], onDelete: SetNull)
   soldByUser  User?         @relation("SalesOrderSeller", fields: [soldByUserId], references: [id], onDelete: SetNull)
   items       OrderItem[]
   payments    Payment[]
@@ -1043,6 +1093,9 @@ enum LedgerEntryType {
   PLATFORM_FEE
   REFUND_DEBIT
   PAYOUT_DEBIT
+  /// comissão de promoter: débito na org do evento, crédito na org do promoter
+  COMMISSION_DEBIT
+  COMMISSION_CREDIT
   /// taxa de antecipação cobrada de org INSTANT sobre a parcela do saque que
   /// ainda estaria na janela de reembolso no modo STANDARD
   ANTICIPATION_FEE

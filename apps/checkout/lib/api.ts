@@ -291,6 +291,7 @@ export const api = {
       contactPhone?: string;
       couponCode?: string;
       partnerSlug?: string;
+      promoterSlug?: string;
       addOns?: Array<{ addOnId: string; quantity: number }>;
       attendees?: OrderAttendeeInput[];
       consent?: ConsentInput;

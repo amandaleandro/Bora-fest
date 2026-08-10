@@ -23,3 +23,27 @@ export function getAttributedPartnerSlug(): string | undefined {
     return undefined;
   }
 }
+
+const PROMOTER_KEY = "bf.promoter";
+
+/** Captura `?pr=slug` (link de promoter) — mesma janela de 7 dias, last-click. */
+export function capturePromoterFromUrl() {
+  const slug = new URLSearchParams(window.location.search).get("pr");
+  if (!slug) return;
+  localStorage.setItem(PROMOTER_KEY, JSON.stringify({ slug, expiresAt: Date.now() + ATTRIBUTION_WINDOW_MS }));
+}
+
+export function getAttributedPromoterSlug(): string | undefined {
+  const raw = localStorage.getItem(PROMOTER_KEY);
+  if (!raw) return undefined;
+  try {
+    const { slug, expiresAt } = JSON.parse(raw) as { slug: string; expiresAt: number };
+    if (Date.now() > expiresAt) {
+      localStorage.removeItem(PROMOTER_KEY);
+      return undefined;
+    }
+    return slug;
+  } catch {
+    return undefined;
+  }
+}
