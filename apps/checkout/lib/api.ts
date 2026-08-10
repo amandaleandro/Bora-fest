@@ -196,6 +196,9 @@ export interface OrderTicketsResponse {
   orderId: string;
   orderStatus: string;
   event: { title: string; slug: string; startsAt: string; endsAt: string };
+  /** conta criada no checkout ainda não verificada: QR fica trancado */
+  requiresVerification?: boolean;
+  contactEmail?: string;
   tickets: OrderTicket[];
 }
 
@@ -291,6 +294,8 @@ export const api = {
       contactPhone?: string;
       couponCode?: string;
       partnerSlug?: string;
+      promoterSlug?: string;
+      contactCpf?: string;
       addOns?: Array<{ addOnId: string; quantity: number }>;
       attendees?: OrderAttendeeInput[];
       consent?: ConsentInput;
@@ -349,6 +354,16 @@ export const api = {
       body: { destination, channel: "EMAIL" },
     }),
 
+  magicVerify: (token: string) =>
+    request<{ token: string; user: { id: string; email: string | null }; orderToken: string | null }>(
+      "/v1/identity/magic-verify",
+      { method: "POST", body: { token } },
+    ),
+  correctOrderEmail: (publicToken: string, email: string) =>
+    request<{ ok: boolean; contactEmail: string }>(`/v1/orders/${publicToken}/correct-email`, {
+      method: "POST",
+      body: { email },
+    }),
   verifyOtp: (destination: string, code: string) =>
     request<{ token: string; user: { id: string; email: string; name: string | null } }>(
       "/v1/identity/otp/verify",

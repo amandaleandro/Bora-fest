@@ -10,6 +10,11 @@ import { OrdersService } from "./orders.service";
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  @Post(":publicToken/correct-email")
+  correctEmail(@Param("publicToken") publicToken: string, @Body() body: { email?: string }) {
+    return this.ordersService.correctEmail(publicToken, body?.email ?? "");
+  }
+
   @Post()
   create(
     @OptionalUserId() userId: string | undefined,
@@ -44,6 +49,11 @@ export class OrdersController {
 @UseGuards(SessionGuard)
 export class PdvController {
   constructor(private readonly ordersService: OrdersService) {}
+
+  @Post(":publicToken/correct-email")
+  correctEmail(@Param("publicToken") publicToken: string, @Body() body: { email?: string }) {
+    return this.ordersService.correctEmail(publicToken, body?.email ?? "");
+  }
 
   @Post()
   create(

@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "crypto";
 import {
   CardPaymentResult,
+  PixTransferInput,
+  PixTransferResult,
   CreateCardPaymentInput,
   CreatePixChargeInput,
   GatewayPaymentStatus,
@@ -226,6 +228,42 @@ export class AsaasGateway implements PaymentGateway {
     };
   }
 
+  /**
+   * Pix de SAÍDA (repasse automático ao produtor). externalReference = id do
+   * Payout — auditável no extrato do Asaas. Tipo da chave é detectado.
+   */
+  async transferPix(input: PixTransferInput): Promise<PixTransferResult> {
+    const transfer = await this.request<{ id: string; status: string; failReason?: string }>(
+      "POST",
+      "/transfers",
+      {
+        value: toReais(input.amountCents),
+        operationType: "PIX",
+        pixAddressKey: input.pixKey.trim(),
+        pixAddressKeyType: detectPixKeyType(input.pixKey),
+        description: input.description,
+        externalReference: input.externalReference,
+      },
+    );
+    return {
+      externalId: transfer.id,
+      status: mapTransferStatus(transfer.status),
+      failReason: transfer.failReason,
+    };
+  }
+
+  async getTransferStatus(externalId: string): Promise<PixTransferResult> {
+    const transfer = await this.request<{ id: string; status: string; failReason?: string }>(
+      "GET",
+      `/transfers/${externalId}`,
+    );
+    return {
+      externalId: transfer.id,
+      status: mapTransferStatus(transfer.status),
+      failReason: transfer.failReason,
+    };
+  }
+
   // -------------------------------------------------------------------------
 
   /** Cria o customer da cobrança (Asaas exige um id de customer por payment). */
@@ -335,4 +373,31 @@ export function mapAsaasWebhookEvent(event: string, paymentStatus?: string): Gat
       // eventos informativos (PAYMENT_CREATED, PAYMENT_UPDATED etc.)
       return paymentStatus ? mapAsaasStatus(paymentStatus) : "PENDING";
   }
+}
+
+/** DONE/CANCELLED/FAILED do Asaas → nosso trinário de repasse. */
+export function mapTransferStatus(status: string): "DONE" | "PENDING" | "FAILED" {
+  switch (status) {
+    case "DONE":
+      return "DONE";
+    case "CANCELLED":
+    case "FAILED":
+      return "FAILED";
+    default:
+      // PENDING / BANK_PROCESSING — concilia depois
+      return "PENDING";
+  }
+}
+
+/** Detecta o tipo da chave Pix (o Asaas exige o tipo junto da chave). */
+export function detectPixKeyType(key: string): "CPF" | "CNPJ" | "EMAIL" | "PHONE" | "EVP" {
+  const raw = key.trim();
+  if (raw.includes("@")) return "EMAIL";
+  const digits = raw.replace(/\D/g, "");
+  if (/^\+?55\d{10,11}$/.test(raw.replace(/[\s()-]/g, "")) || (raw.startsWith("+") && digits.length >= 12)) {
+    return "PHONE";
+  }
+  if (digits.length === 11 && digits === raw.replace(/[.\-]/g, "")) return "CPF";
+  if (digits.length === 14 && digits === raw.replace(/[.\-\/]/g, "")) return "CNPJ";
+  return "EVP"; // chave aleatória (uuid)
 }

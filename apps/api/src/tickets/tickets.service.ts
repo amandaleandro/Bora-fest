@@ -19,14 +19,30 @@ export class TicketsService {
           },
         },
         event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
+        user: { select: { emailVerifiedAt: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
+
+    // Portão do 1º ingresso: conta não verificada não vê QR — nem por link
+    // encaminhado. Verificou (código ou link mágico), abre.
+    if (order.user && !order.user.emailVerifiedAt) {
+      return {
+        orderId: order.id,
+        orderStatus: order.status,
+        event: order.event,
+        requiresVerification: true,
+        contactEmail: order.contactEmail,
+        tickets: [],
+      };
+    }
 
     return {
       orderId: order.id,
       orderStatus: order.status,
       event: order.event,
+      requiresVerification: false,
+      contactEmail: order.contactEmail,
       tickets: order.tickets.map((ticket) => this.toPublicTicket(ticket)),
     };
   }

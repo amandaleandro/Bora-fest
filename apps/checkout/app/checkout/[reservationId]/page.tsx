@@ -13,7 +13,7 @@ import {
   type Reservation,
 } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
-import { getAttributedPartnerSlug } from "../../../lib/attribution";
+import { getAttributedPartnerSlug, getAttributedPromoterSlug } from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
 
 type Step = "ident" | "participantes" | "pagamento";
@@ -365,6 +365,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           contactPhone: phone || undefined,
           couponCode: validCoupon ? coupon.trim().toUpperCase() : undefined,
           partnerSlug: getAttributedPartnerSlug(),
+          promoterSlug: getAttributedPromoterSlug(),
+          contactCpf: onlyDigits(buyerCpf) || undefined,
           addOns: Object.entries(addOnQty).some(([, qty]) => qty > 0)
             ? Object.entries(addOnQty)
                 .filter(([, qty]) => qty > 0)
@@ -668,24 +670,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
             {step === "ident" && (
               <section className={cardClass}>
-                <h2 className="text-[22px] font-extrabold lg:text-[18px]">Quase lá! Como quer continuar?</h2>
+                <h2 className="text-[22px] font-extrabold lg:text-[18px]">Quase lá! Seus dados</h2>
                 <p className="mt-1 text-[13px] font-medium text-muted">
-                  Sem senha, sem baixar app. Você recebe os ingressos por e-mail e WhatsApp.
+                  Sem senha, sem baixar app — sua conta BoraFest nasce junto com a compra.
                 </p>
-
-                <div className="mt-5 flex rounded-2xl bg-line p-1">
-                  {(["guest", "otp"] as const).map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => setMode(m)}
-                      className={`flex-1 rounded-xl py-2.5 text-[13px] font-bold ${
-                        mode === m ? "bg-surface text-ink shadow-sm" : "text-muted"
-                      }`}
-                    >
-                      {m === "guest" ? "Como convidado" : "Entrar com código"}
-                    </button>
-                  ))}
-                </div>
 
                 <div className="mt-5 space-y-4">
                   <div>
@@ -722,43 +710,15 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     </p>
                   </div>
 
-                  {mode === "guest" ? (
-                    <div>
-                      <label className={labelClass}>Celular / WhatsApp</label>
-                      <input
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="(11) 99999-8888"
-                        className={inputClass}
-                      />
-                    </div>
-                  ) : otpSent ? (
-                    <div>
-                      <label className={labelClass}>Código enviado para {email}</label>
-                      <input
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(onlyDigits(e.target.value))}
-                        placeholder="••••••"
-                        className="mt-1 h-[60px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-4 text-center text-[24px] font-extrabold tracking-[12px] outline-none focus:border-primary"
-                      />
-                      <div className="mt-2 flex items-center justify-between text-[12px] font-semibold">
-                        {otpResendIn > 0 ? (
-                          <span className="text-muted">
-                            Reenviar código em 0:{String(otpResendIn).padStart(2, "0")}
-                          </span>
-                        ) : (
-                          <button onClick={sendOtp} className="text-primary">
-                            Não recebi o código
-                          </button>
-                        )}
-                        <button onClick={() => setMode("guest")} className="text-muted">
-                          Continuar como convidado
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
+                  <div>
+                    <label className={labelClass}>Celular / WhatsApp</label>
+                    <input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="(11) 99999-8888"
+                      className={inputClass}
+                    />
+                  </div>
                 </div>
 
                 {error && <p className="mt-3 text-[12px] font-semibold text-danger">{error}</p>}
@@ -778,13 +738,11 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       return;
                     }
                     setError(null);
-                    if (mode === "guest") setStep(hasNominal ? "participantes" : "pagamento");
-                    else if (!otpSent) sendOtp();
-                    else confirmOtp();
+                    setStep(hasNominal ? "participantes" : "pagamento");
                   }}
                   className="mt-5 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
                 >
-                  {mode === "otp" && otpSent ? "Entrar" : mode === "otp" ? "Enviar código" : "Continuar"}
+                  Continuar
                 </button>
 
               </section>
@@ -931,7 +889,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       Política de Privacidade ({CONSENT_VERSION})
                     </Link>
                     <label htmlFor="consent" className="cursor-pointer">
-                      , e autorizo o tratamento dos meus dados para emissão e entrega dos ingressos (LGPD).{" "}
+                      , e autorizo o tratamento dos meus dados para emissão e entrega dos ingressos e para a criação da minha conta BoraFest (LGPD).{" "}
                       <b className="text-ink">Obrigatório para pagar.</b>
                     </label>
                   </p>

@@ -34,7 +34,13 @@ export class FinanceController {
     @CurrentUserId() userId: string,
     @Body(ZodBody(requestPayoutSchema)) body: unknown,
   ) {
-    return this.financeService.requestPayout(organizationId, userId, (body as { amountCents: number }).amountCents);
+    const input = body as { amountCents: number; anticipation?: boolean };
+    return this.financeService.requestPayout(
+      organizationId,
+      userId,
+      input.amountCents,
+      input.anticipation ?? false,
+    );
   }
 
   @Get("payout-requests")

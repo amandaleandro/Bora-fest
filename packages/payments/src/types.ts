@@ -109,6 +109,20 @@ export class WebhookVerificationError extends Error {}
 
 export type WebhookHeaders = Record<string, string | string[] | undefined>;
 
+export interface PixTransferInput {
+  amountCents: number;
+  pixKey: string;
+  description: string;
+  /** referência idempotente nossa (id do Payout) — auditoria e anti-duplicidade */
+  externalReference: string;
+}
+
+export interface PixTransferResult {
+  externalId: string;
+  status: "DONE" | "PENDING" | "FAILED";
+  failReason?: string;
+}
+
 export interface PaymentGateway {
   readonly provider: string;
   createPixCharge(input: CreatePixChargeInput): Promise<PixCharge>;
@@ -117,4 +131,8 @@ export interface PaymentGateway {
   getStatus(externalId: string): Promise<GatewayPaymentStatus>;
   /** Verifica assinatura e normaliza o evento; lança WebhookVerificationError se inválido. */
   verifyWebhook(headers: WebhookHeaders, rawBody: string): VerifiedWebhookEvent;
+  /** Pix de SAÍDA (repasse ao produtor). Opcional: nem todo provedor suporta. */
+  transferPix?(input: PixTransferInput): Promise<PixTransferResult>;
+  /** Status de uma transferência já criada (conciliação do repasse). */
+  getTransferStatus?(externalId: string): Promise<PixTransferResult>;
 }

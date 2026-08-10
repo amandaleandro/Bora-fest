@@ -355,6 +355,127 @@ Testes novos (home-sections.test.ts): ordem do placar, honestidade do Em
 alta, densidade da prateleira. API 30/30 · build 14/14 · verificado no
 navegador com vendas fabricadas no banco local.
 
+**Repasse 100% automático (2026-08-09)** — exigência do Arthur: "precisa
+ser automático, senão a plataforma fica atrás das demais", com config por
+casa. Última milha fechada:
+- **Pix de SAÍDA pelo provedor**: AsaasGateway.transferPix (POST /transfers
+  com chave Pix da conta bancária padrão da organização; tipo da chave
+  detectado) + getTransferStatus para conciliação; mock idem. Interface
+  opcional no PaymentGateway — o futuro adaptador de banco (Pix direto)
+  encaixa aqui sem mexer no worker.
+- **Worker executa sozinho**: varredura (agora a cada 5 min,
+  AUTO_PAYOUTS_SWEEP_MS) cria o payout e, com AUTO_TRANSFER_ENABLED=true,
+  dispara o Pix na hora; DONE→PAID, BANK_PROCESSING→concilia depois,
+  FAILED→FAILED com motivo no backoffice. **Anti-duplicidade fail-closed**:
+  com externalId gravado nunca se cria 2ª transferência; erro de rede sem
+  resposta → FAILED pedindo conferência manual (dinheiro nunca sai dobrado
+  sozinho). Trilha em audit_logs (payout.auto_transfer).
+- **Mínimo POR CASA**: Organization.autoPayoutMinCents (null = padrão
+  global AUTO_PAYOUT_MIN_CENTS) — POST /v1/admin/organizations/:id/
+  settlement aceita autoPayoutMinCents. Casas de confiança: INSTANT +
+  autoPayout + mínimo contratual = repasse na hora sem chuva de Pix.
+- Migração auto_transfer (payout.external_id/fail_reason + org.auto_
+  payout_min_cents). AUTO_TRANSFER_ENABLED=false por padrão — Arthur liga
+  no Environment quando quiser estrear (sem chave Pix cadastrada o payout
+  fica PENDING para o backoffice, sem drama).
+Testes: ciclo saldo→payout→Pix→PAID com auditoria e mínimo por casa
+segurando/soltando o repasse. API 30/30 · worker 3/3 · build 14/14.
+
+**Regras de saque v2 — molde aprovado pelo Arthur (2026-08-09)** — o
+produtor APERTA O BOTÃO; as regras decidem o caminho. Substitui a
+varredura que criava repasse sozinha (Arthur vetou: "não quero 100%
+automático, o cliente aperta um botão"):
+- **Liberação (plano padrão)**: crédito de venda agora amadurece D+2
+  ÚTEIS APÓS O EVENTO (padrão de mercado — o risco real é evento não
+  acontecer; Sympla usa ~D+5, somos 2× mais rápidos). addBusinessDays em
+  apply-status; RELEASE_BUSINESS_DAYS_AFTER_EVENT=2. Lançamentos antigos
+  mantêm a data em que nasceram.
+- **Clique do produtor** (requestPayout v2): mínimo por casa → 1 saque em
+  andamento → 1/dia → quarentena de 48h após troca de conta/chave Pix
+  (pixKeyUpdatedAt carimbado no addBankAccount) → saldo. Rotas: casa de
+  CONFIANÇA (INSTANT) sob o teto contratual
+  (instantMaxPerWithdrawalCents) = payout direto + fila do worker acordada
+  (Pix em segundos com AUTO_TRANSFER_ENABLED); 1º saque da casa,
+  ANTECIPAÇÃO e acima do teto = análise no backoffice.
+- **Antecipação (padrão de mercado, receita)**: checkbox no modal de
+  saque quando há saldo em janela; taxa pró-rata 1,25% a.m. simulada
+  antes e lançada na aprovação; sempre passa por análise.
+- **Backoffice**: fila "Saques aguardando análise" em /payouts com
+  aprovar (dispara o Pix) e recusar com motivo; endpoints
+  /v1/admin/payout-requests(+approve/reject).
+- Worker: executeAutoTransfers vira o único papel da varredura (executa e
+  concilia; NUNCA decide) — anti-duplicidade fail-closed mantida.
+Testes (6): confiança saca na hora; teto roteia para análise; 1º saque com
+análise; 1/dia; quarentena; antecipação com taxa no caixa. API 30/30 ·
+worker 6/6 · build 14/14.
+
+**Teto de 80% na antecipação (2026-08-10)** — decisão estratégica do
+Arthur (benchmark: Sympla antecipa até 80% mediante análise; Cheers, o
+concorrente direto, NÃO publica regras de dinheiro — brecha para a
+BoraFest ser a plataforma de regras públicas e cravadas). Antecipação do
+plano padrão libera liberado + 80% do em-janela (ANTICIPATION_MAX_BPS=
+8000); os 20% retidos são colchão de reembolso até o evento. Mensagem
+clara no erro e no modal ("antecipar até 80%..."). Casas de confiança
+não passam por aqui. Teste do teto no repasse-automatico.test.ts.
+Worker 6/6 · build 14/14.
+
+**Tipo de produtor + Promoter v2 (2026-08-10)** — pedido do Arthur com
+molde dele:
+- **ProducerType obrigatório no cadastro** (CASA/ATLETICA/PRODUTORA/
+  INDEPENDENTE/OUTRO) — segmenta contratos de confiança, promoters e
+  relatórios; contas legadas ficam null até editar.
+- **Promoter v2 = afiliado por CONTA DE PRODUTOR** (qualquer organização
+  ativa, confirmado pelo Arthur): anfitriã busca por nome/nome comercial
+  ou CPF/CNPJ (igualdade exata, resposta mascarada ***1234), convida com
+  % sobre ingressos OU só-contabiliza (bps=0). Convite aceito no painel
+  do promoter (seção Convites na lista de organizações); "Sou promoter"
+  mostra link (?pr=slug), vendas e — SÓ quando há comissão — o dinheiro
+  (a UI nunca diz "você não vai receber").
+- **Link rastreável ?pr=** com last-click de 7 dias (mesmo mecanismo do
+  ?p= de atlética); quando os dois existem, PROMOTER VENCE — nunca
+  comissão dupla.
+- **Split no caixa**: pagamento confirmado lança COMMISSION_DEBIT na
+  anfitriã e COMMISSION_CREDIT na CARTEIRA do promoter, amadurecendo na
+  MESMA regra da venda (D+2 úteis pós-evento) — saque pelas regras gerais
+  já construídas, zero regra nova de dinheiro. Estorno total faz clawback
+  idempotente (promoter devolve, anfitriã recebe de volta).
+- Migração producer_type_promoter_v2 (enum + promoter_links + campos no
+  pedido + tipos novos de lançamento).
+Testes: ciclo completo (busca→convite→aceite→venda 10% = R$10→carteira→
+estorno zera) e só-contabiliza (atribui sem dinheiro, payload sem campos
+de comissão). API 32/32 · worker 6/6 · build 14/14.
+
+**Conta no checkout v1 — fim do convidado (2026-08-10)** — estratégia
+debatida e fechada com o Arthur ("convidado não serve, eu fico sem os
+dados"), com o refinamento dele: o 1º ingresso NÃO viaja por e-mail — é o
+portão que faz a conta ser verificada.
+- **Checkout unificado**: sem abas convidado/código; nome, e-mail, CPF e
+  celular sempre; aceite passa a incluir "criação da minha conta
+  BoraFest" (LGPD).
+- **Conta invisível no pedido**: e-mail sem conta → User nasce dos dados
+  da compra (CPF/telefone só se livres — são únicos); e-mail com conta →
+  pedido anexa. CPF da compra vira o CPF da conta (vínculo do ingresso).
+- **Portão do 1º ingresso**: emissão para conta NÃO verificada gera só o
+  e-mail account_claim com LINK MÁGICO (/acesso?token=JWT purpose
+  email-verify, 7d) — clicar prova a posse do e-mail, verifica, loga e
+  abre o pedido; a carteira do pedido devolve requiresVerification e a UI
+  mostra o portão (pedir código de 6 dígitos = OTP normal, que agora
+  também marca emailVerifiedAt). QR nunca sai por e-mail antes disso
+  (modelo DICE — antifraude de print).
+- **Corrigir e-mail digitado errado**: POST /orders/:publicToken/
+  correct-email — só enquanto não verificada; posse do publicToken = a
+  sessão que pagou; troca e-mail do user+pedido e reenvia o aviso.
+- **2ª compra em diante**: verificado recebe ticket_delivery normal
+  (e-mail/wpp/push), como o Arthur definiu.
+- **WhatsApp**: botão "Receber meus ingressos no WhatsApp" (wa.me com
+  texto pré-preenchido — conversa iniciada PELO cliente = resposta grátis
+  na API da Meta); NEXT_PUBLIC_WHATSAPP_NUMBER no Dockerfile.checkout
+  (vazio = oculto). Bot automático entra quando vierem as chaves Meta.
+Testes: ciclo completo (conta nasce com CPF → aviso sem QR → carteira
+trancada → link mágico verifica/loga/destrava → 2ª compra entrega
+normal) e correção de e-mail com reenvio + trava pós-verificação.
+API 34/34 · worker 6/6 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

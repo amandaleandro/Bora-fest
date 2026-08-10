@@ -1,3 +1,4 @@
+import { createSessionToken } from "@borafest/auth";
 import { prisma, Prisma } from "@borafest/database";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { withContext } from "@borafest/observability";
@@ -14,7 +15,12 @@ const log = withContext({ module: "ticket-issuance" });
 export async function issueTicketsForOrder(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { items: true, attendees: true, event: { include: { signingKey: true } } },
+    include: {
+      items: true,
+      attendees: true,
+      event: { include: { signingKey: true } },
+      user: { select: { id: true, emailVerifiedAt: true } },
+    },
   });
 
   if (!order) {
@@ -94,6 +100,31 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       data: { status: "FULFILLED" },
     });
     if (fulfilled.count === 0) return;
+
+    // Portão do 1º ingresso (decisão 2026-08-10): conta ainda não verificada
+    // NÃO recebe o ingresso por e-mail — recebe o aviso com link mágico, que
+    // verifica a conta e abre o ingresso. Verificado = entrega normal.
+    if (order.user && !order.user.emailVerifiedAt) {
+      const claimToken = await createSessionToken(
+        { sub: order.user.id, purpose: "email-verify", orderToken: order.publicToken },
+        "7d",
+      );
+      const base = process.env.WEB_BASE_URL ?? "https://borafest.com.br";
+      await tx.notification.create({
+        data: {
+          channel: "EMAIL",
+          recipient: order.contactEmail,
+          template: "account_claim",
+          payload: {
+            contactName: order.contactName,
+            eventTitle: order.event.title,
+            claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+          },
+          orderId,
+        },
+      });
+      return; // sem QR por e-mail/WhatsApp/push até verificar
+    }
 
     const payload = buildDeliveryPayload(order, tickets);
     await tx.notification.create({

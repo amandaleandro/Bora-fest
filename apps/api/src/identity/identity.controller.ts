@@ -27,6 +27,12 @@ export class IdentityController {
     return this.identityService.verifyOtp(body as any);
   }
 
+  @Post("magic-verify")
+  @RateLimit({ limit: 20, windowSeconds: 900, keyPrefix: "magic-verify" })
+  verifyMagicLink(@Body() body: { token?: string }) {
+    return this.identityService.verifyMagicLink(body?.token ?? "");
+  }
+
   // --- auth por senha (painel do produtor — protótipo docs/design) ---------
 
   @Post("register")

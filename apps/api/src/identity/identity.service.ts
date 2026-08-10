@@ -5,6 +5,7 @@ import {
   hashOtpCode,
   verifyOtpCode,
   createSessionToken,
+  verifySessionToken,
   OTP_TTL_MINUTES,
   OTP_MAX_ATTEMPTS,
   hashPassword,
@@ -95,8 +96,9 @@ export class IdentityService {
 
     const user = await prisma.user.upsert({
       where: { email: input.destination },
-      update: {},
-      create: { email: input.destination },
+      // código digitado = posse do e-mail comprovada — abre o 1º ingresso
+      update: { emailVerifiedAt: new Date() },
+      create: { email: input.destination, emailVerifiedAt: new Date() },
     });
 
     await prisma.otpChallenge.update({
@@ -115,6 +117,35 @@ export class IdentityService {
 
     return { token, user };
   }
+  /**
+   * Link mágico do e-mail de "seu ingresso está pronto": clicar É a prova de
+   * posse do e-mail — verifica a conta, loga e devolve o pedido de destino.
+   */
+  async verifyMagicLink(token: string) {
+    let claims: { sub?: string; purpose?: string; orderToken?: string };
+    try {
+      claims = (await verifySessionToken(token)) as typeof claims;
+    } catch {
+      throw new UnauthorizedException("Link inválido ou expirado — peça um código no site");
+    }
+    if (claims.purpose !== "email-verify" || !claims.sub) {
+      throw new UnauthorizedException("Link inválido ou expirado — peça um código no site");
+    }
+    const user = await prisma.user.update({
+      where: { id: claims.sub },
+      data: { emailVerifiedAt: new Date() },
+    });
+    // mesmo efeito do OTP: reivindica pedidos de convidado antigos deste e-mail
+    if (user.email) {
+      await prisma.order.updateMany({
+        where: { userId: null, contactEmail: user.email },
+        data: { userId: user.id },
+      });
+    }
+    const session = await createSessionToken({ sub: user.id });
+    return { token: session, user, orderToken: claims.orderToken ?? null };
+  }
+
   // --- auth por senha (painel do produtor) ---------------------------------
 
   async registerWithPassword(input: RegisterInput) {

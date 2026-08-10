@@ -8,6 +8,9 @@ ARG NEXT_PUBLIC_API_URL=https://api.borafest.com.br
 # sem elas o link do painel sai como localhost em produção
 ARG NEXT_PUBLIC_PANEL_URL=https://painel.borafest.com.br
 ARG NEXT_PUBLIC_CHECKOUT_URL=https://borafest.com.br
+# número do WhatsApp do botão "receber no wpp" (só dígitos com DDI, ex. 5534999998888); vazio = botão oculto
+ARG NEXT_PUBLIC_WHATSAPP_NUMBER=
+ENV NEXT_PUBLIC_WHATSAPP_NUMBER=$NEXT_PUBLIC_WHATSAPP_NUMBER
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_PANEL_URL=$NEXT_PUBLIC_PANEL_URL
 ENV NEXT_PUBLIC_CHECKOUT_URL=$NEXT_PUBLIC_CHECKOUT_URL

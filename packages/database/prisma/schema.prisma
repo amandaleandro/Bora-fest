@@ -32,6 +32,9 @@ model User {
   phone        String?       @unique
   cpf          String?       @unique
   platformRole PlatformRole? @map("platform_role")
+  /// e-mail comprovado (código ou link mágico) — 1º ingresso só abre depois
+  /// disso; contas nascidas invisíveis no checkout começam null
+  emailVerifiedAt DateTime? @map("email_verified_at")
   /// login por senha (painel do produtor); compradores seguem sem senha (OTP)
   passwordHash    String?   @map("password_hash")
   termsAcceptedAt DateTime? @map("terms_accepted_at")
@@ -118,6 +121,17 @@ enum OrganizationKind {
   COMPANY
 }
 
+/// Classificação comercial do produtor (decisão 2026-08-10): segmenta
+/// relatórios, contratos de confiança (casas) e funcionalidades (atléticas
+/// → promoters). Obrigatória no cadastro novo; null = conta legada.
+enum ProducerType {
+  CASA
+  ATLETICA
+  PRODUTORA
+  INDEPENDENTE
+  OUTRO
+}
+
 enum OrganizationStatus {
   PENDING_VERIFICATION
   ACTIVE
@@ -130,6 +144,7 @@ model Organization {
   name      String
   slug      String             @unique
   kind      OrganizationKind
+  producerType ProducerType?   @map("producer_type")
   document  String             @unique
   /// nome comercial mostrado ao público (marca/atlética); null = usa `name`.
   /// Criado porque produtor pessoa física aparecia com o nome civil no site.
@@ -148,6 +163,12 @@ model Organization {
   refundHoldDays Int            @default(7) @map("refund_hold_days")
   /// repasse automático: worker cria os payouts do saldo recém-liberado
   autoPayout     Boolean        @default(false) @map("auto_payout")
+  /// mínimo por repasse DESTA casa (centavos); null = padrão da plataforma
+  /// (AUTO_PAYOUT_MIN_CENTS) — evita chuva de transferência pequena
+  autoPayoutMinCents Int?       @map("auto_payout_min_cents")
+  /// teto de UM saque imediato desta casa (contrato de confiança); acima
+  /// disso o pedido cai para aprovação do backoffice. null = sem teto.
+  instantMaxPerWithdrawalCents Int? @map("instant_max_per_withdrawal_cents")
   createdAt DateTime           @default(now()) @map("created_at")
   updatedAt DateTime           @updatedAt @map("updated_at")
 
@@ -160,6 +181,8 @@ model Organization {
   ledgerAccount LedgerAccount?
   payouts       Payout[]
   salesPartners SalesPartner[]
+  promoterHosts  PromoterLink[] @relation("PromoterHost")
+  promoterGuests PromoterLink[] @relation("PromoterGuest")
   followers     OrganizationFollow[]
 
   @@map("organizations")
@@ -239,6 +262,39 @@ model OrganizationMember {
   @@unique([organizationId, userId])
   @@index([userId])
   @@map("organization_members")
+}
+
+/// Promoter v2 (2026-08-10): afiliado POR CONTA DE PRODUTOR. A organização
+/// convidada divulga com link rastreável (?pr=slug); a comissão (quando
+/// houver) entra como crédito no CAIXA DELA e sai pelas regras gerais de
+/// saque. commissionBps = 0 → só contabilização de vendas (a UI nunca diz
+/// "você não vai receber").
+model PromoterLink {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  promoterOrgId  String              @map("promoter_org_id") @db.Uuid
+  status         PromoterLinkStatus  @default(INVITED)
+  commissionBps  Int                 @default(0) @map("commission_bps")
+  /// slug global do link rastreável (?pr=slug) — único entre todos os promoters
+  slug           String              @unique
+  invitedBy      String?             @map("invited_by") @db.Uuid
+  invitedAt      DateTime            @default(now()) @map("invited_at")
+  respondedAt    DateTime?           @map("responded_at")
+
+  organization Organization @relation("PromoterHost", fields: [organizationId], references: [id], onDelete: Cascade)
+  promoterOrg  Organization @relation("PromoterGuest", fields: [promoterOrgId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([organizationId, promoterOrgId])
+  @@index([promoterOrgId, status])
+  @@map("promoter_links")
+}
+
+enum PromoterLinkStatus {
+  INVITED
+  ACTIVE
+  DECLINED
+  REMOVED
 }
 
 model SalesPartner {
@@ -361,6 +417,9 @@ model BankAccount {
   account        String
   accountType    String   @map("account_type")
   pixKey         String?  @map("pix_key")
+  /// quando a chave Pix foi definida/alterada — saque fica em quarentena de
+  /// 48h após troca (defesa contra conta de produtor invadida)
+  pixKeyUpdatedAt DateTime? @map("pix_key_updated_at")
   isDefault      Boolean  @default(false) @map("is_default")
   createdAt      DateTime @default(now()) @map("created_at")
 
@@ -642,6 +701,8 @@ model Order {
   reservationId String      @unique @map("reservation_id") @db.Uuid
   userId        String?     @map("user_id") @db.Uuid
   salesPartnerId String?    @map("sales_partner_id") @db.Uuid
+  promoterLinkId String?    @map("promoter_link_id") @db.Uuid
+  promoterCommissionCents Int @default(0) @map("promoter_commission_cents")
   soldByUserId  String?     @map("sold_by_user_id") @db.Uuid
   partnerCommissionCents Int @default(0) @map("partner_commission_cents")
   /// como o pedido foi atribuído ao parceiro: PDV/vendedor (MANUAL) ou link público (LINK)
@@ -661,6 +722,7 @@ model Order {
   reservation Reservation  @relation(fields: [reservationId], references: [id])
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   salesPartner SalesPartner? @relation(fields: [salesPartnerId], references: [id], onDelete: SetNull)
+  promoterLink PromoterLink? @relation(fields: [promoterLinkId], references: [id], onDelete: SetNull)
   soldByUser  User?         @relation("SalesOrderSeller", fields: [soldByUserId], references: [id], onDelete: SetNull)
   items       OrderItem[]
   payments    Payment[]
@@ -1078,6 +1140,9 @@ enum LedgerEntryType {
   PLATFORM_FEE
   REFUND_DEBIT
   PAYOUT_DEBIT
+  /// comissão de promoter: débito na org do evento, crédito na org do promoter
+  COMMISSION_DEBIT
+  COMMISSION_CREDIT
   /// taxa de antecipação cobrada de org INSTANT sobre a parcela do saque que
   /// ainda estaria na janela de reembolso no modo STANDARD
   ANTICIPATION_FEE
@@ -1122,6 +1187,11 @@ model Payout {
   status         PayoutStatus @default(PENDING)
   requestedAt    DateTime     @default(now()) @map("requested_at")
   paidAt         DateTime?    @map("paid_at")
+  /// id da transferência no provedor (Asaas/banco) — uma vez preenchido,
+  /// NUNCA criar nova transferência para este payout (proteção contra dupla)
+  externalId     String?      @map("external_id")
+  /// motivo da última falha de transferência (aparece no backoffice)
+  failReason     String?      @map("fail_reason")
   notes          String?
   createdAt      DateTime     @default(now()) @map("created_at")
 
@@ -1215,6 +1285,11 @@ model PayoutRequest {
   organizationId String              @map("organization_id") @db.Uuid
   amountCents    Int                 @map("amount_cents")
   status         PayoutRequestStatus @default(PENDING)
+  /// pedido de ANTECIPAÇÃO (receber antes do evento, com taxa) — sempre
+  /// passa pela análise do backoffice
+  anticipation   Boolean             @default(false)
+  /// taxa pró-rata simulada na solicitação (cobrada na aprovação)
+  anticipationFeeCents Int           @default(0) @map("anticipation_fee_cents")
   bankAccountId  String?             @map("bank_account_id") @db.Uuid
   payoutId       String?             @map("payout_id") @db.Uuid
   notes          String?

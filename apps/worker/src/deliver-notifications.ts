@@ -1,5 +1,6 @@
 import { prisma } from "@borafest/database";
 import {
+  renderAccountClaimEmail,
   getEmailSender,
   getPushSender,
   getWhatsAppSender,
@@ -100,6 +101,16 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para password_reset: ${channel}`);
+  }
+
+  if (template === "account_claim") {
+    if (channel === "EMAIL") {
+      await getEmailSender().send(
+        renderAccountClaimEmail(recipient, payload as import("@borafest/notifications").AccountClaimPayload),
+      );
+      return;
+    }
+    throw new Error(`Canal não suportado para account_claim: ${channel}`);
   }
 
   if (template === "ticket_transferred") {

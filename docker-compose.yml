@@ -113,6 +113,10 @@ services:
       API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.borafest.com.br}
       ANTICIPATION_FEE_BPS_MONTHLY: ${ANTICIPATION_FEE_BPS_MONTHLY:-125}
       AUTO_PAYOUT_MIN_CENTS: ${AUTO_PAYOUT_MIN_CENTS:-5000}
+      # Pix de SAÍDA automático (repasse sem mão humana). Desligado por
+      # padrão — Arthur liga com AUTO_TRANSFER_ENABLED=true quando quiser
+      AUTO_TRANSFER_ENABLED: ${AUTO_TRANSFER_ENABLED:-false}
+      AUTO_PAYOUTS_SWEEP_MS: ${AUTO_PAYOUTS_SWEEP_MS:-300000}
     depends_on:
       postgres:
         condition: service_healthy

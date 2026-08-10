@@ -168,6 +168,25 @@ export class AdminController {
     return this.adminService.listPayouts(userId, { organizationId, status });
   }
 
+  @Get("payout-requests")
+  listPayoutRequests(@CurrentUserId() userId: string, @Query("status") status: string | undefined) {
+    return this.adminService.listPayoutRequests(userId, { status });
+  }
+
+  @Post("payout-requests/:id/approve")
+  approvePayoutRequest(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.adminService.approvePayoutRequest(id, userId);
+  }
+
+  @Post("payout-requests/:id/reject")
+  rejectPayoutRequest(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body() body: { note?: string },
+  ) {
+    return this.adminService.rejectPayoutRequest(id, userId, body?.note);
+  }
+
   @Post("organizations/:id/settlement")
   updateSettlement(
     @Param("id") id: string,

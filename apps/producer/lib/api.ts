@@ -61,6 +61,35 @@ export const identityApi = {
 // Organizations
 // ---------------------------------------------------------------------------
 
+export type ProducerType = "CASA" | "ATLETICA" | "PRODUTORA" | "INDEPENDENTE" | "OUTRO";
+
+export interface PromoterEngagement {
+  id: string;
+  hostName: string;
+  slug: string;
+  paidOrders: number;
+  commissionBps?: number;
+  commissionCents?: number;
+}
+
+export interface PromoterInvite {
+  id: string;
+  commissionBps: number;
+  invitedAt: string;
+  organization: { id: string; name: string; displayName: string | null };
+  promoterOrg: { id: string; name: string; displayName: string | null };
+}
+
+export interface PromoterRow {
+  id: string;
+  status: string;
+  commissionBps: number;
+  slug: string;
+  promoterName: string;
+  paidOrders: number;
+  commissionCents: number;
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -74,7 +103,29 @@ export interface Organization {
 
 export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
-  create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string }) =>
+  searchOrganizations: (token: string, q: string) =>
+    request<Array<{ id: string; name: string; producerType: ProducerType | null; documentMasked: string }>>(
+      `/v1/organizations/search?q=${encodeURIComponent(q)}`,
+      { token },
+    ),
+  invitePromoter: (token: string, organizationId: string, promoterOrgId: string, commissionBps: number) =>
+    request(`/v1/organizations/${organizationId}/promoters`, {
+      method: "POST",
+      body: { promoterOrgId, commissionBps },
+      token,
+    }),
+  listPromoters: (token: string, organizationId: string) =>
+    request<PromoterRow[]>(`/v1/organizations/${organizationId}/promoters`, { token }),
+  myPromoterInvites: (token: string) =>
+    request<PromoterInvite[]>(`/v1/organizations/promoter-invites/mine`, { token }),
+  myPromoterEngagements: (token: string) =>
+    request<PromoterEngagement[]>(`/v1/organizations/promoter-engagements/mine`, { token }),
+  respondPromoterInvite: (token: string, linkId: string, accept: boolean) =>
+    request(`/v1/organizations/promoter-links/${linkId}/${accept ? "accept" : "decline"}`, {
+      method: "POST",
+      token,
+    }),
+  create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string; producerType: ProducerType }) =>
     request<Organization & { members: unknown[] }>("/v1/organizations", { method: "POST", body: input, token }),
   update: (token: string, organizationId: string, input: { displayName?: string | null }) =>
     request<Organization>(`/v1/organizations/${organizationId}`, { method: "PATCH", body: input, token }),
@@ -711,10 +762,13 @@ export const payoutsApi = {
     request<Payout[]>(`/v1/organizations/${organizationId}/payouts`, { token }),
   listRequests: (organizationId: string, token: string) =>
     request<PayoutRequest[]>(`/v1/organizations/${organizationId}/payout-requests`, { token }),
-  requestPayout: (organizationId: string, amountCents: number, token: string) =>
-    request<PayoutRequest>(`/v1/organizations/${organizationId}/payout-requests`, {
-      method: "POST",
-      body: { amountCents },
-      token,
-    }),
+  requestPayout: (organizationId: string, amountCents: number, token: string, anticipation = false) =>
+    request<PayoutRequest & { needsApproval: boolean; payoutId: string | null; anticipationFeeCents: number }>(
+      `/v1/organizations/${organizationId}/payout-requests`,
+      {
+        method: "POST",
+        body: { amountCents, anticipation },
+        token,
+      },
+    ),
 };

@@ -28,7 +28,7 @@ import { processOutboxBatch } from "./process-outbox";
 import { reconcilePendingPayments } from "./reconcile-payments";
 import { expireStaleOrders } from "./expire-orders";
 import { deliverPendingNotifications } from "./deliver-notifications";
-import { sweepAutoPayouts } from "./auto-payouts";
+import { executeAutoTransfers } from "./auto-payouts";
 import { processPaymentWebhookJob } from "./process-payment-webhook";
 import { sweepWaitingRooms } from "./sweep-waiting-room";
 
@@ -59,13 +59,17 @@ async function main() {
     { name: "dispatch", data: {} },
   );
 
-  // --- repasses: varredura do repasse automático (a cada 30 min) -----------
+  // --- repasses: executa/concilia transferências dos saques aprovados ------
+  // (molde 2026-08-09: payout NASCE do clique do produtor ou da aprovação do
+  // backoffice — a varredura só move o dinheiro, nunca decide sozinha)
   const autoPayoutsWorker = createAutoPayoutsWorker(async () => {
-    await sweepAutoPayouts();
+    await executeAutoTransfers();
   });
   await createAutoPayoutsQueue().upsertJobScheduler(
     AUTO_PAYOUTS_JOB_ID,
-    { every: 30 * 60_000 },
+    // 5 min por padrão: com transferência automática ligada, "repasse na
+    // hora" precisa ser quase na hora mesmo (mínimo por casa segura o volume)
+    { every: Number(process.env.AUTO_PAYOUTS_SWEEP_MS ?? 5 * 60_000) },
     { name: "sweep", data: {} },
   );
 

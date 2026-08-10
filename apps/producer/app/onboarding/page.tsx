@@ -4,13 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { organizationsApi, bankAccountsApi } from "@/lib/api";
+import { type ProducerType, organizationsApi, bankAccountsApi } from "@/lib/api";
 
 const BANKS = [
   ["001", "Banco do Brasil"], ["104", "Caixa"], ["237", "Bradesco"], ["341", "Itaú"],
   ["033", "Santander"], ["260", "Nubank"], ["077", "Inter"], ["336", "C6 Bank"],
 ] as const;
 
+const PRODUCER_TYPES: Array<{ value: ProducerType; label: string }> = [
+  { value: "CASA", label: "Casa de shows / balada" },
+  { value: "ATLETICA", label: "Atlética" },
+  { value: "PRODUTORA", label: "Produtora de eventos" },
+  { value: "INDEPENDENTE", label: "Produtor independente" },
+  { value: "OUTRO", label: "Outro" },
+];
 const inputCls = "mt-1 h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
 const labelCls = "text-[12px] font-bold text-ink-soft";
 
@@ -18,6 +25,7 @@ function OnboardingContent() {
   const router = useRouter();
   const { token } = useAuth();
   const [kind, setKind] = useState<"INDIVIDUAL" | "COMPANY">("INDIVIDUAL");
+  const [producerType, setProducerType] = useState<ProducerType | "">("");
   const [name, setName] = useState("");
   const [document, setDocument] = useState("");
   const [holderName, setHolderName] = useState("");
@@ -35,7 +43,12 @@ function OnboardingContent() {
     setBusy(true);
     setError(null);
     try {
-      const org = await organizationsApi.create(token, { name, kind, document: document.replace(/\D/g, "") });
+      if (!producerType) {
+        setError("Escolha o tipo de produtor");
+        setBusy(false);
+        return;
+      }
+      const org = await organizationsApi.create(token, { name, kind, document: document.replace(/\D/g, ""), producerType });
       if (agency && account) {
         await bankAccountsApi.add((org as { id: string }).id, {
           holderName: holderName || name,
@@ -85,6 +98,15 @@ function OnboardingContent() {
               <label className={labelCls}>{kind === "INDIVIDUAL" ? "CPF" : "CNPJ"}</label>
               <input required value={document} onChange={(e) => setDocument(e.target.value)}
                 placeholder={kind === "INDIVIDUAL" ? "000.000.000-00" : "00.000.000/0001-00"} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Tipo de produtor</label>
+              <select required value={producerType} onChange={(e) => setProducerType(e.target.value as ProducerType | "")} className={inputCls}>
+                <option value="">Escolha…</option>
+                {PRODUCER_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
             </div>
           </div>
         </section>
