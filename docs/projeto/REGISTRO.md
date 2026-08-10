@@ -18,10 +18,57 @@
 | Campo | Valor |
 |---|---|
 | **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
-| **Status da fase** | 🟢 API testes 26/26 · typecheck limpo · `next build` do checkout validado |
-| **Última atualização** | 2026-08-06 |
+| **Status da fase** | 🟢 API testes 38/38 · typecheck limpo · build 14/14 |
+| **Última atualização** | 2026-08-10 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
+
+### Onde estamos (2026-08-10) — Merge de divergência + `.env` na raiz + dist desatualizado
+
+Amanda rodou `git pull` num terminal com 4 commits locais não empurrados
+contra 6 novos no remoto (branches divergentes) — o pull sozinho não
+resolve isso (precisa merge). Interrompido no meio por um prompt do Git
+para Windows (unlink de um pack `.idx` velho, sem relação com o conteúdo).
+Resolvido por aqui:
+
+- **Merge**: `git fetch` + `git stash` (havia uma correção local não
+  commitada em `app.module.ts`) + `git merge origin/main --no-edit` (sem
+  conflitos, 55 arquivos) + `stash pop`. Branch ficou 5 commits à frente do
+  remoto (ainda não empurrado — falta `git push` quando a Amanda topar).
+- **Correção mantida**: `apps/api/src/app.module.ts` agora carrega o `.env`
+  tanto do cwd quanto de `../../.env` — a API roda com `apps/api` como cwd
+  sob pnpm/turbo, mas o `.env` do monorepo vive na raiz do repo; sem isso,
+  rodar a API direto da raiz (fora do turbo) não achava as variáveis.
+- **`dist/` desatualizado pós-merge**: o merge trouxe schema/contratos
+  novos (`PromoterLink`, `emailVerifiedAt` etc.) mas os pacotes
+  `@borafest/contracts`, `@borafest/payments` e `@borafest/auth` tinham
+  `dist/` compilado de ANTES — típeria (`tsc --noEmit`) e os testes da API
+  falhavam com erros que pareciam bugs de produto (ex.: "No LedgerAccount
+  found" no teste de promoter) mas eram só código velho compilado. Rebuild
+  dos três (`pnpm --filter <pkg> build`) resolveu. **Lição**: depois de um
+  merge que mexe em `packages/database/prisma/schema.prisma` ou em
+  `packages/*/src`, rodar `prisma generate` + rebuildar os pacotes
+  dependentes ANTES de confiar em erro de teste/typecheck como bug real.
+- **`@borafest/auth` sem link**: o merge também adicionou
+  `@borafest/auth` como dependência nova do worker, mas o `node_modules`
+  local não tinha o symlink do workspace (pnpm não relinka sozinho quando
+  um `package.json` ganha uma dependência workspace nova sem `pnpm
+  install`). `pnpm install` pediu confirmação pra recriar `node_modules` do
+  zero e na 1ª tentativa deu `EBUSY` num arquivo do `react-native` (lock
+  do Windows/antivírus) deixando `node_modules` vazio pela metade — 2ª
+  tentativa completou limpa (~3min).
+- **Lixo de teste no Postgres local**: as reexecuções da suíte antes do
+  fix de `dist/` deixaram ~30 organizações fixture (`Teste Integração
+  ...`) no banco de dev; a busca `searchOrganizations` (sem `orderBy`,
+  `take: 10`) ficou instável (achava/não achava a org certa dependendo da
+  ordem física das linhas) até eu limpar esse lixo via SQL direto —
+  **não é bug de produto**, é sujeira de teste local; o teste em si tem
+  `finally` com cleanup correto.
+- Migrações novas aplicadas no Postgres local (5443): `producer_type_
+  promoter_v2`, `conta_no_checkout` (as demais já estavam).
+API 38/38 · build 14/14 (checkout/producer/admin/api/worker). Não
+empurrado ainda — 5 commits locais aguardando `git push` com aprovação
+da Amanda.
 
 ### Onde estamos (2026-08-06, continuação) — Categoria, urgência e upsell
 

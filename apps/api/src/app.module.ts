@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
+import { resolve } from "node:path";
 import { HealthModule } from "./health/health.module";
 import { IdentityModule } from "./identity/identity.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
@@ -30,7 +31,13 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // The API runs with `apps/api` as its cwd under pnpm/turbo, while the
+    // workspace-level .env lives at the repository root. Load both locations
+    // so local development and production launches from the repo root work.
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [resolve(process.cwd(), ".env"), resolve(process.cwd(), "../../.env")],
+    }),
     HealthModule,
     IdentityModule,
     OrganizationsModule,
