@@ -445,6 +445,37 @@ Testes: ciclo completo (busca→convite→aceite→venda 10% = R$10→carteira�
 estorno zera) e só-contabiliza (atribui sem dinheiro, payload sem campos
 de comissão). API 32/32 · worker 6/6 · build 14/14.
 
+**Conta no checkout v1 — fim do convidado (2026-08-10)** — estratégia
+debatida e fechada com o Arthur ("convidado não serve, eu fico sem os
+dados"), com o refinamento dele: o 1º ingresso NÃO viaja por e-mail — é o
+portão que faz a conta ser verificada.
+- **Checkout unificado**: sem abas convidado/código; nome, e-mail, CPF e
+  celular sempre; aceite passa a incluir "criação da minha conta
+  BoraFest" (LGPD).
+- **Conta invisível no pedido**: e-mail sem conta → User nasce dos dados
+  da compra (CPF/telefone só se livres — são únicos); e-mail com conta →
+  pedido anexa. CPF da compra vira o CPF da conta (vínculo do ingresso).
+- **Portão do 1º ingresso**: emissão para conta NÃO verificada gera só o
+  e-mail account_claim com LINK MÁGICO (/acesso?token=JWT purpose
+  email-verify, 7d) — clicar prova a posse do e-mail, verifica, loga e
+  abre o pedido; a carteira do pedido devolve requiresVerification e a UI
+  mostra o portão (pedir código de 6 dígitos = OTP normal, que agora
+  também marca emailVerifiedAt). QR nunca sai por e-mail antes disso
+  (modelo DICE — antifraude de print).
+- **Corrigir e-mail digitado errado**: POST /orders/:publicToken/
+  correct-email — só enquanto não verificada; posse do publicToken = a
+  sessão que pagou; troca e-mail do user+pedido e reenvia o aviso.
+- **2ª compra em diante**: verificado recebe ticket_delivery normal
+  (e-mail/wpp/push), como o Arthur definiu.
+- **WhatsApp**: botão "Receber meus ingressos no WhatsApp" (wa.me com
+  texto pré-preenchido — conversa iniciada PELO cliente = resposta grátis
+  na API da Meta); NEXT_PUBLIC_WHATSAPP_NUMBER no Dockerfile.checkout
+  (vazio = oculto). Bot automático entra quando vierem as chaves Meta.
+Testes: ciclo completo (conta nasce com CPF → aviso sem QR → carteira
+trancada → link mágico verifica/loga/destrava → 2ª compra entrega
+normal) e correção de e-mail com reenvio + trava pós-verificação.
+API 34/34 · worker 6/6 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

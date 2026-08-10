@@ -1,3 +1,4 @@
+import { createSessionToken } from "@borafest/auth";
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   confirmSaleInventory,
@@ -141,6 +142,47 @@ export class OrdersService {
       }
     }
 
+    // Conta no checkout (decisão 2026-08-10): convidado foi extinto. Sem
+    // sessão, a conta nasce INVISÍVEL dos próprios dados da compra (e-mail
+    // existente = pedido anexa à conta). CPF/telefone só entram se ainda
+    // livres (são únicos); e-mail verificado é o portão do 1º ingresso.
+    let effectiveUserId = userId;
+    if (!effectiveUserId && input.contactEmail) {
+      const email = input.contactEmail.trim().toLowerCase();
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        effectiveUserId = existing.id;
+      } else {
+        const cpf = input.contactCpf?.replace(/\D/g, "") || undefined;
+        const phone = input.contactPhone?.replace(/\D/g, "") || undefined;
+        const [cpfLivre, phoneLivre] = await Promise.all([
+          cpf ? prisma.user.findUnique({ where: { cpf } }).then((u) => !u) : Promise.resolve(false),
+          phone ? prisma.user.findUnique({ where: { phone } }).then((u) => !u) : Promise.resolve(false),
+        ]);
+        const created = await prisma.user.create({
+          data: {
+            email,
+            name: input.contactName ?? undefined,
+            ...(cpf && cpfLivre ? { cpf } : {}),
+            ...(phone && phoneLivre ? { phone } : {}),
+            termsAcceptedAt: new Date(),
+          },
+        });
+        effectiveUserId = created.id;
+      }
+    }
+    // conta já existente sem CPF ganha o CPF da compra (vínculo do ingresso)
+    if (effectiveUserId && input.contactCpf) {
+      const cpf = input.contactCpf.replace(/\D/g, "");
+      const dono = await prisma.user.findUnique({ where: { cpf } });
+      if (!dono) {
+        await prisma.user.updateMany({
+          where: { id: effectiveUserId, cpf: null },
+          data: { cpf },
+        });
+      }
+    }
+
     const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
 
     const order = await prisma.$transaction(async (tx) => {
@@ -159,7 +201,7 @@ export class OrdersService {
         data: {
           eventId: reservation.eventId,
           reservationId: reservation.id,
-          userId: userId ?? reservation.userId,
+          userId: effectiveUserId ?? reservation.userId,
           contactEmail: input.contactEmail,
           contactName: input.contactName,
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
@@ -211,8 +253,8 @@ export class OrdersService {
         // LGPD: aceite versionado e provável em auditoria
         await tx.consent.createMany({
           data: [
-            { orderId: created.id, userId: userId ?? null, document: "terms", version: input.consent.version },
-            { orderId: created.id, userId: userId ?? null, document: "privacy", version: input.consent.version },
+            { orderId: created.id, userId: effectiveUserId ?? null, document: "terms", version: input.consent.version },
+            { orderId: created.id, userId: effectiveUserId ?? null, document: "privacy", version: input.consent.version },
           ],
         });
       }
@@ -530,5 +572,70 @@ export class OrdersService {
     });
 
     return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { payments: true } });
+  }
+
+  /**
+   * Corrige o e-mail digitado errado — só enquanto a conta criada no checkout
+   * ainda não foi verificada (depois disso, e-mail é identidade). A posse do
+   * publicToken é a prova de que quem pede é a sessão que pagou.
+   */
+  async correctEmail(publicToken: string, newEmail: string) {
+    const email = newEmail.trim().toLowerCase();
+    if (!email.includes("@")) throw new BadRequestException("E-mail inválido");
+
+    const order = await prisma.order.findUnique({
+      where: { publicToken },
+      include: {
+        user: { select: { id: true, emailVerifiedAt: true } },
+        event: { select: { title: true } },
+      },
+    });
+    if (!order) throw new NotFoundException("Pedido não encontrado");
+    if (!order.user || order.user.emailVerifiedAt) {
+      throw new BadRequestException(
+        "Este pedido já está vinculado a uma conta verificada — fale com o suporte",
+      );
+    }
+    const ocupado = await prisma.user.findUnique({ where: { email } });
+    if (ocupado) {
+      throw new BadRequestException(
+        "Este e-mail já tem conta BoraFest — entre com o código enviado a ele",
+      );
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: order.user.id }, data: { email } }),
+      prisma.order.update({ where: { id: order.id }, data: { contactEmail: email } }),
+    ]);
+
+    // reenvia o aviso com link mágico para o e-mail corrigido
+    const claimToken = await createSessionToken(
+      { sub: order.user.id, purpose: "email-verify", orderToken: order.publicToken },
+      "7d",
+    );
+    const base = process.env.WEB_BASE_URL ?? "https://borafest.com.br";
+    await prisma.notification.create({
+      data: {
+        channel: "EMAIL",
+        recipient: email,
+        template: "account_claim",
+        payload: {
+          contactName: order.contactName,
+          eventTitle: order.event.title,
+          claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+        },
+        orderId: order.id,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        action: "order.email_corrected",
+        entityType: "order",
+        entityId: order.id,
+        metadata: { newEmail: email },
+      },
+    });
+    return { ok: true, contactEmail: email };
   }
 }

@@ -32,6 +32,9 @@ model User {
   phone        String?       @unique
   cpf          String?       @unique
   platformRole PlatformRole? @map("platform_role")
+  /// e-mail comprovado (código ou link mágico) — 1º ingresso só abre depois
+  /// disso; contas nascidas invisíveis no checkout começam null
+  emailVerifiedAt DateTime? @map("email_verified_at")
   /// login por senha (painel do produtor); compradores seguem sem senha (OTP)
   passwordHash    String?   @map("password_hash")
   termsAcceptedAt DateTime? @map("terms_accepted_at")

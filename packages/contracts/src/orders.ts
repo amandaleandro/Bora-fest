@@ -12,6 +12,8 @@ export const createOrderSchema = z.object({
   partnerSlug: z.string().min(1).max(80).optional(),
   /** link rastreável de PROMOTER (?pr=slug) — se válido, vence o de atlética (sem comissão dupla) */
   promoterSlug: z.string().min(1).max(80).optional(),
+  /** CPF do comprador — vira o CPF da conta criada no checkout (vínculo do ingresso) */
+  contactCpf: z.string().min(11).max(14).optional(),
   /// itens adicionais escolhidos no checkout (upsell) — ex.: camiseta do evento
   addOns: z.array(orderAddOnSelectionSchema).optional(),
   /// participantes de ingressos nominais (1 por unidade do lote nominal)

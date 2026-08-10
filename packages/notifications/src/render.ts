@@ -181,3 +181,36 @@ export function renderTicketTransferredEmail(
     html: `<p>${payload.toName}, <b>${payload.fromEmail}</b> transferiu um ingresso para a sua conta BoraFest.</p><p><b>${payload.eventTitle}</b><br/>${payload.lotLabel} · código ${payload.code}</p><p>Ele já está na sua carteira — o QR novo vale na portaria: <a href="${payload.walletUrl}">${payload.walletUrl}</a></p>`,
   };
 }
+
+export interface AccountClaimPayload {
+  contactName: string | null;
+  eventTitle: string;
+  /** link mágico: clicar prova a posse do e-mail, loga e abre o ingresso */
+  claimUrl: string;
+}
+
+/**
+ * 1º ingresso de conta ainda não verificada (decisão 2026-08-10): o QR NÃO
+ * viaja por e-mail — este aviso leva ao acesso, que verifica a conta e abre
+ * o ingresso. Compras seguintes voltam ao ticket_delivery normal.
+ */
+export function renderAccountClaimEmail(to: string, payload: AccountClaimPayload) {
+  const saudacao = payload.contactName ? `Olá, ${payload.contactName}!` : "Olá!";
+  const subject = `Seu ingresso para ${payload.eventTitle} está pronto 🎟️`;
+  const html = `
+  <div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">
+    <p style="font-size:16px;font-weight:700">${escapeHtml(saudacao)}</p>
+    <p style="font-size:14px;line-height:1.6">Pagamento aprovado! Seu ingresso para
+      <b>${escapeHtml(payload.eventTitle)}</b> está guardado na sua conta BoraFest —
+      criada agora com os dados da compra.</p>
+    <p style="font-size:14px;line-height:1.6">Toque no botão para acessar (isso confirma que este
+      e-mail é seu e abre o ingresso na hora):</p>
+    <p style="text-align:center;margin:28px 0">
+      <a href="${escapeHtml(payload.claimUrl)}" style="background:#D9128F;color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">Acessar meu ingresso</a>
+    </p>
+    <p style="font-size:12px;color:#6b6577;line-height:1.6">Abrindo em outro aparelho? Na página do
+      pedido dá para pedir um código de 6 dígitos para este mesmo e-mail.</p>
+  </div>`;
+  const text = `${saudacao}\n\nPagamento aprovado! Seu ingresso para ${payload.eventTitle} está na sua conta BoraFest.\nAcesse: ${payload.claimUrl}`;
+  return { to, subject, html, text };
+}

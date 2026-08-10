@@ -201,6 +201,21 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     );
   }
 
+  // --- portão do 1º ingresso: conta criada no checkout ainda não verificada ---
+  if (view === "carteira" && ticketsData?.requiresVerification) {
+    return (
+      <main className="mx-auto max-w-[430px] px-5 pb-16 pt-10">
+        <VerificationGate
+          publicToken={publicToken}
+          contactEmail={ticketsData.contactEmail ?? order?.contactEmail ?? ""}
+          onVerified={() => {
+            api.getOrderTickets(publicToken).then(setTicketsData).catch(() => undefined);
+          }}
+        />
+      </main>
+    );
+  }
+
   // --- carteira ---
   if (view === "carteira" && ticketsData) {
     return (
@@ -216,6 +231,17 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
             </p>
           </div>
         </div>
+
+        {process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ? (
+          <a
+            href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}?text=${encodeURIComponent(`Quero meu ingresso do pedido ${publicToken.slice(0, 8).toUpperCase()}`)}`}
+            target="_blank"
+            rel="noopener"
+            className="mt-4 flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#25D366] text-[14px] font-extrabold text-white"
+          >
+            Receber meus ingressos no WhatsApp
+          </a>
+        ) : null}
 
         <div className="mt-5 space-y-6 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
           {ticketsData.tickets.map((ticket) => (
@@ -387,5 +413,141 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
       <InstallAppCard />
     </main>
+  );
+}
+
+
+/** Portão do 1º ingresso: verificar o e-mail abre o QR (link mágico já foi
+ *  por e-mail; aqui dá para pedir código de 6 dígitos ou corrigir o e-mail). */
+function VerificationGate({
+  publicToken,
+  contactEmail,
+  onVerified,
+}: {
+  publicToken: string;
+  contactEmail: string;
+  onVerified: () => void;
+}) {
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [email, setEmail] = useState(contactEmail);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function sendCode() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.requestOtp(email);
+      setCodeSent(true);
+      setMessage("Código enviado — confira também o spam.");
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : "Não foi possível enviar o código");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmCode() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await api.verifyOtp(email, code);
+      localStorage.setItem("bf.token", res.token);
+      onVerified();
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : "Código inválido");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fixEmail() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await api.correctOrderEmail(publicToken, newEmail);
+      setEmail(res.contactEmail);
+      setFixing(false);
+      setCodeSent(false);
+      setMessage("E-mail corrigido — reenviamos o link de acesso para o endereço novo.");
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : "Não foi possível corrigir o e-mail");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-3xl border border-line bg-surface p-6 text-center">
+      <p className="text-[34px]">🎟️</p>
+      <h1 className="mt-2 text-[20px] font-extrabold leading-tight">Seu ingresso está guardado na sua conta</h1>
+      <p className="mt-2 text-[13.5px] font-medium leading-relaxed text-muted">
+        Enviamos um <b>link de acesso</b> para <b className="text-ink">{email}</b> — tocar nele abre o
+        ingresso na hora. Se preferir, valide por código aqui:
+      </p>
+
+      {codeSent ? (
+        <>
+          <input
+            inputMode="numeric"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            placeholder="••••••"
+            className="mt-4 h-[58px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface text-center text-[24px] font-extrabold tracking-[10px] outline-none focus:border-primary"
+          />
+          <button
+            type="button"
+            onClick={confirmCode}
+            disabled={busy || code.length !== 6}
+            className="mt-3 h-13 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none"
+          >
+            {busy ? "Verificando…" : "Abrir meu ingresso"}
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={sendCode}
+          disabled={busy}
+          className="mt-4 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta disabled:opacity-60"
+        >
+          {busy ? "Enviando…" : "Receber código de 6 dígitos"}
+        </button>
+      )}
+
+      {message ? <p className="mt-3 text-[12.5px] font-bold text-primary">{message}</p> : null}
+
+      {fixing ? (
+        <div className="mt-4 space-y-2">
+          <input
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="e-mail correto"
+            className="h-[50px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-4 text-[14px] font-medium outline-none focus:border-primary"
+          />
+          <button
+            type="button"
+            onClick={fixEmail}
+            disabled={busy || !newEmail.includes("@")}
+            className="h-11 w-full rounded-xl border border-line text-[13px] font-bold text-primary disabled:opacity-50"
+          >
+            Corrigir e reenviar
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setFixing(true)}
+          className="mt-4 text-[12.5px] font-semibold text-muted underline"
+        >
+          Não recebeu? Digitou o e-mail errado? Corrija aqui
+        </button>
+      )}
+    </div>
   );
 }
