@@ -1,4 +1,6 @@
 import { createSessionToken } from "@borafest/auth";
+import { addBusinessDays } from "@borafest/payments";
+import { assertRefundWithinCap } from "../common/refund-cap";
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   confirmSaleInventory,
@@ -152,6 +154,10 @@ export class OrdersService {
       } else if (promoterLink.commissionType === "FIXED") {
         promoterCommissionCents = promoterLink.commissionFixedCents * totalTickets;
       }
+      // teto: comissão NUNCA passa do que a casa recebeu pelos ingressos
+      // (cupom agressivo + comissão fixa deixavam a casa no negativo —
+      // revisão adversarial 2026-08-11)
+      promoterCommissionCents = Math.max(0, Math.min(promoterCommissionCents, ticketTotalCents));
     }
 
     // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV, só sobre ingressos
@@ -462,6 +468,13 @@ export class OrdersService {
               amountCents: totalCents,
               referenceType: "order",
               referenceId: created.id,
+              // venda no PDV segue a MESMA janela do online (D+N úteis após o
+              // evento) — sem isso o crédito nascia maduro e furava a regra de
+              // saque (revisão adversarial 2026-08-11)
+              availableAt: addBusinessDays(
+                event.endsAt,
+                Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
+              ),
             },
             {
               ledgerAccountId: ledgerAccount.id,
@@ -529,9 +542,7 @@ export class OrdersService {
     const payment = order.payments.find((p) => p.status === "PAID");
 
     if (payment && payment.externalId) {
-      if (input.amountCents !== undefined && input.amountCents > payment.amountCents) {
-        throw new BadRequestException("Valor do estorno maior que o pagamento");
-      }
+      await assertRefundWithinCap(payment, input.amountCents);
 
       const marked = await prisma.payment.updateMany({
         where: { id: payment.id, status: "PAID" },

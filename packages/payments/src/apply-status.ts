@@ -284,6 +284,13 @@ async function applyPartialRefund(
         _sum: { amountCents: true },
       });
       const devolvido = Math.abs(debitos._sum.amountCents ?? 0);
+
+      // A comissão volta na MESMA proporção do que foi devolvido ao comprador.
+      // Antes só voltava no estorno de 100% — num reembolso grande a casa
+      // devolvia o bruto e continuava pagando a comissão inteira, ficando
+      // negativa (revisão adversarial 2026-08-11).
+      await clawbackPromoterCommission(tx, payment, devolvido / payment.amountCents);
+
       if (devolvido >= payment.amountCents) {
         await tx.order.updateMany({
           where: { id: payment.orderId },
@@ -293,7 +300,6 @@ async function applyPartialRefund(
           where: { orderId: payment.orderId, status: { in: ["ISSUED", "ACTIVE"] } },
           data: { status: "REFUNDED", canceledAt: new Date() },
         });
-        await clawbackPromoterCommission(tx, payment);
       }
     }
 
@@ -414,6 +420,41 @@ export function addBusinessDays(from: Date, businessDays: number): Date {
   return date;
 }
 
+
+/**
+ * Carteira do promoter — UMA fonte de verdade para split e clawback.
+ *
+ * O promoter começa com carteira de PESSOA; quando completa o cadastro, ela
+ * migra para a organização dele. Se split e clawback procurassem de formas
+ * diferentes, o estorno não acharia a carteira migrada (a casa nunca
+ * recuperaria a comissão) e comissões novas cairiam numa carteira órfã
+ * insacável. Ordem: carteira da organização que ele é DONO → carteira
+ * pessoal. (revisão adversarial 2026-08-11)
+ */
+async function resolvePromoterWallet(
+  tx: Prisma.TransactionClient,
+  promoterUserId: string,
+  create: boolean,
+): Promise<{ id: string } | null> {
+  const membership = await tx.organizationMember.findFirst({
+    where: { userId: promoterUserId, status: "ACTIVE", role: { key: "owner" } },
+    select: { organizationId: true },
+    orderBy: { joinedAt: "asc" },
+  });
+  if (membership) {
+    const daOrg = await tx.ledgerAccount.findUnique({
+      where: { organizationId: membership.organizationId },
+    });
+    if (daOrg) return daOrg;
+    if (create) {
+      return tx.ledgerAccount.create({ data: { organizationId: membership.organizationId } });
+    }
+  }
+  const pessoal = await tx.ledgerAccount.findUnique({ where: { userId: promoterUserId } });
+  if (pessoal) return pessoal;
+  return create ? tx.ledgerAccount.create({ data: { userId: promoterUserId } }) : null;
+}
+
 /**
  * Split de comissão do promoter (Promoter v2, 2026-08-10): débito na org do
  * evento + crédito no CAIXA da org do promoter — que saca pelas regras
@@ -439,12 +480,9 @@ async function splitPromoterCommission(
     update: {},
     create: { organizationId: order.event.organizationId },
   });
-  // carteira DE USUÁRIO do promoter (não precisa ser produtor)
-  const promoterAccount = await tx.ledgerAccount.upsert({
-    where: { userId: order.promoterLink.promoterUserId },
-    update: {},
-    create: { userId: order.promoterLink.promoterUserId },
-  });
+  // carteira do promoter (pessoa ou organização dele, se já virou produtor)
+  const promoterAccount = await resolvePromoterWallet(tx, order.promoterLink.promoterUserId, true);
+  if (!promoterAccount) return;
   const availableAt = addBusinessDays(
     order.event.endsAt,
     Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
@@ -472,10 +510,15 @@ async function splitPromoterCommission(
   });
 }
 
-/** Estorno TOTAL devolve a comissão: promoter debita, org do evento credita. */
+/**
+ * Devolve a comissão do promoter no estorno: debita a carteira dele e credita
+ * a casa. `fraction` = quanto do pagamento foi devolvido (1 = total), então o
+ * estorno parcial devolve a comissão pro-rata. Idempotente por acumulado.
+ */
 export async function clawbackPromoterCommission(
   tx: Prisma.TransactionClient,
   payment: { id: string; orderId: string },
+  fraction = 1,
 ): Promise<void> {
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
@@ -486,35 +529,47 @@ export async function clawbackPromoterCommission(
     },
   });
   if (!order?.promoterLink || order.promoterCommissionCents <= 0) return;
-  const jaDevolvida = await tx.ledgerEntry.findFirst({
-    where: { referenceType: "payment", referenceId: payment.id, type: "COMMISSION_DEBIT", amountCents: { gt: 0 } },
+
+  // quanto da comissão JÁ voltou (estornos parciais anteriores)
+  const devolvidoAntes = await tx.ledgerEntry.aggregate({
+    where: {
+      referenceType: "payment",
+      referenceId: payment.id,
+      type: "COMMISSION_DEBIT",
+      amountCents: { gt: 0 },
+    },
+    _sum: { amountCents: true },
   });
-  if (jaDevolvida) return; // idempotente
+  const jaDevolvido = devolvidoAntes._sum.amountCents ?? 0;
+  const alvo = Math.min(
+    Math.round(order.promoterCommissionCents * Math.max(0, Math.min(1, fraction))),
+    order.promoterCommissionCents,
+  );
+  const valor = alvo - jaDevolvido;
+  if (valor <= 0) return; // nada novo a devolver (idempotente)
 
   const hostAccount = await tx.ledgerAccount.findUnique({
     where: { organizationId: order.event.organizationId },
   });
-  const promoterAccount = await tx.ledgerAccount.findUnique({
-    where: { userId: order.promoterLink.promoterUserId },
-  });
+  const promoterAccount = await resolvePromoterWallet(tx, order.promoterLink.promoterUserId, false);
   if (!hostAccount || !promoterAccount) return;
   await tx.ledgerEntry.createMany({
     data: [
       {
         ledgerAccountId: promoterAccount.id,
         type: "COMMISSION_CREDIT",
-        amountCents: -order.promoterCommissionCents,
+        amountCents: -valor,
         referenceType: "payment",
         referenceId: payment.id,
-        description: "Estorno de comissão (pedido reembolsado)",
+        description: "Estorno de comissão (reembolso)",
       },
       {
         ledgerAccountId: hostAccount.id,
         type: "COMMISSION_DEBIT",
-        amountCents: order.promoterCommissionCents,
+        amountCents: valor,
         referenceType: "payment",
         referenceId: payment.id,
-        description: "Estorno de comissão (pedido reembolsado)",
+        description: "Estorno de comissão (reembolso)",
       },
     ],
   });

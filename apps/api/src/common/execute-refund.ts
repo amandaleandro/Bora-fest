@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { assertRefundWithinCap } from "./refund-cap";
 import { applyGatewayStatus, getGateway } from "@borafest/payments";
 
 /**
@@ -22,9 +23,7 @@ export async function executeOrderRefund(
   if (!payment || !payment.externalId) {
     throw new BadRequestException("Pedido não tem pagamento aprovado para estornar");
   }
-  if (input.amountCents !== undefined && input.amountCents > payment.amountCents) {
-    throw new BadRequestException("Valor do estorno maior que o pagamento");
-  }
+  await assertRefundWithinCap(payment, input.amountCents);
 
   const marked = await prisma.payment.updateMany({
     where: { id: payment.id, status: "PAID" },

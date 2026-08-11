@@ -589,6 +589,41 @@ carteira); PERCENT via link direto; convite só da pessoa convidada;
 migração da carteira ao virar produtor. API 45/45 · worker 6/6 · build
 14/14. Revisão adversarial rodando.
 
+**Promoter v3 + correções da revisão adversarial (2026-08-11)** —
+hierarquia Casa → Promoter(pessoa) → Vendedor, conciliada com a queda da
+barreira de entrada (conta simples vende; Pix só no saque):
+- **PromoterLink agora aponta para PESSOA** (promoterUserId), não org.
+  Convite por e-mail cria conta simples na hora. Comissão definida pela
+  CASA: NONE (só contabiliza — dinheiro fica todo com a casa) / PERCENT /
+  FIXED por ingresso. **PromoterSeller** (nível 3) com link próprio (?vd=);
+  vendedor NUNCA recebe pela plataforma, só contabiliza.
+- **Carteira de usuário** (LedgerAccount.userId): promoter comissionado
+  acumula sem ser produtor; ao completar o cadastro, a carteira MIGRA para
+  a organização dele e cai no motor de saque v2 (mesma conta subindo de
+  nível).
+- Cascata de visibilidade: vendedor vê o seu; promoter vê por vendedor;
+  casa vê por promoter. Atribuição: vendedor > promoter > atlética antiga.
+- **Correções da revisão adversarial (19 agentes)** — 2 CRÍTICAS + 3 ALTAS,
+  todas com teste de regressão (revisao-promoter-v3.test.ts):
+  · CRÍTICA: split e clawback resolviam a carteira do promoter de formas
+    diferentes — depois da migração o estorno não achava a carteira e a
+    casa ficava NEGATIVA no valor da comissão (e comissões novas caíam em
+    carteira órfã). Agora há UMA função (resolvePromoterWallet: org do
+    promoter → carteira pessoal) usada pelos dois.
+  · CRÍTICA: estornos parciais não tinham teto ACUMULADO — dois de R$ 60
+    num pagamento de R$ 100 mandavam R$ 120 ao comprador. assertRefundWithinCap
+    soma os REFUND_DEBIT e barra em todos os caminhos (produtor, backoffice,
+    casa).
+  · ALTA: estorno parcial não devolvia comissão — agora volta PRO-RATA.
+  · ALTA: comissão FIXA sem teto (cupom + fixo deixava a casa negativa) —
+    limitada ao valor dos ingressos da venda.
+  · ALTA: last-click não limpava os outros canais (slug velho de vendedor
+    vencia clique novo) — capturar um canal apaga os demais.
+  · ALTA: venda no PDV creditava madura, furando a janela — agora usa a
+    mesma maturação D+2 úteis pós-evento.
+API 49/49 · worker 6/6 · build 14/14. Pendente: telas do painel (promoter/
+vendedor) e integração Mercado Pago (Pix) + testes de carga.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
