@@ -22,6 +22,13 @@ export const validatorSessionSchema = z.object({
 });
 export type ValidatorSessionInput = z.infer<typeof validatorSessionSchema>;
 
+/** Portaria por CONTA: sem PIN — a permissão da pessoa no evento é a chave. */
+export const accountSessionSchema = z.object({
+  eventId: z.string().uuid(),
+  device: z.object({ name: z.string().min(1).max(60) }),
+});
+export type AccountSessionInput = z.infer<typeof accountSessionSchema>;
+
 export const registerValidatorDeviceSchema = z.object({
   /** identificação do aparelho (ex.: "Moto G da Ana — Portão A") */
   name: z.string().min(2).max(80),

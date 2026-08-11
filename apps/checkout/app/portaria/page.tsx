@@ -226,6 +226,10 @@ export default function PortariaPage() {
   const [tab, setTab] = useState<Tab>("scanner");
   const [session, setSession] = useState<Session | null>(null);
 
+  // Portaria por CONTA (2026-08-11): a lista vem da PERMISSÃO da pessoa
+  const [accountToken, setAccountToken] = useState<string | null>(null);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [usarPin, setUsarPin] = useState(false);
   const [events, setEvents] = useState<EventOption[]>([]);
   const [eventsError, setEventsError] = useState(false);
   const [eventQuery, setEventQuery] = useState("");
@@ -318,18 +322,55 @@ export default function PortariaPage() {
 
   const carregarEventos = useCallback(() => {
     setEventsError(false);
-    portariaApi
-      .listEvents()
-      .then(setEvents)
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("bf.token") : null;
+    // logado: só os eventos que ESTA conta pode validar. Sem conta (plano B do
+    // PIN): a lista pública, como era antes.
+    const fonte = token ? portariaApi.listMyEvents(token) : portariaApi.listEvents();
+    fonte
+      .then((lista) => {
+        setEvents(lista);
+        // um evento só = entra direto, sem escolher nada
+        if (token && lista.length === 1) setEventId(lista[0].id);
+      })
       .catch(() => {
         setEvents([]);
         setEventsError(true);
       });
   }, []);
 
+  /** Entra na portaria com a conta logada (sem PIN). */
+  const entrarComConta = useCallback(
+    async (alvo: string) => {
+      const token = typeof localStorage !== "undefined" ? localStorage.getItem("bf.token") : null;
+      if (!token || !alvo || accountLoading) return;
+      setAccountLoading(true);
+      setPinError(null);
+      try {
+        const nome =
+          typeof navigator !== "undefined" ? `Portaria · ${navigator.platform || "web"}` : "Portaria";
+        const sessao = await portariaApi.accountSession(token, alvo, nome);
+        localStorage.setItem(SESSION_KEY, JSON.stringify(sessao));
+        setSession(sessao as never);
+        setScreen("select");
+      } catch (e) {
+        setPinError(
+          e instanceof Error && /acesso/i.test(e.message)
+            ? "Sua conta não tem acesso à portaria deste evento — peça ao produtor."
+            : "Não foi possível entrar. Confira a conexão.",
+        );
+      } finally {
+        setAccountLoading(false);
+      }
+    },
+    [accountLoading],
+  );
+
   // --- montagem: sessão salva, eventos, rede -------------------------------
 
   useEffect(() => {
+    setAccountToken(
+      typeof localStorage !== "undefined" ? localStorage.getItem("bf.token") : null,
+    );
     const saved = typeof localStorage !== "undefined" ? localStorage.getItem(SESSION_KEY) : null;
     if (saved) {
       try {
@@ -682,8 +723,34 @@ export default function PortariaPage() {
             </div>
             <h1 className="text-[24px] font-extrabold leading-tight">Validação BoraFest</h1>
             <p className="mb-7 mt-1.5 text-[14px] font-medium text-white/55">
-              Escolha o evento e digite o PIN fornecido pelo produtor.
+              {accountToken && !usarPin
+                ? events.length === 0
+                  ? "Nenhum evento liberado para a sua conta agora."
+                  : "Escolha o evento e comece a validar."
+                : "Escolha o evento e digite o PIN fornecido pelo produtor."}
             </p>
+
+            {!accountToken && !usarPin && (
+              <div className="mb-6 w-full rounded-2xl border-[1.5px] border-white/15 bg-white/[.06] p-4 text-left">
+                <p className="text-[13.5px] font-bold">Entre com sua conta BoraFest</p>
+                <p className="mt-1 text-[12.5px] font-medium text-white/55">
+                  A equipe autorizada pelo produtor valida sem PIN — e você vê só os seus eventos.
+                </p>
+                <a
+                  href={`/perfil?next=${encodeURIComponent("/portaria")}`}
+                  className="mt-3 flex h-11 items-center justify-center rounded-xl bg-primary text-[14px] font-extrabold text-white"
+                >
+                  Entrar com e-mail
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setUsarPin(true)}
+                  className="mt-2 w-full text-[12.5px] font-semibold text-white/50 underline"
+                >
+                  Usar código do evento (PIN)
+                </button>
+              </div>
+            )}
 
             <button
               onClick={() => setPickerOpen(true)}
@@ -715,6 +782,8 @@ export default function PortariaPage() {
               </svg>
             </button>
 
+            {(!accountToken || usarPin) && (
+            <>
             <div className={`mb-6 flex gap-3 ${pinError ? "animate-shake" : ""}`}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <span
@@ -764,18 +833,33 @@ export default function PortariaPage() {
                 </button>
               ))}
             </div>
+            </>
+          )}
           </div>
 
           <div>
-            <button
-              onClick={() => entrar(pin)}
-              disabled={pin.length !== 6 || !eventId || entering}
-              className={`h-14 w-full rounded-2xl text-[16px] font-extrabold ${
-                pin.length === 6 && eventId ? "bg-primary shadow-cta" : "bg-white/[.12]"
-              }`}
-            >
-              {entering ? "Entrando..." : "Entrar"}
-            </button>
+            {accountToken && !usarPin ? (
+              // conta logada: entra direto, sem PIN
+              <button
+                onClick={() => entrarComConta(eventId)}
+                disabled={!eventId || accountLoading}
+                className={`h-14 w-full rounded-2xl text-[16px] font-extrabold ${
+                  eventId ? "bg-primary shadow-cta" : "bg-white/[.12]"
+                }`}
+              >
+                {accountLoading ? "Entrando..." : "Validar ingressos"}
+              </button>
+            ) : (
+              <button
+                onClick={() => entrar(pin)}
+                disabled={pin.length !== 6 || !eventId || entering}
+                className={`h-14 w-full rounded-2xl text-[16px] font-extrabold ${
+                  pin.length === 6 && eventId ? "bg-primary shadow-cta" : "bg-white/[.12]"
+                }`}
+              >
+                {entering ? "Entrando..." : "Entrar"}
+              </button>
+            )}
             <p className="mt-3.5 text-center text-[11px] font-medium leading-relaxed text-white/40">
               Ao entrar, você aceita os termos de operação e a{" "}
               <button onClick={() => setScreen("legal")} className="font-bold text-[#a78bfa]">

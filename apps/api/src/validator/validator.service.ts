@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -19,7 +20,7 @@ import type {
   RegisterValidatorDeviceInput,
   ValidatorSessionInput,
 } from "@borafest/contracts";
-import { PERMISSIONS } from "@borafest/auth";
+import { PERMISSIONS, roleHasPermission } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
 
 /** SHA-256 (hex minúsculo) dos 11 dígitos do CPF — o cru nunca sai do servidor. */
@@ -117,6 +118,120 @@ export class ValidatorService {
    * Login por PIN (§13): valida a credencial do evento e registra o aparelho
    * na sequência. O token do dispositivo é a credencial de trabalho.
    */
+
+  /**
+   * Portaria por CONTA (2026-08-11) — padrão do mercado (Sympla: a equipe
+   * loga com a própria conta e enxerga só os eventos autorizados).
+   *
+   * Antes o app listava TODOS os eventos públicos da plataforma e pedia um PIN
+   * — o porteiro procurava o evento dele entre os dos outros produtores. Agora
+   * a lista vem da PERMISSÃO da pessoa; o PIN fica como plano B (celular
+   * emprestado / equipe sem conta).
+   */
+  async listMyValidatorEvents(userId: string) {
+    const memberships = await prisma.organizationMember.findMany({
+      where: { userId, status: "ACTIVE" },
+      include: { role: true },
+    });
+    const orgIds = memberships
+      .filter(
+        (m) =>
+          roleHasPermission(m.role.key, PERMISSIONS.CHECKIN_PERFORM) ||
+          roleHasPermission(m.role.key, PERMISSIONS.EVENT_CREATE),
+      )
+      .map((m) => m.organizationId);
+    if (orgIds.length === 0) return [];
+
+    // eventos que ainda fazem sentido validar: futuros ou terminados há < 12h
+    const limite = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    return prisma.event.findMany({
+      where: {
+        organizationId: { in: orgIds },
+        status: { in: ["PUBLISHED", "SALES_PAUSED"] },
+        endsAt: { gt: limite },
+      },
+      orderBy: { startsAt: "asc" },
+      select: {
+        id: true,
+        title: true,
+        startsAt: true,
+        endsAt: true,
+        venue: { select: { name: true, city: true } },
+      },
+      take: 50,
+    });
+  }
+
+  /** Entra na portaria com a CONTA (sem PIN) — exige permissão no evento. */
+  async createSessionFromAccount(
+    userId: string,
+    eventId: string,
+    device: RegisterValidatorDeviceInput,
+  ) {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true, slug: true, startsAt: true, endsAt: true, organizationId: true },
+    });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+
+    const membership = await prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId: event.organizationId, userId } },
+      include: { role: true, user: { select: { name: true, email: true } } },
+    });
+    const autorizado =
+      membership?.status === "ACTIVE" &&
+      (roleHasPermission(membership.role.key, PERMISSIONS.CHECKIN_PERFORM) ||
+        roleHasPermission(membership.role.key, PERMISSIONS.EVENT_CREATE));
+    if (!autorizado) {
+      throw new ForbiddenException("Você não tem acesso à portaria deste evento");
+    }
+
+    // credencial "por conta": uma por pessoa no evento, para o histórico de
+    // check-in ficar com nome e poder ser revogada individualmente
+    const quem = membership!.user.name ?? membership!.user.email ?? "equipe";
+    const label = `Conta · ${quem}`;
+    const credential = await prisma.validatorCredential.upsert({
+      where: { eventId_label: { eventId, label } },
+      update: { active: true },
+      create: {
+        eventId,
+        label,
+        // credencial de conta não usa PIN: hash impossível de casar
+        pinHash: hashValidatorPin(generateValidatorPin(), `conta:${userId}:${eventId}`),
+        active: true,
+      },
+    });
+
+    const token = generateDeviceToken();
+    const created = await prisma.validatorDevice.create({
+      data: {
+        credentialId: credential.id,
+        eventId,
+        name: device.name,
+        tokenHash: hashDeviceToken(token),
+      },
+    });
+    const checkinPoints = await prisma.checkinPoint.findMany({
+      where: { eventId, active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+
+    return {
+      deviceId: created.id,
+      deviceToken: token,
+      credentialLabel: credential.label,
+      event: {
+        id: event.id,
+        title: event.title,
+        slug: event.slug,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+      },
+      checkinPoints,
+    };
+  }
+
   async createSessionAndRegisterDevice(
     session: ValidatorSessionInput,
     device: RegisterValidatorDeviceInput,

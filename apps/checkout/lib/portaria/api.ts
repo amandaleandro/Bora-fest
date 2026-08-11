@@ -25,7 +25,7 @@ export function isAuthError(error: unknown): boolean {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; session?: Session | null } = {},
+  options: { method?: string; body?: unknown; session?: Session | null; token?: string } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
   // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
@@ -34,6 +34,8 @@ async function request<T>(
     headers["x-device-id"] = options.session.deviceId;
     headers["x-device-token"] = options.session.deviceToken;
   }
+  // portaria por conta: sessão normal da plataforma (sem PIN)
+  if (options.token) headers["Authorization"] = `Bearer ${options.token}`;
 
   let response: Response;
   try {
@@ -85,6 +87,30 @@ export interface SyncResponse {
 }
 
 export const portariaApi = {
+  /**
+   * Eventos que ESTA conta pode validar (2026-08-11). Antes vinha de
+   * /v1/public/events — o porteiro via os eventos de TODOS os produtores.
+   */
+  listMyEvents: (token: string) =>
+    request<Array<{ id: string; title: string; startsAt: string; venue: { name: string; city: string } | null }>>(
+      "/v1/validator/my-events",
+      { token },
+    ),
+
+  /** Entra na portaria com a conta (sem PIN). */
+  accountSession: (token: string, eventId: string, deviceName: string) =>
+    request<{
+      deviceId: string;
+      deviceToken: string;
+      credentialLabel: string;
+      event: { id: string; title: string; slug: string; startsAt: string; endsAt: string };
+      checkinPoints: Array<{ id: string; name: string }>;
+    }>("/v1/validator/sessions/account", {
+      method: "POST",
+      body: { eventId, device: { name: deviceName } },
+      token,
+    }),
+
   listEvents: () =>
     request<{ events: Array<{ id: string; title: string; startsAt: string; venue: { name: string; city: string } | null }> }>(
       "/v1/public/events?pageSize=50",

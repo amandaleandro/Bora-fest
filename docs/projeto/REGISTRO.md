@@ -624,6 +624,38 @@ barreira de entrada (conta simples vende; Pix só no saque):
 API 49/49 · worker 6/6 · build 14/14. Pendente: telas do painel (promoter/
 vendedor) e integração Mercado Pago (Pix) + testes de carga.
 
+**Promoter v3 + Portaria por conta (2026-08-11)** — hierarquia e acesso
+alinhados ao padrão de mercado, com revisão adversarial (19 agentes) que
+achou 2 CRÍTICOS do próprio código novo — todos corrigidos e testados:
+- **Hierarquia Casa → Promoter(pessoa) → Vendedor**: promoter deixou de ser
+  organização e virou PESSOA (conta simples basta — derruba a barreira de
+  entrada); PromoterSeller é o nível 3 (link próprio, só contabiliza, nunca
+  recebe). Comissão definida pela casa: NONE (dinheiro fica com ela) /
+  PERCENT / FIXED por ingresso. Convite por e-mail nos dois níveis, aceite
+  pela própria pessoa. Atribuição em cascata: ?vd= implica o promoter;
+  promoter vence atlética antiga.
+- **Carteira de USUÁRIO** (LedgerAccount.userId): promoter comissionado
+  recebe sem ser produtor; ao completar o cadastro, a carteira migra para a
+  organização dele com o saldo.
+- **CRÍTICO corrigido**: split e clawback resolviam a carteira de formas
+  diferentes — depois da migração o estorno não achava a carteira e a casa
+  ficava NEGATIVA no valor da comissão (e a próxima venda criava carteira
+  órfã). Agora há um resolvedor único (organização do promoter → carteira
+  pessoal), usado pelos dois.
+- **CRÍTICO corrigido**: estornos parciais não somavam — dois de R$ 60 num
+  pagamento de R$ 100 mandavam R$ 120 ao comprador. Teto ACUMULADO em todos
+  os caminhos (produtor, backoffice, casa).
+- **ALTAs corrigidas**: clawback proporcional no estorno parcial; comissão
+  FIXA limitada ao valor dos ingressos; PDV passou a respeitar a janela
+  D+2 pós-evento; last-click real entre canais (capturar um limpa os outros).
+- **Portaria por CONTA** (padrão Sympla): a lista de eventos vem da
+  PERMISSÃO da pessoa (antes o app listava os 50 eventos PÚBLICOS da
+  plataforma inteira!); dono/admin e operador entram sem PIN, cada
+  dispositivo com credencial nomeada por pessoa (histórico e revogação
+  individuais); um evento só = entra direto; PIN vira plano B explícito.
+  GET /v1/validator/my-events + POST /v1/validator/sessions/account.
+API 51/51 · worker 6/6 · build 14/14.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

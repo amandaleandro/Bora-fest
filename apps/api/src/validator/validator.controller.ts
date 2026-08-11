@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  accountSessionSchema,
   createCheckinPointSchema,
   createValidatorCredentialSchema,
   registerValidatorDeviceSchema,
@@ -79,6 +80,24 @@ export class ValidatorController {
   constructor(private readonly validatorService: ValidatorService) {}
 
   /** login por PIN + registro do aparelho em uma chamada */
+  /** eventos que ESTA pessoa pode validar (substitui a lista pública) */
+  @Get("my-events")
+  @UseGuards(SessionGuard)
+  myEvents(@CurrentUserId() userId: string) {
+    return this.validatorService.listMyValidatorEvents(userId);
+  }
+
+  /** entra na portaria com a CONTA (sem PIN) */
+  @Post("sessions/account")
+  @UseGuards(SessionGuard)
+  createAccountSession(
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(accountSessionSchema)) body: unknown,
+  ) {
+    const input = body as { eventId: string; device: { name: string } };
+    return this.validatorService.createSessionFromAccount(userId, input.eventId, input.device as never);
+  }
+
   @Post("sessions")
   // PIN tem 6 dígitos: sem limite dedicado, o espaço é varrível por força bruta
   @RateLimit({ limit: 10, windowSeconds: 900, keyPrefix: "validator-pin", by: "body:session" })
