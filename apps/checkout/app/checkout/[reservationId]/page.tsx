@@ -13,7 +13,7 @@ import {
   type Reservation,
 } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
-import { getAttributedPartnerSlug, getAttributedPromoterSlug } from "../../../lib/attribution";
+import { getAttributedPartnerSlug, getAttributedPromoterSlug, getAttributedSellerSlug } from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
 
 type Step = "ident" | "participantes" | "pagamento";
@@ -366,6 +366,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           couponCode: validCoupon ? coupon.trim().toUpperCase() : undefined,
           partnerSlug: getAttributedPartnerSlug(),
           promoterSlug: getAttributedPromoterSlug(),
+          sellerSlug: getAttributedSellerSlug(),
           contactCpf: onlyDigits(buyerCpf) || undefined,
           addOns: Object.entries(addOnQty).some(([, qty]) => qty > 0)
             ? Object.entries(addOnQty)

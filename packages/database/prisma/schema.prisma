@@ -55,6 +55,9 @@ model User {
   salesOrders            Order[]              @relation("SalesOrderSeller")
   organizationFollows     OrganizationFollow[]
   eventReviews            EventReview[]
+  ledgerAccount           LedgerAccount?
+  promoterLinks           PromoterLink[]       @relation("PromoterPerson")
+  promoterSellers         PromoterSeller[]     @relation("SellerPerson")
 
   @@map("users")
 }
@@ -182,7 +185,6 @@ model Organization {
   payouts       Payout[]
   salesPartners SalesPartner[]
   promoterHosts  PromoterLink[] @relation("PromoterHost")
-  promoterGuests PromoterLink[] @relation("PromoterGuest")
   followers     OrganizationFollow[]
 
   @@map("organizations")
@@ -271,10 +273,16 @@ model OrganizationMember {
 /// "você não vai receber").
 model PromoterLink {
   id             String              @id @default(uuid()) @db.Uuid
+  /// a CASA que convidou (dona do evento — recebe as vendas)
   organizationId String              @map("organization_id") @db.Uuid
-  promoterOrgId  String              @map("promoter_org_id") @db.Uuid
+  /// o PROMOTER: uma pessoa (conta simples), não precisa ser produtor
+  promoterUserId String              @map("promoter_user_id") @db.Uuid
   status         PromoterLinkStatus  @default(INVITED)
+  /// quem define a comissão é a CASA. NONE = só contabiliza (dinheiro fica
+  /// com a casa); PERCENT usa commissionBps; FIXED usa commissionFixedCents/ingresso.
+  commissionType PromoterCommissionType @default(NONE) @map("commission_type")
   commissionBps  Int                 @default(0) @map("commission_bps")
+  commissionFixedCents Int           @default(0) @map("commission_fixed_cents")
   /// slug global do link rastreável (?pr=slug) — único entre todos os promoters
   slug           String              @unique
   invitedBy      String?             @map("invited_by") @db.Uuid
@@ -282,12 +290,39 @@ model PromoterLink {
   respondedAt    DateTime?           @map("responded_at")
 
   organization Organization @relation("PromoterHost", fields: [organizationId], references: [id], onDelete: Cascade)
-  promoterOrg  Organization @relation("PromoterGuest", fields: [promoterOrgId], references: [id], onDelete: Cascade)
+  promoterUser User         @relation("PromoterPerson", fields: [promoterUserId], references: [id], onDelete: Cascade)
+  sellers      PromoterSeller[]
   orders       Order[]
 
-  @@unique([organizationId, promoterOrgId])
-  @@index([promoterOrgId, status])
+  @@unique([organizationId, promoterUserId])
+  @@index([promoterUserId, status])
   @@map("promoter_links")
+}
+
+enum PromoterCommissionType {
+  NONE
+  PERCENT
+  FIXED
+}
+
+/// Vendedor de um promoter (nível 3): pessoa com link rastreável próprio.
+/// NUNCA recebe dinheiro pela plataforma — só contabiliza quanto vendeu.
+model PromoterSeller {
+  id             String              @id @default(uuid()) @db.Uuid
+  promoterLinkId String              @map("promoter_link_id") @db.Uuid
+  sellerUserId   String              @map("seller_user_id") @db.Uuid
+  status         PromoterLinkStatus  @default(INVITED)
+  slug           String              @unique
+  invitedAt      DateTime            @default(now()) @map("invited_at")
+  respondedAt    DateTime?           @map("responded_at")
+
+  promoterLink PromoterLink @relation(fields: [promoterLinkId], references: [id], onDelete: Cascade)
+  sellerUser   User         @relation("SellerPerson", fields: [sellerUserId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([promoterLinkId, sellerUserId])
+  @@index([sellerUserId, status])
+  @@map("promoter_sellers")
 }
 
 enum PromoterLinkStatus {
@@ -702,6 +737,7 @@ model Order {
   userId        String?     @map("user_id") @db.Uuid
   salesPartnerId String?    @map("sales_partner_id") @db.Uuid
   promoterLinkId String?    @map("promoter_link_id") @db.Uuid
+  promoterSellerId String?  @map("promoter_seller_id") @db.Uuid
   promoterCommissionCents Int @default(0) @map("promoter_commission_cents")
   /// a conta do comprador NASCEU deste pedido (checkout sem sessão). Só nesse
   /// caso o e-mail pode ser corrigido pela sessão pagante — do contrário
@@ -727,6 +763,7 @@ model Order {
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   salesPartner SalesPartner? @relation(fields: [salesPartnerId], references: [id], onDelete: SetNull)
   promoterLink PromoterLink? @relation(fields: [promoterLinkId], references: [id], onDelete: SetNull)
+  promoterSeller PromoterSeller? @relation(fields: [promoterSellerId], references: [id], onDelete: SetNull)
   soldByUser  User?         @relation("SalesOrderSeller", fields: [soldByUserId], references: [id], onDelete: SetNull)
   items       OrderItem[]
   payments    Payment[]
@@ -1125,10 +1162,15 @@ model EventSigningKey {
 /// (nunca um campo mutável — sempre recalculado a partir do ledger).
 model LedgerAccount {
   id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @unique @map("organization_id") @db.Uuid
+  /// carteira da CASA/produtor OU de uma pessoa (promoter comissionado) —
+  /// exatamente um dos dois. A carteira de usuário derruba a barreira: o
+  /// promoter recebe comissão sem precisar ser produtor; cadastra Pix só ao sacar.
+  organizationId String?  @unique @map("organization_id") @db.Uuid
+  userId         String?  @unique @map("user_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at")
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   entries      LedgerEntry[]
 
   @@map("ledger_accounts")

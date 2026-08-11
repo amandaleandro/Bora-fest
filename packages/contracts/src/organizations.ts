@@ -43,10 +43,31 @@ export const updateOrganizationSchema = z.object({
 });
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 
-/** Convite de promoter (afiliado por conta de produtor). commissionBps = 0 → só contabiliza. */
-export const invitePromoterSchema = z.object({
-  promoterOrgId: z.string().uuid(),
-  /** % do valor dos INGRESSOS (bps: 500 = 5%); 0 = sem repasse, só contagem */
-  commissionBps: z.number().int().min(0).max(5000).default(0),
-});
+/**
+ * Convite de promoter (Promoter v3): a CASA convida uma PESSOA por e-mail.
+ * Comissão definida pela casa: NONE (só contabiliza, dinheiro fica com a casa),
+ * PERCENT (% do ingresso) ou FIXED (valor por ingresso). Promoter não precisa
+ * ser produtor — conta simples basta; chave Pix só ao sacar.
+ */
+export const invitePromoterSchema = z
+  .object({
+    email: z.string().email(),
+    commissionType: z.enum(["NONE", "PERCENT", "FIXED"]).default("NONE"),
+    /** PERCENT: bps (500 = 5%) */
+    commissionBps: z.number().int().min(0).max(5000).optional(),
+    /** FIXED: centavos por ingresso vendido */
+    commissionFixedCents: z.number().int().min(0).max(1_000_000).optional(),
+  })
+  .refine((v) => v.commissionType !== "PERCENT" || (v.commissionBps ?? 0) > 0, {
+    message: "Comissão percentual precisa de um valor maior que zero",
+  })
+  .refine((v) => v.commissionType !== "FIXED" || (v.commissionFixedCents ?? 0) > 0, {
+    message: "Comissão fixa precisa de um valor por ingresso maior que zero",
+  });
 export type InvitePromoterInput = z.infer<typeof invitePromoterSchema>;
+
+/** Convite de vendedor (nível 3): o promoter convida uma pessoa por e-mail. Vendedor nunca recebe pela plataforma. */
+export const inviteSellerSchema = z.object({
+  email: z.string().email(),
+});
+export type InviteSellerInput = z.infer<typeof inviteSellerSchema>;

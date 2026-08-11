@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
-import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, invitePromoterSchema, inviteMemberSchema, updateOrganizationSchema } from "@borafest/contracts";
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, invitePromoterSchema, inviteSellerSchema, inviteMemberSchema, updateOrganizationSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -20,12 +20,7 @@ export class OrganizationsController {
     return this.organizationsService.listForUser(userId);
   }
 
-  /** busca para convite de promoter — rota estática ANTES de :id */
-  @Get("search")
-  search(@CurrentUserId() userId: string, @Query("q") q: string | undefined) {
-    return this.organizationsService.searchOrganizations(userId, q ?? "");
-  }
-
+  // --- meus convites/vínculos (pessoa) — rotas estáticas ANTES de :id ------
   @Get("promoter-invites/mine")
   myPromoterInvites(@CurrentUserId() userId: string) {
     return this.organizationsService.listMyPromoterInvites(userId);
@@ -34,6 +29,21 @@ export class OrganizationsController {
   @Get("promoter-engagements/mine")
   myPromoterEngagements(@CurrentUserId() userId: string) {
     return this.organizationsService.listMyPromoterEngagements(userId);
+  }
+
+  @Get("wallet/mine")
+  myWallet(@CurrentUserId() userId: string) {
+    return this.organizationsService.getMyWallet(userId);
+  }
+
+  @Get("seller-invites/mine")
+  mySellerInvites(@CurrentUserId() userId: string) {
+    return this.organizationsService.listMySellerInvites(userId);
+  }
+
+  @Get("seller-engagements/mine")
+  mySellerEngagements(@CurrentUserId() userId: string) {
+    return this.organizationsService.listMySellerEngagements(userId);
   }
 
   @Post("promoter-links/:linkId/accept")
@@ -46,6 +56,33 @@ export class OrganizationsController {
     return this.organizationsService.respondPromoterInvite(linkId, userId, false);
   }
 
+  /** o PROMOTER convida um vendedor no seu link */
+  @Post("promoter-links/:linkId/sellers")
+  inviteSeller(
+    @Param("linkId") linkId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(inviteSellerSchema)) body: unknown,
+  ) {
+    return this.organizationsService.inviteSeller(linkId, userId, body as any);
+  }
+
+  /** cascata: promoter (ou a casa) vê os vendedores e quanto cada um vendeu */
+  @Get("promoter-links/:linkId/sellers")
+  listSellers(@Param("linkId") linkId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.listSellersOfPromoter(linkId, userId);
+  }
+
+  @Post("promoter-sellers/:sellerId/accept")
+  acceptSellerInvite(@Param("sellerId") sellerId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.respondSellerInvite(sellerId, userId, true);
+  }
+
+  @Post("promoter-sellers/:sellerId/decline")
+  declineSellerInvite(@Param("sellerId") sellerId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.respondSellerInvite(sellerId, userId, false);
+  }
+
+  // --- lado da CASA --------------------------------------------------------
   @Post(":id/promoters")
   invitePromoter(
     @Param("id") organizationId: string,

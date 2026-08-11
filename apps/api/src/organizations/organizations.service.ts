@@ -23,7 +23,7 @@ export class OrganizationsService {
     const baseSlug = slugify(input.name);
     const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 7)}`;
 
-    return prisma.organization.create({
+    const criada = await prisma.organization.create({
       data: {
         name: input.name,
         slug,
@@ -41,6 +41,56 @@ export class OrganizationsService {
       },
       include: { members: true },
     });
+
+    // "A mesma conta cresce" (decisão 2026-08-11): quem juntou comissão como
+    // promoter (carteira de PESSOA) e agora completou o cadastro leva o saldo
+    // junto — a carteira vira da organização, com histórico e datas de
+    // maturação intactos, e passa a usar o motor de saque normal.
+    const carteiraPessoal = await prisma.ledgerAccount.findUnique({ where: { userId } });
+    if (carteiraPessoal) {
+      await prisma.ledgerAccount.update({
+        where: { id: carteiraPessoal.id },
+        data: { organizationId: criada.id, userId: null },
+      });
+      await prisma.auditLog.create({
+        data: {
+          actorUserId: userId,
+          organizationId: criada.id,
+          action: "wallet.promoted_to_organization",
+          entityType: "ledger_account",
+          entityId: carteiraPessoal.id,
+        },
+      });
+    }
+
+    return criada;
+  }
+
+  /**
+   * Carteira do promoter PESSOA (antes de virar produtor): saldo acumulado em
+   * comissões e o que já está liberado. Sacar exige completar o cadastro —
+   * quando isso acontece, a carteira migra para a organização (ver create()).
+   */
+  async getMyWallet(userId: string) {
+    const account = await prisma.ledgerAccount.findUnique({ where: { userId } });
+    if (!account) return { balanceCents: 0, availableCents: 0, needsProducerAccount: true };
+    const agora = new Date();
+    const [total, maduro] = await Promise.all([
+      prisma.ledgerEntry.aggregate({
+        where: { ledgerAccountId: account.id },
+        _sum: { amountCents: true },
+      }),
+      prisma.ledgerEntry.aggregate({
+        where: { ledgerAccountId: account.id, availableAt: { lte: agora } },
+        _sum: { amountCents: true },
+      }),
+    ]);
+    return {
+      balanceCents: total._sum.amountCents ?? 0,
+      availableCents: Math.max(maduro._sum.amountCents ?? 0, 0),
+      // saque só pelo motor da organização: complete o cadastro para sacar
+      needsProducerAccount: true,
+    };
   }
 
   async listForUser(userId: string) {
@@ -237,84 +287,74 @@ export class OrganizationsService {
    * comercial, CPF ou CNPJ). Documento só é comparado por igualdade exata
    * (nada de varrer por prefixo de CPF) e volta mascarado.
    */
-  async searchOrganizations(userId: string, query: string) {
-    // busca por CPF/CNPJ é para convidar promoter — restrita a quem administra
-    // uma organização (auditoria 2026-08-10: qualquer sessão enumerava)
+  /** Só quem administra uma organização convida promoters (evita enumeração). */
+  private async assertProducer(userId: string) {
     const administra = await prisma.organizationMember.findFirst({
       where: { userId, status: "ACTIVE", role: { key: { in: ["owner", "admin"] } } },
       select: { id: true },
     });
     if (!administra) {
-      throw new ForbiddenException("Só produtores podem buscar contas para convidar");
+      throw new ForbiddenException("Só produtores podem convidar promoters");
     }
-    const q = query.trim();
-    if (q.length < 3) return [];
-    const digits = q.replace(/\D/g, "");
-    const orgs = await prisma.organization.findMany({
-      where: {
-        status: "ACTIVE",
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { displayName: { contains: q, mode: "insensitive" } },
-          ...(digits.length >= 11 ? [{ document: digits }] : []),
-        ],
-      },
-      select: { id: true, name: true, displayName: true, producerType: true, document: true },
-      take: 10,
-    });
-    return orgs.map((org) => ({
-      id: org.id,
-      name: org.displayName ?? org.name,
-      producerType: org.producerType,
-      documentMasked: `***${org.document.slice(-4)}`,
-    }));
   }
 
-  /** Convida outra conta de produtor para ser promoter desta organização. */
+  /** Garante uma conta simples (e-mail) para o convidado — a barreira de entrada. */
+  private async upsertBasicUser(email: string) {
+    return prisma.user.upsert({
+      where: { email: email.trim().toLowerCase() },
+      update: {},
+      create: { email: email.trim().toLowerCase() },
+    });
+  }
+
+  private commissionSummary(link: {
+    commissionType: string;
+    commissionBps: number;
+    commissionFixedCents: number;
+  }) {
+    if (link.commissionType === "PERCENT") return { commissionType: "PERCENT", commissionBps: link.commissionBps };
+    if (link.commissionType === "FIXED")
+      return { commissionType: "FIXED", commissionFixedCents: link.commissionFixedCents };
+    return { commissionType: "NONE" };
+  }
+
+  /**
+   * A CASA convida uma PESSOA (por e-mail) para ser promoter. Conta simples é
+   * criada na hora se não existir — sem exigir produtor nem banco. Comissão
+   * NONE/PERCENT/FIXED definida pela casa.
+   */
   async invitePromoter(
     organizationId: string,
     actorUserId: string,
-    input: { promoterOrgId: string; commissionBps: number },
+    input: {
+      email: string;
+      commissionType: "NONE" | "PERCENT" | "FIXED";
+      commissionBps?: number;
+      commissionFixedCents?: number;
+    },
   ) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
-    if (input.promoterOrgId === organizationId) {
-      throw new BadRequestException("A organização não pode ser promoter dela mesma");
-    }
-    const promoterOrg = await prisma.organization.findUnique({
-      where: { id: input.promoterOrgId },
-      select: { id: true, slug: true, status: true },
-    });
-    if (!promoterOrg || promoterOrg.status !== "ACTIVE") {
-      throw new BadRequestException("Conta de produtor não encontrada ou inativa");
-    }
+    const promoter = await this.upsertBasicUser(input.email);
+
+    const data = {
+      commissionType: input.commissionType,
+      commissionBps: input.commissionType === "PERCENT" ? input.commissionBps ?? 0 : 0,
+      commissionFixedCents: input.commissionType === "FIXED" ? input.commissionFixedCents ?? 0 : 0,
+    };
     const existente = await prisma.promoterLink.findUnique({
-      where: {
-        organizationId_promoterOrgId: { organizationId, promoterOrgId: input.promoterOrgId },
-      },
+      where: { organizationId_promoterUserId: { organizationId, promoterUserId: promoter.id } },
     });
     if (existente && existente.status !== "DECLINED" && existente.status !== "REMOVED") {
-      throw new BadRequestException("Esta conta já foi convidada");
+      throw new BadRequestException("Esta pessoa já foi convidada");
     }
-    const slug = `${promoterOrg.slug}-${Math.random().toString(36).slice(2, 6)}`;
+    const slug = `${input.email.split("@")[0].replace(/[^a-z0-9]/gi, "").slice(0, 12)}-${Math.random().toString(36).slice(2, 6)}`;
     const link = existente
       ? await prisma.promoterLink.update({
           where: { id: existente.id },
-          data: {
-            status: "INVITED",
-            commissionBps: input.commissionBps,
-            invitedBy: actorUserId,
-            invitedAt: new Date(),
-            respondedAt: null,
-          },
+          data: { ...data, status: "INVITED", invitedBy: actorUserId, invitedAt: new Date(), respondedAt: null },
         })
       : await prisma.promoterLink.create({
-          data: {
-            organizationId,
-            promoterOrgId: input.promoterOrgId,
-            commissionBps: input.commissionBps,
-            slug,
-            invitedBy: actorUserId,
-          },
+          data: { organizationId, promoterUserId: promoter.id, ...data, slug, invitedBy: actorUserId },
         });
     await prisma.auditLog.create({
       data: {
@@ -323,61 +363,54 @@ export class OrganizationsService {
         action: "promoter.invited",
         entityType: "promoter_link",
         entityId: link.id,
-        metadata: { promoterOrgId: input.promoterOrgId, commissionBps: input.commissionBps },
+        metadata: { promoterUserId: promoter.id, ...data },
       },
     });
     return link;
   }
 
-  /** Lista de promoters da organização anfitriã, com contagem de vendas. */
+  /** Visão da CASA: promoters com vendas e comissão acumulada. */
   async listPromoters(organizationId: string, actorUserId: string) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     const links = await prisma.promoterLink.findMany({
       where: { organizationId, status: { in: ["INVITED", "ACTIVE"] } },
-      include: { promoterOrg: { select: { name: true, displayName: true } } },
+      include: { promoterUser: { select: { name: true, email: true } }, _count: { select: { sellers: true } } },
       orderBy: { invitedAt: "desc" },
     });
     const stats = await prisma.order.groupBy({
       by: ["promoterLinkId"],
-      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: "PAID" },
+      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] } },
       _count: { _all: true },
-      _sum: { promoterCommissionCents: true },
+      _sum: { promoterCommissionCents: true, totalCents: true },
     });
     const porLink = new Map(stats.map((s) => [s.promoterLinkId, s]));
     return links.map((link) => ({
       id: link.id,
       status: link.status,
-      commissionBps: link.commissionBps,
       slug: link.slug,
-      promoterName: link.promoterOrg.displayName ?? link.promoterOrg.name,
+      promoterName: link.promoterUser.name ?? link.promoterUser.email,
+      sellers: link._count.sellers,
       paidOrders: porLink.get(link.id)?._count._all ?? 0,
+      soldCents: porLink.get(link.id)?._sum.totalCents ?? 0,
       commissionCents: porLink.get(link.id)?._sum.promoterCommissionCents ?? 0,
+      ...this.commissionSummary(link),
     }));
   }
 
-  /** Convites pendentes para as organizações que o usuário administra. */
+  /** Convites de promoter pendentes para ESTE usuário (pessoa convidada). */
   async listMyPromoterInvites(userId: string) {
-    const memberships = await prisma.organizationMember.findMany({
-      where: { userId, status: "ACTIVE", role: { key: { in: ["owner", "admin"] } } },
-      select: { organizationId: true },
-    });
-    const orgIds = memberships.map((m) => m.organizationId);
-    if (orgIds.length === 0) return [];
     return prisma.promoterLink.findMany({
-      where: { promoterOrgId: { in: orgIds }, status: "INVITED" },
-      include: {
-        organization: { select: { id: true, name: true, displayName: true } },
-        promoterOrg: { select: { id: true, name: true, displayName: true } },
-      },
+      where: { promoterUserId: userId, status: "INVITED" },
+      include: { organization: { select: { id: true, name: true, displayName: true } } },
       orderBy: { invitedAt: "desc" },
     });
   }
 
-  /** Aceita/recusa convite — precisa administrar a organização convidada. */
+  /** A pessoa convidada aceita/recusa ser promoter. */
   async respondPromoterInvite(linkId: string, userId: string, accept: boolean) {
     const link = await prisma.promoterLink.findUniqueOrThrow({ where: { id: linkId } });
+    if (link.promoterUserId !== userId) throw new ForbiddenException("Convite não é seu");
     if (link.status !== "INVITED") throw new BadRequestException("Convite já respondido");
-    await this.orgAccess.assertPermission(link.promoterOrgId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     const updated = await prisma.promoterLink.update({
       where: { id: linkId },
       data: { status: accept ? "ACTIVE" : "DECLINED", respondedAt: new Date() },
@@ -394,26 +427,16 @@ export class OrganizationsService {
     return updated;
   }
 
-  /**
-   * Lado do PROMOTER: meus vínculos ativos com link e contagem de vendas.
-   * commissionBps = 0 → o payload NÃO fala de dinheiro (só contagem) — a UI
-   * nunca diz "você não vai receber".
-   */
+  /** Lado do PROMOTER: meus vínculos ativos, link e vendas (dinheiro só se houver comissão). */
   async listMyPromoterEngagements(userId: string) {
-    const memberships = await prisma.organizationMember.findMany({
-      where: { userId, status: "ACTIVE" },
-      select: { organizationId: true },
-    });
-    const orgIds = memberships.map((m) => m.organizationId);
-    if (orgIds.length === 0) return [];
     const links = await prisma.promoterLink.findMany({
-      where: { promoterOrgId: { in: orgIds }, status: "ACTIVE" },
+      where: { promoterUserId: userId, status: "ACTIVE" },
       include: { organization: { select: { name: true, displayName: true } } },
       orderBy: { invitedAt: "desc" },
     });
     const stats = await prisma.order.groupBy({
       by: ["promoterLinkId"],
-      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: "PAID" },
+      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] } },
       _count: { _all: true },
       _sum: { promoterCommissionCents: true },
     });
@@ -423,13 +446,124 @@ export class OrganizationsService {
       hostName: link.organization.displayName ?? link.organization.name,
       slug: link.slug,
       paidOrders: porLink.get(link.id)?._count._all ?? 0,
-      // dinheiro só aparece quando há comissão de verdade
-      ...(link.commissionBps > 0
-        ? {
-            commissionBps: link.commissionBps,
-            commissionCents: porLink.get(link.id)?._sum.promoterCommissionCents ?? 0,
-          }
+      ...(link.commissionType !== "NONE"
+        ? { ...this.commissionSummary(link), commissionCents: porLink.get(link.id)?._sum.promoterCommissionCents ?? 0 }
         : {}),
+    }));
+  }
+
+  // ---- vendedores do promoter (nível 3) -----------------------------------
+
+  /** O PROMOTER convida uma pessoa (por e-mail) para vender no link dele. */
+  async inviteSeller(promoterLinkId: string, actorUserId: string, input: { email: string }) {
+    const link = await prisma.promoterLink.findUniqueOrThrow({ where: { id: promoterLinkId } });
+    if (link.promoterUserId !== actorUserId) throw new ForbiddenException("Este promoter não é seu");
+    if (link.status !== "ACTIVE") throw new BadRequestException("Aceite o convite de promoter primeiro");
+    const seller = await this.upsertBasicUser(input.email);
+    if (seller.id === actorUserId) throw new BadRequestException("Você já é o promoter");
+    const existente = await prisma.promoterSeller.findUnique({
+      where: { promoterLinkId_sellerUserId: { promoterLinkId, sellerUserId: seller.id } },
+    });
+    if (existente && existente.status !== "DECLINED" && existente.status !== "REMOVED") {
+      throw new BadRequestException("Esta pessoa já foi convidada");
+    }
+    const slug = `${input.email.split("@")[0].replace(/[^a-z0-9]/gi, "").slice(0, 10)}-${Math.random().toString(36).slice(2, 6)}`;
+    return existente
+      ? prisma.promoterSeller.update({
+          where: { id: existente.id },
+          data: { status: "INVITED", invitedAt: new Date(), respondedAt: null },
+        })
+      : prisma.promoterSeller.create({ data: { promoterLinkId, sellerUserId: seller.id, slug } });
+  }
+
+  /** Convites de vendedor pendentes para ESTE usuário. */
+  async listMySellerInvites(userId: string) {
+    return prisma.promoterSeller.findMany({
+      where: { sellerUserId: userId, status: "INVITED" },
+      include: {
+        promoterLink: {
+          include: {
+            organization: { select: { name: true, displayName: true } },
+            promoterUser: { select: { name: true, email: true } },
+          },
+        },
+      },
+      orderBy: { invitedAt: "desc" },
+    });
+  }
+
+  async respondSellerInvite(sellerId: string, userId: string, accept: boolean) {
+    const seller = await prisma.promoterSeller.findUniqueOrThrow({ where: { id: sellerId } });
+    if (seller.sellerUserId !== userId) throw new ForbiddenException("Convite não é seu");
+    if (seller.status !== "INVITED") throw new BadRequestException("Convite já respondido");
+    return prisma.promoterSeller.update({
+      where: { id: sellerId },
+      data: { status: accept ? "ACTIVE" : "DECLINED", respondedAt: new Date() },
+    });
+  }
+
+  /** Lado do VENDEDOR: meus vínculos ativos e quanto EU vendi (nunca dinheiro). */
+  async listMySellerEngagements(userId: string) {
+    const sellers = await prisma.promoterSeller.findMany({
+      where: { sellerUserId: userId, status: "ACTIVE" },
+      include: {
+        promoterLink: {
+          include: {
+            organization: { select: { name: true, displayName: true } },
+            promoterUser: { select: { name: true, email: true } },
+          },
+        },
+      },
+      orderBy: { invitedAt: "desc" },
+    });
+    const stats = await prisma.order.groupBy({
+      by: ["promoterSellerId"],
+      where: { promoterSellerId: { in: sellers.map((s) => s.id) }, status: { in: ["PAID", "FULFILLED"] } },
+      _count: { _all: true },
+      _sum: { totalCents: true },
+    });
+    const porSeller = new Map(stats.map((s) => [s.promoterSellerId, s]));
+    return sellers.map((seller) => ({
+      id: seller.id,
+      slug: seller.slug,
+      hostName: seller.promoterLink.organization.displayName ?? seller.promoterLink.organization.name,
+      promoterName: seller.promoterLink.promoterUser.name ?? seller.promoterLink.promoterUser.email,
+      paidOrders: porSeller.get(seller.id)?._count._all ?? 0,
+      soldCents: porSeller.get(seller.id)?._sum.totalCents ?? 0,
+    }));
+  }
+
+  /** Cascata: o PROMOTER vê quanto cada vendedor dele vendeu. */
+  async listSellersOfPromoter(promoterLinkId: string, actorUserId: string) {
+    const link = await prisma.promoterLink.findUniqueOrThrow({ where: { id: promoterLinkId } });
+    const isHost = await prisma.organizationMember
+      .findFirst({
+        where: { organizationId: link.organizationId, userId: actorUserId, status: "ACTIVE" },
+        select: { id: true },
+      })
+      .then(Boolean);
+    if (link.promoterUserId !== actorUserId && !isHost) {
+      throw new ForbiddenException("Sem acesso a este promoter");
+    }
+    const sellers = await prisma.promoterSeller.findMany({
+      where: { promoterLinkId, status: { in: ["INVITED", "ACTIVE"] } },
+      include: { sellerUser: { select: { name: true, email: true } } },
+      orderBy: { invitedAt: "desc" },
+    });
+    const stats = await prisma.order.groupBy({
+      by: ["promoterSellerId"],
+      where: { promoterSellerId: { in: sellers.map((s) => s.id) }, status: { in: ["PAID", "FULFILLED"] } },
+      _count: { _all: true },
+      _sum: { totalCents: true },
+    });
+    const porSeller = new Map(stats.map((s) => [s.promoterSellerId, s]));
+    return sellers.map((seller) => ({
+      id: seller.id,
+      status: seller.status,
+      slug: seller.slug,
+      sellerName: seller.sellerUser.name ?? seller.sellerUser.email,
+      paidOrders: porSeller.get(seller.id)?._count._all ?? 0,
+      soldCents: porSeller.get(seller.id)?._sum.totalCents ?? 0,
     }));
   }
 

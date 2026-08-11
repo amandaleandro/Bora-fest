@@ -428,7 +428,7 @@ async function splitPromoterCommission(
     where: { id: payment.orderId },
     select: {
       promoterCommissionCents: true,
-      promoterLink: { select: { promoterOrgId: true } },
+      promoterLink: { select: { promoterUserId: true } },
       event: { select: { organizationId: true, endsAt: true } },
     },
   });
@@ -439,10 +439,11 @@ async function splitPromoterCommission(
     update: {},
     create: { organizationId: order.event.organizationId },
   });
+  // carteira DE USUÁRIO do promoter (não precisa ser produtor)
   const promoterAccount = await tx.ledgerAccount.upsert({
-    where: { organizationId: order.promoterLink.promoterOrgId },
+    where: { userId: order.promoterLink.promoterUserId },
     update: {},
-    create: { organizationId: order.promoterLink.promoterOrgId },
+    create: { userId: order.promoterLink.promoterUserId },
   });
   const availableAt = addBusinessDays(
     order.event.endsAt,
@@ -480,7 +481,7 @@ export async function clawbackPromoterCommission(
     where: { id: payment.orderId },
     select: {
       promoterCommissionCents: true,
-      promoterLink: { select: { promoterOrgId: true } },
+      promoterLink: { select: { promoterUserId: true } },
       event: { select: { organizationId: true } },
     },
   });
@@ -494,7 +495,7 @@ export async function clawbackPromoterCommission(
     where: { organizationId: order.event.organizationId },
   });
   const promoterAccount = await tx.ledgerAccount.findUnique({
-    where: { organizationId: order.promoterLink.promoterOrgId },
+    where: { userId: order.promoterLink.promoterUserId },
   });
   if (!hostAccount || !promoterAccount) return;
   await tx.ledgerEntry.createMany({

@@ -68,26 +68,33 @@ export interface PromoterEngagement {
   hostName: string;
   slug: string;
   paidOrders: number;
+  commissionType?: "NONE" | "PERCENT" | "FIXED";
   commissionBps?: number;
+  commissionFixedCents?: number;
   commissionCents?: number;
 }
 
 export interface PromoterInvite {
   id: string;
+  commissionType: "NONE" | "PERCENT" | "FIXED";
   commissionBps: number;
+  commissionFixedCents: number;
   invitedAt: string;
   organization: { id: string; name: string; displayName: string | null };
-  promoterOrg: { id: string; name: string; displayName: string | null };
 }
 
 export interface PromoterRow {
   id: string;
   status: string;
-  commissionBps: number;
   slug: string;
   promoterName: string;
+  sellers: number;
   paidOrders: number;
+  soldCents: number;
   commissionCents: number;
+  commissionType: "NONE" | "PERCENT" | "FIXED";
+  commissionBps?: number;
+  commissionFixedCents?: number;
 }
 
 export interface Organization {
@@ -103,15 +110,46 @@ export interface Organization {
 
 export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
-  searchOrganizations: (token: string, q: string) =>
-    request<Array<{ id: string; name: string; producerType: ProducerType | null; documentMasked: string }>>(
-      `/v1/organizations/search?q=${encodeURIComponent(q)}`,
-      { token },
-    ),
-  invitePromoter: (token: string, organizationId: string, promoterOrgId: string, commissionBps: number) =>
+  /** Promoter v3: convida uma PESSOA por e-mail (conta simples criada na hora). */
+  invitePromoter: (
+    token: string,
+    organizationId: string,
+    input: {
+      email: string;
+      commissionType: "NONE" | "PERCENT" | "FIXED";
+      commissionBps?: number;
+      commissionFixedCents?: number;
+    },
+  ) =>
     request(`/v1/organizations/${organizationId}/promoters`, {
       method: "POST",
-      body: { promoterOrgId, commissionBps },
+      body: input,
+      token,
+    }),
+  inviteSeller: (token: string, promoterLinkId: string, email: string) =>
+    request(`/v1/organizations/promoter-links/${promoterLinkId}/sellers`, {
+      method: "POST",
+      body: { email },
+      token,
+    }),
+  listSellersOfPromoter: (token: string, promoterLinkId: string) =>
+    request<Array<{ id: string; status: string; slug: string; sellerName: string; paidOrders: number; soldCents: number }>>(
+      `/v1/organizations/promoter-links/${promoterLinkId}/sellers`,
+      { token },
+    ),
+  mySellerInvites: (token: string) =>
+    request<Array<{ id: string; promoterLink: { organization: { name: string; displayName: string | null }; promoterUser: { name: string | null; email: string | null } } }>>(
+      "/v1/organizations/seller-invites/mine",
+      { token },
+    ),
+  mySellerEngagements: (token: string) =>
+    request<Array<{ id: string; slug: string; hostName: string; promoterName: string; paidOrders: number; soldCents: number }>>(
+      "/v1/organizations/seller-engagements/mine",
+      { token },
+    ),
+  respondSellerInvite: (token: string, sellerId: string, accept: boolean) =>
+    request(`/v1/organizations/promoter-sellers/${sellerId}/${accept ? "accept" : "decline"}`, {
+      method: "POST",
       token,
     }),
   listPromoters: (token: string, organizationId: string) =>

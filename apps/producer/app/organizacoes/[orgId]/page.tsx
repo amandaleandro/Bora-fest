@@ -303,17 +303,21 @@ function PartnerCard({ orgId, partner, onChanged }: { orgId: string; partner: Sa
 }
 
 
+function brl(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 function Promoters({ orgId }: { orgId: string }) {
   const { token } = useAuth();
   const [promoters, setPromoters] = useState<PromoterRow[]>([]);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Array<{ id: string; name: string; producerType: string | null; documentMasked: string }>>([]);
-  const [searching, setSearching] = useState(false);
-  const [inviting, setInviting] = useState<string | null>(null);
-  const [commission, setCommission] = useState("10");
-  const [payMode, setPayMode] = useState<"paga" | "conta">("paga");
+  const [email, setEmail] = useState("");
+  const [commissionType, setCommissionType] = useState<"NONE" | "PERCENT" | "FIXED">("NONE");
+  const [valor, setValor] = useState("10");
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [aberto, setAberto] = useState<string | null>(null);
+  const [sellers, setSellers] = useState<Record<string, Array<{ id: string; sellerName: string; status: string; paidOrders: number; soldCents: number }>>>({});
 
   async function load() {
     if (!token) return;
@@ -325,33 +329,36 @@ function Promoters({ orgId }: { orgId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, orgId]);
 
-  async function search() {
-    if (!token || query.trim().length < 3) return;
-    setSearching(true);
+  async function convidar() {
+    if (!token || !email.includes("@")) return;
+    setBusy(true);
     setMessage(null);
     try {
-      setResults(await organizationsApi.searchOrganizations(token, query));
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Busca falhou");
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  async function invite(promoterOrgId: string) {
-    if (!token) return;
-    setMessage(null);
-    try {
-      const bps = payMode === "paga" ? Math.round(Number(commission || 0) * 100) : 0;
-      await organizationsApi.invitePromoter(token, orgId, promoterOrgId, bps);
-      setMessage("Convite enviado — aparece na conta do promoter para aceitar.");
-      setInviting(null);
-      setResults([]);
-      setQuery("");
+      await organizationsApi.invitePromoter(token, orgId, {
+        email: email.trim(),
+        commissionType,
+        ...(commissionType === "PERCENT" ? { commissionBps: Math.round(Number(valor || 0) * 100) } : {}),
+        ...(commissionType === "FIXED" ? { commissionFixedCents: Math.round(Number(valor || 0) * 100) } : {}),
+      });
+      setMessage("Convite enviado — a pessoa aceita no painel dela (não precisa ser produtor).");
+      setEmail("");
       await load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Não foi possível convidar");
+    } finally {
+      setBusy(false);
     }
+  }
+
+  async function verVendedores(linkId: string) {
+    if (!token) return;
+    if (aberto === linkId) {
+      setAberto(null);
+      return;
+    }
+    setAberto(linkId);
+    const lista = await organizationsApi.listSellersOfPromoter(token, linkId).catch(() => []);
+    setSellers((prev) => ({ ...prev, [linkId]: lista }));
   }
 
   function copyLink(slug: string, id: string) {
@@ -361,118 +368,118 @@ function Promoters({ orgId }: { orgId: string }) {
     setTimeout(() => setCopied(null), 2000);
   }
 
+  function comissaoLabel(p: PromoterRow): string {
+    if (p.commissionType === "PERCENT") return `${((p.commissionBps ?? 0) / 100).toFixed(1).replace(".", ",")}% por venda`;
+    if (p.commissionType === "FIXED") return `${brl(p.commissionFixedCents ?? 0)} por ingresso`;
+    return "sem comissão (só contabiliza)";
+  }
+
   return (
     <section className="mt-8">
       <div className="mb-4">
         <h2 className="text-[17px] font-extrabold">Promoters</h2>
         <p className="mt-1 text-[12px] font-semibold text-muted">
-          Convide outra conta de produtor pelo nome, CPF ou CNPJ. O link é rastreável e, se houver
-          comissão, ela cai direto na carteira do promoter.
+          Convide por e-mail — a pessoa não precisa ter conta de produtor. Você define se ela recebe
+          comissão; sem comissão, o dinheiro das vendas fica todo com você e o sistema só contabiliza.
         </p>
       </div>
 
       <div className="rounded-[16px] border border-dashed border-line bg-bg/40 p-4">
-        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+        <div className="grid gap-2 md:grid-cols-[1fr_170px_120px_auto]">
           <input
             className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
-            placeholder="Nome, CPF ou CNPJ da conta de produtor"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && search()}
+            placeholder="E-mail do promoter"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
+          <select
+            className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
+            value={commissionType}
+            onChange={(e) => setCommissionType(e.target.value as "NONE" | "PERCENT" | "FIXED")}
+          >
+            <option value="NONE">Sem comissão</option>
+            <option value="PERCENT">% por venda</option>
+            <option value="FIXED">R$ por ingresso</option>
+          </select>
+          {commissionType !== "NONE" ? (
+            <input
+              className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
+              type="number"
+              min="0.5"
+              step="0.5"
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              placeholder={commissionType === "PERCENT" ? "%" : "R$"}
+            />
+          ) : (
+            <span />
+          )}
           <button
             type="button"
-            onClick={search}
-            disabled={searching || query.trim().length < 3}
+            onClick={convidar}
+            disabled={busy || !email.includes("@")}
             className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white disabled:opacity-50"
           >
-            {searching ? "Buscando…" : "Buscar"}
+            {busy ? "Enviando…" : "Convidar"}
           </button>
         </div>
-
-        {results.length > 0 ? (
-          <div className="mt-3 space-y-2">
-            {results.map((r) => (
-              <div key={r.id} className="rounded-xl bg-surface px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[13.5px] font-extrabold">{r.name}</p>
-                    <p className="text-[12px] font-semibold text-muted">
-                      {r.producerType ?? "—"} · doc. {r.documentMasked}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setInviting(inviting === r.id ? null : r.id)}
-                    className="h-9 rounded-xl border border-line px-4 text-[12.5px] font-bold text-primary"
-                  >
-                    Convidar
-                  </button>
-                </div>
-                {inviting === r.id ? (
-                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-divider pt-3">
-                    <select
-                      className="h-10 rounded-xl border border-line-input px-3 text-[13px]"
-                      value={payMode}
-                      onChange={(e) => setPayMode(e.target.value as "paga" | "conta")}
-                    >
-                      <option value="paga">Recebe % do ingresso</option>
-                      <option value="conta">Só contabiliza vendas</option>
-                    </select>
-                    {payMode === "paga" ? (
-                      <input
-                        className="h-10 w-24 rounded-xl border border-line-input px-3 text-[13px]"
-                        type="number"
-                        min="0.5"
-                        max="50"
-                        step="0.5"
-                        value={commission}
-                        onChange={(e) => setCommission(e.target.value)}
-                        placeholder="%"
-                      />
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => invite(r.id)}
-                      className="h-10 rounded-xl bg-primary px-4 text-[13px] font-extrabold text-white"
-                    >
-                      Enviar convite
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
         {message ? <p className="mt-2 text-[12px] font-bold text-brand">{message}</p> : null}
       </div>
 
       {promoters.length > 0 ? (
         <div className="mt-3 space-y-2">
           {promoters.map((p) => (
-            <div
-              key={p.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-line bg-surface px-4 py-3"
-            >
-              <div>
-                <p className="text-[13.5px] font-extrabold">{p.promoterName}</p>
-                <p className="text-[12px] font-semibold text-muted">
-                  {p.status === "INVITED" ? "Aguardando aceite" : "Ativo"} ·{" "}
-                  {p.commissionBps > 0
-                    ? `${(p.commissionBps / 100).toFixed(1).replace(".", ",")}% · ${(p.commissionCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em comissões`
-                    : "só contabiliza"}
-                  {" · "}
-                  {p.paidOrders} venda{p.paidOrders === 1 ? "" : "s"}
-                </p>
+            <div key={p.id} className="rounded-[16px] border border-line bg-surface px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[13.5px] font-extrabold">{p.promoterName}</p>
+                  <p className="text-[12px] font-semibold text-muted">
+                    {p.status === "INVITED" ? "Aguardando aceite" : "Ativo"} · {comissaoLabel(p)} ·{" "}
+                    {p.paidOrders} venda{p.paidOrders === 1 ? "" : "s"} ({brl(p.soldCents)})
+                    {p.commissionCents > 0 ? ` · ${brl(p.commissionCents)} em comissões` : ""}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => verVendedores(p.id)}
+                    className="h-9 rounded-xl border border-line px-3 text-[12.5px] font-bold"
+                  >
+                    {p.sellers} vendedor{p.sellers === 1 ? "" : "es"}
+                  </button>
+                  {p.status === "ACTIVE" ? (
+                    <button
+                      type="button"
+                      onClick={() => copyLink(p.slug, p.id)}
+                      className="h-9 rounded-xl border border-line px-4 text-[12.5px] font-bold text-primary"
+                    >
+                      {copied === p.id ? "Copiado ✓" : "Copiar link"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              {p.status === "ACTIVE" ? (
-                <button
-                  type="button"
-                  onClick={() => copyLink(p.slug, p.id)}
-                  className="h-9 rounded-xl border border-line px-4 text-[12.5px] font-bold text-primary"
-                >
-                  {copied === p.id ? "Copiado ✓" : "Copiar link"}
-                </button>
+              {aberto === p.id ? (
+                <div className="mt-3 border-t border-line-divider pt-3">
+                  {(sellers[p.id] ?? []).length === 0 ? (
+                    <p className="text-[12px] font-semibold text-muted">
+                      Nenhum vendedor ainda — quem cadastra é o próprio promoter, no painel dele.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {(sellers[p.id] ?? []).map((s) => (
+                        <li key={s.id} className="flex justify-between text-[12.5px] font-semibold">
+                          <span>
+                            {s.sellerName}
+                            {s.status === "INVITED" ? " (aguardando)" : ""}
+                          </span>
+                          <span className="text-muted">
+                            {s.paidOrders} venda{s.paidOrders === 1 ? "" : "s"} · {brl(s.soldCents)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               ) : null}
             </div>
           ))}

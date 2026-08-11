@@ -295,6 +295,7 @@ export const api = {
       couponCode?: string;
       partnerSlug?: string;
       promoterSlug?: string;
+      sellerSlug?: string;
       contactCpf?: string;
       addOns?: Array<{ addOnId: string; quantity: number }>;
       attendees?: OrderAttendeeInput[];

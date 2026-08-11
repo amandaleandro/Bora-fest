@@ -563,6 +563,32 @@ corrigido com teste de regressão (auditoria-seguranca.test.ts, 4 casos):
 API 42/42 · worker 6/6 · build 14/14.
 ⚠️ PRODUÇÃO ESTAVA EXPOSTA (rotas no ar desde f9ccb49) — deploy urgente.
 
+**Promoter v3 + barreira de entrada (2026-08-11)** — modelo desenhado com
+o Arthur ANTES de construir (Casa → Promoter → Vendedor):
+- **Promoter e vendedor são PESSOAS** (conta simples de e-mail/OTP), não
+  organizações: convite por e-mail cria a conta na hora. Não exige conta
+  de produtor nem banco — barreira de entrada derrubada.
+- **Comissão definida pela CASA**: NONE (só contabiliza — dinheiro fica
+  100% com a casa, sacável normal), PERCENT (% do ingresso) ou FIXED
+  (R$ por ingresso). Split cai na **carteira do PROMOTER**; o VENDEDOR
+  nunca recebe pela plataforma, só contabiliza.
+- **LedgerAccount agora aceita userId** (carteira de pessoa). Ao completar
+  o cadastro e virar produtor, a carteira MIGRA para a organização com
+  histórico e datas de maturação intactos ("a mesma conta cresce") — daí
+  usa o motor de saque v2 sem regra nova.
+- **Links em cascata**: ?pr= (promoter) e ?vd= (vendedor, que implica o
+  promoter dele); promoter vence SalesPartner antigo (?p=), sem comissão
+  dupla. Visibilidade: vendedor vê o seu, promoter vê por vendedor, casa
+  vê por promoter.
+- Migração promoter_hierarquia_carteira_usuario (zera vínculos antigos —
+  feature nova, sem uso real) + telas do painel (casa convida/acompanha;
+  promoter convida vendedores e copia link; vendedor aceita e copia link).
+Testes (5): sem comissão o dinheiro fica com a casa e a contagem funciona
+em cascata; FIXED × ingressos na carteira do promoter (vendedor sem
+carteira); PERCENT via link direto; convite só da pessoa convidada;
+migração da carteira ao virar produtor. API 45/45 · worker 6/6 · build
+14/14. Revisão adversarial rodando.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a

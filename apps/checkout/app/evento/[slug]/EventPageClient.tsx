@@ -8,7 +8,7 @@ import { formatCents } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { TicketSelector } from "../../../components/TicketSelector";
 import { PixelTracker } from "../../../components/PixelTracker";
-import { capturePartnerFromUrl, capturePromoterFromUrl } from "../../../lib/attribution";
+import { capturePartnerFromUrl, capturePromoterFromUrl, captureSellerFromUrl } from "../../../lib/attribution";
 import { FollowButton } from "../../../components/FollowButton";
 
 
@@ -78,6 +78,7 @@ export function EventPageClient({ slug }: { slug: string }) {
   useEffect(() => {
     capturePartnerFromUrl();
     capturePromoterFromUrl();
+    captureSellerFromUrl();
     api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
     api.getReviews(slug).then(setReviews).catch(() => {});
   }, [slug]);

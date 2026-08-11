@@ -47,3 +47,27 @@ export function getAttributedPromoterSlug(): string | undefined {
     return undefined;
   }
 }
+
+const SELLER_KEY = "bf.seller";
+
+/** Captura `?vd=slug` (link de vendedor do promoter) — janela de 7 dias, last-click. */
+export function captureSellerFromUrl() {
+  const slug = new URLSearchParams(window.location.search).get("vd");
+  if (!slug) return;
+  localStorage.setItem(SELLER_KEY, JSON.stringify({ slug, expiresAt: Date.now() + ATTRIBUTION_WINDOW_MS }));
+}
+
+export function getAttributedSellerSlug(): string | undefined {
+  const raw = localStorage.getItem(SELLER_KEY);
+  if (!raw) return undefined;
+  try {
+    const { slug, expiresAt } = JSON.parse(raw) as { slug: string; expiresAt: number };
+    if (Date.now() > expiresAt) {
+      localStorage.removeItem(SELLER_KEY);
+      return undefined;
+    }
+    return slug;
+  } catch {
+    return undefined;
+  }
+}
