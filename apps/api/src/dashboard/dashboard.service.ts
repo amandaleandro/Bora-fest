@@ -225,6 +225,75 @@ export class DashboardService {
     return Array.from(bySeller.values()).sort((a, b) => b.revenueCents - a.revenueCents);
   }
 
+  /**
+   * Ranking de vendas por atlética/parceiro para competição — soma de todos os vendedores
+   * vinculados a cada SalesPartner, ordenado por nº de ingressos vendidos (critério da disputa).
+   */
+  async listSalesByPartner(eventId: string, actorUserId: string) {
+    await this.assertEventAccess(eventId, actorUserId);
+
+    const orders = await prisma.order.findMany({
+      where: { eventId, salesPartnerId: { not: null } },
+      select: {
+        status: true,
+        totalCents: true,
+        partnerCommissionCents: true,
+        salesPartnerId: true,
+        salesPartner: { select: { id: true, name: true, slug: true } },
+        _count: { select: { tickets: true } },
+      },
+    });
+
+    const OK_STATUSES = new Set(["PAID", "FULFILLED"]);
+    const FAILED_STATUSES = new Set(["REFUNDED", "PARTIALLY_REFUNDED", "CHARGEBACK", "EXPIRED", "CANCELED"]);
+
+    const byPartner = new Map<
+      string,
+      {
+        partnerId: string;
+        partnerName: string | null;
+        partnerSlug: string | null;
+        ordersOk: number;
+        ordersFailed: number;
+        ticketsSold: number;
+        revenueCents: number;
+        commissionCents: number;
+      }
+    >();
+
+    for (const order of orders) {
+      const partnerId = order.salesPartnerId as string;
+      const entry = byPartner.get(partnerId) ?? {
+        partnerId,
+        partnerName: order.salesPartner?.name ?? null,
+        partnerSlug: order.salesPartner?.slug ?? null,
+        ordersOk: 0,
+        ordersFailed: 0,
+        ticketsSold: 0,
+        revenueCents: 0,
+        commissionCents: 0,
+      };
+
+      if (OK_STATUSES.has(order.status)) {
+        entry.ordersOk += 1;
+        entry.ticketsSold += order._count.tickets;
+        entry.revenueCents += order.totalCents;
+        entry.commissionCents += order.partnerCommissionCents;
+      } else if (FAILED_STATUSES.has(order.status)) {
+        entry.ordersFailed += 1;
+      }
+
+      byPartner.set(partnerId, entry);
+    }
+
+    return Array.from(byPartner.values()).sort((a, b) => b.ticketsSold - a.ticketsSold);
+  }
+
+  /** Mesma checagem de acesso do ranking, exposta pra stream SSE poder validar antes de abrir a conexão. */
+  async assertRankingAccess(eventId: string, actorUserId: string): Promise<void> {
+    await this.assertEventAccess(eventId, actorUserId);
+  }
+
   async listParticipants(eventId: string, actorUserId: string) {
     await this.assertEventAccess(eventId, actorUserId, true);
     return this.fetchParticipants(eventId);

@@ -2,6 +2,7 @@ import { createSessionToken } from "@borafest/auth";
 import { prisma, Prisma } from "@borafest/database";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { withContext } from "@borafest/observability";
+import { publishRankingUpdate } from "@borafest/queues";
 import { randomBytes } from "crypto";
 
 const log = withContext({ module: "ticket-issuance" });
@@ -94,12 +95,14 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
     include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
   });
 
+  let justFulfilled = false;
   await prisma.$transaction(async (tx) => {
     const fulfilled = await tx.order.updateMany({
       where: { id: orderId, status: "PAID" },
       data: { status: "FULFILLED" },
     });
     if (fulfilled.count === 0) return;
+    justFulfilled = true;
 
     // Portão do 1º ingresso (decisão 2026-08-10): conta ainda não verificada
     // NÃO recebe o ingresso por e-mail — recebe o aviso com link mágico, que
@@ -163,6 +166,12 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
   });
 
   log.info({ orderId, tickets: tickets.length }, "ingressos emitidos e entrega enfileirada");
+
+  // Competição de vendas por atlética/parceiro: avisa quem estiver com o
+  // ranking aberto (SSE na API) pra atualizar em tempo real, sem esperar F5.
+  if (justFulfilled && order.salesPartnerId) {
+    publishRankingUpdate(order.eventId);
+  }
 }
 
 export function buildDeliveryPayload(

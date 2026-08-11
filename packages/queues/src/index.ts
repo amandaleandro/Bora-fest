@@ -8,3 +8,4 @@ export * from "./auto-payouts";
 export * from "./payment-webhook-processing";
 export * from "./waiting-room-sweep";
 export * from "./waiting-room";
+export * from "./ranking-events";

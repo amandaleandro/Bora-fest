@@ -179,11 +179,11 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
 
   return (
     <aside className="flex w-[244px] shrink-0 flex-col bg-sidebar px-3.5 pb-4 pt-[22px]">
-      <a href={CHECKOUT_URL} target="_blank" rel="noopener" className="block px-2 pb-5">
+      <Link href={eventsHref} className="block px-2 pb-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/logo-horizontal-escuro.svg" alt="BoraFest" className="h-9 w-auto" />
         <span className="mt-1 block text-[10px] font-semibold text-white/45">Painel do organizador</span>
-      </a>
+      </Link>
 
       <Item href={eventsHref} icon={icons.calendar} label="Meus eventos" active={pathname === eventsHref} />
 

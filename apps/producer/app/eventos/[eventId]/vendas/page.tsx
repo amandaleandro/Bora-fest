@@ -4,7 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { dashboardApi, ordersApi, type Dashboard, type OrderSummary, type OrderDetail, type SalesBySeller } from "@/lib/api";
+import {
+  dashboardApi,
+  ordersApi,
+  type Dashboard,
+  type OrderSummary,
+  type OrderDetail,
+  type SalesBySeller,
+  type SalesByPartner,
+} from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -110,9 +118,116 @@ function SellerRanking({ eventId }: { eventId: string }) {
   );
 }
 
+function PartnerRanking({ eventId }: { eventId: string }) {
+  const { token } = useAuth();
+  const [rows, setRows] = useState<SalesByPartner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+
+    function refetch(showSpinner: boolean) {
+      if (showSpinner) setLoading(true);
+      setError(null);
+      dashboardApi
+        .salesByPartner(token!, eventId)
+        .then((data) => {
+          if (!cancelled) setRows(data);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : "Falha ao carregar vendas por atlética/parceiro");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
+
+    refetch(true);
+    setLive(true);
+    const unsubscribe = dashboardApi.streamSalesByPartner(token, eventId, () => refetch(false));
+
+    return () => {
+      cancelled = true;
+      setLive(false);
+      unsubscribe();
+    };
+  }, [token, eventId]);
+
+  if (loading) return <p className="mt-6 text-muted">Carregando...</p>;
+  if (error) return <p className="mt-4 text-[13px] font-semibold text-danger">{error}</p>;
+
+  if (rows.length === 0) {
+    return (
+      <div className="mt-6 rounded-2xl border border-line bg-surface p-10 text-center">
+        <p className="text-[15px] font-extrabold">Nenhuma venda de atlética/parceiro ainda</p>
+        <p className="mt-1 text-[13px] font-semibold text-muted">
+          Vendas atribuídas a uma atlética ou parceiro aparecem aqui, somadas de todos os vendedores.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {live ? (
+        <p className="mt-4 flex items-center gap-1.5 text-[12px] font-bold text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" /> Ao vivo — atualiza sozinho a cada venda
+        </p>
+      ) : null}
+      <div className="mt-2 overflow-x-auto rounded-2xl border border-line bg-surface">
+        <table className="w-full min-w-[640px] text-left text-[13px]">
+          <thead>
+            <tr className="border-b border-line bg-bg/60 text-[12px] font-bold text-muted">
+              <th className="px-5 py-3">#</th>
+              <th className="px-5 py-3">Atlética / Parceiro</th>
+              <th className="px-5 py-3">Ingressos vendidos</th>
+              <th className="px-5 py-3">Total vendido</th>
+              <th className="px-5 py-3">Deram certo</th>
+              <th className="px-5 py-3">Falharam</th>
+              <th className="px-5 py-3">Comissão</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={row.partnerId} className="border-b border-line last:border-0">
+                <td className="px-5 py-3.5 font-bold text-muted">{i + 1}º</td>
+                <td className="px-5 py-3.5 font-bold">{row.partnerName ?? "—"}</td>
+                <td className="px-5 py-3.5">
+                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[13px] font-extrabold text-primary">
+                    {row.ticketsSold}
+                  </span>
+                </td>
+                <td className="px-5 py-3.5 font-bold">{formatCents(row.revenueCents)}</td>
+                <td className="px-5 py-3.5">
+                  <span className="rounded-full bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">
+                    {row.ordersOk}
+                  </span>
+                </td>
+                <td className="px-5 py-3.5">
+                  {row.ordersFailed > 0 ? (
+                    <span className="rounded-full bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger">
+                      {row.ordersFailed}
+                    </span>
+                  ) : (
+                    <span className="text-muted">0</span>
+                  )}
+                </td>
+                <td className="px-5 py-3.5 text-muted">{formatCents(row.commissionCents)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function VendasContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
-  const [tab, setTab] = useState<"pedidos" | "pdv" | "vendedores">("pedidos");
+  const [tab, setTab] = useState<"pedidos" | "pdv" | "vendedores" | "ranking">("pedidos");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -307,6 +422,13 @@ function VendasContent({ eventId }: { eventId: string }) {
         >
           Por vendedor
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("ranking")}
+          className={`rounded-xl px-4 py-2 text-[13px] font-bold ${tab === "ranking" ? "bg-primary text-white" : "border border-line text-muted"}`}
+        >
+          Competição atléticas/parceiros
+        </button>
       </div>
 
       {error ? <p className="mt-4 text-[13px] font-semibold text-danger">{error}</p> : null}
@@ -414,6 +536,8 @@ function VendasContent({ eventId }: { eventId: string }) {
         </>
       ) : tab === "vendedores" ? (
         <SellerRanking eventId={eventId} />
+      ) : tab === "ranking" ? (
+        <PartnerRanking eventId={eventId} />
       ) : (
         <section className="mt-5 max-w-xl rounded-2xl border border-line bg-surface p-5">
           <h2 className="text-[15px] font-extrabold">Registrar venda presencial</h2>

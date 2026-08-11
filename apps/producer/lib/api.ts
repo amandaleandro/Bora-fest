@@ -421,12 +421,71 @@ export interface SalesBySeller {
   commissionCents: number;
 }
 
+export interface SalesByPartner {
+  partnerId: string;
+  partnerName: string | null;
+  partnerSlug: string | null;
+  ordersOk: number;
+  ordersFailed: number;
+  ticketsSold: number;
+  revenueCents: number;
+  commissionCents: number;
+}
+
 export const dashboardApi = {
   get: (token: string, eventId: string) => request<Dashboard>(`/v1/events/${eventId}/dashboard`, { token }),
   checkinLive: (token: string, eventId: string) =>
     request<CheckinLive>(`/v1/events/${eventId}/checkin-live`, { token }),
   salesBySeller: (token: string, eventId: string) =>
     request<SalesBySeller[]>(`/v1/events/${eventId}/sales-by-seller`, { token }),
+  salesByPartner: (token: string, eventId: string) =>
+    request<SalesByPartner[]>(`/v1/events/${eventId}/sales-by-partner`, { token }),
+  /**
+   * Assina o SSE da competição por atlética/parceiro. O EventSource nativo não manda
+   * header Authorization, então lemos o stream via fetch — cada "event: update" chama
+   * onUpdate (o front decide o que fazer, normalmente refetch do sales-by-partner).
+   * Retorna uma função de cleanup; reconecta sozinho se a conexão cair.
+   */
+  streamSalesByPartner: (token: string, eventId: string, onUpdate: () => void): (() => void) => {
+    const controller = new AbortController();
+    let stopped = false;
+
+    async function connect() {
+      while (!stopped) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/sales-by-partner/stream`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+            cache: "no-store",
+          });
+          if (!response.ok || !response.body) throw new Error("stream indisponível");
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!stopped) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split("\n\n");
+            buffer = chunks.pop() ?? "";
+            for (const chunk of chunks) {
+              if (chunk.includes("event: update")) onUpdate();
+            }
+          }
+        } catch (err) {
+          if (stopped || (err instanceof DOMException && err.name === "AbortError")) return;
+        }
+        if (!stopped) await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    }
+
+    connect();
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  },
   participants: (token: string, eventId: string) =>
     request<Participant[]>(`/v1/events/${eventId}/participants`, { token }),
   /**

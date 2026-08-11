@@ -2,7 +2,12 @@
 # Os domínios vêm das variáveis de ambiente do serviço caddy no compose.
 
 {$API_DOMAIN} {
-	reverse_proxy api:3333
+	# flush_interval -1: manda cada chunk assim que a api escreve, sem
+	# bufferizar — sem isso o SSE do ranking ao vivo (sales-by-partner/stream)
+	# ficaria preso no buffer do Caddy e só chegaria no navegador em blocos.
+	reverse_proxy api:3333 {
+		flush_interval -1
+	}
 }
 
 {$CHECKOUT_DOMAIN} {
