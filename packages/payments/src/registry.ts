@@ -1,4 +1,5 @@
 import { AsaasGateway, ASAAS_PROVIDER } from "./asaas";
+import { MercadoPagoGateway, MERCADOPAGO_PROVIDER } from "./mercadopago";
 import { MockGateway, MOCK_PROVIDER } from "./mock";
 import { PagarmeGateway, PAGARME_PROVIDER } from "./pagarme";
 import type { PaymentGateway } from "./types";
@@ -12,6 +13,10 @@ function ensureBuiltins(): void {
   if (!gateways.has(PAGARME_PROVIDER)) {
     // mantido vivo como alavanca de negociação e plano B (troca por env)
     gateways.set(PAGARME_PROVIDER, new PagarmeGateway());
+  }
+  if (!gateways.has(MERCADOPAGO_PROVIDER)) {
+    // Pix em percentual (~0,99%) — viabiliza a taxa de R$ 1 sem prejuízo
+    gateways.set(MERCADOPAGO_PROVIDER, new MercadoPagoGateway());
   }
   if (!gateways.has(ASAAS_PROVIDER)) {
     // primário (decisão 2026-07-28, pesquisa rodada 2): melhor custo com
@@ -40,4 +45,39 @@ export function getGateway(provider: string): PaymentGateway {
 /** Provedor padrão da plataforma (env PAYMENTS_PROVIDER; mock em dev). */
 export function getDefaultGateway(): PaymentGateway {
   return getGateway(process.env.PAYMENTS_PROVIDER ?? MOCK_PROVIDER);
+}
+
+export type PaymentMethodRoute = "PIX" | "CARD";
+
+/**
+ * Roteamento por MÉTODO (decisão 2026-08-11): Pix e cartão podem viver em
+ * provedores diferentes — hoje Pix no Mercado Pago (percentual) e cartão no
+ * Asaas (tarifa melhor). Sem as variáveis, tudo cai no PAYMENTS_PROVIDER.
+ *
+ * PAYMENTS_PROVIDER_PIX / PAYMENTS_PROVIDER_CARD
+ */
+export function getGatewayForMethod(method: PaymentMethodRoute): PaymentGateway {
+  const especifico =
+    method === "PIX" ? process.env.PAYMENTS_PROVIDER_PIX : process.env.PAYMENTS_PROVIDER_CARD;
+  return getGateway(especifico || process.env.PAYMENTS_PROVIDER || MOCK_PROVIDER);
+}
+
+/**
+ * Provedor reserva do método (PAYMENTS_FALLBACK_PIX / PAYMENTS_FALLBACK_CARD).
+ *
+ * É a defesa contra o incidente que o Arthur viveu: se o provedor primário
+ * começar a recusar/limitar no meio do pico, a venda migra sozinha para o
+ * reserva em vez de o checkout simplesmente quebrar. null = sem reserva.
+ */
+export function getFallbackGatewayForMethod(method: PaymentMethodRoute): PaymentGateway | null {
+  const nome =
+    method === "PIX" ? process.env.PAYMENTS_FALLBACK_PIX : process.env.PAYMENTS_FALLBACK_CARD;
+  if (!nome) return null;
+  const primario = getGatewayForMethod(method).provider;
+  if (nome === primario) return null;
+  try {
+    return getGateway(nome);
+  } catch {
+    return null;
+  }
 }

@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { Logger, BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import {
   applyGatewayStatus,
-  getDefaultGateway,
+  getFallbackGatewayForMethod,
+  getGatewayForMethod,
   AsaasApiError,
   CircuitOpenError,
   GatewayTimeoutError,
@@ -50,6 +51,7 @@ function toApiError(error: unknown): never {
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
   constructor(private readonly idempotency: IdempotencyService) {}
 
   async createPix(orderId: string, input: CreatePixPaymentInput, idempotencyKey?: string) {
@@ -75,7 +77,7 @@ export class PaymentsService {
           return this.toPublicPayment(existing);
         }
 
-        const gateway = getDefaultGateway();
+        const gateway = getGatewayForMethod("PIX");
         const expiresInSeconds = Math.max(
           60,
           Math.floor(((order.expiresAt?.getTime() ?? Date.now() + 15 * 60_000) - Date.now()) / 1000),
@@ -91,28 +93,49 @@ export class PaymentsService {
           },
         });
 
-        const charge = await gateway
-          .createPixCharge({
-            paymentId: payment.id,
-            orderId,
-            amountCents: order.totalCents,
-            customer: {
-              name: order.contactName ?? undefined,
-              email: order.contactEmail,
-              document: input.payerDocument,
-              phone: input.payerPhone,
-            },
-            expiresInSeconds,
-            idempotencyKey: payment.id,
-          })
-          .catch(toApiError);
+        const pedidoPix = {
+          paymentId: payment.id,
+          orderId,
+          amountCents: order.totalCents,
+          customer: {
+            name: order.contactName ?? undefined,
+            email: order.contactEmail,
+            document: input.payerDocument,
+            phone: input.payerPhone,
+          },
+          expiresInSeconds,
+          idempotencyKey: payment.id,
+        };
+
+        // FAILOVER (2026-08-11): se o provedor primário cair ou começar a
+        // recusar no meio do pico, a venda migra para o reserva em vez de
+        // quebrar o checkout. Sem reserva configurado, erro sobe como antes.
+        let charge;
+        let usado = gateway;
+        try {
+          charge = await gateway.createPixCharge(pedidoPix);
+        } catch (error) {
+          const reserva = getFallbackGatewayForMethod("PIX");
+          if (!reserva) toApiError(error);
+          this.logger.error(
+            `Pix falhou em ${gateway.provider}; tentando reserva ${reserva!.provider}`,
+          );
+          try {
+            charge = await reserva!.createPixCharge(pedidoPix);
+            usado = reserva!;
+          } catch {
+            // o erro que o comprador vê é o do PRIMÁRIO (mais informativo)
+            toApiError(error);
+          }
+        }
 
         const updated = await prisma.payment.update({
           where: { id: payment.id },
           data: {
-            externalId: charge.externalId,
-            pixQrCodeText: charge.qrCodeText,
-            expiresAt: charge.expiresAt,
+            provider: usado.provider,
+            externalId: charge!.externalId,
+            pixQrCodeText: charge!.qrCodeText,
+            expiresAt: charge!.expiresAt,
           },
         });
 
@@ -138,7 +161,7 @@ export class PaymentsService {
       async () => {
         const order = await this.loadPayableOrder(orderId);
         assertMinimumCharge(order.totalCents);
-        const gateway = getDefaultGateway();
+        const gateway = getGatewayForMethod("CARD");
 
         const payment = await prisma.payment.create({
           data: {

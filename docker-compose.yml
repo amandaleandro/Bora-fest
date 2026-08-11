@@ -62,12 +62,22 @@ services:
       NODE_ENV: production
       API_PORT: 3333
       # connection_limit por instância: com N réplicas da api/worker, N *
-      # connection_limit tem que caber no max_connections do Postgres
-      # (padrão 100) — 10 aguenta ~8 réplicas somadas com folga.
-      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public&connection_limit=10&pool_timeout=10
+      # connection_limit tem que caber no max_connections do Postgres.
+      # 20 por instância suporta 1.000 compras/min (~17/s) com 3 réplicas de
+      # api + 1 worker = 80 conexões, dentro do padrão 100 do Postgres.
+      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public&connection_limit=20&pool_timeout=15
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       SESSION_JWT_SECRET: ${SESSION_JWT_SECRET}
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
+      # roteamento por método: Pix no Mercado Pago (percentual, viabiliza a
+      # taxa de R$ 1) e cartão no Asaas. Vazio = tudo em PAYMENTS_PROVIDER.
+      PAYMENTS_PROVIDER_PIX: ${PAYMENTS_PROVIDER_PIX:-}
+      PAYMENTS_PROVIDER_CARD: ${PAYMENTS_PROVIDER_CARD:-}
+      # reserva: se o primário cair/recusar no pico, a venda migra sozinha
+      PAYMENTS_FALLBACK_PIX: ${PAYMENTS_FALLBACK_PIX:-}
+      PAYMENTS_FALLBACK_CARD: ${PAYMENTS_FALLBACK_CARD:-}
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
       ASAAS_API_KEY: ${ASAAS_API_KEY}
       ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN}
       WEB_BASE_URL: ${WEB_BASE_URL:-https://borafest.com.br}
@@ -104,11 +114,21 @@ services:
     environment:
       NODE_ENV: production
       # connection_limit por instância: com N réplicas da api/worker, N *
-      # connection_limit tem que caber no max_connections do Postgres
-      # (padrão 100) — 10 aguenta ~8 réplicas somadas com folga.
-      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public&connection_limit=10&pool_timeout=10
+      # connection_limit tem que caber no max_connections do Postgres.
+      # 20 por instância suporta 1.000 compras/min (~17/s) com 3 réplicas de
+      # api + 1 worker = 80 conexões, dentro do padrão 100 do Postgres.
+      DATABASE_URL: postgresql://borafest:${POSTGRES_PASSWORD}@postgres:5432/borafest?schema=public&connection_limit=20&pool_timeout=15
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
+      # roteamento por método: Pix no Mercado Pago (percentual, viabiliza a
+      # taxa de R$ 1) e cartão no Asaas. Vazio = tudo em PAYMENTS_PROVIDER.
+      PAYMENTS_PROVIDER_PIX: ${PAYMENTS_PROVIDER_PIX:-}
+      PAYMENTS_PROVIDER_CARD: ${PAYMENTS_PROVIDER_CARD:-}
+      # reserva: se o primário cair/recusar no pico, a venda migra sozinha
+      PAYMENTS_FALLBACK_PIX: ${PAYMENTS_FALLBACK_PIX:-}
+      PAYMENTS_FALLBACK_CARD: ${PAYMENTS_FALLBACK_CARD:-}
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
       ASAAS_API_KEY: ${ASAAS_API_KEY}
       ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN}
       WEB_BASE_URL: ${WEB_BASE_URL:-https://borafest.com.br}

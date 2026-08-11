@@ -656,6 +656,37 @@ achou 2 CRÍTICOS do próprio código novo — todos corrigidos e testados:
   GET /v1/validator/my-events + POST /v1/validator/sessions/account.
 API 51/51 · worker 6/6 · build 14/14.
 
+**Mercado Pago + arquitetura para 1.000 compras/min (2026-08-11)** —
+pedido do Arthur (dobro do pico falado) e defesa contra o incidente do
+projeto antigo ("gateway recusando por volume"):
+- **Adapter Mercado Pago**: Pix (QR + expiração), cartão via token,
+  estorno total/parcial, getStatus e WEBHOOK com assinatura HMAC-SHA256
+  (`x-signature` ts/v1 sobre o manifesto id;request-id;ts) — fail closed
+  sem segredo. Idempotência nativa via X-Idempotency-Key = retry nunca
+  cobra duas vezes.
+- **Roteamento por MÉTODO**: PAYMENTS_PROVIDER_PIX / _CARD. Plano: Pix no
+  MP (~0,99% percentual — é o que viabiliza a taxa de R$ 1 do Arthur sem
+  prejuízo) e cartão no Asaas (tarifa melhor). Vazio = PAYMENTS_PROVIDER.
+- **FAILOVER por método** (PAYMENTS_FALLBACK_PIX/_CARD): se o primário
+  cair ou recusar no meio do pico, a venda migra sozinha para o reserva e
+  o Payment registra o provedor que REALMENTE cobrou. Sem reserva
+  configurado, o erro sobe (não engole falha em silêncio).
+- **Diagnóstico do incidente antigo** (correção do que a Amanda relatou):
+  antifraude recusa CARTÃO, não Pix. No Pix do MP o que existe é limite/
+  retenção de conta nova com volume alto e rate limit (429). A defesa real
+  é: (a) o navegador NUNCA fala com o gateway — o status vem do nosso banco;
+  (b) 1 chamada por compra = ~17 req/s a 1.000/min, longe do limite; (c)
+  failover automático; (d) Pix direto no banco como plano de margem.
+- **Carga**: estoque já usa UPDATE atômico condicional (sem corrida);
+  connection_limit 10→20 por instância (3 réplicas de api + worker = 80,
+  dentro do max_connections 100 do Postgres); sala de espera segue como
+  válvula do pico.
+Testes: mapeamento de status, webhook (válido/adulterado/sem segredo),
+roteamento por método e FAILOVER com provedor quebrado.
+API 53/53 · payments 17/17.
+⚠️ Falta: credenciais de sandbox do MP (Arthur) para homologar de verdade
+e o teste de carga com k6.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
