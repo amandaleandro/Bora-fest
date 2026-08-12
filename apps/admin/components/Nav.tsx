@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/organizacoes", label: "Organizações" },
   { href: "/eventos", label: "Eventos" },
   { href: "/pedidos", label: "Pedidos" },
+  { href: "/reembolsos", label: "Reembolsos" },
   { href: "/payouts", label: "Repasses" },
   { href: "/webhooks", label: "Webhooks" },
   { href: "/filas", label: "Filas" },

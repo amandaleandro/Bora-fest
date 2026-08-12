@@ -296,6 +296,10 @@ export class AdminService {
 
   /** Aprovação: dispara o estorno de verdade reusando `refundOrder` (mesmo gateway). */
   async approveRefundRequest(id: string, userId: string, input: ApproveRefundRequestInput) {
+    // 403-primeiro (auditoria 2026-08-12): sem isto, um SUPPORT recebia 404/400
+    // do pedido ANTES do 403, vazando o estado da fila para quem não pode agir.
+    const actor = await this.platformAccess.assertAdmin(userId);
+
     const request = await prisma.refundRequest.findUnique({
       where: { id },
       include: { order: { select: { publicToken: true } } },
@@ -313,6 +317,18 @@ export class AdminService {
     await prisma.refundRequest.update({
       where: { id },
       data: { status: "APPROVED", resolvedAt: new Date(), resolvedByUserId: userId },
+    });
+
+    // auditoria simétrica ao reject e ao lado do produtor: aprovação de reembolso
+    // do comprador passa a ser rastreável por entityType=refund_request
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "admin.refund-request.approve",
+        entityType: "refund_request",
+        entityId: id,
+        metadata: { orderId: order.id, amountCents: input.amountCents ?? null },
+      },
     });
 
     return order;

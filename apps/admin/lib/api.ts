@@ -135,6 +135,23 @@ export interface Payout {
   notes: string | null;
 }
 
+export interface AdminRefundRequest {
+  id: string;
+  reason: string;
+  status: string;
+  requestedAt: string;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  order: {
+    id: string;
+    publicToken: string;
+    contactEmail: string;
+    contactName: string | null;
+    totalCents: number;
+    status: string;
+  };
+}
+
 export const adminApi = {
   listOrganizations: (token: string) => request<AdminOrganization[]>("/v1/admin/organizations", { token }),
 
@@ -254,4 +271,20 @@ export const adminApi = {
     request(`/v1/admin/payout-requests/${id}/reject`, { method: "POST", body: { note }, token }),
   markPayoutPaid: (token: string, id: string, notes?: string) =>
     request<Payout>(`/v1/admin/payouts/${id}/mark-paid`, { method: "POST", body: { notes }, token }),
+
+  // Fila de reembolsos do comprador (refund-requests). Nos eventos de casas no
+  // repasse PADRÃO quem analisa é a BoraFest — sem esta tela a fila fica PENDING
+  // invisível. Aprovar dispara o estorno de verdade no gateway.
+  listRefundRequests: (token: string, status?: string) => {
+    const query = status ? `?status=${status}` : "";
+    return request<AdminRefundRequest[]>(`/v1/admin/refund-requests${query}`, { token });
+  },
+  approveRefundRequest: (token: string, id: string, amountCents?: number) =>
+    request(`/v1/admin/refund-requests/${id}/approve`, {
+      method: "POST",
+      body: amountCents != null ? { amountCents } : {},
+      token,
+    }),
+  rejectRefundRequest: (token: string, id: string, note: string) =>
+    request(`/v1/admin/refund-requests/${id}/reject`, { method: "POST", body: { note }, token }),
 };

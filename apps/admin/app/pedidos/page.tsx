@@ -10,6 +10,15 @@ function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+/** BRL digitado (aceita vírgula) → centavos. Retorna null se vazio/inválido. */
+function parseBrlToCents(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = Number(trimmed.replace(/\./g, "").replace(",", "."));
+  if (!Number.isFinite(normalized) || normalized <= 0) return null;
+  return Math.round(normalized * 100);
+}
+
 function OrdersContent() {
   const { token, user } = useAuth();
   const [publicToken, setPublicToken] = useState("");
@@ -18,6 +27,7 @@ function OrdersContent() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [refundReason, setRefundReason] = useState<Record<string, string>>({});
+  const [refundAmount, setRefundAmount] = useState<Record<string, string>>({});
   const isAdmin = user?.platformRole === "ADMIN";
 
   async function handleSearch() {
@@ -44,17 +54,33 @@ function OrdersContent() {
     }
   }
 
-  async function handleRefund(publicTok: string) {
+  async function handleRefund(order: AdminOrder) {
     if (!token) return;
+    const publicTok = order.publicToken;
     const reason = refundReason[publicTok];
     if (!reason) {
       setMessage("Informe o motivo do estorno");
       return;
     }
+    const rawAmount = refundAmount[publicTok] ?? "";
+    const amountCents = parseBrlToCents(rawAmount);
+    if (rawAmount.trim() && amountCents === null) {
+      setMessage("Valor parcial inválido — deixe em branco para estorno total");
+      return;
+    }
+    if (amountCents !== null && amountCents > order.totalCents) {
+      setMessage(
+        `Valor parcial (${formatCents(amountCents)}) maior que o pedido (${formatCents(order.totalCents)})`,
+      );
+      return;
+    }
     setMessage(null);
     try {
-      await adminApi.refundOrder(token, publicTok, { reason });
-      setMessage("Estorno processado");
+      await adminApi.refundOrder(token, publicTok, {
+        reason,
+        ...(amountCents !== null ? { amountCents } : {}),
+      });
+      setMessage(amountCents !== null ? "Estorno parcial processado" : "Estorno total processado");
       await handleSearch();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Não foi possível estornar");
@@ -103,7 +129,7 @@ function OrdersContent() {
               </div>
 
               {isAdmin && paidPayment ? (
-                <div className="mt-3 flex gap-2 border-t border-gray-700 pt-3">
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-700 pt-3">
                   <input
                     placeholder="Motivo do estorno"
                     className="flex-1 text-sm"
@@ -112,10 +138,18 @@ function OrdersContent() {
                       setRefundReason((prev) => ({ ...prev, [order.publicToken]: e.target.value }))
                     }
                   />
+                  <input
+                    placeholder="valor parcial (vazio = total)"
+                    className="w-44 text-sm"
+                    value={refundAmount[order.publicToken] ?? ""}
+                    onChange={(e) =>
+                      setRefundAmount((prev) => ({ ...prev, [order.publicToken]: e.target.value }))
+                    }
+                  />
                   <button
                     type="button"
                     className="rounded-lg bg-red-900 px-3 text-sm text-red-200"
-                    onClick={() => handleRefund(order.publicToken)}
+                    onClick={() => handleRefund(order)}
                   >
                     Estornar
                   </button>
