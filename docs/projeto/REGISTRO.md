@@ -19,7 +19,7 @@
 |---|---|
 | **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
 | **Status da fase** | 🟢 API testes 38/38 · typecheck limpo · build 14/14 |
-| **Última atualização** | 2026-08-10 |
+| **Última atualização** | 2026-08-11 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
 
@@ -684,8 +684,26 @@ projeto antigo ("gateway recusando por volume"):
 Testes: mapeamento de status, webhook (válido/adulterado/sem segredo),
 roteamento por método e FAILOVER com provedor quebrado.
 API 53/53 · payments 17/17.
-⚠️ Falta: credenciais de sandbox do MP (Arthur) para homologar de verdade
-e o teste de carga com k6.
+
+**MP homologado com credenciais REAIS (2026-08-11)** — Arthur mandou as
+chaves de PRODUÇÃO (`APP_USR-...`, conta da Amanda, user 156378219) e o
+segredo do webhook. Provado ao vivo, não só em teste:
+- conta ativa com Pix habilitado; cobrança real de R$ 1 criada e cancelada
+  (id 173307140146);
+- nosso adapter criou cobrança de verdade (externalId 172391870923) com QR
+  Pix válido e `getStatus` PENDING;
+- assinatura do webhook com a chave real: **aceita**; assinatura forjada:
+  **recusada**.
+- plumbing confirmado: `POST /v1/webhooks/payments/mercadopago` chega no
+  worker e resolve pelo adapter registrado.
+⚠️ **Achado ao rodar a bateria**: com o roteamento por método no `.env`
+local, os TESTES passaram a criar cobrança no Mercado Pago de PRODUÇÃO
+(3 falhas). Duas correções: roteamento saiu do `.env` local (vive só na
+produção/EasyPanel) e o helper de teste agora força `mock` e limpa
+PAYMENTS_PROVIDER_PIX/_CARD/_FALLBACK antes de qualquer teste subir —
+provado com as variáveis apontando para o MP e a suíte ainda 53/53.
+⚠️ Falta: variáveis do MP no Environment do EasyPanel + deploy, e o teste
+de carga com k6.
 
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
