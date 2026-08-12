@@ -57,7 +57,16 @@ export async function executeOrderRefund(
     throw new BadRequestException("Gateway recusou o estorno");
   }
 
-  await applyGatewayStatus(payment.id, result.status, undefined, {
+  // ESTORNO ASSÍNCRONO (auditoria 2026-08-12): Asaas (cartão e Pix) ACEITA o
+  // estorno e devolve "PENDING". A chamada antiga applyGatewayStatus("PENDING")
+  // era no-op → o dinheiro saía, mas o ledger não era debitado, a comissão do
+  // promoter não sofria clawback e o pagamento ficava preso em REFUND_PENDING
+  // (o refund-cap achava que nada tinha sido devolvido, liberando estorno em
+  // dobro). Como NÓS iniciamos com um valor conhecido e o gateway se
+  // comprometeu, aplicamos a contabilidade agora, com o valor EXATO. O webhook
+  // que chega depois é idempotente: pagamento já reembolsado → no-op.
+  const statusContabil = result.status === "PENDING" ? "REFUNDED" : result.status;
+  await applyGatewayStatus(payment.id, statusContabil, undefined, {
     refundAmountCents: input.amountCents,
   });
 

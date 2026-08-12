@@ -21,6 +21,17 @@ export interface PaymentWebhookProcessingJobData {
 export function createPaymentWebhookProcessingQueue() {
   return new Queue<PaymentWebhookProcessingJobData>(PAYMENT_WEBHOOK_PROCESSING_QUEUE, {
     connection: getRedisConnection(),
+    // RETRY (auditoria 2026-08-12): sem isso o BullMQ tenta 1 vez só. Uma falha
+    // transitória (deadlock com o expirador de pedidos, blip de conexão) marcava
+    // a entrega FAILED e o evento se PERDIA — a API já respondeu 200, o gateway
+    // não reenvia, e a reconciliação não cobre estorno/chargeback. Com retry, o
+    // efeito (idempotente pelo dedupe de evento) é re-tentado até completar.
+    defaultJobOptions: {
+      attempts: 6,
+      backoff: { type: "exponential", delay: 3000 },
+      removeOnComplete: 1000,
+      removeOnFail: false,
+    },
   });
 }
 

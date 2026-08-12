@@ -158,12 +158,23 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   async function doTransfer() {
     if (!transferFor) return;
     setTransferMsg(null);
+    // Transferência agora exige sessão (autorização pelo dono atual do
+    // ingresso — auditoria 2026-08-12). Esta página é aberta pelo token do
+    // pedido; se o comprador estiver logado, usa a sessão; senão, orienta a
+    // entrar (a carteira em /perfil é a superfície logada de transferência).
+    const sessao = typeof window !== "undefined" ? localStorage.getItem("bf.token") : null;
+    if (!sessao) {
+      setTransferMsg(
+        "Para transferir, entre na sua conta em Meus ingressos (perfil) — é de lá que a transferência sai com segurança.",
+      );
+      return;
+    }
     try {
-      await api.transferTicket(transferFor, {
-        orderPublicToken: publicToken,
-        toName: transferName,
-        toEmail: transferEmail,
-      });
+      await api.transferTicket(
+        transferFor,
+        { orderPublicToken: publicToken, toName: transferName, toEmail: transferEmail },
+        sessao,
+      );
       setTransferMsg("Ingresso transferido! O QR antigo foi invalidado.");
       setTransferFor(null);
       setTransferName("");

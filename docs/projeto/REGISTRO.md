@@ -705,6 +705,50 @@ provado com as variáveis apontando para o MP e a suíte ainda 53/53.
 ⚠️ Falta: variáveis do MP no Environment do EasyPanel + deploy, e o teste
 de carga com k6.
 
+**Bateria adversarial nos 3 papéis — cliente/organizador/admin (2026-08-12)**
+— pedido do Arthur: rodar uma bateria caçando falhas e corrigir cada uma
+retestando. Auditoria multi-agente (23 agentes, achar→verificar
+adversarial) + jornada REAL rodada ao vivo (cadastro→evento→lote→publicar→
+reserva→pedido→Pix mock→webhook→FULFILLED). 9 achados confirmados (0
+refutados). Corrigidos por cluster de causa raiz:
+- **Roubo de ingresso por transferência (CRÍTICO, IDOR)**: quem RECEBIA um
+  ingresso de presente ganhava junto o `orderPublicToken` do pedido inteiro
+  (a carteira devolvia o token em TODO ingresso). Com ele via os QRs dos
+  demais ingressos do comprador, lia contato e transferia os outros para si;
+  a rota de transferência nem tinha SessionGuard. Causa raiz: autorização
+  amarrada ao segredo estático do pedido, não ao dono atual. Fix: carteira só
+  entrega o token ao COMPRADOR; transferência exige sessão e valida DONO
+  ATUAL; visão por token do pedido e PNG escondem ingresso já transferido.
+  Testes: normal, estranho barrado, roubo bloqueado, sem clawback do
+  comprador — 4/4. (Frontend perfil + pedido ajustados para mandar a sessão.)
+- **Contabilidade de estorno assíncrono (CRÍTICO)**: Asaas ACEITA o estorno e
+  responde "PENDING" (cartão e Pix). A chamada antiga `applyGatewayStatus
+  ("PENDING")` era no-op → dinheiro saía, ledger intacto, comissão sem
+  clawback, pagamento preso em REFUND_PENDING e o cap de estorno achava que
+  nada tinha voltado (liberando estorno em dobro). Fix: como nós sabemos o
+  valor e o gateway se comprometeu, aplica a contabilidade na hora com o valor
+  exato (execute-refund.ts e orders.service.ts). Webhook posterior é
+  idempotente.
+- **Estorno de PDV sem teto acumulado (dinheiro)**: sem gateway não passava
+  pelo refund-cap; dois parciais de R$60 num pedido de R$100 devolviam R$120.
+  Fix: soma o já devolvido antes de aceitar.
+- **Corrida expiração×conversão → oversell (ALTO)**: o worker de expiração de
+  reserva lia o status FORA da transação e sobrescrevia CONVERTED→EXPIRED sem
+  guarda, liberando estoque de pedido pago. Fix: `updateMany WHERE
+  status=ACTIVE` dentro da transação e só libera se casou — espelha o padrão
+  já provado do expire-orders.ts.
+- **Webhook sem retry (ALTO)**: fila `payment-webhook-processing` tinha
+  attempts=1; falha transitória (deadlock, blip) perdia o evento pra sempre.
+  Fix: attempts=6 com backoff exponencial.
+⚠️ **Ambiente de teste local degradou no fim da sessão** (RAM ~17MB livre,
+node_modules com leitura corrompida sob pressão de memória) — o cluster de
+transferência rodou 4/4 antes disso; os demais compilam e espelham padrões
+provados. Rodar a suíte completa num ambiente limpo (CI/máquina descansada)
+antes de fechar. Achados de estorno/chargeback fora de banda (MED do Pix,
+painel do gateway) e rechecagem de saldo na aprovação de saque ficam como
+pendências pós-lançamento (janelas estreitas, sistema tolera com
+netting).
+
 **Saque travado sem saída — PENDING_VERIFICATION (2026-08-12)** — o Arthur
 entrou no backoffice novo, viu as 4 casas reais em `PENDING_VERIFICATION` e
 perguntou por quê. Investigando: é o default do schema, **e nada no sistema

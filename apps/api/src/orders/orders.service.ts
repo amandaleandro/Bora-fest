@@ -570,17 +570,37 @@ export class OrdersService {
         throw new BadRequestException("Gateway recusou o estorno");
       }
 
-      await applyGatewayStatus(payment.id, result.status, undefined, { refundAmountCents: input.amountCents });
+      // estorno assíncrono aceito (Asaas "PENDING"): aplica a contabilidade
+      // agora, com o valor exato — mesma correção do execute-refund.ts
+      // (auditoria 2026-08-12), senão o pagamento ficava preso em REFUND_PENDING
+      const statusContabil = result.status === "PENDING" ? "REFUNDED" : result.status;
+      await applyGatewayStatus(payment.id, statusContabil, undefined, { refundAmountCents: input.amountCents });
     } else {
       // venda do PDV (dinheiro) — sem gateway: estorno manual no ledger
       if (!["PAID", "PARTIALLY_REFUNDED"].includes(order.status)) {
         throw new BadRequestException("Pedido não está pago para estornar");
       }
       const amountCents = input.amountCents ?? order.totalCents;
-      if (amountCents > order.totalCents) {
-        throw new BadRequestException("Valor do estorno maior que o pedido");
+      if (amountCents <= 0) {
+        throw new BadRequestException("Valor do estorno inválido");
       }
-      const isFull = amountCents >= order.totalCents;
+      // TETO ACUMULADO (auditoria 2026-08-12): sem gateway não passava pelo
+      // refund-cap. A checagem antiga só olhava o estorno ATUAL contra o total,
+      // então dois parciais de R$60 num pedido de R$100 devolviam R$120 e
+      // jogavam o caixa da casa no negativo. Soma o que já foi devolvido.
+      const jaDevolvido = await prisma.ledgerEntry.aggregate({
+        where: { referenceType: "order", referenceId: order.id, type: "REFUND_DEBIT" },
+        _sum: { amountCents: true },
+      });
+      const devolvidoAntes = Math.abs(jaDevolvido._sum.amountCents ?? 0);
+      if (devolvidoAntes + amountCents > order.totalCents) {
+        const restante = ((order.totalCents - devolvidoAntes) / 100)
+          .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+        throw new BadRequestException(
+          `Estorno excede o saldo do pedido — disponível para estorno: ${restante}`,
+        );
+      }
+      const isFull = devolvidoAntes + amountCents >= order.totalCents;
 
       await prisma.$transaction(async (tx) => {
         const ledgerAccount = await tx.ledgerAccount.upsert({
