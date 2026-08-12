@@ -407,6 +407,12 @@ export class OrdersService {
       where: { id: input.ticketLotId, ticketType: { eventId } },
     });
     if (!lot) throw new BadRequestException("Lote não pertence a este evento");
+    // PDV não pode vender lote em rascunho/pausado/encerrado (auditoria
+    // 2026-08-12): só ACTIVE. Sem isto, uma venda presencial furava a mesma
+    // regra que o checkout online já respeita.
+    if (lot.status !== "ACTIVE") {
+      throw new BadRequestException("Este lote não está ativo para venda");
+    }
 
     const organization = await prisma.organization.findUniqueOrThrow({ where: { id: event.organizationId } });
     const unitCents = lot.priceCents + lot.feeCents;

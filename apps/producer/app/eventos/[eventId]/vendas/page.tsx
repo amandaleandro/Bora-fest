@@ -552,11 +552,13 @@ function VendasContent({ eventId }: { eventId: string }) {
               onChange={(e) => setPdvLotId(e.target.value)}
             >
               <option value="">Selecione o lote</option>
-              {(dashboard?.lots ?? []).map((lot) => (
-                <option key={lot.id} value={lot.id}>
-                  {lot.typeName} — {lot.name} ({formatCents(lot.priceCents + lot.feeCents)})
-                </option>
-              ))}
+              {(dashboard?.lots ?? [])
+                .filter((lot) => lot.status === "ACTIVE" && lot.available > 0)
+                .map((lot) => (
+                  <option key={lot.id} value={lot.id}>
+                    {lot.typeName} — {lot.name} ({formatCents(lot.priceCents + lot.feeCents)}) · {lot.available} disp.
+                  </option>
+                ))}
             </select>
             <div className="flex gap-2">
               <input
