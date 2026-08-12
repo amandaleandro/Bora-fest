@@ -705,6 +705,23 @@ provado com as variáveis apontando para o MP e a suíte ainda 53/53.
 ⚠️ Falta: variáveis do MP no Environment do EasyPanel + deploy, e o teste
 de carga com k6.
 
+**Acesso do dono ao backoffice (2026-08-11)** — pergunta do Arthur ("como
+eu dono do sistema acesso meu painel?") expôs um buraco: `platformRole`
+existia só no banco. Não havia tela, endpoint nem script para conceder —
+ou seja, **ninguém conseguia entrar em admin.borafest.com.br** sem rodar
+SQL na mão na produção. Era a pendência "usuário ADMIN de produção" que
+nunca tinha sido fechada.
+- Correção: o seed do boot (já rodava, era só roles) promove a ADMIN os
+  e-mails de `PLATFORM_ADMIN_EMAILS` (vírgula). Idempotente e NÃO rebaixa:
+  tirar da lista não remove acesso (remoção é ato deliberado). Login segue
+  por OTP no e-mail — quem não recebe o código não entra.
+- Testado: conta existente promovida com dados preservados, conta nova
+  criada já ADMIN, maiúscula/espaço normalizados, 2ª execução sem efeito,
+  e **login completo no navegador** até Organizações com o crachá (ADMIN).
+- Achado de bônus (só dev): a API subia muda e sem escutar porque o
+  `UPLOADS_DIR` padrão (`/repo/uploads`, do container) não é criável fora
+  do Docker. Em produção não afeta — o compose define o caminho e o volume.
+
 **Pendências de homologação**: ativar webhook no painel Asaas → compra real
 de R$ 1 → estorno de teste → usuário ADMIN de produção. Depois: chave Resend
 (e-mail real) e Meta WhatsApp. Repo ainda público — Amanda vai adicionar a
