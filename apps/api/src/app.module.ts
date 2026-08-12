@@ -20,6 +20,7 @@ import { CheckinsModule } from "./checkins/checkins.module";
 import { CouponsModule } from "./coupons/coupons.module";
 import { ComplimentaryModule } from "./complimentary/complimentary.module";
 import { MeModule } from "./me/me.module";
+import { PushModule } from "./push/push.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { AdminModule } from "./admin/admin.module";
 import { FinanceModule } from "./finance/finance.module";
@@ -57,6 +58,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     CouponsModule,
     ComplimentaryModule,
     MeModule,
+    PushModule,
     DashboardModule,
     AdminModule,
     FinanceModule,

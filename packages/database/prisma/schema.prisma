@@ -58,8 +58,27 @@ model User {
   ledgerAccount           LedgerAccount?
   promoterLinks           PromoterLink[]       @relation("PromoterPerson")
   promoterSellers         PromoterSeller[]     @relation("SellerPerson")
+  webPushSubscriptions    WebPushSubscription[]
 
   @@map("users")
+}
+
+/// Inscrição de Web Push (PWA do painel): 1 por navegador/dispositivo do usuário.
+/// A notificação de venda cai aqui (gamificação 2026-08-12). Endpoint é único —
+/// o mesmo aparelho re-inscrevendo apenas atualiza as chaves.
+model WebPushSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("web_push_subscriptions")
 }
 
 model UserIdentity {

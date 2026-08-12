@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 
 @Injectable()
@@ -69,5 +69,35 @@ export class MeService {
       }),
     ]);
     return { deleted: true };
+  }
+
+  /**
+   * Salva a inscrição de Web Push do navegador/PWA (gamificação de vendas). O
+   * endpoint é único: o MESMO aparelho re-inscrevendo apenas atualiza as chaves
+   * e o dono (upsert por endpoint).
+   */
+  async savePushSubscription(
+    userId: string,
+    input: { endpoint?: string; keys?: { p256dh?: string; auth?: string }; userAgent?: string },
+  ) {
+    const endpoint = input.endpoint?.trim();
+    const p256dh = input.keys?.p256dh;
+    const auth = input.keys?.auth;
+    if (!endpoint || !p256dh || !auth) {
+      throw new BadRequestException("Inscrição de push inválida");
+    }
+    await prisma.webPushSubscription.upsert({
+      where: { endpoint },
+      update: { userId, p256dh, auth, userAgent: input.userAgent ?? null },
+      create: { userId, endpoint, p256dh, auth, userAgent: input.userAgent ?? null },
+    });
+    return { subscribed: true };
+  }
+
+  async removePushSubscription(userId: string, endpoint: string) {
+    if (!endpoint) return { removed: false };
+    // só remove a inscrição do PRÓPRIO usuário (não apaga a de outra conta)
+    await prisma.webPushSubscription.deleteMany({ where: { endpoint, userId } });
+    return { removed: true };
   }
 }

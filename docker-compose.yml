@@ -101,6 +101,11 @@ services:
       # quem entra em admin.borafest.com.br: e-mails separados por vírgula
       # viram ADMIN no boot (seed idempotente). Login segue por OTP no e-mail.
       PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      # Web Push (gamificação de vendas): a API expõe a chave PÚBLICA e valida
+      # inscrições; o worker envia o push na venda com a chave PRIVADA.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:no-reply@borafest.com.br}
     volumes:
       - borafest_uploads:/repo/uploads
     depends_on:
@@ -149,6 +154,10 @@ services:
       # padrão — Arthur liga com AUTO_TRANSFER_ENABLED=true quando quiser
       AUTO_TRANSFER_ENABLED: ${AUTO_TRANSFER_ENABLED:-false}
       AUTO_PAYOUTS_SWEEP_MS: ${AUTO_PAYOUTS_SWEEP_MS:-300000}
+      # Web Push: o worker envia o push de venda (order.paid) com a chave privada
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:no-reply@borafest.com.br}
     depends_on:
       postgres:
         condition: service_healthy

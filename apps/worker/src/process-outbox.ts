@@ -2,6 +2,7 @@ import { prisma } from "@borafest/database";
 import { getGateway } from "@borafest/payments";
 import { withContext } from "@borafest/observability";
 import { issueTicketsForOrder } from "./issue-tickets";
+import { notifySale } from "./sale-notify";
 
 const log = withContext({ module: "outbox" });
 
@@ -62,6 +63,9 @@ async function handleOutboxEvent(
   switch (eventType) {
     case "order.paid":
       await issueTicketsForOrder(payload.orderId);
+      // push de venda (gamificação) — best-effort, DEPOIS da emissão e sem
+      // await que possa falhar o job: notifySale já engole os próprios erros
+      await notifySale(payload.orderId);
       return;
 
     case "payment.orphaned":

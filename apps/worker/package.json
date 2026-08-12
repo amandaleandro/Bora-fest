@@ -10,16 +10,18 @@
     "test": "tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@borafest/auth": "workspace:*",
     "@borafest/database": "workspace:*",
     "@borafest/notifications": "workspace:*",
     "@borafest/observability": "workspace:*",
     "@borafest/payments": "workspace:*",
     "@borafest/queues": "workspace:*",
     "@borafest/tickets": "workspace:*",
-    "@borafest/auth": "workspace:*"
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
