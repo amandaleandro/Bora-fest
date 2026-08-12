@@ -32,7 +32,12 @@ export class TicketsController {
   }
 
   @Post("tickets/:id/transfer")
-  transfer(@Param("id") id: string, @Body(ZodBody(transferTicketSchema)) body: unknown) {
-    return this.ticketsService.transferTicket(id, body as any);
+  @UseGuards(SessionGuard)
+  transfer(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(transferTicketSchema)) body: unknown,
+  ) {
+    return this.ticketsService.transferTicket(id, userId, body as any);
   }
 }

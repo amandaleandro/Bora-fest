@@ -236,9 +236,13 @@ export default function ProfilePage() {
       `Transferir o ingresso de ${ticket.event.title} para ${toEmail}?\n\nO ingresso sai da sua conta, o QR atual deixa de valer e a ação não pode ser desfeita.`,
     );
     if (!ok) return;
+    if (!token) {
+      setTransferError("Sessão expirada — entre novamente para transferir");
+      return;
+    }
     setTransferSending(true);
     try {
-      await api.transferTicket(ticket.id, { orderPublicToken: ticket.orderPublicToken, toEmail });
+      await api.transferTicket(ticket.id, { orderPublicToken: ticket.orderPublicToken, toEmail }, token);
       const keptInWallet = (profile?.email ?? "").trim().toLowerCase() === toEmail;
       setTransferredTo(toEmail);
       setTransferFor(null);

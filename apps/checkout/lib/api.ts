@@ -345,9 +345,21 @@ export const api = {
       body: phone ? { phone } : {},
     }),
 
-  /** Transfere para a CONTA do e-mail destino (o nome vem da conta no servidor; toName é legado). */
-  transferTicket: (ticketId: string, input: { orderPublicToken: string; toEmail: string; toName?: string }) =>
-    request<OrderTicket>(`/v1/tickets/${ticketId}/transfer`, { method: "POST", body: input }),
+  /**
+   * Transfere para a CONTA do e-mail destino. Exige sessão (autorização por
+   * dono atual do ingresso — auditoria 2026-08-12); o token do pedido é legado
+   * e opcional.
+   */
+  transferTicket: (
+    ticketId: string,
+    input: { toEmail: string; orderPublicToken?: string | null; toName?: string },
+    token: string,
+  ) =>
+    request<OrderTicket>(`/v1/tickets/${ticketId}/transfer`, {
+      method: "POST",
+      body: { toEmail: input.toEmail, ...(input.orderPublicToken ? { orderPublicToken: input.orderPublicToken } : {}) },
+      token,
+    }),
 
   requestOtp: (destination: string) =>
     request<{ sent: boolean }>("/v1/identity/otp/request", {

@@ -8,6 +8,21 @@ import type { TransferTicketInput } from "@borafest/contracts";
 
 @Injectable()
 export class TicketsService {
+  /**
+   * Quem segura o `orderPublicToken` é o COMPRADOR do pedido. Um ingresso é
+   * dele enquanto ninguém o transferiu para outra conta: `ownerUserId` nulo
+   * (nunca transferido) ou apontando para o próprio comprador. Depois de
+   * transferido para terceiro, o comprador não pode mais ver/usar o QR — senão
+   * o token do pedido (que o comprador ainda conhece) daria acesso ao ingresso
+   * que já é de outra pessoa (auditoria 2026-08-12).
+   */
+  private belongsToOrderBearer(
+    ticket: { ownerUserId: string | null },
+    order: { userId: string | null },
+  ): boolean {
+    return ticket.ownerUserId === null || ticket.ownerUserId === order.userId;
+  }
+
   /** Ingressos de um pedido, acessíveis pelo token público (compra sem conta). */
   async findByOrderPublicToken(publicToken: string) {
     const order = await prisma.order.findUnique({
@@ -44,7 +59,10 @@ export class TicketsService {
       event: order.event,
       requiresVerification: false,
       contactEmail: order.contactEmail,
-      tickets: order.tickets.map((ticket) => this.toPublicTicket(ticket)),
+      // ingresso transferido para outra conta some da visão por token do pedido
+      tickets: order.tickets
+        .filter((ticket) => this.belongsToOrderBearer(ticket, order))
+        .map((ticket) => this.toPublicTicket(ticket)),
     };
   }
 
@@ -57,12 +75,23 @@ export class TicketsService {
       where: { id: ticketId },
       select: {
         qrToken: true,
+        ownerUserId: true,
         order: {
-          select: { id: true, publicToken: true, user: { select: { emailVerifiedAt: true } } },
+          select: {
+            id: true,
+            publicToken: true,
+            userId: true,
+            user: { select: { emailVerifiedAt: true } },
+          },
         },
       },
     });
     if (!ticket || ticket.order.publicToken !== orderPublicToken) {
+      throw new NotFoundException("Ingresso não encontrado neste pedido");
+    }
+    // ingresso já transferido para outra conta não é mais servido pelo token do
+    // pedido — quem tem a posse acessa pela carteira logada (auditoria 2026-08-12)
+    if (!this.belongsToOrderBearer(ticket, ticket.order)) {
       throw new NotFoundException("Ingresso não encontrado neste pedido");
     }
     // portão do 1º ingresso também na IMAGEM (auditoria 2026-08-10: a carteira
@@ -84,33 +113,42 @@ export class TicketsService {
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
         event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
-        order: { select: { publicToken: true } },
+        order: { select: { publicToken: true, userId: true } },
       },
     });
 
     const now = Date.now();
-    return tickets.map((ticket) => ({
-      ...this.toPublicTicket(ticket),
-      event: (ticket as any).event,
-      orderPublicToken: (ticket as any).order.publicToken,
-      transferable:
-        (ticket.status === "ISSUED" || ticket.status === "ACTIVE") &&
-        new Date((ticket as any).event.endsAt).getTime() > now,
-    }));
+    return tickets.map((ticket) => {
+      // o `orderPublicToken` é o segredo do PEDIDO INTEIRO — só o comprador o
+      // recebe. Um ingresso recebido por transferência aparece na carteira, mas
+      // sem o token do pedido de origem (senão o presenteado enxergaria e
+      // sequestraria os demais ingressos do comprador — auditoria 2026-08-12).
+      const isBuyer = (ticket as any).order.userId === userId;
+      return {
+        ...this.toPublicTicket(ticket),
+        event: (ticket as any).event,
+        orderPublicToken: isBuyer ? (ticket as any).order.publicToken : null,
+        transferable:
+          (ticket.status === "ISSUED" || ticket.status === "ACTIVE") &&
+          new Date((ticket as any).event.endsAt).getTime() > now,
+      };
+    });
   }
 
   /**
-   * Transferência self-service (arquitetura §13): quem pede prova que é dono
-   * do pedido informando o `orderPublicToken` (mesmo segredo de ver/reenviar
-   * ingressos). Atualiza o titular e reassina o QR com nonce novo — o QR
-   * antigo (impresso/print salvo) para de bater com a assinatura verificada
-   * no check-in.
+   * Transferência self-service (arquitetura §13, reforçada em 2026-08-12):
+   * quem transfere precisa estar LOGADO e ser o dono ATUAL do ingresso —
+   * `ownerUserId` apontando para ele, ou (ingresso nunca transferido) ser o
+   * comprador do pedido. Antes a prova era só o `orderPublicToken` do pedido,
+   * o que deixava o comprador reclamar de volta um ingresso já presenteado e
+   * um token vazado transferir ingressos alheios. Atualiza o titular e
+   * reassina o QR com nonce novo — o QR antigo para de bater no check-in.
    */
-  async transferTicket(ticketId: string, input: TransferTicketInput) {
+  async transferTicket(ticketId: string, userId: string, input: TransferTicketInput) {
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
       include: {
-        order: { select: { publicToken: true, contactEmail: true } },
+        order: { select: { publicToken: true, userId: true, contactEmail: true } },
         event: { select: { title: true, endsAt: true, signingKey: true } },
         ticketLot: {
           select: { name: true, requiresCpf: true, ticketType: { select: { name: true } } },
@@ -118,8 +156,13 @@ export class TicketsService {
       },
     });
     if (!ticket) throw new NotFoundException("Ingresso não encontrado");
-    if (ticket.order.publicToken !== input.orderPublicToken) {
-      throw new ForbiddenException("Token do pedido não confere com este ingresso");
+    // dono atual: quem recebeu o ingresso, ou o comprador enquanto ninguém o
+    // transferiu. Só ele transfere — não basta conhecer o token do pedido.
+    const isOwner =
+      ticket.ownerUserId === userId ||
+      (ticket.ownerUserId === null && ticket.order.userId === userId);
+    if (!isOwner) {
+      throw new ForbiddenException("Você não é o dono atual deste ingresso");
     }
     if (ticket.status !== "ISSUED" && ticket.status !== "ACTIVE") {
       throw new BadRequestException("Este ingresso não pode ser transferido no estado atual");
