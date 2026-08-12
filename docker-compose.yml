@@ -98,6 +98,9 @@ services:
       ANTICIPATION_FEE_BPS_MONTHLY: ${ANTICIPATION_FEE_BPS_MONTHLY:-125}
       AUTO_PAYOUT_MIN_CENTS: ${AUTO_PAYOUT_MIN_CENTS:-5000}
       UPLOADS_DIR: /repo/uploads
+      # quem entra em admin.borafest.com.br: e-mails separados por vírgula
+      # viram ADMIN no boot (seed idempotente). Login segue por OTP no e-mail.
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
     volumes:
       - borafest_uploads:/repo/uploads
     depends_on:
