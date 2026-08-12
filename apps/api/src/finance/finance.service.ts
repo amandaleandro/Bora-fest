@@ -143,18 +143,23 @@ export class FinanceService {
       anticipation && settlementMode === "STANDARD"
         ? availableForPayoutCents + Math.floor((heldCents * anticipationMaxBps()) / 10000)
         : availableForPayoutCents;
-    if (amountCents > tetoDePedido) {
-      throw new BadRequestException(
-        anticipation
-          ? "A antecipação libera até 80% do valor em janela — o restante fica de colchão para reembolsos"
-          : "Valor acima do saldo disponível para saque",
-      );
-    }
 
+    // a taxa de antecipação é DEBITADA junto do repasse, então ela também precisa
+    // caber no teto — senão sacar exatamente o disponível deixava o caixa da casa
+    // negativo pelo valor da taxa (revisão 2026-08-12). Reserva a taxa no orçamento.
     const anticipationFeeCents =
       settlementMode === "INSTANT" || anticipation
         ? await computeAnticipationFeeCents(organizationId, amountCents)
         : 0;
+    if (amountCents + anticipationFeeCents > tetoDePedido) {
+      throw new BadRequestException(
+        anticipation
+          ? "A antecipação libera até 80% do valor em janela (já descontada a taxa de antecipação) — o restante fica de colchão para reembolsos"
+          : anticipationFeeCents > 0
+            ? "Valor + taxa de antecipação acima do saldo disponível — reduza o valor do saque"
+            : "Valor acima do saldo disponível para saque",
+      );
+    }
 
     // --- roteamento: direto (Pix já) ou análise do backoffice ---------------
     const primeiroSaque =
@@ -254,7 +259,9 @@ export class FinanceService {
       solicitacao.anticipation && settlementMode === "STANDARD"
         ? availableForPayoutCents + Math.floor((heldCents * anticipationMaxBps()) / 10000)
         : availableForPayoutCents;
-    if (solicitacao.amountCents > tetoAtual) {
+    // inclui a taxa de antecipação já reservada na solicitação — ela é debitada
+    // junto do Payout, então tem que caber no disponível de agora (revisão 2026-08-12)
+    if (solicitacao.amountCents + solicitacao.anticipationFeeCents > tetoAtual) {
       throw new BadRequestException(
         "Saldo insuficiente para aprovar: o disponível caiu desde o pedido (estornos/chargebacks). Recuse a solicitação ou peça um novo saque pelo valor atual.",
       );
