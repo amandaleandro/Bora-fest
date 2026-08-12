@@ -77,18 +77,17 @@ function useWaitingRoom(event: PublicEvent) {
       if (!result) return;
       if (result.status === "ADMITTED") setState("ADMITTED");
       else if (result.status === "QUEUED") setPosition(result.position);
-      else ticketIdRef.current = null; // EXPIRED: perdeu a vaga, precisa entrar de novo
+      else {
+        // EXPIRED: perdeu a vaga — reentra na fila DE FATO. Bumpar `attempt`
+        // re-dispara o join (que chama a API e volta para JOINING). Antes só
+        // trocava o state para JOINING sem re-chamar o join → travava eterno em
+        // "Entrando na fila…".
+        ticketIdRef.current = null;
+        setAttempt((a) => a + 1);
+      }
     }, WAITING_ROOM_POLL_MS);
     return () => clearInterval(interval);
   }, [state, event.slug]);
-
-  // ticket expirou na fila (perdeu a vaga sem promoção): reentra
-  useEffect(() => {
-    if (state === "QUEUED" && !ticketIdRef.current) {
-      const timeout = setTimeout(() => setState("JOINING"), 0);
-      return () => clearTimeout(timeout);
-    }
-  }, [state, position]);
 
   const retry = () => setAttempt((a) => a + 1);
 

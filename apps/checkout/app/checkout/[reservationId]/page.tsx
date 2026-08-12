@@ -142,6 +142,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [cardAddrNum, setCardAddrNum] = useState("");
   const [installments, setInstallments] = useState(1);
   const [cardError, setCardError] = useState<string | null>(null);
+  // cartão enviado e aceito (autorizado/aguardando captura): trava o botão para
+  // não cobrar de novo enquanto o polling desta tela confirma o pagamento
+  const [cardSubmitted, setCardSubmitted] = useState(false);
   const [paying, setPaying] = useState(false);
 
   // o cronômetro segue visível no pagamento: reserva antes do pedido, janela do
@@ -362,7 +365,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           reservationId,
           contactEmail: email,
           contactName: name || undefined,
-          contactPhone: phone || undefined,
+          // telefone é opcional: só vai quando tem DDD+número completo — um
+          // valor pela metade fazia o createOrder recusar (min 10) e travar a compra
+          contactPhone: onlyDigits(phone).length >= 10 ? onlyDigits(phone) : undefined,
           couponCode: validCoupon ? coupon.trim().toUpperCase() : undefined,
           partnerSlug: getAttributedPartnerSlug(),
           promoterSlug: getAttributedPromoterSlug(),
@@ -397,7 +402,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     try {
       const pix = await api.createPixPayment(target.id, {
         payerDocument: onlyDigits(buyerCpf),
-        payerPhone: onlyDigits(phone) || undefined,
+        // telefone incompleto quebrava a geração do Pix (min 10 no backend)
+        payerPhone: onlyDigits(phone).length >= 10 ? onlyDigits(phone) : undefined,
       });
       if (!pix.pixQrCodeText) {
         setError("Não foi possível gerar o Pix agora. Tente de novo em instantes.");
@@ -442,6 +448,14 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           setApproved(true);
           clearInterval(id);
           setTimeout(() => router.push(`/pedido/${order.publicToken}`), 1400);
+        } else if (["CANCELED", "EXPIRED", "REFUNDED"].includes(status.status)) {
+          // cartão autorizado que o antifraude RECUSOU depois (ou pedido
+          // expirado): sem isto o botão ficava travado para sempre em
+          // "Confirmando pagamento…". Destrava para o comprador tentar de novo.
+          clearInterval(id);
+          setCardSubmitted(false);
+          setPaying(false);
+          setCardError("O pagamento não foi aprovado. Revise os dados do cartão e tente novamente.");
         }
       } catch {
         /* mantém polling */
@@ -476,6 +490,15 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       });
       if (res.status === "FAILED") {
         setCardError(res.failReason ?? "Pagamento recusado — sua reserva continua valendo.");
+      } else if (res.status === "PAID") {
+        // cartão aprovado na hora (gateway síncrono): mostra a confirmação já,
+        // sem esperar o polling, e sem reabrir o botão de pagar
+        setApproved(true);
+        setTimeout(() => router.push(`/pedido/${target.publicToken}`), 1400);
+      } else {
+        // autorizado/aguardando captura: trava o botão e deixa o polling desta
+        // tela avançar para "aprovado" (evita segunda cobrança por reclique)
+        setCardSubmitted(true);
       }
     } catch (e) {
       setCardError(e instanceof ApiError ? e.message : "Pagamento recusado");
@@ -1074,6 +1097,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     <button
                       onClick={payCard}
                       disabled={
+                        cardSubmitted ||
                         payDisabled ||
                         onlyDigits(cardNumber).length < 13 ||
                         !cardExp ||
@@ -1083,7 +1107,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                         onlyDigits(cardCep).length < 8
                       }
                       className={ctaClass(
-                        payDisabled ||
+                        cardSubmitted ||
+                          payDisabled ||
                           onlyDigits(cardNumber).length < 13 ||
                           !cardExp ||
                           cardCvv.length < 3 ||
@@ -1092,7 +1117,11 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                           onlyDigits(cardCep).length < 8,
                       )}
                     >
-                      {creating || paying ? "Processando…" : `Pagar ${formatCents(totalCents)}`}
+                      {cardSubmitted
+                        ? "Confirmando pagamento…"
+                        : creating || paying
+                          ? "Processando…"
+                          : `Pagar ${formatCents(totalCents)}`}
                     </button>
                     {!consent && (
                       <p className="text-center text-[11px] font-semibold text-muted-2">

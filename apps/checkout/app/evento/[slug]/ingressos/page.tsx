@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../../../lib/api";
 import { formatDateTime } from "../../../../lib/format";
@@ -19,6 +20,33 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
 
   if (!event) {
     return <main className="flex min-h-dvh items-center justify-center text-[13px] text-muted">{error ?? "Carregando…"}</main>;
+  }
+
+  // acesso direto ao /ingressos de um evento encerrado/despublicado (link antigo,
+  // botão "voltar"): não deixa reservar o que já fechou — o backend recusaria a
+  // reserva com um erro genérico, então avisa aqui, claro
+  const closed = event.status !== "PUBLISHED" || new Date(event.endsAt).getTime() < Date.now();
+  if (closed) {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-[430px] flex-col items-center justify-center px-8 text-center">
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-line text-muted-3">
+          <Icon d={paths.ticket} size={36} />
+        </div>
+        <h1 className="mt-4 text-[20px] font-extrabold">Vendas encerradas</h1>
+        <p className="mt-2 text-[13px] font-medium text-muted">
+          Os ingressos deste evento não estão mais disponíveis.
+        </p>
+        <Link
+          href={`/evento/${slug}`}
+          className="mt-6 flex h-14 w-full max-w-[360px] items-center justify-center rounded-2xl border-[1.5px] border-line-input text-[15px] font-bold text-ink"
+        >
+          Ver o evento
+        </Link>
+        <Link href="/" className="mt-3 text-[13px] font-bold text-primary">
+          Explorar outros eventos
+        </Link>
+      </main>
+    );
   }
 
   return (
