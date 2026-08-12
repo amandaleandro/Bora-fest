@@ -118,6 +118,17 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
     }
   }
 
+  async function handleApprove() {
+    if (!token) return;
+    setMessage(null);
+    try {
+      await adminApi.approveOrganization(token, orgId);
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Não foi possível aprovar o cadastro");
+    }
+  }
+
   async function handleCreatePayout() {
     if (!token) return;
     setMessage(null);
@@ -170,7 +181,9 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
             </button>
           ) : null}
           {org.status !== "ACTIVE" ? (
-            <p className="mt-1 text-xs text-red-400">Repasse bloqueado — KYC não aprovado (status {org.status})</p>
+            <p className="mt-1 text-xs text-red-400">
+              Repasse bloqueado — cadastro ainda não aprovado (status {org.status})
+            </p>
           ) : null}
         </div>
       </div>
@@ -244,6 +257,24 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
             Instantâneo cobra antecipação de 1,25% a.m. pró-rata sobre a parcela ainda na janela e
             exige o aditivo de responsabilidade de reembolso assinado pela casa.
           </p>
+        </section>
+      ) : null}
+
+      {isAdmin && org.status !== "ACTIVE" && org.status !== "BLOCKED" ? (
+        <section className="mt-8 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <h2 className="text-sm font-medium text-amber-200">Cadastro pendente de aprovação</h2>
+          <p className="mt-1 text-xs text-gray-400">
+            Enquanto o cadastro não é aprovado a casa vende normalmente, mas nenhum saque sai —
+            nem pelo painel dela, nem por repasse criado aqui. Aprove depois de conferir os dados
+            e a conta bancária.
+          </p>
+          <button
+            type="button"
+            className="mt-3 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-dark"
+            onClick={handleApprove}
+          >
+            Aprovar cadastro e liberar saque
+          </button>
         </section>
       ) : null}
 

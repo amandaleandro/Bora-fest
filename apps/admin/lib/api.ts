@@ -163,6 +163,9 @@ export const adminApi = {
   unblockOrganization: (token: string, id: string) =>
     request(`/v1/admin/organizations/${id}/unblock`, { method: "POST", token }),
 
+  approveOrganization: (token: string, id: string) =>
+    request(`/v1/admin/organizations/${id}/approve`, { method: "POST", token }),
+
   listEvents: (token: string, filters: { organizationId?: string; status?: string } = {}) => {
     const params = new URLSearchParams();
     if (filters.organizationId) params.set("organizationId", filters.organizationId);

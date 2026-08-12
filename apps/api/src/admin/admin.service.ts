@@ -106,6 +106,25 @@ export class AdminService {
     return this.setOrganizationStatus(organizationId, userId, "ACTIVE", "desbloqueio manual");
   }
 
+  /**
+   * Aprovação do cadastro (2026-08-11): toda organização nasce
+   * PENDING_VERIFICATION e NADA no sistema promovia para ACTIVE — só o
+   * "desbloquear", que na tela só aparece para quem estava BLOCKED. Resultado:
+   * a casa vendia normalmente, o dinheiro entrava e o saque ficava travado
+   * para sempre, sem botão que resolvesse. Este é o passo explícito de
+   * conferência de cadastro/KYC que destrava o repasse.
+   */
+  async approveOrganization(organizationId: string, userId: string) {
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+    if (organization.status === "BLOCKED") {
+      throw new BadRequestException(
+        "Organização bloqueada — use desbloquear (aprovar não passa por cima de bloqueio)",
+      );
+    }
+    return this.setOrganizationStatus(organizationId, userId, "ACTIVE", "cadastro aprovado");
+  }
+
   private async setOrganizationStatus(
     organizationId: string,
     userId: string,
@@ -126,7 +145,12 @@ export class AdminService {
       data: {
         actorUserId: actor.id,
         organizationId,
-        action: status === "BLOCKED" ? "admin.organization.block" : "admin.organization.unblock",
+        action:
+          status === "BLOCKED"
+            ? "admin.organization.block"
+            : reason === "cadastro aprovado"
+              ? "admin.organization.approve"
+              : "admin.organization.unblock",
         entityType: "organization",
         entityId: organizationId,
         metadata: { reason },

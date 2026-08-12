@@ -51,6 +51,11 @@ export class AdminController {
     return this.adminService.unblockOrganization(id, userId);
   }
 
+  @Post("organizations/:id/approve")
+  approveOrganization(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.adminService.approveOrganization(id, userId);
+  }
+
   @Get("events")
   listEvents(
     @CurrentUserId() userId: string,
