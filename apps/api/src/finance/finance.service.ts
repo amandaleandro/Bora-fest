@@ -235,6 +235,31 @@ export class FinanceService {
    * pelo backoffice (approvedBy = admin).
    */
   async approveRequestInternal(requestId: string, approvedBy: string | null): Promise<string> {
+    // RECHECK DE SALDO NA APROVAÇÃO (auditoria 2026-08-12): o Payout nascia com
+    // request.amountCents — o valor de QUANDO o saque foi pedido — sem olhar o
+    // saldo de AGORA. Uma solicitação em análise pode ficar parada horas; nesse
+    // meio-tempo estornos/chargebacks lançam REFUND_DEBIT no ledger e derrubam o
+    // disponível. Aprovar o valor antigo mandaria um Pix acima do saldo e
+    // deixaria o caixa da casa negativo. Recomputa o disponível atual na MESMA
+    // base do pedido (respeitando antecipação/INSTANT, igual ao requestPayout) e
+    // RECUSA se o valor pedido não couber mais — recusar é mais seguro que capar
+    // em silêncio. O caminho direto (saldo acabou de ser checado no
+    // requestPayout) passa deterministicamente; só barra se um estorno caiu na
+    // janela, e nesse caso barrar é o comportamento correto.
+    const solicitacao = await prisma.payoutRequest.findUniqueOrThrow({ where: { id: requestId } });
+    const { availableForPayoutCents, heldCents, settlementMode } = await getPayoutAvailability(
+      solicitacao.organizationId,
+    );
+    const tetoAtual =
+      solicitacao.anticipation && settlementMode === "STANDARD"
+        ? availableForPayoutCents + Math.floor((heldCents * anticipationMaxBps()) / 10000)
+        : availableForPayoutCents;
+    if (solicitacao.amountCents > tetoAtual) {
+      throw new BadRequestException(
+        "Saldo insuficiente para aprovar: o disponível caiu desde o pedido (estornos/chargebacks). Recuse a solicitação ou peça um novo saque pelo valor atual.",
+      );
+    }
+
     const payout = await prisma.$transaction(async (tx) => {
       // guarda ATÔMICA: sem isso, dois cliques de aprovar criavam dois Payouts
       // para a mesma solicitação (auditoria 2026-08-10)

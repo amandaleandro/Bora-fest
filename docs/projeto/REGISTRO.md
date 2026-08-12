@@ -705,6 +705,43 @@ provado com as variáveis apontando para o MP e a suíte ainda 53/53.
 ⚠️ Falta: variáveis do MP no Environment do EasyPanel + deploy, e o teste
 de carga com k6.
 
+**Fechamento da bateria — clusters restantes em paralelo (2026-08-12)** —
+pedido do Arthur: corrigir TODAS as falhas do trajeto principal, podendo usar
+mais de um workflow simultâneo. Eu peguei o cluster mais crítico (gateway/
+webhook) e disparei 2 workflows em paralelo (finanças e atribuição).
+- **Gateway/webhook (2 CRÍTICOS, eu)**: (a) estorno/chargeback do Mercado Pago
+  nunca chegava — o webhook do MP só traz o id e virava no-op, e a
+  reconciliação não reconsulta pagamento PAID; agora `resolveViaGetStatus`
+  marca o evento e o worker busca o status REAL via getStatus. (b) webhook
+  fora de ordem (REFUNDED antes do PAID) virava no-op e o PAID confirmava com
+  o dinheiro já devolvido; agora relança para retry (o PAID processa primeiro).
+  (c) idempotência passou a ser por EFEITO (só é duplicado se já PROCESSADO) —
+  corrige o at-most-once que perdia evento em falha transitória.
+- **Atribuição de promoter (workflow, CRÍTICO)**: os links ?pr=/?vd= caíam na
+  HOME, que não capturava — e a navegação descartava a query, então a comissão
+  do promoter era SEMPRE zero (o ?p= funcionava porque aponta para /evento/
+  slug?p=). Fix só no front: a home passa a capturar no mount. Teste 7/7.
+- **Rechecagem de saldo no saque (workflow)**: a aprovação criava o Payout com
+  o valor de QUANDO foi pedido, sem rechecar o saldo de agora — se caísse na
+  janela de análise (estorno), pagava a mais e a casa ficava negativa. Agora
+  recomputa o disponível na aprovação (mesma fórmula do pedido) e RECUSA se não
+  couber. Lógica validada contra Postgres real (getPayoutAvailability direto).
+- **RBAC do saque (workflow, decisão consciente de NÃO mexer)**: `FINANCE_VIEW`
+  guarda o saque (ação de dinheiro), mas o destino é sempre a conta bancária
+  PRÓPRIA da org — não é roubo. Mudar o RBAC exigiria recompilar `@borafest/auth`
+  (runtime usa o dist); trocar a guarda sem recompilar deixaria NINGUÉM sacando
+  hoje. Fica documentado o procedimento seguro pós-evento (add FINANCE_WITHDRAW
+  → recompilar auth → só então trocar a guarda).
+⚠️ **Ambiente local**: build de TODOS os pacotes passa (API inclusive), o
+cluster de transferência (4/4) e o de atribuição (7/7) rodaram verde, e a
+lógica do saldo foi validada contra Postgres real. A suíte de INTEGRAÇÃO
+completa não roda nesta máquina — o agente isolou que importar `@borafest/
+queues` (Redis/BullMQ) trava o carregamento sob pressão de memória (importar
+só `@borafest/database` roda em <1s). Rodar a suíte em CI/ambiente limpo antes
+de fechar. Pendência real que sobra (não-bloqueante, pré-existente): antecipação
+com amount==disponível não reserva a taxa, deixando o caixa levemente negativo
+pelo valor da taxa — pós-evento.
+
 **Bateria adversarial nos 3 papéis — cliente/organizador/admin (2026-08-12)**
 — pedido do Arthur: rodar uma bateria caçando falhas e corrigir cada uma
 retestando. Auditoria multi-agente (23 agentes, achar→verificar
