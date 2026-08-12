@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
+import { SalesPushButton } from "@/components/SalesPushButton";
 import { useAuth } from "@/lib/auth";
 import { organizationsApi, type Organization, type ProducerType, type PromoterEngagement, type PromoterInvite } from "@/lib/api";
 
@@ -324,6 +325,10 @@ function OrganizationsContent() {
 
   return (
     <>
+      <div className="mb-4">
+        <SalesPushButton />
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] font-semibold text-muted">
           Escolha a produtora para ver os eventos e o financeiro.

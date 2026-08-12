@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
+import { SalesPushButton } from "@/components/SalesPushButton";
 import { InviteMemberModal } from "@/components/InviteMemberModal";
 import { useAuth } from "@/lib/auth";
 import { eventsApi, organizationsApi, type EventSummary, type PromoterRow, type SalesPartner } from "@/lib/api";
@@ -586,6 +587,9 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
         </Link>
       }
     >
+      <div className="mb-6">
+        <SalesPushButton />
+      </div>
       <EventsList orgId={params.orgId} />
       <PublicProfile orgId={params.orgId} />
       <Team orgId={params.orgId} />

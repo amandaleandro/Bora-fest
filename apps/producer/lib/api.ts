@@ -864,6 +864,25 @@ export const guestListApi = {
     request<GuestListEntry>(`/v1/events/${eventId}/guest-list/${id}`, { method: "DELETE", token }),
 };
 
+// ---------------------------------------------------------------------------
+// Web Push (notificações de venda) — inscrição do navegador do produtor
+// ---------------------------------------------------------------------------
+
+/** Exatamente o shape de PushSubscription.toJSON() que o backend espera. */
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+export const pushApi = {
+  /** Salva a inscrição do navegador para receber push de vendas. */
+  subscribe: (token: string, subscription: PushSubscriptionPayload) =>
+    request("/v1/me/push-subscriptions", { method: "POST", body: subscription, token }),
+  /** Remove a inscrição ao desativar as notificações neste dispositivo. */
+  unsubscribe: (token: string, endpoint: string) =>
+    request("/v1/me/push-subscriptions", { method: "DELETE", body: { endpoint }, token }),
+};
+
 export const payoutsApi = {
   list: (organizationId: string, token: string) =>
     request<Payout[]>(`/v1/organizations/${organizationId}/payouts`, { token }),
