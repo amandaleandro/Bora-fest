@@ -19,7 +19,7 @@
 |---|---|
 | **Fase em andamento** | Handoff v2 implementado — pré-lançamento |
 | **Status da fase** | 🟢 API testes 38/38 · typecheck limpo · build 14/14 |
-| **Última atualização** | 2026-08-11 |
+| **Última atualização** | 2026-08-12 |
 | **Atualizado por** | Amanda + Claude |
 | **Branch** | `main` |
 
@@ -704,6 +704,22 @@ PAYMENTS_PROVIDER_PIX/_CARD/_FALLBACK antes de qualquer teste subir —
 provado com as variáveis apontando para o MP e a suíte ainda 53/53.
 ⚠️ Falta: variáveis do MP no Environment do EasyPanel + deploy, e o teste
 de carga com k6.
+
+**Saque travado sem saída — PENDING_VERIFICATION (2026-08-12)** — o Arthur
+entrou no backoffice novo, viu as 4 casas reais em `PENDING_VERIFICATION` e
+perguntou por quê. Investigando: é o default do schema, **e nada no sistema
+promovia para ACTIVE**. O único caminho era `unblockOrganization`, e na tela
+esse botão só aparece para quem está `BLOCKED`. Consequência em produção:
+a casa vende, o dinheiro entra e o saque fica travado **para sempre** — trava
+o autoatendimento no painel dela (`finance.service.ts`) e o repasse criado
+pelo backoffice (`admin.service.ts`) — sem nenhum botão que resolvesse.
+Teria estourado no primeiro pedido de saque depois do evento do dia 12.
+- `POST /v1/admin/organizations/:id/approve` + seção na tela da organização,
+  visível exatamente no estado que antes não tinha ação nenhuma.
+- Aprovar **não** passa por cima de bloqueio (BLOCKED continua exigindo
+  desbloqueio explícito) e fica na auditoria como `admin.organization.approve`.
+- Testes: pendente barra repasse → aprova → só esbarra em saldo; aprovar
+  bloqueada é recusado; quem não é staff não aprova. API 56/56, build 14/14.
 
 **Acesso do dono ao backoffice (2026-08-11)** — pergunta do Arthur ("como
 eu dono do sistema acesso meu painel?") expôs um buraco: `platformRole`
