@@ -27,7 +27,28 @@ export async function resolveEventContext(token: string, eventId: string): Promi
 /** Primeira organização do usuário — destino do pós-login (decisão v2 #6). */
 export async function resolveHomePath(token: string): Promise<string> {
   const organizations = await organizationsApi.list(token).catch(() => []);
-  if (organizations.length === 0) return "/onboarding";
+  if (organizations.length === 0) {
+    // Promoter/vendedor convidado por e-mail NÃO tem organização. Mandar direto
+    // ao /onboarding (form obrigatório de produtor, sem referência a convites)
+    // trancava TODO o fluxo de promoter para quem "não precisa ser produtor" —
+    // ele nunca chegava à caixa de convites para aceitar, copiar o link ?pr= ou
+    // convidar vendedor (auditoria 2026-08-12). Se há convite/engajamento
+    // pendente, cai em /organizacoes (onde a caixa de convites é renderizada e
+    // onde ele pode, opcionalmente, criar uma organização depois).
+    const [promoterInvites, promoterEngagements, sellerInvites, sellerEngagements] =
+      await Promise.all([
+        organizationsApi.myPromoterInvites(token).catch(() => []),
+        organizationsApi.myPromoterEngagements(token).catch(() => []),
+        organizationsApi.mySellerInvites(token).catch(() => []),
+        organizationsApi.mySellerEngagements(token).catch(() => []),
+      ]);
+    const ehPromoterOuVendedor =
+      promoterInvites.length > 0 ||
+      promoterEngagements.length > 0 ||
+      sellerInvites.length > 0 ||
+      sellerEngagements.length > 0;
+    return ehPromoterOuVendedor ? "/organizacoes" : "/onboarding";
+  }
   return `/organizacoes/${organizations[0].id}`;
 }
 

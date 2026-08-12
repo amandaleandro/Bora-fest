@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn } from "@/lib/api";
+import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn, type FeeMode } from "@/lib/api";
+import { FeeModeField, NominalFields } from "@/components/FeeModeField";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -111,6 +112,10 @@ function EventContent({ eventId }: { eventId: string }) {
   const [lotName, setLotName] = useState("");
   const [lotPrice, setLotPrice] = useState("");
   const [lotCapacity, setLotCapacity] = useState("");
+  const [lotMaxPerOrder, setLotMaxPerOrder] = useState("6");
+  const [lotFeeMode, setLotFeeMode] = useState<FeeMode>("BUYER");
+  const [lotNominal, setLotNominal] = useState(false);
+  const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
 
   // Tipos conhecidos = os criados nesta sessão + os que já têm lote (o
   // dashboard não expõe tipos sem lote de sessões anteriores — limitação
@@ -199,7 +204,9 @@ function EventContent({ eventId }: { eventId: string }) {
     setCategoryError(null);
     setCategorySaving(true);
     try {
-      await eventControls.update(eventId, { category: next || undefined }, token);
+      // "Sem categoria" (next === "") precisa mandar null: o servidor só LIMPA
+      // com null explícito — undefined era omitido e o select virava no-op.
+      await eventControls.update(eventId, { category: next || null }, token);
       setCategory(next);
     } catch (err) {
       setCategoryError(err instanceof Error ? err.message : "Falha ao salvar a categoria");
@@ -360,6 +367,8 @@ function EventContent({ eventId }: { eventId: string }) {
     setError(null);
     try {
       const priceCents = parsePriceCents(lotPrice);
+      // maxPerOrder: contrato aceita 1..20 (default 6) — clampa pra não tomar 400.
+      const maxPerOrder = Math.min(Math.max(Number(lotMaxPerOrder) || 6, 1), 20);
       const lot = await catalogApi.createLot(token, lotTypeId, {
         name: lotName,
         priceCents,
@@ -367,12 +376,21 @@ function EventContent({ eventId }: { eventId: string }) {
         // mandamos o espelho só para satisfazer o contrato do schema.
         feeCents: serviceFeeCents(priceCents),
         capacity: Number(lotCapacity),
+        maxPerOrder,
+        feeMode: lotFeeMode,
+        nominal: lotNominal,
+        // CPF só faz sentido em lote nominal (o backend também amarra os dois)
+        requiresCpf: lotNominal && lotRequiresCpf,
       });
       await catalogApi.activateLot(token, lot.id);
       setShowLotForm(false);
       setLotName("");
       setLotPrice("");
       setLotCapacity("");
+      setLotMaxPerOrder("6");
+      setLotFeeMode("BUYER");
+      setLotNominal(false);
+      setLotRequiresCpf(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar o lote");
@@ -476,31 +494,44 @@ function EventContent({ eventId }: { eventId: string }) {
             ))}
           </select>
           <input placeholder="Nome do lote" className="w-full" value={lotName} onChange={(e) => setLotName(e.target.value)} />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
               placeholder="Quanto você quer receber (R$)"
-              className="w-full min-w-0"
+              className="min-w-0 flex-1"
               inputMode="decimal"
               value={lotPrice}
               onChange={(e) => setLotPrice(e.target.value)}
             />
             <input
               placeholder="Capacidade"
-              className="w-full min-w-0"
+              className="min-w-0 flex-1"
               inputMode="numeric"
               value={lotCapacity}
               onChange={(e) => setLotCapacity(e.target.value)}
             />
+            <input
+              placeholder="Máx. por pedido"
+              className="w-32 min-w-0"
+              inputMode="numeric"
+              value={lotMaxPerOrder}
+              onChange={(e) => setLotMaxPerOrder(e.target.value)}
+              title="Quantos ingressos deste lote cada pessoa pode comprar num pedido (1 a 20)"
+            />
           </div>
-          <p className="rounded-lg bg-bg px-3 py-2 text-[13px] font-semibold text-ink-soft">
-            Taxa de serviço (automática):{" "}
-            <strong className="text-ink">{formatCents(serviceFeeCents(parsePriceCents(lotPrice)))}</strong> — cobrada
-            do comprador, não desconta do seu valor ·{" "}
-            <span className="text-success">
-              preço final para o comprador{" "}
-              {formatCents(parsePriceCents(lotPrice) + serviceFeeCents(parsePriceCents(lotPrice)))}
-            </span>
-          </p>
+          <FeeModeField
+            value={lotFeeMode}
+            onChange={setLotFeeMode}
+            priceCents={parsePriceCents(lotPrice)}
+            feeCents={serviceFeeCents(parsePriceCents(lotPrice))}
+          />
+          <NominalFields
+            nominal={lotNominal}
+            requiresCpf={lotRequiresCpf}
+            onChange={({ nominal, requiresCpf }) => {
+              setLotNominal(nominal);
+              setLotRequiresCpf(requiresCpf);
+            }}
+          />
           <button
             type="button"
             className="btn-primary"

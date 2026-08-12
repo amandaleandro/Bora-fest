@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
+import { InviteMemberModal } from "@/components/InviteMemberModal";
 import { useAuth } from "@/lib/auth";
 import { eventsApi, organizationsApi, type EventSummary, type PromoterRow, type SalesPartner } from "@/lib/api";
 
@@ -337,7 +338,10 @@ function Promoters({ orgId }: { orgId: string }) {
       await organizationsApi.invitePromoter(token, orgId, {
         email: email.trim(),
         commissionType,
-        ...(commissionType === "PERCENT" ? { commissionBps: Math.round(Number(valor || 0) * 100) } : {}),
+        // contrato: commissionBps 0..5000 (máx. 50%) — clampa pra não tomar 400
+        ...(commissionType === "PERCENT"
+          ? { commissionBps: Math.min(Math.round(Number(valor || 0) * 100), 5000) }
+          : {}),
         ...(commissionType === "FIXED" ? { commissionFixedCents: Math.round(Number(valor || 0) * 100) } : {}),
       });
       setMessage("Convite enviado — a pessoa aceita no painel dela (não precisa ser produtor).");
@@ -407,9 +411,10 @@ function Promoters({ orgId }: { orgId: string }) {
               type="number"
               min="0.5"
               step="0.5"
+              max={commissionType === "PERCENT" ? 50 : undefined}
               value={valor}
               onChange={(e) => setValor(e.target.value)}
-              placeholder={commissionType === "PERCENT" ? "%" : "R$"}
+              placeholder={commissionType === "PERCENT" ? "% (máx. 50)" : "R$"}
             />
           ) : (
             <span />
@@ -534,6 +539,39 @@ function SalesPartners({ orgId }: { orgId: string }) {
   );
 }
 
+/**
+ * Equipe da organização: convite de papéis internos (admin/financeiro/check-in).
+ * Antes, o InviteMemberModal existia pronto mas não era renderizado em lugar
+ * nenhum — não havia como o dono delegar esses papéis pela UI (só vendedor, via
+ * atlética). Não há endpoint de LISTAR membros, então por ora a seção é só de
+ * convite; os rótulos dos papéis foram alinhados ao poder real (lib/api.ts).
+ */
+function Team({ orgId }: { orgId: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="mt-8 rounded-[18px] border border-line bg-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[17px] font-extrabold">Equipe</h2>
+          <p className="mt-1 max-w-xl text-[12px] font-semibold text-muted">
+            Convide pessoas para ajudar a tocar seus eventos. Cada papel dá acesso só ao que
+            precisa — administrador (tudo, menos check-in no app), financeiro (pedidos, reembolsos
+            e saque) ou check-in (só o app de validação).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="h-11 shrink-0 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+        >
+          Convidar para a equipe
+        </button>
+      </div>
+      {open ? <InviteMemberModal organizationId={orgId} onClose={() => setOpen(false)} /> : null}
+    </section>
+  );
+}
+
 export default function OrganizationPage({ params }: { params: { orgId: string } }) {
   return (
     <GuardedPanelShell
@@ -550,6 +588,7 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
     >
       <EventsList orgId={params.orgId} />
       <PublicProfile orgId={params.orgId} />
+      <Team orgId={params.orgId} />
       <Promoters orgId={params.orgId} />
       <SalesPartners orgId={params.orgId} />
     </GuardedPanelShell>

@@ -223,13 +223,19 @@ export interface EventSummary {
 }
 
 /**
- * Rótulos do handoff → roleKey do inviteMemberSchema (owner|admin|operator|finance).
- * "Gestor do evento" cai em `finance` porque é a única role não-admin com acesso a
- * pedidos/participantes (finance:view + order:refund); `operator` só tem checkin:perform.
+ * Rótulos → roleKey do inviteMemberSchema (owner|admin|operator|finance|seller).
+ * As descrições precisam bater com o PODER REAL do papel (packages/auth/rbac.ts),
+ * senão o produtor delega esperando uma coisa e a pessoa toma 403:
+ *  - admin  = org:manage_members, event:create, event:publish, order:refund,
+ *             finance:view, sales:perform (NÃO faz check-in no app);
+ *  - finance = finance:view + order:refund → VÊ pedidos/participantes, exporta,
+ *             reembolsa e pede saque; NÃO cria/edita ingressos nem vende no PDV;
+ *  - operator = checkin:perform → só o app de validação e o painel ao vivo;
+ *  - seller  = sales:perform → registra venda no PDV da atlética/parceiro.
  */
 export const MEMBER_ROLES = [
-  { key: "admin", label: "Administrador", description: "Tudo, inclusive financeiro e saques" },
-  { key: "finance", label: "Gestor do evento", description: "Ingressos, vendas e participantes" },
+  { key: "admin", label: "Administrador", description: "Cria e edita eventos, ingressos, vendas, financeiro, saques e equipe" },
+  { key: "finance", label: "Financeiro", description: "Vê pedidos e participantes, exporta, reembolsa e solicita saque" },
   { key: "operator", label: "Check-in", description: "Só o app de validação e o painel ao vivo" },
   { key: "seller", label: "Vendedor", description: "Pode registrar vendas no PDV da atlética/parceiro" },
 ] as const;
@@ -373,6 +379,9 @@ export interface Dashboard {
     typeName: string;
     priceCents: number;
     feeCents: number;
+    feeMode?: FeeMode;
+    nominal?: boolean;
+    requiresCpf?: boolean;
     capacity: number;
     sold: number;
     reserved: number;
@@ -645,7 +654,8 @@ export interface UpdateEventInput {
   amenities?: string;
   /** idade mínima em anos */
   minAge?: number;
-  category?: EventCategory;
+  /** null limpa a categoria no servidor (a opção "Sem categoria" do painel). */
+  category?: EventCategory | null;
   startsAt?: string;
   endsAt?: string;
   /** updateEventSchema valida `z.string().url().optional()` — null derruba a request. */

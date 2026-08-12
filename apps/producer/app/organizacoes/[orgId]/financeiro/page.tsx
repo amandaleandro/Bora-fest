@@ -145,6 +145,15 @@ function FinanceContent({ orgId }: { orgId: string }) {
     .filter((r) => r.status === "PENDING")
     .reduce((sum, r) => sum + r.amountCents, 0);
   const withdrawableCents = Math.max((balance?.availableForPayoutCents ?? 0) - pendingCents, 0);
+  // Antecipação (só plano PADRÃO): o saque pode alcançar até 80% do saldo ainda
+  // em janela. Sem contar isso, o botão travava sempre que o disponível era 0
+  // (todo o dinheiro em janela antes do D+2) — exatamente quando a antecipação
+  // existe pra ajudar; o card de saldo já anuncia "dá pra antecipar no botão".
+  const anticipatableCents =
+    balance?.settlementMode === "INSTANT" ? 0 : Math.floor((balance?.heldCents ?? 0) * 0.8);
+  // 1 saque em andamento por vez (regra do backend): com pendência, o modal só
+  // levaria a um 400 — melhor manter travado e mostrar o aviso de andamento.
+  const canWithdraw = pendingCents === 0 && withdrawableCents + anticipatableCents >= 100;
   const lastRequest = requests[0] ?? null;
 
   return (
@@ -190,7 +199,7 @@ function FinanceContent({ orgId }: { orgId: string }) {
               <button
                 type="button"
                 onClick={() => setShowWithdraw(true)}
-                disabled={withdrawableCents < 100}
+                disabled={!canWithdraw}
                 className="mt-3 h-11 w-full rounded-xl bg-primary text-[13px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none"
               >
                 Solicitar saque
