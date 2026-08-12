@@ -705,6 +705,41 @@ provado com as variáveis apontando para o MP e a suíte ainda 53/53.
 ⚠️ Falta: variáveis do MP no Environment do EasyPanel + deploy, e o teste
 de carga com k6.
 
+**Bateria de USABILIDADE nos 4 papéis — 4 workflows simultâneos (2026-08-12)**
+— pedido do Arthur (vendas abrem AMANHÃ): testar usabilidade de cliente,
+produtor, promoter e super-admin, corrigir tudo. Rodei 4 workflows em paralelo
+(cada um auditando+corrigindo o seu frontend, reportando patches de backend que
+eu apliquei central). Achados REAIS corrigidos:
+- **Super-admin**: a fila de reembolsos do comprador NÃO tinha tela (backend
+  pronto) — pedidos de casas PADRÃO ficavam PENDING invisíveis. Tela /reembolsos
+  criada (aprovar/recusar, total/parcial) + estorno parcial na tela de Pedidos.
+  Backend: approveRefundRequest com assertAdmin-primeiro + audit log.
+- **Produtor** (6): catálogo não configurava feeMode/máx-por-pedido/nominal/CPF
+  (componentes existiam, nunca renderizados → todo lote nascia BUYER); rótulos
+  de papel divergiam do RBAC ("finance" = "Gestor do evento"); sem UI para
+  convidar equipe interna (modal existia, nunca renderizado); antecipação de
+  saque inalcançável (botão travado quando disponível=0); "Sem categoria" no-op
+  (mandava undefined); % de comissão sem teto de 50%. Backend: dashboard expõe
+  feeMode/nominal/requiresCpf.
+- **Promoter**: quem foi convidado e ainda não é produtor caía no /onboarding e
+  NUNCA chegava à caixa de convites — fluxo morto para o público-alvo.
+  resolveHomePath leva a /organizacoes quando há convite pendente. Atribuição e
+  todo o caminho do dinheiro (comissão→split→carteira pessoal→clawback)
+  confirmados corretos e idempotentes.
+- **Cliente** (5): cartão aprovado sem feedback + botão reclicável → 2ª cobrança
+  (agora trava + destrava se recusado depois); telefone opcional sem
+  normalização travava a compra; sala de espera presa em EXPIRED; /ingressos sem
+  guarda de evento encerrado; "reenviar" com erro enganoso.
+Validação: `tsc --noEmit` limpo nos 3 frontends; build da API verde com os
+patches. Suíte de integração continua não rodando localmente (queues/memória).
+⚠️ **Gaps documentados, NÃO corrigidos (risco/escopo)**: (1) evento GRÁTIS (R$0)
+é impossível de finalizar (mínimo de R$5 barra e não há caminho de pedido total
+zero) — exige mudança coordenada backend+cliente não testável agora; **NÃO
+publicar lote grátis até fechar** (não afeta evento pago de amanhã). (2)
+preferências de notificação não persistem no servidor (PATCH /v1/me é 404, cai
+em localStorage). (3) convite de promoter não dispara e-mail (o roteamento já
+destrava quem loga; a casa avisa o promoter direto por ora).
+
 **Fechamento da bateria — clusters restantes em paralelo (2026-08-12)** —
 pedido do Arthur: corrigir TODAS as falhas do trajeto principal, podendo usar
 mais de um workflow simultâneo. Eu peguei o cluster mais crítico (gateway/
