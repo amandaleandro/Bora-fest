@@ -103,6 +103,13 @@ export interface VerifiedWebhookEvent {
   status: GatewayPaymentStatus;
   occurredAt?: Date;
   raw: unknown;
+  /**
+   * O corpo do webhook NÃO traz o status definitivo (ex.: Mercado Pago só manda
+   * o id) — quem resolve é `getStatus` no processador. Sem isso, o `status`
+   * acima é um placeholder "PENDING" e um estorno/chargeback do MP jamais seria
+   * aplicado (auditoria 2026-08-12).
+   */
+  resolveViaGetStatus?: boolean;
 }
 
 export class WebhookVerificationError extends Error {}

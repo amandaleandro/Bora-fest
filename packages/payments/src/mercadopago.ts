@@ -226,8 +226,13 @@ export class MercadoPagoGateway implements PaymentGateway {
       externalEventId: `${tipo}:${dataId}`,
       externalPaymentId: String(dataId),
       type: tipo,
-      // o corpo não traz o status: quem resolve é a reconciliação por getStatus
+      // o corpo não traz o status: quem resolve é getStatus no processador do
+      // webhook. Sem `resolveViaGetStatus`, este PENDING seria aplicado como
+      // no-op e um estorno/chargeback (MED do Pix, painel MP) NUNCA chegaria ao
+      // sistema — a reconciliação só reconsulta pagamentos ainda abertos, nunca
+      // um PAID (auditoria 2026-08-12).
       status: "PENDING",
+      resolveViaGetStatus: true,
       raw: body,
     };
   }
