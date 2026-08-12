@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type EventListItem, type EventCategory } from "../lib/api";
 import { formatCents } from "../lib/format";
+import { captureAttributionFromUrl } from "../lib/attribution";
 import { Icon, paths } from "../components/icons";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -144,6 +145,12 @@ export default function HomePage() {
   // cidade escolhida fica no aparelho; null = todas as cidades
   const [city, setCity] = useState<string | null>(null);
   const [cityOpen, setCityOpen] = useState(false);
+
+  // atribuição: os links de promoter (/?pr=) e vendedor (/?vd=) aterrissam AQUI,
+  // na home — captura na entrada, antes de navegar para o evento (que descarta a query)
+  useEffect(() => {
+    captureAttributionFromUrl();
+  }, []);
 
   useEffect(() => {
     api.listPublicCities().then(setCities).catch(() => setCities([]));

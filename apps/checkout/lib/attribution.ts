@@ -88,3 +88,21 @@ export function getAttributedSellerSlug(): string | undefined {
     return undefined;
   }
 }
+
+/**
+ * Captura de atribuição "na porta": lê ?p= (atlética) · ?pr= (promoter) · ?vd=
+ * (vendedor) da URL de ENTRADA e persiste com last-click (capturar um zera os
+ * outros). Precisa rodar em TODA página onde um link rastreável pode aterrissar
+ * — inclusive a HOME, para onde o painel aponta os links de promoter/vendedor
+ * (`/?pr=slug`, `/?vd=slug`). Antes, só a página de evento chamava a captura, e
+ * como a home não capturava nada e a navegação para o evento descarta a query,
+ * ?pr= e ?vd= se perdiam e a comissão do promoter ficava sempre zero.
+ *
+ * Chamar as três é seguro em qualquer página: cada função sai cedo se o seu
+ * parâmetro não está na URL, sem apagar o que já foi atribuído.
+ */
+export function captureAttributionFromUrl() {
+  capturePartnerFromUrl();
+  capturePromoterFromUrl();
+  captureSellerFromUrl();
+}
