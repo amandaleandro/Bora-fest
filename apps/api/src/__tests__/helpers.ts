@@ -1,5 +1,14 @@
 import { prisma } from "@borafest/database";
 
+// Blindagem (2026-08-11): com o roteamento por método preenchido no ambiente,
+// a suíte chegou a apontar para o Mercado Pago de PRODUÇÃO. Teste só fala com
+// o gateway falso — nunca com dinheiro real.
+process.env.PAYMENTS_PROVIDER = "mock";
+delete process.env.PAYMENTS_PROVIDER_PIX;
+delete process.env.PAYMENTS_PROVIDER_CARD;
+delete process.env.PAYMENTS_FALLBACK_PIX;
+delete process.env.PAYMENTS_FALLBACK_CARD;
+
 /**
  * Fixtures de integração: cada teste cria sua própria organização/evento/lote
  * e limpa tudo no fim (`cleanup()`), pra rodar contra o Postgres de dev sem
