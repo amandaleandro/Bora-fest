@@ -237,7 +237,7 @@ export const MEMBER_ROLES = [
   { key: "admin", label: "Administrador", description: "Cria e edita eventos, ingressos, vendas, financeiro, saques e equipe" },
   { key: "finance", label: "Financeiro", description: "Vê pedidos e participantes, exporta, reembolsa e solicita saque" },
   { key: "operator", label: "Check-in", description: "Só o app de validação e o painel ao vivo" },
-  { key: "seller", label: "Vendedor", description: "Pode registrar vendas no PDV da atlética/parceiro" },
+  { key: "seller", label: "Vendedor (porta)", description: "Vende no PDV e valida a entrada (check-in) na porta" },
 ] as const;
 
 export interface SalesPartner {

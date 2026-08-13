@@ -22,7 +22,11 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   ],
   finance: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.ORDER_REFUND],
   operator: [PERMISSIONS.CHECKIN_PERFORM],
-  seller: [PERMISSIONS.SALES_PERFORM],
+  // Vendedor = papel "da porta": vende no PDV E valida a entrada (check-in).
+  // Venda no PDV é presencial, na hora da festa — quem está na porta vendendo
+  // também precisa liberar quem chega (a venda na porta já faz check-in
+  // automático). Quem só valida (staff de portão) usa o papel "operator".
+  seller: [PERMISSIONS.SALES_PERFORM, PERMISSIONS.CHECKIN_PERFORM],
 };
 
 export function roleHasPermission(roleKey: string, permission: PermissionKey): boolean {
