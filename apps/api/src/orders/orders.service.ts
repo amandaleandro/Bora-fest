@@ -531,6 +531,111 @@ export class OrdersService {
   }
 
   /**
+   * VENDA NA PORTA — modo Pix (2026-08-12): igual ao createManualSale, MAS o
+   * pedido nasce PAYMENT_PENDING (não pago) e RESERVA o estoque sem confirmar —
+   * a confirmação (sold_count + ledger + emissão + push) só acontece quando o
+   * webhook do Pix aprova, pelo mesmo caminho do online. Grava `soldByUserId`
+   * (a casa cobra o repasse de quem vendeu) e NÃO cria conta para o comprador
+   * (userId nulo → sem portão de verificação: o ingresso já aparece ao pagar,
+   * o vendedor mostra na porta). O QR do Pix é gerado pelo controller via
+   * PaymentsService. Se não pagar na janela, o worker de expiração devolve o
+   * estoque.
+   */
+  async createManualPixSale(eventId: string, actorUserId: string, input: PdvOrderInput) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+    const membership = await this.orgAccess.assertPermission(
+      event.organizationId,
+      actorUserId,
+      PERMISSIONS.SALES_PERFORM,
+    );
+
+    const partnerId =
+      membership.role.key === "seller"
+        ? membership.salesPartnerId ?? undefined
+        : input.salesPartnerId ?? undefined;
+    if (membership.role.key === "seller" && !partnerId) {
+      throw new ForbiddenException("Vendedor sem atlética/parceiro vinculado");
+    }
+    if (partnerId) {
+      const partner = await prisma.salesPartner.findFirst({
+        where: { id: partnerId, organizationId: event.organizationId, active: true },
+      });
+      if (!partner) throw new ForbiddenException("Parceiro de vendas inválido para esta organização");
+    }
+
+    const lot = await prisma.ticketLot.findFirst({
+      where: { id: input.ticketLotId, ticketType: { eventId } },
+    });
+    if (!lot) throw new BadRequestException("Lote não pertence a este evento");
+    if (lot.status !== "ACTIVE") throw new BadRequestException("Este lote não está ativo para venda");
+
+    const unitCents = lot.priceCents + lot.feeCents;
+    const totalCents = unitCents * input.quantity;
+    const partner = partnerId
+      ? await prisma.salesPartner.findUnique({ where: { id: partnerId }, select: { commissionBps: true } })
+      : null;
+    const partnerCommissionCents = partner ? Math.floor((totalCents * partner.commissionBps) / 10_000) : 0;
+    const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
+
+    const order = await prisma
+      .$transaction(async (tx) => {
+        // RESERVA (sem confirmar): o estoque vira sold_count só quando o Pix aprova
+        await reserveInventory(tx, lot.id, input.quantity);
+
+        const reservation = await tx.reservation.create({
+          data: {
+            eventId,
+            status: "CONVERTED",
+            expiresAt,
+            items: {
+              create: [{ ticketLotId: lot.id, quantity: input.quantity, priceCents: lot.priceCents, feeCents: lot.feeCents }],
+            },
+          },
+        });
+
+        const created = await tx.order.create({
+          data: {
+            eventId,
+            reservationId: reservation.id,
+            salesPartnerId: partnerId,
+            soldByUserId: actorUserId,
+            partnerCommissionCents,
+            contactEmail: input.buyerEmail ?? `pdv-${Date.now()}@borafest.local`,
+            contactName: input.buyerName,
+            status: "PAYMENT_PENDING",
+            expiresAt,
+            totalCents,
+            items: {
+              create: [{ ticketLotId: lot.id, quantity: input.quantity, priceCents: lot.priceCents, feeCents: lot.feeCents }],
+            },
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            actorUserId,
+            organizationId: event.organizationId,
+            action: "order.pdv_pix_sale",
+            entityType: "order",
+            entityId: created.id,
+            metadata: { ticketLotId: lot.id, quantity: input.quantity, buyerName: input.buyerName, totalCents },
+          },
+        });
+
+        return created;
+      })
+      .catch((error) => {
+        if (error instanceof InsufficientStockError) {
+          throw new BadRequestException("Estoque insuficiente para esta venda");
+        }
+        throw error;
+      });
+
+    return { orderId: order.id, publicToken: order.publicToken };
+  }
+
+  /**
    * Reembolso pelo painel do produtor (org-scoped, equivalente ao
    * `admin.refundOrder` mas exigindo permissão na organização em vez de
    * `platformRole=ADMIN`). Pedidos com pagamento real (Pix/cartão) disparam

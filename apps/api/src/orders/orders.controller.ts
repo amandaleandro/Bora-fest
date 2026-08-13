@@ -63,4 +63,18 @@ export class PdvController {
   ) {
     return this.ordersService.createManualSale(eventId, userId, body as any);
   }
+
+  /**
+   * Venda na porta modo PIX: cria o pedido PENDENTE (não pago) e devolve o
+   * orderId — a portaria chama em seguida POST /orders/:id/payments/pix (público)
+   * para gerar o QR, e faz o check-in automático quando o Pix aprovar.
+   */
+  @Post("pix")
+  createPix(
+    @Param("eventId") eventId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(pdvOrderSchema)) body: unknown,
+  ) {
+    return this.ordersService.createManualPixSale(eventId, userId, body as any);
+  }
 }

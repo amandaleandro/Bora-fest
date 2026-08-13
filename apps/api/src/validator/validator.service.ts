@@ -178,11 +178,15 @@ export class ValidatorService {
       where: { organizationId_userId: { organizationId: event.organizationId, userId } },
       include: { role: true, user: { select: { name: true, email: true } } },
     });
-    const autorizado =
-      membership?.status === "ACTIVE" &&
-      (roleHasPermission(membership.role.key, PERMISSIONS.CHECKIN_PERFORM) ||
-        roleHasPermission(membership.role.key, PERMISSIONS.EVENT_CREATE));
-    if (!autorizado) {
+    const ativo = membership?.status === "ACTIVE";
+    const canValidate =
+      ativo &&
+      (roleHasPermission(membership!.role.key, PERMISSIONS.CHECKIN_PERFORM) ||
+        roleHasPermission(membership!.role.key, PERMISSIONS.EVENT_CREATE));
+    // venda na porta (2026-08-12): quem tem SALES_PERFORM também entra — pode
+    // só vender (vendedor) sem validar. A aba certa aparece conforme a permissão.
+    const canSell = Boolean(ativo && roleHasPermission(membership!.role.key, PERMISSIONS.SALES_PERFORM));
+    if (!canValidate && !canSell) {
       throw new ForbiddenException("Você não tem acesso à portaria deste evento");
     }
 
@@ -221,6 +225,10 @@ export class ValidatorService {
       deviceId: created.id,
       deviceToken: token,
       credentialLabel: credential.label,
+      // a portaria mostra a aba Validar só com canValidate e a aba Vender na
+      // porta só com canSell (venda usa a sessão da conta + SALES_PERFORM)
+      canValidate,
+      canSell,
       event: {
         id: event.id,
         title: event.title,
