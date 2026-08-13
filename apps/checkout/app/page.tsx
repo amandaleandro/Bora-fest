@@ -211,18 +211,14 @@ export default function HomePage() {
       {highlight && (
         <section className="mb-8 hidden lg:block">
           <Link href={`/evento/${highlight.slug}`}
-            className="relative block min-h-[300px] overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
+            className="relative flex min-h-[420px] flex-col justify-center overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
             {highlight.bannerUrl && (
-              <>
-                {/* fundo: a própria arte em cover borrado preenche o hero largo sem esticar nem cortar o essencial */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={highlight.bannerUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl" />
-                {/* arte real, inteira, encostada à direita (texto fica à esquerda sobre o gradiente) */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={highlight.bannerUrl} alt="" className="absolute inset-y-0 right-0 h-full w-auto max-w-[58%] object-contain" />
-              </>
+              // a arte preenche o hero igual ao card do mobile; o hero mais alto (min-h-420)
+              // evita o corte ultra-wide que espremia o flyer numa faixa fina.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={highlight.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
             )}
-            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/85 via-black/55 to-black/10" : ""}`}>
+            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/80 via-black/45 to-black/10" : ""}`}>
               {!highlight.bannerUrl && (
                 <div className="absolute -right-16 -top-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
               )}
@@ -499,11 +495,11 @@ export default function HomePage() {
           {/* faixa Produza seu evento (desktop) — arte oficial da marca; o
               botão "Criar conta de produtor" faz parte da imagem, então o
               banner INTEIRO é o link */}
-          <section className="mt-10 hidden lg:block">
+          <section className="mt-8 lg:mt-10">
             <a
               href={`${PANEL}/cadastro`}
               aria-label="Criar conta de produtor — do bora ao ingresso vendido em minutos, sem burocracia"
-              className="group block overflow-hidden rounded-3xl shadow-card transition-transform duration-200 hover:-translate-y-0.5"
+              className="group block overflow-hidden rounded-2xl shadow-card transition-transform duration-200 hover:-translate-y-0.5 lg:rounded-3xl"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
