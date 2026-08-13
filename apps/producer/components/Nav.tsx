@@ -13,11 +13,12 @@ export function Nav() {
       <Link href="/organizacoes" className="font-bold">
         BoraFest
       </Link>
-      <div className="flex items-center gap-4 text-sm text-muted">
-        <Link href="/ajuda">Ajuda</Link>
-        {user?.email ? <span>{user.email}</span> : null}
+      <div className="flex min-w-0 items-center gap-4 text-sm text-muted">
+        <Link href="/ajuda" className="shrink-0">Ajuda</Link>
+        {user?.email ? <span className="min-w-0 truncate">{user.email}</span> : null}
         <button
           type="button"
+          className="shrink-0"
           onClick={() => {
             logout();
             router.push("/login");

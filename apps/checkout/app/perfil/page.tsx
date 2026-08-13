@@ -366,7 +366,7 @@ export default function ProfilePage() {
           {section === "ingressos" && (
             <section>
               {transferredTo && (
-                <p className="mb-3.5 rounded-2xl bg-success/10 p-3.5 text-[12.5px] font-bold leading-relaxed text-success">
+                <p className="mb-3.5 rounded-2xl bg-success/10 p-3.5 text-[12.5px] font-bold leading-relaxed text-success break-words">
                   Ingresso transferido para {transferredTo} — já está na conta dela 🎟️
                 </p>
               )}

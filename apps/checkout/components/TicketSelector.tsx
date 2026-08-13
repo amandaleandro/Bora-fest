@@ -213,8 +213,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
               }`}
             >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className={`font-extrabold ${compact ? "text-[14px]" : "text-[16px]"}`}>
+                <div className="min-w-0">
+                  <p className={`font-extrabold break-words ${compact ? "text-[14px]" : "text-[16px]"}`}>
                     {lot.typeName} — {lot.name}
                   </p>
                   {lot.soldOut ? (
@@ -280,7 +280,7 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
             {count} ingresso{count === 1 ? "" : "s"}
             {count > 0 ? (anyBuyerFee ? " · inclui taxas" : " · taxa por conta do produtor") : ""}
           </p>
-          <p className="text-[20px] font-extrabold">{formatCents(totalCents)}</p>
+          <p className="text-[20px] font-extrabold whitespace-nowrap">{formatCents(totalCents)}</p>
         </div>
         <button onClick={submit} disabled={count === 0 || submitting}
           className={`h-12 rounded-2xl px-6 text-[14px] font-extrabold text-white ${count === 0 || submitting ? "bg-[#ecd6e4]" : "bg-primary shadow-cta"}`}>

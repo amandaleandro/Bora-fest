@@ -215,8 +215,8 @@ export function EventPageClient({ slug }: { slug: string }) {
 
       {/* corpo sobreposto */}
       <div className="relative -mt-[22px] rounded-t-3xl bg-bg px-5 pt-6">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <p className="text-[13px] font-semibold text-muted">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="min-w-0 text-[13px] font-semibold text-muted">
             Por {event.organization.name}
             {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
           </p>

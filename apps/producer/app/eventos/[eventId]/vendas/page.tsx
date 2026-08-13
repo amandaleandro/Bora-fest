@@ -400,7 +400,7 @@ function VendasContent({ eventId }: { eventId: string }) {
         </Link>
       </div>
 
-      <div className="mt-5 flex gap-2">
+      <div className="mt-5 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab("pedidos")}
@@ -507,7 +507,7 @@ function VendasContent({ eventId }: { eventId: string }) {
                   </tbody>
                 </table>
               </div>
-              <div className="mt-3 flex items-center justify-between text-[12px] font-bold text-muted">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-y-2 text-[12px] font-bold text-muted">
                 <span>{total} pedido(s)</span>
                 <div className="flex gap-2">
                   <button

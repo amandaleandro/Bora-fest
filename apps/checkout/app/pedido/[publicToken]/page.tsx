@@ -235,9 +235,9 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
           <button onClick={() => setView("confirmacao")} aria-label="Voltar" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface">
             <Icon d={paths.back} />
           </button>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-[22px] font-extrabold lg:text-[24px]">Seus ingressos</h1>
-            <p className="mt-0.5 text-[13px] font-medium text-muted">
+            <p className="mt-0.5 truncate text-[13px] font-medium text-muted">
               {order.contactName ?? order.contactEmail} · {ticketsData.tickets.length} ingresso{ticketsData.tickets.length === 1 ? "" : "s"}
             </p>
           </div>
@@ -341,7 +341,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       <span className="mx-auto mt-2 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-bold text-success">
         Pagamento confirmado
       </span>
-      <p className="mx-auto mt-4 max-w-[460px] text-[14px] font-medium leading-relaxed text-muted">
+      <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
         Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b> e pelo WhatsApp — e eles já
         estão na sua conta, que vale aqui no site e no app BoraFest.
       </p>
@@ -495,7 +495,7 @@ function VerificationGate({
     <div className="rounded-3xl border border-line bg-surface p-6 text-center">
       <p className="text-[34px]">🎟️</p>
       <h1 className="mt-2 text-[20px] font-extrabold leading-tight">Seu ingresso está guardado na sua conta</h1>
-      <p className="mt-2 text-[13.5px] font-medium leading-relaxed text-muted">
+      <p className="mt-2 break-words text-[13.5px] font-medium leading-relaxed text-muted">
         Enviamos um <b>link de acesso</b> para <b className="text-ink">{email}</b> — tocar nele abre o
         ingresso na hora. Se preferir, valide por código aqui:
       </p>

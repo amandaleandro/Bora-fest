@@ -269,12 +269,12 @@ function PartnerCard({ orgId, partner, onChanged }: { orgId: string; partner: Sa
         ) : (
           <ul className="mt-1.5 flex flex-col gap-1">
             {partner.members.map((m) => (
-              <li key={m.user.id} className="flex items-center gap-2 text-[13px] font-semibold">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-line text-[10px] font-extrabold text-muted-2">
+              <li key={m.user.id} className="flex min-w-0 items-center gap-2 text-[13px] font-semibold">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-line text-[10px] font-extrabold text-muted-2">
                   {(m.user.name ?? m.user.email ?? "?").slice(0, 1).toUpperCase()}
                 </span>
-                <span>{m.user.name ?? m.user.email ?? m.user.id}</span>
-                {m.user.name && m.user.email ? <span className="text-muted">· {m.user.email}</span> : null}
+                <span className="min-w-0 break-words">{m.user.name ?? m.user.email ?? m.user.id}</span>
+                {m.user.name && m.user.email ? <span className="text-muted break-all">· {m.user.email}</span> : null}
               </li>
             ))}
           </ul>
@@ -473,12 +473,12 @@ function Promoters({ orgId }: { orgId: string }) {
                   ) : (
                     <ul className="space-y-1.5">
                       {(sellers[p.id] ?? []).map((s) => (
-                        <li key={s.id} className="flex justify-between text-[12.5px] font-semibold">
-                          <span>
+                        <li key={s.id} className="flex min-w-0 justify-between gap-2 text-[12.5px] font-semibold">
+                          <span className="min-w-0 break-words">
                             {s.sellerName}
                             {s.status === "INVITED" ? " (aguardando)" : ""}
                           </span>
-                          <span className="text-muted">
+                          <span className="shrink-0 whitespace-nowrap text-right text-muted">
                             {s.paidOrders} venda{s.paidOrders === 1 ? "" : "s"} · {brl(s.soldCents)}
                           </span>
                         </li>

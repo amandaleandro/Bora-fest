@@ -44,7 +44,9 @@ interface DraftLot {
 function Stepper({ step }: { step: number }) {
   const labels = ["Dados", "Ingressos", "Detalhes finais", "Publicar"];
   return (
-    <div className="flex items-center gap-3 overflow-x-auto pb-1">
+    <>
+      <p className="text-[13px] font-bold text-ink sm:hidden">Etapa {step + 1} de {labels.length} · {labels[step]}</p>
+      <div className="hidden items-center gap-3 overflow-x-auto pb-1 sm:flex">
       {labels.map((label, i) => (
         <div key={label} className="flex items-center gap-2">
           <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-bold ${
@@ -56,7 +58,8 @@ function Stepper({ step }: { step: number }) {
           {i < labels.length - 1 && <span className="h-px w-8 bg-line" />}
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -317,7 +320,7 @@ function NewEventContent() {
             <label className={labelCls}>Nome do evento</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: CIA 2026 · Copa Inter Atléticas" className={inputCls} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Início</label>
               <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className={inputCls} />
@@ -377,7 +380,7 @@ function NewEventContent() {
                 <label className={labelCls}>Nome do lugar</label>
                 <input value={venueName} onChange={(e) => setVenueName(e.target.value)} placeholder="Ex.: Arena BSB" className={inputCls} />
               </div>
-              <div className="grid grid-cols-[110px_1fr] gap-3">
+              <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
                 <div>
                   <label className={labelCls}>UF</label>
                   <select
@@ -597,7 +600,7 @@ function NewEventContent() {
                 <label className={labelCls}>Nome do lugar</label>
                 <input value={venueName} onChange={(e) => setVenueName(e.target.value)} placeholder="Ex.: Arena BSB" className={inputCls} />
               </div>
-              <div className="grid grid-cols-[110px_1fr] gap-3">
+              <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
                 <div>
                   <label className={labelCls}>UF</label>
                   <select
