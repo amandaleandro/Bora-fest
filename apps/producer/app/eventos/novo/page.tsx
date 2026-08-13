@@ -5,6 +5,7 @@ import { CHECKOUT_URL } from "@/lib/config";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
+import { PanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { eventsApi, catalogApi, eventControls, addOnsApi, ApiError, UF_LIST, EVENT_CATEGORIES, type EventVenue, type EventCategory, type EventAddOn } from "@/lib/api";
 
@@ -309,9 +310,9 @@ function NewEventContent() {
   const publicUrl = slug ? `${CHECKOUT_URL}/evento/${slug}` : "";
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-[26px] font-extrabold">Criar evento</h1>
-      <div className="mt-4"><Stepper step={step} /></div>
+    <PanelShell title="Criar evento" organizationId={orgId || undefined}>
+      <div className="mx-auto max-w-2xl">
+      <Stepper step={step} />
       {error && <p className="mt-3 text-[12px] font-semibold text-danger">{error}</p>}
 
       {step === 0 && (
@@ -765,7 +766,8 @@ function NewEventContent() {
           )}
         </section>
       )}
-    </main>
+      </div>
+    </PanelShell>
   );
 }
 

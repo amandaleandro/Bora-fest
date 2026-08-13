@@ -211,12 +211,18 @@ export default function HomePage() {
       {highlight && (
         <section className="mb-8 hidden lg:block">
           <Link href={`/evento/${highlight.slug}`}
-            className="relative block overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
+            className="relative block min-h-[300px] overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
             {highlight.bannerUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={highlight.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <>
+                {/* fundo: a própria arte em cover borrado preenche o hero largo sem esticar nem cortar o essencial */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={highlight.bannerUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl" />
+                {/* arte real, inteira, encostada à direita (texto fica à esquerda sobre o gradiente) */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={highlight.bannerUrl} alt="" className="absolute inset-y-0 right-0 h-full w-auto max-w-[58%] object-contain" />
+              </>
             )}
-            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/75 via-black/40 to-transparent" : ""}`}>
+            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/85 via-black/55 to-black/10" : ""}`}>
               {!highlight.bannerUrl && (
                 <div className="absolute -right-16 -top-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
               )}
