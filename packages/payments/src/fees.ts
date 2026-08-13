@@ -7,9 +7,13 @@
  * padrão da plataforma abaixo, configurável por env para ambientes de teste).
  */
 
-const DEFAULT_PIX_FEE_BPS = Number(process.env.PLATFORM_PIX_FEE_BPS ?? 499);
-const DEFAULT_PIX_FEE_FLOOR_CENTS = Number(process.env.PLATFORM_PIX_FEE_FLOOR_CENTS ?? 249);
-const DEFAULT_CARD_FEE_BPS = Number(process.env.PLATFORM_CARD_FEE_BPS ?? 699);
+// Padrão (decisão do Arthur 2026-08-12): nossa taxa é 5% com PISO de R$ 1 — ou
+// seja, R$ 1 até o ingresso passar de ~R$ 20 (onde 5% > R$ 1), aí vira 5%.
+// Vale para Pix E cartão. Override por organização continua valendo.
+const DEFAULT_PIX_FEE_BPS = Number(process.env.PLATFORM_PIX_FEE_BPS ?? 500);
+const DEFAULT_PIX_FEE_FLOOR_CENTS = Number(process.env.PLATFORM_PIX_FEE_FLOOR_CENTS ?? 100);
+const DEFAULT_CARD_FEE_BPS = Number(process.env.PLATFORM_CARD_FEE_BPS ?? 500);
+const DEFAULT_CARD_FEE_FLOOR_CENTS = Number(process.env.PLATFORM_CARD_FEE_FLOOR_CENTS ?? 100);
 
 export interface OrganizationFeeOverrides {
   pixFeeBps: number | null;
@@ -29,5 +33,5 @@ export function computePlatformFeeCents(
   }
 
   const bps = org.cardFeeBps ?? DEFAULT_CARD_FEE_BPS;
-  return Math.round((amountCents * bps) / 10_000);
+  return Math.max(Math.round((amountCents * bps) / 10_000), DEFAULT_CARD_FEE_FLOOR_CENTS);
 }

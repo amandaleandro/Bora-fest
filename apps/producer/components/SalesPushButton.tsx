@@ -150,21 +150,23 @@ export function SalesPushButton() {
 
   return (
     <div className="rounded-[18px] border border-line bg-surface p-4 sm:p-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-white">
-          {BellIcon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-extrabold text-ink">Notificações de venda</p>
-          <p className="mt-0.5 text-[12px] font-semibold text-muted">
-            {state === "enabled"
-              ? "Ativado neste aparelho — você recebe um aviso a cada venda paga."
-              : state === "ios-hint"
-                ? "No iPhone, toque em Compartilhar e “Adicionar à Tela de Início” para liberar os avisos."
-                : state === "denied"
-                  ? "Bloqueado. Reative nas configurações do site (cadeado ao lado do endereço)."
-                  : "Receba um aviso na hora em que uma venda for paga."}
-          </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-white">
+            {BellIcon}
+          </span>
+          <div className="min-w-0">
+            <p className="text-[14px] font-extrabold text-ink">Notificações de venda</p>
+            <p className="mt-0.5 text-[12px] font-semibold text-muted">
+              {state === "enabled"
+                ? "Ativado neste aparelho — você recebe um aviso a cada venda paga."
+                : state === "ios-hint"
+                  ? "No iPhone, toque em Compartilhar e “Adicionar à Tela de Início” para liberar os avisos."
+                  : state === "denied"
+                    ? "Bloqueado. Reative nas configurações do site (cadeado ao lado do endereço)."
+                    : "Receba um aviso na hora em que uma venda for paga."}
+            </p>
+          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -173,9 +175,9 @@ export function SalesPushButton() {
               type="button"
               onClick={enable}
               disabled={state === "working"}
-              className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta transition-colors hover:bg-primary-hover disabled:opacity-60"
+              className="h-11 w-full rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta transition-colors hover:bg-primary-hover disabled:opacity-60 sm:w-auto"
             >
-              {state === "working" ? "Ativando…" : "Ativar notificações de venda"}
+              {state === "working" ? "Ativando…" : "Ativar notificações"}
             </button>
           ) : null}
 

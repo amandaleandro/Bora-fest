@@ -1,6 +1,6 @@
 import type { UpdateOrganizationInput } from "@borafest/contracts";
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { prisma, Prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
@@ -22,25 +22,48 @@ export class OrganizationsService {
     const ownerRole = await prisma.role.findUniqueOrThrow({ where: { key: "owner" } });
     const baseSlug = slugify(input.name);
     const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 7)}`;
+    // Documento sempre normalizado (só dígitos): evita duplicata mascarada
+    // ("103.176.886-69" vs "10317688669") e mantém o unique honesto.
+    const document = input.document.replace(/\D/g, "");
+    if (document.length < 11) {
+      throw new BadRequestException("Documento inválido — informe um CPF (11 dígitos) ou CNPJ (14 dígitos).");
+    }
 
-    const criada = await prisma.organization.create({
-      data: {
-        name: input.name,
-        slug,
-        kind: input.kind,
-        producerType: input.producerType,
-        document: input.document,
-        members: {
-          create: {
-            userId,
-            roleId: ownerRole.id,
-            status: "ACTIVE",
-            joinedAt: new Date(),
+    const criada = await prisma.organization
+      .create({
+        data: {
+          name: input.name,
+          slug,
+          kind: input.kind,
+          producerType: input.producerType,
+          document,
+          members: {
+            create: {
+              userId,
+              roleId: ownerRole.id,
+              status: "ACTIVE",
+              joinedAt: new Date(),
+            },
           },
         },
-      },
-      include: { members: true },
-    });
+        include: { members: true },
+      })
+      .catch((error: unknown) => {
+        // document é @unique global: o mesmo CPF/CNPJ não abre duas
+        // organizações. Antes isso vazava como 500 "Internal server error".
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const alvo = Array.isArray(error.meta?.target)
+            ? (error.meta?.target as string[]).join(",")
+            : String(error.meta?.target ?? "");
+          if (alvo.includes("document")) {
+            throw new ConflictException(
+              "Já existe uma organização cadastrada com esse CPF/CNPJ. Use a que já existe ou fale com o suporte.",
+            );
+          }
+          throw new ConflictException("Não foi possível criar: já existe uma organização com esses dados.");
+        }
+        throw error;
+      });
 
     // "A mesma conta cresce" (decisão 2026-08-11): quem juntou comissão como
     // promoter (carteira de PESSOA) e agora completou o cadastro leva o saldo
