@@ -5,7 +5,7 @@
 // assets versionados do Next e os ícones entram em cache (a URL muda a cada
 // build), o suficiente para o app "adicionar à tela inicial" abrir rápido.
 // O foco aqui é o push: avisar a casa/promoter a cada venda.
-const VERSION = "borafest-painel-v1";
+const VERSION = "borafest-painel-v2";
 const ASSET_PREFIXES = ["/_next/static", "/icons/"];
 
 self.addEventListener("install", (event) => {
@@ -65,8 +65,10 @@ self.addEventListener("push", (event) => {
   const url = payload.url || "/";
   const options = {
     body: payload.body || "Você tem uma nova venda no painel.",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    // logo da BoraFest na notificação: o "B" com gradiente (transparente); o
+    // badge (barra de status do Android) usa o recorte como silhueta branca.
+    icon: "/icons/notification-b.png",
+    badge: "/icons/badge-b.png",
     data: { url },
     // tag ÚNICA por venda: sem isto as vendas se substituíam (só a última
     // aparecia). Cada venda é uma comemoração — devem empilhar.
