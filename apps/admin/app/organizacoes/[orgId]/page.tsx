@@ -191,18 +191,30 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
       {isAdmin ? (
         <section className="mt-8">
           <h2 className="text-sm font-medium text-gray-300">Taxa da plataforma</h2>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <div>
               <label className="mb-1 block text-xs text-gray-400">Pix % (vazio = padrão)</label>
-              <input value={pixFee} onChange={(e) => setPixFee(e.target.value)} />
+              <input
+                className="w-full rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
+                value={pixFee}
+                onChange={(e) => setPixFee(e.target.value)}
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-400">Piso Pix (R$)</label>
-              <input value={pixFloor} onChange={(e) => setPixFloor(e.target.value)} />
+              <input
+                className="w-full rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
+                value={pixFloor}
+                onChange={(e) => setPixFloor(e.target.value)}
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-400">Cartão %</label>
-              <input value={cardFee} onChange={(e) => setCardFee(e.target.value)} />
+              <input
+                className="w-full rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
+                value={cardFee}
+                onChange={(e) => setCardFee(e.target.value)}
+              />
             </div>
           </div>
           <button
@@ -222,6 +234,7 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
             <div>
               <label className="mb-1 block text-xs text-gray-400">Modo</label>
               <select
+                className="rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100"
                 value={settlementMode}
                 onChange={(e) => setSettlementMode(e.target.value as "STANDARD" | "INSTANT")}
               >
@@ -232,7 +245,7 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
             <div>
               <label className="mb-1 block text-xs text-gray-400">Janela de reembolso (dias)</label>
               <input
-                className="w-24"
+                className="w-24 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100"
                 value={refundHoldDays}
                 onChange={(e) => setRefundHoldDays(e.target.value)}
               />
@@ -293,7 +306,7 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
             <div className="mt-2 flex gap-2">
               <input
                 placeholder="Motivo do bloqueio"
-                className="flex-1"
+                className="flex-1 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
                 value={blockReason}
                 onChange={(e) => setBlockReason(e.target.value)}
               />

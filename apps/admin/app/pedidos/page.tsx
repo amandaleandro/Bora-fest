@@ -95,11 +95,11 @@ function OrdersContent() {
       <div className="mt-4 flex gap-2">
         <input
           placeholder="Token público do pedido"
-          className="flex-1"
+          className="flex-1 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-slate-100 placeholder-slate-500"
           value={publicToken}
           onChange={(e) => setPublicToken(e.target.value)}
         />
-        <input placeholder="ou e-mail do comprador" className="flex-1" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input placeholder="ou e-mail do comprador" className="flex-1 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-slate-100 placeholder-slate-500" value={email} onChange={(e) => setEmail(e.target.value)} />
         <button type="button" className="rounded-lg bg-brand px-4 text-sm font-semibold text-brand-dark" onClick={handleSearch}>
           Buscar
         </button>
@@ -132,7 +132,7 @@ function OrdersContent() {
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-700 pt-3">
                   <input
                     placeholder="Motivo do estorno"
-                    className="flex-1 text-sm"
+                    className="flex-1 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
                     value={refundReason[order.publicToken] ?? ""}
                     onChange={(e) =>
                       setRefundReason((prev) => ({ ...prev, [order.publicToken]: e.target.value }))
@@ -140,7 +140,7 @@ function OrdersContent() {
                   />
                   <input
                     placeholder="valor parcial (vazio = total)"
-                    className="w-44 text-sm"
+                    className="w-44 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
                     value={refundAmount[order.publicToken] ?? ""}
                     onChange={(e) =>
                       setRefundAmount((prev) => ({ ...prev, [order.publicToken]: e.target.value }))

@@ -159,7 +159,7 @@ function PayoutsContent() {
                   <div className="flex gap-2">
                     <input
                       placeholder="nota (opcional)"
-                      className="w-40 text-sm"
+                      className="w-40 text-sm bg-slate-900/80 text-slate-100 placeholder-slate-500 border border-slate-700/60 rounded-lg px-3 py-1.5"
                       value={notesById[payout.id] ?? ""}
                       onChange={(e) => setNotesById((prev) => ({ ...prev, [payout.id]: e.target.value }))}
                     />

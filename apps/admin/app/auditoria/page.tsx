@@ -33,7 +33,7 @@ function AuditContent() {
       <h1 className="mt-6 text-xl font-semibold">Auditoria</h1>
 
       <div className="mt-4 flex gap-2">
-        <select className="w-48" value={entityType} onChange={(e) => setEntityType(e.target.value)}>
+        <select className="w-48 bg-slate-900/80 text-slate-100 border border-slate-700/60 rounded-lg px-3 py-1.5 text-sm" value={entityType} onChange={(e) => setEntityType(e.target.value)}>
           <option value="">Todos os tipos</option>
           <option value="organization">organization</option>
           <option value="event">event</option>

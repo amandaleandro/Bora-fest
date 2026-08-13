@@ -43,4 +43,4 @@ export const inputCls =
   "mt-1 h-[48px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-4 text-[14px] font-medium outline-none focus:border-primary";
 export const labelCls = "text-[12px] font-bold text-ink-soft";
 export const primaryBtn =
-  "mt-5 h-12 w-full rounded-xl bg-primary text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none";
+  "mt-5 h-12 w-full rounded-xl bg-primary text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:text-muted disabled:shadow-none";

@@ -65,7 +65,7 @@ function EventsContent() {
                       <div className="flex gap-1">
                         <input
                           placeholder="motivo"
-                          className="w-32 text-xs"
+                          className="w-32 text-xs bg-slate-900/80 text-slate-100 placeholder-slate-500 border border-slate-700/60 rounded px-2 py-1"
                           value={reasonById[event.id] ?? ""}
                           onChange={(e) => setReasonById((prev) => ({ ...prev, [event.id]: e.target.value }))}
                         />

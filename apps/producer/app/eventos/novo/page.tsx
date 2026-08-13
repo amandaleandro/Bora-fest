@@ -44,7 +44,7 @@ interface DraftLot {
 function Stepper({ step }: { step: number }) {
   const labels = ["Dados", "Ingressos", "Detalhes finais", "Publicar"];
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 overflow-x-auto pb-1">
       {labels.map((label, i) => (
         <div key={label} className="flex items-center gap-2">
           <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-bold ${
@@ -436,7 +436,7 @@ function NewEventContent() {
             O banner do evento é adicionado depois, na página do evento (upload direto do celular).
           </p>
           <button onClick={saveStep1} disabled={busy || title.length < 3 || !startsAt || !endsAt}
-            className="h-12 rounded-xl bg-primary px-8 text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none">
+            className="h-12 rounded-xl bg-primary px-8 text-[14px] font-extrabold text-white shadow-cta disabled:bg-line disabled:text-muted disabled:shadow-none">
             {busy ? "Salvando…" : "Continuar"}
           </button>
         </section>

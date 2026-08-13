@@ -205,7 +205,7 @@ function RefundRequestsContent() {
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-700 pt-3">
                     <input
                       placeholder="valor parcial (vazio = total)"
-                      className="w-48 text-sm"
+                      className="w-48 text-sm bg-slate-900/80 text-slate-100 placeholder-slate-500 border border-slate-700/60 rounded-lg px-3 py-2"
                       value={amountById[req.id] ?? ""}
                       onChange={(e) =>
                         setAmountById((prev) => ({ ...prev, [req.id]: e.target.value }))

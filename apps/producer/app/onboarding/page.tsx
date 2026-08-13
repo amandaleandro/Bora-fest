@@ -153,7 +153,7 @@ function OnboardingContent() {
         <div className="lg:col-span-2">
           {error && <p className="mb-2 text-[12px] font-semibold text-danger">{error}</p>}
           <button type="submit" disabled={busy || name.length < 2 || document.length < 11}
-            className="h-12 rounded-xl bg-primary px-8 text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:shadow-none">
+            className="h-12 rounded-xl bg-primary px-8 text-[14px] font-extrabold text-white shadow-cta disabled:bg-[#ecd6e4] disabled:text-muted disabled:shadow-none">
             {busy ? "Salvando…" : "Salvar dados"}
           </button>
         </div>
