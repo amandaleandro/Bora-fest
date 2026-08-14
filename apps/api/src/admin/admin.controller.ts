@@ -1,7 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
 import {
   approveRefundRequestSchema,
   blockReasonSchema,
+  deleteOrganizationSchema,
   markPayoutPaidSchema,
   updateSettlementSchema,
   refundOrderSchema,
@@ -54,6 +55,22 @@ export class AdminController {
   @Post("organizations/:id/approve")
   approveOrganization(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.adminService.approveOrganization(id, userId);
+  }
+
+  /** etapa 1 da exclusão: envia o código de confirmação ao e-mail do admin */
+  @Post("organizations/:id/delete-code")
+  requestOrganizationDeleteCode(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.adminService.requestOrganizationDeleteCode(id, userId);
+  }
+
+  /** etapa 2: exclui com o código (só org sem histórico financeiro) */
+  @Delete("organizations/:id")
+  deleteOrganization(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(deleteOrganizationSchema)) body: unknown,
+  ) {
+    return this.adminService.deleteOrganization(id, userId, body as any);
   }
 
   @Get("events")

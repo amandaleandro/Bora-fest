@@ -18,6 +18,7 @@ import type {
 } from "@borafest/contracts";
 import { FinanceService } from "../finance/finance.service";
 import { PlatformAccessService } from "../common/platform-access.service";
+import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@borafest/auth";
 import { NotificationsService } from "../notifications/notifications.service";
 import { getOrganizationBalanceCents, getPayoutAvailability } from "../common/ledger";
 
@@ -123,6 +124,99 @@ export class AdminService {
       );
     }
     return this.setOrganizationStatus(organizationId, userId, "ACTIVE", "cadastro aprovado");
+  }
+
+  /**
+   * Exclusão de conta em DUAS etapas (pedido do Arthur 2026-08-14): etapa 1
+   * gera um código de 6 dígitos e envia ao E-MAIL DO ADMIN LOGADO pela fila de
+   * notificações (mesmo template do OTP de login). Reusa OtpChallenge — o
+   * destination composto isola do OTP de login e amarra código→org→admin.
+   */
+  async requestOrganizationDeleteCode(organizationId: string, userId: string) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+    if (!actor.email) throw new BadRequestException("Sua conta de admin não tem e-mail para receber o código");
+
+    const code = generateOtpCode();
+    const destination = `org-delete:${organizationId}:${actor.email}`;
+    await prisma.$transaction([
+      prisma.otpChallenge.create({
+        data: {
+          userId: actor.id,
+          destination,
+          channel: "EMAIL",
+          codeHash: hashOtpCode(code, destination),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        },
+      }),
+      prisma.notification.create({
+        data: { channel: "EMAIL", recipient: actor.email, template: "otp_code", payload: { code, ttlMinutes: 10 } },
+      }),
+      prisma.auditLog.create({
+        data: {
+          actorUserId: actor.id,
+          action: "admin.organization.delete_code",
+          entityType: "organization",
+          entityId: organizationId,
+        },
+      }),
+    ]);
+    return { sent: true, ttlMinutes: 10 };
+  }
+
+  /**
+   * Etapa 2: confere o código e exclui. TRAVA DURA: organização com histórico
+   * financeiro (venda paga, repasse ou lançamento no ledger) NUNCA é excluída —
+   * o rastro fiscal/contábil fica; o caminho para essas é BLOQUEAR.
+   */
+  async deleteOrganization(organizationId: string, userId: string, input: { code: string }) {
+    const actor = await this.platformAccess.assertAdmin(userId);
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (!organization) throw new NotFoundException("Organização não encontrada");
+
+    const destination = `org-delete:${organizationId}:${actor.email}`;
+    const challenge = await prisma.otpChallenge.findFirst({
+      where: { destination, consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!challenge || challenge.attempts >= 5) {
+      throw new BadRequestException("Código expirado — gere um novo");
+    }
+    if (!verifyOtpCode(input.code, destination, challenge.codeHash)) {
+      await prisma.otpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
+      throw new BadRequestException("Código incorreto");
+    }
+    await prisma.otpChallenge.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } });
+
+    const [paidOrders, payouts, ledgerEntries] = await Promise.all([
+      prisma.order.count({
+        where: {
+          event: { organizationId },
+          status: { in: ["PAID", "FULFILLED", "REFUNDED", "PARTIALLY_REFUNDED", "CHARGEBACK"] },
+        },
+      }),
+      prisma.payout.count({ where: { organizationId } }),
+      prisma.ledgerEntry.count({ where: { ledgerAccount: { organizationId } } }),
+    ]);
+    if (paidOrders > 0 || payouts > 0 || ledgerEntries > 0) {
+      throw new BadRequestException(
+        "Organização tem histórico financeiro (vendas pagas/repasse/ledger) — bloqueie em vez de excluir",
+      );
+    }
+
+    // auditoria ANTES do delete (entityId é string, sem FK — sobrevive à exclusão)
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "admin.organization.delete",
+        entityType: "organization",
+        entityId: organizationId,
+        metadata: { name: organization.name, document: organization.document, status: organization.status },
+      },
+    });
+    await prisma.organization.delete({ where: { id: organizationId } });
+    return { deleted: true };
   }
 
   private async setOrganizationStatus(

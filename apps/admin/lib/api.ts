@@ -183,6 +183,14 @@ export const adminApi = {
   approveOrganization: (token: string, id: string) =>
     request(`/v1/admin/organizations/${id}/approve`, { method: "POST", token }),
 
+  /** etapa 1 da exclusão: manda o código de confirmação pro e-mail do admin */
+  requestOrgDeleteCode: (token: string, id: string) =>
+    request<{ sent: boolean; ttlMinutes: number }>(`/v1/admin/organizations/${id}/delete-code`, { method: "POST", token }),
+
+  /** etapa 2: exclui a conta com o código (só org sem histórico financeiro) */
+  deleteOrganization: (token: string, id: string, code: string) =>
+    request<{ deleted: boolean }>(`/v1/admin/organizations/${id}`, { method: "DELETE", body: { code }, token }),
+
   listEvents: (token: string, filters: { organizationId?: string; status?: string } = {}) => {
     const params = new URLSearchParams();
     if (filters.organizationId) params.set("organizationId", filters.organizationId);

@@ -12,6 +12,12 @@ export const blockReasonSchema = z.object({
 });
 export type BlockReasonInput = z.infer<typeof blockReasonSchema>;
 
+/** exclusão de conta exige o código de 6 dígitos enviado ao e-mail do admin */
+export const deleteOrganizationSchema = z.object({
+  code: z.string().min(4).max(8),
+});
+export type DeleteOrganizationInput = z.infer<typeof deleteOrganizationSchema>;
+
 export const refundOrderSchema = z.object({
   amountCents: z.number().int().min(1).optional(),
   reason: z.string().min(3),

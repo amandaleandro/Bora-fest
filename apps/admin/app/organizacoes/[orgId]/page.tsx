@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
@@ -25,6 +26,12 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
   const [autoPayout, setAutoPayout] = useState(false);
   const [refundHoldDays, setRefundHoldDays] = useState("7");
   const [message, setMessage] = useState<string | null>(null);
+  const router = useRouter();
+  // exclusão em 2 etapas: null = fechado; "aguardando" = código enviado, esperando digitação
+  const [deleteStep, setDeleteStep] = useState<null | "aguardando">(null);
+  const [deleteCode, setDeleteCode] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const isAdmin = user?.platformRole === "ADMIN";
 
@@ -320,6 +327,82 @@ function OrganizationDetailContent({ orgId }: { orgId: string }) {
               </button>
             </div>
           )}
+        </section>
+      ) : null}
+
+      {isAdmin ? (
+        <section className="mt-8 rounded-xl border border-red-900/50 bg-red-950/20 p-4">
+          <h2 className="text-sm font-semibold text-red-300">Zona de perigo — excluir conta</h2>
+          <p className="mt-1 text-xs text-gray-400">
+            Apaga a organização, seus eventos e membros. Só é permitido para contas SEM histórico
+            financeiro (venda paga, repasse ou ledger) — com histórico, use Bloquear. A confirmação
+            exige um código enviado ao SEU e-mail de admin.
+          </p>
+          {deleteStep === null ? (
+            <button
+              type="button"
+              className="mt-3 rounded-lg border border-red-800 px-4 py-2 text-sm text-red-300 hover:bg-red-950/60"
+              disabled={deleteBusy}
+              onClick={async () => {
+                if (!token) return;
+                setDeleteError(null);
+                setDeleteBusy(true);
+                try {
+                  await adminApi.requestOrgDeleteCode(token, orgId);
+                  setDeleteStep("aguardando");
+                } catch (err) {
+                  setDeleteError(err instanceof Error ? err.message : "Não foi possível enviar o código");
+                } finally {
+                  setDeleteBusy(false);
+                }
+              }}
+            >
+              {deleteBusy ? "Enviando código…" : "Excluir conta…"}
+            </button>
+          ) : (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                placeholder="Código de 6 dígitos (enviado ao seu e-mail)"
+                className="flex-1 rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500"
+                inputMode="numeric"
+                value={deleteCode}
+                onChange={(e) => setDeleteCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              />
+              <button
+                type="button"
+                className="rounded-lg bg-red-900 px-4 py-2 text-sm font-semibold text-red-100 disabled:opacity-50"
+                disabled={deleteBusy || deleteCode.length < 4}
+                onClick={async () => {
+                  if (!token) return;
+                  if (!window.confirm(`Excluir DEFINITIVAMENTE a conta "${org.name}"? Não dá para desfazer.`)) return;
+                  setDeleteError(null);
+                  setDeleteBusy(true);
+                  try {
+                    await adminApi.deleteOrganization(token, orgId, deleteCode);
+                    router.replace("/organizacoes");
+                  } catch (err) {
+                    setDeleteError(err instanceof Error ? err.message : "Não foi possível excluir");
+                    setDeleteBusy(false);
+                  }
+                }}
+              >
+                {deleteBusy ? "Excluindo…" : "Confirmar exclusão"}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-gray-300"
+                disabled={deleteBusy}
+                onClick={() => {
+                  setDeleteStep(null);
+                  setDeleteCode("");
+                  setDeleteError(null);
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
+          {deleteError ? <p className="mt-2 text-xs font-semibold text-red-400">{deleteError}</p> : null}
         </section>
       ) : null}
 
