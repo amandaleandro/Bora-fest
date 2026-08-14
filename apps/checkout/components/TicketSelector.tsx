@@ -253,7 +253,7 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
                   </div>
                 )}
               </div>
-              {!lot.soldOut && (
+              {!lot.soldOut && (lot as { halfPriceEnabled?: boolean }).halfPriceEnabled === true && (
                 <label className="mt-2.5 flex items-center gap-2 border-t border-line-divider pt-2.5 text-[12px] font-semibold text-ink-soft">
                   <input type="checkbox" checked={sel.half}
                     onChange={(e) => setSelection((prev) => ({ ...prev, [lot.id]: { ...sel, half: e.target.checked } }))}

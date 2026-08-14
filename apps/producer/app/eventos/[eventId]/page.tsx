@@ -115,6 +115,7 @@ function EventContent({ eventId }: { eventId: string }) {
   const [lotMaxPerOrder, setLotMaxPerOrder] = useState("6");
   const [lotFeeMode, setLotFeeMode] = useState<FeeMode>("BUYER");
   const [lotNominal, setLotNominal] = useState(false);
+  const [lotHalf, setLotHalf] = useState(false);
   const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
 
   // Tipos conhecidos = os criados nesta sessão + os que já têm lote (o
@@ -381,6 +382,7 @@ function EventContent({ eventId }: { eventId: string }) {
         nominal: lotNominal,
         // CPF só faz sentido em lote nominal (o backend também amarra os dois)
         requiresCpf: lotNominal && lotRequiresCpf,
+        halfPriceEnabled: lotHalf,
       });
       await catalogApi.activateLot(token, lot.id);
       setShowLotForm(false);
@@ -391,6 +393,7 @@ function EventContent({ eventId }: { eventId: string }) {
       setLotFeeMode("BUYER");
       setLotNominal(false);
       setLotRequiresCpf(false);
+      setLotHalf(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar o lote");
@@ -532,6 +535,20 @@ function EventContent({ eventId }: { eventId: string }) {
               setLotRequiresCpf(requiresCpf);
             }}
           />
+          <label className="flex items-center gap-2 text-[13px] font-semibold">
+            <input
+              type="checkbox"
+              checked={lotHalf}
+              onChange={(e) => setLotHalf(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+            />
+            <span>
+              Oferecer meia-entrada (50% do preço)
+              <span className="block text-[11.5px] font-medium text-muted">
+                Opcional — o comprador escolhe meia no checkout e o documento é conferido na portaria.
+              </span>
+            </span>
+          </label>
           <button
             type="button"
             className="btn-primary"
@@ -556,7 +573,45 @@ function EventContent({ eventId }: { eventId: string }) {
                   {formatCents(lot.priceCents)} + taxa {formatCents(lot.feeCents)} · {lot.sold}/{lot.capacity} vendidos
                 </p>
               </div>
-              <span className="text-xs font-bold text-muted">{lot.status}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-muted">{lot.status}</span>
+                {lot.status !== "CLOSED" ? (
+                  <button
+                    type="button"
+                    className="h-8 rounded-lg border border-line px-3 text-[12px] font-bold text-muted hover:text-ink"
+                    onClick={async () => {
+                      if (!token) return;
+                      if (!window.confirm(`Encerrar as vendas de "${lot.name}"? O lote some do site e não pode ser reativado.`)) return;
+                      try {
+                        await catalogApi.closeLot(token, lot.id);
+                        await load();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Não foi possível encerrar o lote");
+                      }
+                    }}
+                  >
+                    Encerrar
+                  </button>
+                ) : null}
+                {lot.sold === 0 ? (
+                  <button
+                    type="button"
+                    className="h-8 rounded-lg border border-danger/40 px-3 text-[12px] font-bold text-danger hover:bg-danger/5"
+                    onClick={async () => {
+                      if (!token) return;
+                      if (!window.confirm(`Apagar o lote "${lot.name}"? Isso não pode ser desfeito.`)) return;
+                      try {
+                        await catalogApi.deleteLot(token, lot.id);
+                        await load();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Não foi possível apagar o lote");
+                      }
+                    }}
+                  >
+                    Apagar
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
         ))}

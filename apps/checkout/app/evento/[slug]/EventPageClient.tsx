@@ -186,7 +186,9 @@ export function EventPageClient({ slug }: { slug: string }) {
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5">
           <button
-            onClick={() => router.back()}
+            // sempre volta pra home do site — router.back() jogava pra fora
+            // quem chegou por link compartilhado (WhatsApp/Instagram)
+            onClick={() => router.push("/")}
             aria-label="Voltar"
             className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur"
           >

@@ -119,6 +119,7 @@ export class CatalogService {
         maxPerOrder: input.maxPerOrder,
         feeMode: input.feeMode ?? "BUYER",
         nominal: input.nominal ?? false,
+        halfPriceEnabled: input.halfPriceEnabled ?? false,
         requiresCpf: input.requiresCpf ?? false,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
@@ -143,6 +144,49 @@ export class CatalogService {
     }
 
     return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "ACTIVE" } });
+  }
+
+  /** Encerra as vendas do lote (some do site). Definitivo — crie outro lote se precisar. */
+  async closeLot(lotId: string, actorUserId: string) {
+    const lot = await prisma.ticketLot.findUnique({
+      where: { id: lotId },
+      include: { ticketType: { include: { event: true } } },
+    });
+    if (!lot) throw new NotFoundException("Lote não encontrado");
+    await this.orgAccess.assertPermission(
+      lot.ticketType.event.organizationId,
+      actorUserId,
+      PERMISSIONS.EVENT_CREATE,
+    );
+    if (lot.status === "CLOSED") throw new BadRequestException("Lote já está encerrado");
+    return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "CLOSED" } });
+  }
+
+  /** Apaga o lote — só sem nenhuma venda/reserva; com movimento, use encerrar. */
+  async deleteLot(lotId: string, actorUserId: string) {
+    const lot = await prisma.ticketLot.findUnique({
+      where: { id: lotId },
+      include: { ticketType: { include: { event: true } } },
+    });
+    if (!lot) throw new NotFoundException("Lote não encontrado");
+    await this.orgAccess.assertPermission(
+      lot.ticketType.event.organizationId,
+      actorUserId,
+      PERMISSIONS.EVENT_CREATE,
+    );
+    if (lot.soldCount > 0) {
+      throw new BadRequestException("Lote já tem vendas — encerre as vendas em vez de apagar");
+    }
+    if (lot.reservedCount > 0) {
+      throw new BadRequestException("Há reservas em andamento neste lote — tente de novo em alguns minutos");
+    }
+    try {
+      await prisma.ticketLot.delete({ where: { id: lotId } });
+    } catch {
+      // FK (pedido/ingresso/lista antiga apontando pro lote): não dá para apagar com histórico
+      throw new BadRequestException("Lote tem histórico vinculado — encerre as vendas em vez de apagar");
+    }
+    return { deleted: true };
   }
 
   /**
@@ -323,6 +367,7 @@ export class CatalogService {
             lotName: lot.name,
             priceCents: lot.priceCents,
             feeCents: lot.feeCents,
+            halfPriceEnabled: lot.halfPriceEnabled,
             available: availability?.available ?? 0,
           };
         }),

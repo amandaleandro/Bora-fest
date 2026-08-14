@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Param, Post, UseGuards } from "@nestjs/common";
 import { createTicketLotSchema, createTicketTypeSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
@@ -31,5 +31,15 @@ export class CatalogController {
   @Post("v1/ticket-lots/:lotId/activate")
   activateLot(@Param("lotId") lotId: string, @CurrentUserId() userId: string) {
     return this.catalogService.activateLot(lotId, userId);
+  }
+
+  @Post("v1/ticket-lots/:lotId/close")
+  closeLot(@Param("lotId") lotId: string, @CurrentUserId() userId: string) {
+    return this.catalogService.closeLot(lotId, userId);
+  }
+
+  @Delete("v1/ticket-lots/:lotId")
+  deleteLot(@Param("lotId") lotId: string, @CurrentUserId() userId: string) {
+    return this.catalogService.deleteLot(lotId, userId);
   }
 }

@@ -667,6 +667,8 @@ model TicketLot {
   /// exige nome (e CPF) por ingresso — setores nominais (ex.: Camarote)
   nominal        Boolean   @default(false)
   requiresCpf    Boolean   @default(false) @map("requires_cpf")
+  /// meia-entrada é OPT-IN do produtor (decisão 2026-08-13): só oferece 50% se ele marcar
+  halfPriceEnabled Boolean @default(false) @map("half_price_enabled")
   status         LotStatus @default(DRAFT)
   startsAt       DateTime? @map("starts_at")
   endsAt         DateTime? @map("ends_at")

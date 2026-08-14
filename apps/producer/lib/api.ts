@@ -334,6 +334,8 @@ export interface CreateLotInput {
   feeMode?: FeeMode;
   nominal?: boolean;
   requiresCpf?: boolean;
+  /** oferece meia-entrada (50%) — opt-in do produtor */
+  halfPriceEnabled?: boolean;
 }
 
 export const catalogApi = {
@@ -343,6 +345,10 @@ export const catalogApi = {
     request<TicketLot>(`/v1/ticket-types/${ticketTypeId}/lots`, { method: "POST", body: input, token }),
   activateLot: (token: string, lotId: string) =>
     request<TicketLot>(`/v1/ticket-lots/${lotId}/activate`, { method: "POST", token }),
+  closeLot: (token: string, lotId: string) =>
+    request<TicketLot>(`/v1/ticket-lots/${lotId}/close`, { method: "POST", token }),
+  deleteLot: (token: string, lotId: string) =>
+    request<{ deleted: boolean }>(`/v1/ticket-lots/${lotId}`, { method: "DELETE", token }),
 };
 
 // ---------------------------------------------------------------------------

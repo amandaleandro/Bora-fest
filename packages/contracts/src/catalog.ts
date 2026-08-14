@@ -12,6 +12,8 @@ export const createTicketLotSchema = z.object({
   feeMode: z.enum(["BUYER", "PRODUCER"]).optional(),
   nominal: z.boolean().optional(),
   requiresCpf: z.boolean().optional(),
+  /// meia-entrada opt-in: só oferece 50% ao comprador se o produtor marcar
+  halfPriceEnabled: z.boolean().optional(),
   name: z.string().min(2),
   priceCents: z.number().int().min(0),
   feeCents: z.number().int().min(0).default(0),

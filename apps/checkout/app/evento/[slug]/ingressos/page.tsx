@@ -52,7 +52,7 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
   return (
     <main className="mx-auto max-w-[430px] pb-16">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-bg/85 px-5 py-4 backdrop-blur">
-        <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface">
+        <button onClick={() => router.push(`/evento/${slug}`)} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface">
           <Icon d={paths.back} />
         </button>
         <div className="min-w-0">
