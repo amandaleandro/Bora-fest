@@ -48,9 +48,8 @@ function PublicProfile({ orgId }: { orgId: string }) {
   }
 
   return (
-    <section className="mt-8 rounded-[18px] border border-line bg-surface p-5">
-      <h2 className="text-[17px] font-extrabold">Perfil público</h2>
-      <p className="mt-1 text-[12px] font-semibold text-muted">
+    <section>
+      <p className="text-[12px] font-semibold text-muted">
         É este nome que o comprador vê na página dos seus eventos ("Por …"). Deixe em branco para
         usar o nome cadastral{legalName ? ` (${legalName})` : ""}.
       </p>
@@ -380,14 +379,11 @@ function Promoters({ orgId }: { orgId: string }) {
   }
 
   return (
-    <section className="mt-8">
-      <div className="mb-4">
-        <h2 className="text-[17px] font-extrabold">Promoters</h2>
-        <p className="mt-1 text-[12px] font-semibold text-muted">
-          Convide por e-mail — a pessoa não precisa ter conta de produtor. Você define se ela recebe
-          comissão; sem comissão, o dinheiro das vendas fica todo com você e o sistema só contabiliza.
-        </p>
-      </div>
+    <section>
+      <p className="mb-3 text-[12px] font-semibold text-muted">
+        Convide por e-mail — a pessoa não precisa ter conta de produtor. Você define se ela recebe
+        comissão; sem comissão, o dinheiro das vendas fica todo com você e o sistema só contabiliza.
+      </p>
 
       <div className="rounded-[16px] border border-dashed border-line bg-bg/40 p-4">
         <div className="grid gap-2 md:grid-cols-[1fr_170px_120px_auto]">
@@ -515,11 +511,8 @@ function SalesPartners({ orgId }: { orgId: string }) {
   }, [token, orgId]);
 
   return (
-    <section className="mt-8">
-      <div className="mb-4">
-        <h2 className="text-[17px] font-extrabold">Atléticas e parceiros de venda</h2>
-        <p className="mt-1 text-[12px] font-semibold text-muted">A comissão pertence à atlética; cada uma pode ter vários vendedores, que não recebem comissão individual.</p>
-      </div>
+    <section>
+      <p className="mb-3 text-[12px] font-semibold text-muted">A comissão pertence à atlética; cada uma pode ter vários vendedores, que não recebem comissão individual.</p>
 
       {loading ? (
         <p className="text-[13px] font-semibold text-muted">Carregando…</p>
@@ -550,16 +543,13 @@ function SalesPartners({ orgId }: { orgId: string }) {
 function Team({ orgId }: { orgId: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <section className="mt-8 rounded-[18px] border border-line bg-surface p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-[17px] font-extrabold">Equipe</h2>
-          <p className="mt-1 max-w-xl text-[12px] font-semibold text-muted">
-            Convide pessoas para ajudar a tocar seus eventos. Cada papel dá acesso só ao que
-            precisa — administrador (tudo, menos check-in no app), financeiro (pedidos, reembolsos
-            e saque) ou check-in (só o app de validação).
-          </p>
-        </div>
+    <section>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-[12px] font-semibold text-muted">
+          Convide pessoas para ajudar a tocar seus eventos. Cada papel dá acesso só ao que
+          precisa — administrador (tudo, menos check-in no app), financeiro (pedidos, reembolsos
+          e saque), check-in (só valida) ou vendedor (vende na porta e valida).
+        </p>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -570,6 +560,31 @@ function Team({ orgId }: { orgId: string }) {
       </div>
       {open ? <InviteMemberModal organizationId={orgId} onClose={() => setOpen(false)} /> : null}
     </section>
+  );
+}
+
+/**
+ * Card recolhível (nativo, sem JS): no celular a página deixou de ser uma pilha
+ * interminável — eventos ficam no topo e o resto abre sob demanda.
+ */
+function Fold({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <details className="group rounded-[18px] border border-line bg-surface">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="block text-[15px] font-extrabold text-ink">{title}</span>
+          <span className="mt-0.5 block text-[12px] font-semibold text-muted">{subtitle}</span>
+        </span>
+        <svg
+          width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+          className="shrink-0 text-muted transition-transform duration-200 group-open:rotate-180"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </summary>
+      <div className="border-t border-line-divider px-5 pb-5 pt-4">{children}</div>
+    </details>
   );
 }
 
@@ -591,10 +606,20 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
         <SalesPushButton />
       </div>
       <EventsList orgId={params.orgId} />
-      <PublicProfile orgId={params.orgId} />
-      <Team orgId={params.orgId} />
-      <Promoters orgId={params.orgId} />
-      <SalesPartners orgId={params.orgId} />
+      <div className="mt-6 space-y-3">
+        <Fold title="Perfil público" subtitle="O nome que o comprador vê nos seus eventos">
+          <PublicProfile orgId={params.orgId} />
+        </Fold>
+        <Fold title="Equipe" subtitle="Convide admin, financeiro, check-in ou vendedor">
+          <Team orgId={params.orgId} />
+        </Fold>
+        <Fold title="Promoters" subtitle="Links de divulgação com ou sem comissão">
+          <Promoters orgId={params.orgId} />
+        </Fold>
+        <Fold title="Atléticas e parceiros de venda" subtitle="Comissão da atlética e vendedores por parceiro">
+          <SalesPartners orgId={params.orgId} />
+        </Fold>
+      </div>
     </GuardedPanelShell>
   );
 }
