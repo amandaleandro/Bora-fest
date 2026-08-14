@@ -3,6 +3,7 @@ import { prisma } from "@borafest/database";
 import {
   applyGatewayStatus,
   getFallbackGatewayForMethod,
+  getGateway,
   getGatewayForMethod,
   AsaasApiError,
   CircuitOpenError,
@@ -231,6 +232,30 @@ export class PaymentsService {
         return this.toPublicPayment(finalPayment);
       },
     );
+  }
+
+  /**
+   * Consulta o gateway pelo pagamento PENDENTE mais recente do pedido e aplica
+   * o status na hora. Cobre o webhook atrasado/perdido: a tela do Pix avança
+   * sem depender dele. Idempotente — se o webhook chegar depois, é no-op.
+   */
+  async syncPendingPayment(orderId: string) {
+    const payment = await prisma.payment.findFirst({
+      where: { orderId, status: "PENDING", externalId: { not: null } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!payment) return { synced: false };
+    try {
+      const gateway = getGateway(payment.provider);
+      const status = await gateway.getStatus(payment.externalId!);
+      if (status !== "PENDING") {
+        await applyGatewayStatus(payment.id, status);
+      }
+      return { synced: true, status };
+    } catch (error) {
+      this.logger.warn(`sync do pagamento ${payment.id} falhou: ${String(error)}`);
+      return { synced: false };
+    }
   }
 
   private async loadPayableOrder(orderId: string) {

@@ -192,6 +192,20 @@ export interface OrderTicket {
   typeName: string;
 }
 
+/** Venda na porta (PDV): corpo do pedido manual e retorno comum aos 2 modos. */
+export interface PdvSaleInput {
+  ticketLotId: string;
+  quantity: number;
+  buyerName: string;
+  buyerDocument?: string;
+  buyerEmail?: string;
+}
+
+export interface PdvSaleResult {
+  orderId: string;
+  publicToken: string;
+}
+
 export interface OrderTicketsResponse {
   orderId: string;
   orderStatus: string;
@@ -308,6 +322,26 @@ export const api = {
 
   createPixPayment: (orderId: string, input: { payerDocument?: string; payerPhone?: string }) =>
     request<PixPayment>(`/v1/orders/${orderId}/payments/pix`, { method: "POST", body: input }),
+
+  /** Checagem ativa no gateway — cobre webhook atrasado (a tela do Pix avança sem depender dele). */
+  syncPayment: (orderId: string) =>
+    request<{ synced: boolean; status?: string }>(`/v1/orders/${orderId}/payments/sync`, { method: "POST", body: {} }),
+
+  /**
+   * Venda na porta — DINHEIRO. O pedido JÁ nasce PAGO e os ingressos são
+   * emitidos na hora. `token` é a sessão da conta (mesmo bf.token do login por
+   * conta na portaria); exige a permissão SALES_PERFORM no backend.
+   */
+  createPdvCashSale: (eventId: string, input: PdvSaleInput, token: string) =>
+    request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders`, { method: "POST", body: input, token }),
+
+  /**
+   * Venda na porta — PIX. Cria o pedido PENDENTE; o QR sai depois de
+   * `createPixPayment(orderId, ...)` (rota pública) e o check-in automático
+   * ocorre quando o status vira PAID/FULFILLED.
+   */
+  createPdvPixSale: (eventId: string, input: PdvSaleInput, token: string) =>
+    request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders/pix`, { method: "POST", body: input, token }),
 
   createCardPayment: (
     orderId: string,

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { assertRefundWithinCap } from "./refund-cap";
 import { applyGatewayStatus, getGateway } from "@borafest/payments";
@@ -18,6 +18,26 @@ export async function executeOrderRefund(
     include: { payments: { orderBy: { createdAt: "desc" } } },
   });
   if (!order) throw new NotFoundException("Pedido não encontrado");
+
+  // RECUPERAÇÃO (incidente 2026-08-14, pedido da Marcela): um erro DEPOIS do
+  // gateway deixa o pagamento preso em REFUND_PENDING com o dinheiro JÁ
+  // devolvido ao comprador. No clique seguinte, em vez de recusar, conferimos
+  // no gateway: se o estorno consta lá, aplicamos a contabilidade agora — sem
+  // estornar de novo (zero risco de estorno em dobro).
+  const preso = order.payments.find((p) => p.status === "REFUND_PENDING" && p.externalId);
+  if (preso) {
+    const gateway = getGateway(preso.provider);
+    const statusNoGateway = await gateway.getStatus(preso.externalId!);
+    if (statusNoGateway === "REFUNDED" || statusNoGateway === "CHARGEBACK") {
+      await applyGatewayStatus(preso.id, statusNoGateway, undefined, {
+        refundAmountCents: input.amountCents,
+      });
+      return { order: { id: order.id }, payment: { id: preso.id }, gatewayStatus: statusNoGateway };
+    }
+    throw new BadRequestException(
+      "Estorno anterior ainda em processamento no gateway — tente de novo em instantes",
+    );
+  }
 
   const payment = order.payments.find((p) => p.status === "PAID");
   if (!payment || !payment.externalId) {
@@ -66,9 +86,22 @@ export async function executeOrderRefund(
   // comprometeu, aplicamos a contabilidade agora, com o valor EXATO. O webhook
   // que chega depois é idempotente: pagamento já reembolsado → no-op.
   const statusContabil = result.status === "PENDING" ? "REFUNDED" : result.status;
-  await applyGatewayStatus(payment.id, statusContabil, undefined, {
-    refundAmountCents: input.amountCents,
-  });
+  try {
+    await applyGatewayStatus(payment.id, statusContabil, undefined, {
+      refundAmountCents: input.amountCents,
+    });
+  } catch (error) {
+    // O DINHEIRO JÁ SAIU no gateway; só a baixa local falhou. O pagamento fica
+    // em REFUND_PENDING e o próximo clique cai na RECUPERAÇÃO lá de cima
+    // (confere no gateway e aplica a contabilidade sem estornar de novo).
+    console.error(
+      `[refund] estorno EXECUTADO no gateway mas a contabilidade falhou (payment ${payment.id}, order ${order.id})`,
+      error,
+    );
+    throw new InternalServerErrorException(
+      "O estorno foi feito no gateway, mas a baixa aqui falhou — clique em aprovar de novo para reconciliar.",
+    );
+  }
 
   return { order, payment, gatewayStatus: result.status };
 }

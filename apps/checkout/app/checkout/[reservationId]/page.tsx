@@ -424,6 +424,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     setPixChecking(true);
     setPixNotice(null);
     try {
+      // força o servidor a conferir no GATEWAY (webhook atrasado não segura mais)
+      await api.syncPayment(order.id).catch(() => undefined);
       const status = await api.getOrderStatus(order.publicToken);
       if (["PAID", "FULFILLED"].includes(status.status)) {
         setApproved(true);
@@ -438,11 +440,23 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     }
   }
 
-  // polling do status até aprovar
+  // polling do status até aprovar. A cada ~15s (e sempre que o comprador VOLTA
+  // pra aba, ex.: depois de pagar no app do banco) também pedimos ao servidor
+  // uma checagem ATIVA no gateway — sem isso a tela dependia do webhook e não
+  // avançava sozinha (caso da Marcela, 2026-08-14).
   useEffect(() => {
     if (step !== "pagamento" || !order) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        api.syncPayment(order.id).catch(() => undefined);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    let tick = 0;
     const id = setInterval(async () => {
       try {
+        tick += 1;
+        if (tick % 6 === 0) await api.syncPayment(order.id).catch(() => undefined);
         const status = await api.getOrderStatus(order.publicToken);
         if (["PAID", "FULFILLED"].includes(status.status)) {
           setApproved(true);
@@ -461,7 +475,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         /* mantém polling */
       }
     }, 2500);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [step, order, router]);
 
   async function payCard() {
