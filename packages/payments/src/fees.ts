@@ -7,13 +7,14 @@
  * padrão da plataforma abaixo, configurável por env para ambientes de teste).
  */
 
-// Padrão (decisão do Arthur 2026-08-12): nossa taxa é 5% com PISO de R$ 1 — ou
-// seja, R$ 1 até o ingresso passar de ~R$ 20 (onde 5% > R$ 1), aí vira 5%.
-// Vale para Pix E cartão. Override por organização continua valendo.
+// "Taxa foda" (decisão do Arthur 2026-08-13): 5% em tudo, com pisos diferentes
+// por causa do CUSTO do gateway — Pix (MP 0,99%) piso R$ 1; cartão (Asaas
+// 2,99% + R$ 0,49) piso R$ 1,50, senão ingresso de R$ 16–26 no cartão dá
+// prejuízo. Override por organização continua valendo.
 const DEFAULT_PIX_FEE_BPS = Number(process.env.PLATFORM_PIX_FEE_BPS ?? 500);
 const DEFAULT_PIX_FEE_FLOOR_CENTS = Number(process.env.PLATFORM_PIX_FEE_FLOOR_CENTS ?? 100);
 const DEFAULT_CARD_FEE_BPS = Number(process.env.PLATFORM_CARD_FEE_BPS ?? 500);
-const DEFAULT_CARD_FEE_FLOOR_CENTS = Number(process.env.PLATFORM_CARD_FEE_FLOOR_CENTS ?? 100);
+const DEFAULT_CARD_FEE_FLOOR_CENTS = Number(process.env.PLATFORM_CARD_FEE_FLOOR_CENTS ?? 150);
 
 export interface OrganizationFeeOverrides {
   pixFeeBps: number | null;
