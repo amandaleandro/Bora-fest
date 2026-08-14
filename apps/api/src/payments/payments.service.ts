@@ -100,7 +100,9 @@ export class PaymentsService {
           customer: {
             name: order.contactName ?? undefined,
             email: order.contactEmail,
-            document: input.payerDocument,
+            // Asaas recusa Pix sem CPF: se o cliente nao mandar payerDocument,
+            // cai no CPF da conta do comprador (gravado na criacao do pedido)
+            document: input.payerDocument || order.user?.cpf || undefined,
             phone: input.payerPhone,
           },
           expiresInSeconds,
@@ -232,7 +234,10 @@ export class PaymentsService {
   }
 
   private async loadPayableOrder(orderId: string) {
-    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { user: { select: { cpf: true } } },
+    });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     if (order.status !== "CREATED" && order.status !== "PAYMENT_PENDING") {
       throw new BadRequestException("Pedido não está aguardando pagamento");
