@@ -2,7 +2,7 @@
 
 import { CHECKOUT_URL } from "@/lib/config";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
@@ -52,10 +52,12 @@ function EventContent({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [showTypeForm, setShowTypeForm] = useState(false);
+  // Form unificado de ingresso (decisão 2026-08-13: criar tipo + 1º lote numa
+  // tacada só, padrão de mercado): null = fechado; {} = ingresso novo;
+  // { typeId, typeName } = novo lote de um ingresso que já existe.
+  const [ticketForm, setTicketForm] = useState<null | { typeId?: string; typeName?: string }>(null);
   const [typeName, setTypeName] = useState("");
-
-  const [showLotForm, setShowLotForm] = useState(false);
+  const [savingTicket, setSavingTicket] = useState(false);
   const [coupons, setCoupons] = useState<Array<{ id: string; code: string; discountType: string; discountValue: number; redeemedCount: number; maxRedemptions: number | null; active: boolean }>>([]);
   const [courtesies, setCourtesies] = useState<Array<{ id: string; contactName: string | null; contactEmail: string; status: string; items: Array<{ quantity: number; ticketLot: { name: string } }> }>>([]);
   const [couponCode, setCouponCode] = useState("");
@@ -109,7 +111,6 @@ function EventContent({ eventId }: { eventId: string }) {
   const [venueSaving, setVenueSaving] = useState(false);
   const [venueError, setVenueError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [lotTypeId, setLotTypeId] = useState("");
   const [lotName, setLotName] = useState("");
   const [lotPrice, setLotPrice] = useState("");
   const [lotCapacity, setLotCapacity] = useState("");
@@ -119,15 +120,6 @@ function EventContent({ eventId }: { eventId: string }) {
   const [lotHalf, setLotHalf] = useState(false);
   const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
 
-  // Tipos conhecidos = os criados nesta sessão + os que já têm lote (o
-  // dashboard não expõe tipos sem lote de sessões anteriores — limitação
-  // conhecida, ver docs/projeto/MEMORIA.md).
-  const knownTypes = useMemo(() => {
-    const fromLots = (dashboard?.lots ?? []).map((lot) => ({ id: lot.ticketTypeId, name: lot.typeName }));
-    const byId = new Map<string, LocalTicketType>();
-    for (const type of [...fromLots, ...sessionTypes]) byId.set(type.id, type);
-    return Array.from(byId.values());
-  }, [dashboard, sessionTypes]);
 
   async function load() {
     if (!token) return;
@@ -351,27 +343,54 @@ function EventContent({ eventId }: { eventId: string }) {
     }
   }
 
-  async function handleCreateType() {
-    if (!token) return;
-    setError(null);
-    try {
-      const type = await catalogApi.createTicketType(token, eventId, { name: typeName });
-      setSessionTypes((prev) => [...prev, { id: type.id, name: type.name }]);
-      setTypeName("");
-      setShowTypeForm(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível criar o tipo");
+  /** "Failed to fetch" cru vira mensagem que o produtor entende. */
+  function catalogError(err: unknown, fallback: string): string {
+    if (err instanceof Error && /failed to fetch|networkerror|load failed/i.test(err.message)) {
+      return "Falha de conexão com o servidor — confira a internet e tente de novo.";
     }
+    return err instanceof Error && err.message ? err.message : fallback;
   }
 
-  async function handleCreateLot() {
-    if (!token || !lotTypeId) return;
+  function resetLotFields(nextLotName: string) {
+    setLotName(nextLotName);
+    setLotPrice("");
+    setLotCapacity("");
+    setLotMaxPerOrder("6");
+    setLotFeeMode("BUYER");
+    setLotNominal(false);
+    setLotRequiresCpf(false);
+    setLotHalf(false);
+  }
+
+  function openNewTicket() {
     setError(null);
+    setTypeName("");
+    resetLotFields("1º lote");
+    setTicketForm({});
+  }
+
+  function openNewLot(typeId: string, name: string, existingLots: number) {
+    setError(null);
+    resetLotFields(`${existingLots + 1}º lote`);
+    setTicketForm({ typeId, typeName: name });
+  }
+
+  /** Fluxo unificado: cria o tipo (se for ingresso novo) + lote + ativa. */
+  async function handleCreateTicket() {
+    if (!token || !ticketForm) return;
+    setError(null);
+    setSavingTicket(true);
     try {
+      let typeId = ticketForm.typeId;
+      if (!typeId) {
+        const type = await catalogApi.createTicketType(token, eventId, { name: typeName.trim() });
+        setSessionTypes((prev) => [...prev, { id: type.id, name: type.name }]);
+        typeId = type.id;
+      }
       const priceCents = parsePriceCents(lotPrice);
       // maxPerOrder: contrato aceita 1..20 (default 6) — clampa pra não tomar 400.
       const maxPerOrder = Math.min(Math.max(Number(lotMaxPerOrder) || 6, 1), 20);
-      const lot = await catalogApi.createLot(token, lotTypeId, {
+      const lot = await catalogApi.createLot(token, typeId, {
         name: lotName,
         priceCents,
         // A taxa é CALCULADA PELO SERVIDOR; este valor é ignorado lá,
@@ -386,18 +405,14 @@ function EventContent({ eventId }: { eventId: string }) {
         halfPriceEnabled: lotHalf,
       });
       await catalogApi.activateLot(token, lot.id);
-      setShowLotForm(false);
-      setLotName("");
-      setLotPrice("");
-      setLotCapacity("");
-      setLotMaxPerOrder("6");
-      setLotFeeMode("BUYER");
-      setLotNominal(false);
-      setLotRequiresCpf(false);
-      setLotHalf(false);
+      setTicketForm(null);
+      setTypeName("");
+      resetLotFields("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível criar o lote");
+      setError(catalogError(err, "Não foi possível criar o ingresso"));
+    } finally {
+      setSavingTicket(false);
     }
   }
 
@@ -454,50 +469,33 @@ function EventContent({ eventId }: { eventId: string }) {
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-extrabold">Ingressos</h2>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn-secondary px-3 py-1.5"
-            onClick={() => setShowTypeForm((v) => !v)}
-          >
-            + Tipo de ingresso
+        {ticketForm === null ? (
+          <button type="button" className="btn-primary px-4 py-2" onClick={openNewTicket}>
+            + Criar ingresso
           </button>
-          <button
-            type="button"
-            className="btn-secondary px-3 py-1.5"
-            onClick={() => setShowLotForm((v) => !v)}
-            disabled={knownTypes.length === 0}
-          >
-            + Lote
-          </button>
-        </div>
+        ) : null}
       </div>
 
-      {showTypeForm ? (
-        <div className="mt-3 flex gap-2">
-          <input
-            placeholder="Nome (ex.: Pista, VIP)"
-            className="min-w-0 flex-1"
-            value={typeName}
-            onChange={(e) => setTypeName(e.target.value)}
-          />
-          <button type="button" className="btn-primary" onClick={handleCreateType}>
-            Criar
-          </button>
-        </div>
-      ) : null}
-
-      {showLotForm ? (
+      {ticketForm ? (
         <div className="mt-3 space-y-2 rounded-2xl border border-line bg-surface p-4">
-          <select className="w-full" value={lotTypeId} onChange={(e) => setLotTypeId(e.target.value)}>
-            <option value="">Selecione o tipo de ingresso</option>
-            {knownTypes.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.name}
-              </option>
-            ))}
-          </select>
-          <input placeholder="Nome do lote" className="w-full" value={lotName} onChange={(e) => setLotName(e.target.value)} />
+          <p className="text-[14px] font-extrabold">
+            {ticketForm.typeId ? `Novo lote em "${ticketForm.typeName}"` : "Novo ingresso"}
+          </p>
+          {!ticketForm.typeId ? (
+            <div>
+              <label className="text-[12px] font-bold text-ink-soft">Nome do ingresso</label>
+              <input
+                placeholder="Ex.: Pista, VIP, Camarote"
+                className="mt-1 w-full"
+                value={typeName}
+                onChange={(e) => setTypeName(e.target.value)}
+              />
+            </div>
+          ) : null}
+          <div>
+            <label className="text-[12px] font-bold text-ink-soft">Lote</label>
+            <input placeholder="Ex.: 1º lote" className="mt-1 w-full" value={lotName} onChange={(e) => setLotName(e.target.value)} />
+          </div>
           <div className="flex flex-wrap gap-2">
             <input
               placeholder="Quanto você quer receber (R$)"
@@ -550,72 +548,127 @@ function EventContent({ eventId }: { eventId: string }) {
               </span>
             </span>
           </label>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleCreateLot}
-            disabled={!lotTypeId || !lotName || !lotPrice || !lotCapacity}
-          >
-            Criar e ativar lote
-          </button>
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleCreateTicket}
+              disabled={
+                savingTicket ||
+                (!ticketForm.typeId && typeName.trim().length < 2) ||
+                !lotName ||
+                !lotPrice ||
+                !lotCapacity
+              }
+            >
+              {savingTicket ? "Criando…" : ticketForm.typeId ? "Criar lote" : "Criar ingresso e começar a vender"}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary px-4"
+              onClick={() => setTicketForm(null)}
+              disabled={savingTicket}
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
       ) : null}
 
       <div className="mt-4 space-y-3">
-        {dashboard.lots.length === 0 ? <p className="text-sm font-semibold text-muted">Nenhum lote criado ainda.</p> : null}
-        {dashboard.lots.map((lot) => (
-          <div key={lot.id} className="rounded-xl border border-line bg-surface px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-              <div>
-                <p className="font-bold">
-                  {lot.typeName} — {lot.name}
-                </p>
-                <p className="text-sm text-muted">
-                  {formatCents(lot.priceCents)} + taxa {formatCents(lot.feeCents)} · {lot.sold}/{lot.capacity} vendidos
-                </p>
+        {(() => {
+          // um card por INGRESSO (tipo), com os lotes dentro — em vez da
+          // lista achatada "Tipo — Lote" que confundia (feedback 2026-08-13)
+          const groups = new Map<string, { name: string; lots: typeof dashboard.lots }>();
+          for (const lot of dashboard.lots) {
+            const group = groups.get(lot.ticketTypeId) ?? { name: lot.typeName, lots: [] };
+            group.lots.push(lot);
+            groups.set(lot.ticketTypeId, group);
+          }
+          for (const type of sessionTypes) {
+            if (!groups.has(type.id)) groups.set(type.id, { name: type.name, lots: [] });
+          }
+          if (groups.size === 0) {
+            return (
+              <p className="text-sm font-semibold text-muted">
+                Nenhum ingresso ainda — toque em “Criar ingresso” para montar o primeiro.
+              </p>
+            );
+          }
+          return [...groups.entries()].map(([typeId, group]) => (
+            <div key={typeId} className="rounded-2xl border border-line bg-surface p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[15px] font-extrabold">{group.name}</p>
+                <button
+                  type="button"
+                  className="btn-secondary px-3 py-1.5"
+                  onClick={() => openNewLot(typeId, group.name, group.lots.length)}
+                >
+                  + Novo lote
+                </button>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-muted">{lot.status}</span>
-                {lot.status !== "CLOSED" ? (
-                  <button
-                    type="button"
-                    className="h-8 rounded-lg border border-line px-3 text-[12px] font-bold text-muted hover:text-ink"
-                    onClick={async () => {
-                      if (!token) return;
-                      if (!window.confirm(`Encerrar as vendas de "${lot.name}"? O lote some do site e não pode ser reativado.`)) return;
-                      try {
-                        await catalogApi.closeLot(token, lot.id);
-                        await load();
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : "Não foi possível encerrar o lote");
-                      }
-                    }}
-                  >
-                    Encerrar
-                  </button>
-                ) : null}
-                {lot.sold === 0 ? (
-                  <button
-                    type="button"
-                    className="h-8 rounded-lg border border-danger/40 px-3 text-[12px] font-bold text-danger hover:bg-danger/5"
-                    onClick={async () => {
-                      if (!token) return;
-                      if (!window.confirm(`Apagar o lote "${lot.name}"? Isso não pode ser desfeito.`)) return;
-                      try {
-                        await catalogApi.deleteLot(token, lot.id);
-                        await load();
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : "Não foi possível apagar o lote");
-                      }
-                    }}
-                  >
-                    Apagar
-                  </button>
-                ) : null}
-              </div>
+              {group.lots.length === 0 ? (
+                <p className="mt-2 text-[13px] font-semibold text-muted">
+                  Sem lotes — adicione o primeiro para começar a vender.
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {group.lots.map((lot) => (
+                    <div key={lot.id} className="rounded-xl border border-line-divider bg-bg/50 px-3.5 py-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                        <div className="min-w-0">
+                          <p className="font-bold">{lot.name}</p>
+                          <p className="text-sm text-muted">
+                            {formatCents(lot.priceCents)} + taxa {formatCents(lot.feeCents)} · {lot.sold}/{lot.capacity} vendidos
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-muted">{lot.status}</span>
+                          {lot.status !== "CLOSED" ? (
+                            <button
+                              type="button"
+                              className="h-8 rounded-lg border border-line px-3 text-[12px] font-bold text-muted hover:text-ink"
+                              onClick={async () => {
+                                if (!token) return;
+                                if (!window.confirm(`Encerrar as vendas de "${lot.name}"? O lote some do site e não pode ser reativado.`)) return;
+                                try {
+                                  await catalogApi.closeLot(token, lot.id);
+                                  await load();
+                                } catch (err) {
+                                  setError(catalogError(err, "Não foi possível encerrar o lote"));
+                                }
+                              }}
+                            >
+                              Encerrar
+                            </button>
+                          ) : null}
+                          {lot.sold === 0 ? (
+                            <button
+                              type="button"
+                              className="h-8 rounded-lg border border-danger/40 px-3 text-[12px] font-bold text-danger hover:bg-danger/5"
+                              onClick={async () => {
+                                if (!token) return;
+                                if (!window.confirm(`Apagar o lote "${lot.name}"? Isso não pode ser desfeito.`)) return;
+                                try {
+                                  await catalogApi.deleteLot(token, lot.id);
+                                  await load();
+                                } catch (err) {
+                                  setError(catalogError(err, "Não foi possível apagar o lote"));
+                                }
+                              }}
+                            >
+                              Apagar
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          ));
+        })()}
       </div>
       {/* --- Local do evento ------------------------------------------------ */}
       <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
