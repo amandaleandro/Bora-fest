@@ -5,7 +5,7 @@
 // assets versionados do Next e os ícones entram em cache (a URL muda a cada
 // build), o suficiente para o app "adicionar à tela inicial" abrir rápido.
 // O foco aqui é o push: avisar a casa/promoter a cada venda.
-const VERSION = "borafest-painel-v2";
+const VERSION = "borafest-painel-v3"; // v3: icone da notificacao em fundo escuro + badge silhueta
 const ASSET_PREFIXES = ["/_next/static", "/icons/"];
 
 self.addEventListener("install", (event) => {

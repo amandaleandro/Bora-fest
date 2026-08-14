@@ -41,8 +41,15 @@ export async function notifySale(orderId: string): Promise<void> {
       select: {
         totalCents: true,
         soldByUserId: true,
+        publicToken: true,
         event: { select: { title: true, organizationId: true } },
         promoterLink: { select: { promoterUserId: true } },
+        payments: {
+          where: { status: "PAID" },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { method: true },
+        },
       },
     });
     // cortesia (R$ 0) não é "venda" para efeito de gamificação
@@ -68,9 +75,14 @@ export async function notifySale(orderId: string): Promise<void> {
       style: "currency",
       currency: "BRL",
     });
+    // Padrão Hotmart/Kiwify (decisão 2026-08-14): título com o MEIO de
+    // pagamento, corpo com valor em destaque + evento + código curto do pedido
+    // (rastreável no painel sem expor o token inteiro).
+    const metodo = order.payments[0]?.method === "CARD" ? "no Cartão" : "no Pix";
+    const codigo = order.publicToken.slice(0, 6).toUpperCase();
     const payload = JSON.stringify({
-      title: "💸 Venda realizada!",
-      body: `${valor} · ${order.event.title}`,
+      title: `Venda realizada ${metodo} 💸`,
+      body: `${valor} · ${order.event.title} · #BF${codigo}`,
       url: "/",
     });
 
