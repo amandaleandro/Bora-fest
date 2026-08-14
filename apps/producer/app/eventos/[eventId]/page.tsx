@@ -497,28 +497,36 @@ function EventContent({ eventId }: { eventId: string }) {
             <input placeholder="Ex.: 1º lote" className="mt-1 w-full" value={lotName} onChange={(e) => setLotName(e.target.value)} />
           </div>
           <div className="flex flex-wrap gap-2">
-            <input
-              placeholder="Quanto você quer receber (R$)"
-              className="min-w-0 flex-1"
-              inputMode="decimal"
-              value={lotPrice}
-              onChange={(e) => setLotPrice(e.target.value)}
-            />
-            <input
-              placeholder="Capacidade"
-              className="min-w-0 flex-1"
-              inputMode="numeric"
-              value={lotCapacity}
-              onChange={(e) => setLotCapacity(e.target.value)}
-            />
-            <input
-              placeholder="Máx. por pedido"
-              className="w-32 min-w-0"
-              inputMode="numeric"
-              value={lotMaxPerOrder}
-              onChange={(e) => setLotMaxPerOrder(e.target.value)}
-              title="Quantos ingressos deste lote cada pessoa pode comprar num pedido (1 a 20)"
-            />
+            <div className="min-w-0 flex-1">
+              <label className="text-[12px] font-bold text-ink-soft">Quanto você quer receber (R$)</label>
+              <input
+                placeholder="Ex.: 20,00"
+                className="mt-1 w-full"
+                inputMode="decimal"
+                value={lotPrice}
+                onChange={(e) => setLotPrice(e.target.value)}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <label className="text-[12px] font-bold text-ink-soft">Quantidade de ingressos</label>
+              <input
+                placeholder="Ex.: 200"
+                className="mt-1 w-full"
+                inputMode="numeric"
+                value={lotCapacity}
+                onChange={(e) => setLotCapacity(e.target.value)}
+              />
+            </div>
+            <div className="w-36 min-w-0">
+              <label className="text-[12px] font-bold text-ink-soft">Máx. por pedido</label>
+              <input
+                className="mt-1 w-full"
+                inputMode="numeric"
+                value={lotMaxPerOrder}
+                onChange={(e) => setLotMaxPerOrder(e.target.value)}
+                title="Quantos ingressos deste lote cada pessoa pode comprar num pedido (1 a 20)"
+              />
+            </div>
           </div>
           <FeeModeField
             value={lotFeeMode}
