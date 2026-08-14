@@ -25,7 +25,8 @@ function parsePriceCents(value: string): number {
 /** Espelho da taxa do SERVIDOR (4,99% com piso R$ 2,49; grátis = 0) — só exibição. */
 function serviceFeeCents(priceCents: number): number {
   if (priceCents <= 0) return 0;
-  return Math.max(Math.round(priceCents * 0.0499), 249);
+  // espelho da taxa REAL do servidor (fees.ts): 5% com piso de R$ 1
+  return Math.max(Math.round(priceCents * 0.05), 100);
 }
 
 /** Erros 5xx/rede não têm mensagem útil pra exibir — troca por texto amigável. */

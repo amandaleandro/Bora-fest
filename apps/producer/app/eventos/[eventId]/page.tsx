@@ -25,7 +25,8 @@ function parsePriceCents(value: string): number {
  */
 function serviceFeeCents(priceCents: number): number {
   if (priceCents <= 0) return 0;
-  return Math.max(Math.round(priceCents * 0.0499), 249);
+  // espelho da taxa REAL do servidor (fees.ts): 5% com piso de R$ 1
+  return Math.max(Math.round(priceCents * 0.05), 100);
 }
 
 const BANNER_MAX_BYTES = 5 * 1024 * 1024;
