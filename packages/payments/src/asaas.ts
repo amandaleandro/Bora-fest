@@ -75,7 +75,7 @@ export class AsaasGateway implements PaymentGateway {
       billingType: "PIX",
       value: toReais(input.amountCents),
       dueDate: isoDate(new Date()),
-      description: "Ingressos BoraFest",
+      description: input.description ?? "Ingressos BoraFest",
       externalReference: input.paymentId,
     });
 
@@ -113,7 +113,7 @@ export class AsaasGateway implements PaymentGateway {
         billingType: "CREDIT_CARD",
         value: toReais(input.amountCents),
         dueDate: isoDate(new Date()),
-        description: "Ingressos BoraFest",
+        description: input.description ?? "Ingressos BoraFest",
         externalReference: input.paymentId,
         installmentCount: input.installments > 1 ? input.installments : undefined,
         installmentValue:

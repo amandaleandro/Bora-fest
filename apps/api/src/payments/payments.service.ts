@@ -108,6 +108,7 @@ export class PaymentsService {
           },
           expiresInSeconds,
           idempotencyKey: payment.id,
+          description: this.chargeDescription(order.event?.title),
         };
 
         // FAILOVER (2026-08-11): se o provedor primário cair ou começar a
@@ -181,6 +182,7 @@ export class PaymentsService {
             paymentId: payment.id,
             orderId,
             amountCents: order.totalCents,
+            description: this.chargeDescription(order.event?.title),
             cardToken: input.cardToken,
             ...(input.card
               ? {
@@ -258,10 +260,16 @@ export class PaymentsService {
     }
   }
 
+  /** "Ingresso {evento} · BoraFest" — o pagador vê isso no comprovante do banco. */
+  private chargeDescription(eventTitle: string | undefined): string {
+    if (!eventTitle) return "Ingressos BoraFest";
+    return `Ingresso ${eventTitle}`.slice(0, 90) + " · BoraFest";
+  }
+
   private async loadPayableOrder(orderId: string) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { user: { select: { cpf: true } } },
+      include: { user: { select: { cpf: true } }, event: { select: { title: true } } },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     if (order.status !== "CREATED" && order.status !== "PAYMENT_PENDING") {

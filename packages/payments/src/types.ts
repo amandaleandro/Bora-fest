@@ -33,6 +33,8 @@ export interface CreatePixChargeInput {
   expiresInSeconds: number;
   /** repassada ao gateway para criação idempotente */
   idempotencyKey: string;
+  /** texto que o pagador vê no comprovante (ex.: "Ingresso {evento} · BoraFest") */
+  description?: string;
 }
 
 export interface PixCharge {
@@ -74,6 +76,8 @@ export interface CreateCardPaymentInput {
   remoteIp?: string;
   installments: number;
   customer: GatewayCustomer;
+  /** texto que o pagador vê na fatura/comprovante */
+  description?: string;
   idempotencyKey: string;
 }
 
