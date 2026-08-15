@@ -497,11 +497,11 @@ export default function HomePage() {
           {/* faixa Produza seu evento (desktop) — arte oficial da marca; o
               botão "Criar conta de produtor" faz parte da imagem, então o
               banner INTEIRO é o link */}
-          <section className="-mx-5 mt-8 sm:mx-0 lg:mt-10">
+          <section className="mt-12 lg:mt-14">
             <a
               href={`${PANEL}/cadastro`}
               aria-label="Criar conta de produtor — do bora ao ingresso vendido em minutos, sem burocracia"
-              className="group block overflow-hidden rounded-none shadow-card transition-transform duration-200 hover:-translate-y-0.5 sm:rounded-2xl lg:rounded-3xl"
+              className="group block overflow-hidden rounded-2xl shadow-card transition-transform duration-200 hover:-translate-y-0.5 lg:rounded-3xl"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
