@@ -400,6 +400,29 @@ export class OrganizationsService {
         metadata: { promoterUserId: promoter.id, ...data },
       },
     });
+
+    // aviso por e-mail (bug 2026-08-15: convite ficava invisível — a pessoa
+    // não recebia NADA). Best-effort pela fila persistente.
+    const [org, eventoEscopo] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, displayName: true } }),
+      input.eventId
+        ? prisma.event.findUnique({ where: { id: input.eventId }, select: { title: true } })
+        : Promise.resolve(null),
+    ]);
+    await prisma.notification
+      .create({
+        data: {
+          channel: "EMAIL",
+          recipient: input.email.toLowerCase().trim(),
+          template: "promoter_invited",
+          payload: {
+            orgName: org?.displayName ?? org?.name ?? "uma casa na BoraFest",
+            eventTitle: eventoEscopo?.title ?? null,
+            panelUrl: `${process.env.PRODUCER_BASE_URL ?? "https://painel.borafest.com.br"}/organizacoes`,
+          },
+        },
+      })
+      .catch(() => undefined);
     return link;
   }
 

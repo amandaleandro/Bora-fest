@@ -121,6 +121,36 @@ async function send(
     throw new Error(`Canal não suportado para ticket_transferred: ${channel}`);
   }
 
+  if (template === "promoter_invited") {
+    if (channel === "EMAIL") {
+      const p = payload as { orgName: string; eventTitle?: string | null; panelUrl: string };
+      const escopo = p.eventTitle ? ` para o evento ${p.eventTitle}` : "";
+      await getEmailSender().send({
+        to: recipient,
+        subject: `${p.orgName} te convidou para ser promoter 🎟️`,
+        text: [
+          `${p.orgName} te convidou para ser promoter${escopo} na BoraFest.`,
+          "",
+          "Aceite o convite no painel (entre com este mesmo e-mail):",
+          p.panelUrl,
+          "",
+          "Ao aceitar, você ganha seu link de divulgação — cada venda pelo seu link é contabilizada (e comissionada, se combinado).",
+          "",
+          "Equipe BoraFest",
+        ].join("\n"),
+        html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p><b>${p.orgName}</b> te convidou para ser <b>promoter</b>${escopo} na BoraFest.</p>
+  <p><a href="${p.panelUrl}" style="display:inline-block;background:#D9128F;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Aceitar convite no painel</a></p>
+  <p style="color:#666;font-size:13px">Entre com este mesmo e-mail. Ao aceitar, você ganha seu link de divulgação — cada venda pelo seu link é contabilizada (e comissionada, se combinado).</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+      });
+      return;
+    }
+    throw new Error(`Canal não suportado para promoter_invited: ${channel}`);
+  }
+
   if (template === "cpf_defined") {
     if (channel === "EMAIL") {
       const p = payload as { cpfMasked: string; name?: string | null };

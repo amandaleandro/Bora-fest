@@ -581,6 +581,37 @@ function Team({ orgId }: { orgId: string }) {
 }
 
 /**
+ * Convites de promoter/vendedor pendentes PARA MIM: quem tem organização cai
+ * direto nesta página e nunca via a caixa de convites da lista (bug 2026-08-15
+ * — convite da Amanda invisível). Banner leva pra caixa completa.
+ */
+function ConvitesPendentesBanner() {
+  const { token } = useAuth();
+  const [total, setTotal] = useState(0);
+  useEffect(() => {
+    if (!token) return;
+    Promise.all([
+      organizationsApi.myPromoterInvites(token).catch(() => []),
+      organizationsApi.mySellerInvites(token).catch(() => []),
+    ]).then(([p, s]) => setTotal(p.length + s.length));
+  }, [token]);
+  if (total === 0) return null;
+  return (
+    <Link
+      href="/organizacoes"
+      className="mb-4 block rounded-2xl border border-warning/40 bg-warning/10 p-4"
+    >
+      <span className="block text-[13.5px] font-extrabold text-warning">
+        Você tem {total} convite{total === 1 ? "" : "s"} aguardando resposta 🔔
+      </span>
+      <span className="mt-0.5 block text-[12px] font-semibold text-ink-soft">
+        Uma casa te convidou como promoter/vendedor — toque para ver e aceitar →
+      </span>
+    </Link>
+  );
+}
+
+/**
  * Card recolhível (nativo, sem JS): no celular a página deixou de ser uma pilha
  * interminável — eventos ficam no topo e o resto abre sob demanda.
  */
@@ -619,6 +650,7 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
         </Link>
       }
     >
+      <ConvitesPendentesBanner />
       <div className="mb-6">
         <SalesPushButton />
       </div>
