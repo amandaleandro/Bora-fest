@@ -78,7 +78,10 @@ export class MercadoPagoGateway implements PaymentGateway {
         external_reference: input.paymentId,
         date_of_expiration: toMpDate(expiresAt),
         payer: {
-          email: input.customer.email,
+          // decisão 2026-08-15: o MP não tem flag para silenciar e-mails ao
+          // pagador — sem o e-mail REAL, não há para quem mandar. Quem fala
+          // com o comprador é SÓ a BoraFest (Asaas já usa notificationDisabled).
+          email: `comprador+${input.paymentId}@borafest.com.br`,
           first_name: input.customer.name?.split(" ")[0],
           ...(documento
             ? {
@@ -130,7 +133,7 @@ export class MercadoPagoGateway implements PaymentGateway {
           description: input.description ?? "Ingressos BoraFest",
           installments: input.installments > 1 ? input.installments : 1,
           external_reference: input.paymentId,
-          payer: { email: input.customer.email },
+          payer: { email: `comprador+${input.paymentId}@borafest.com.br` },
         },
         input.paymentId,
       );
