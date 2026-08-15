@@ -451,6 +451,8 @@ export const api = {
       createdAt: string;
       event: { title: string; slug: string; startsAt: string; endsAt: string };
       items: Array<{ quantity: number; ticketLot: { name: string } }>;
+      /** há pedido de reembolso PENDENTE — o app mostra "em análise" e trava o botão */
+      refundRequested?: boolean;
     }>>("/v1/me/orders", { token }),
 
   myDataExport: (token: string) => request<unknown>("/v1/me/data-export", { token }),

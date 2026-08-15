@@ -19,6 +19,15 @@ export async function executeOrderRefund(
   });
   if (!order) throw new NotFoundException("Pedido não encontrado");
 
+  // Já estornado de ponta a ponta (ex.: a reconciliação do worker aplicou
+  // antes do clique): aprovar vira só a baixa do request — sem novo estorno.
+  if (order.status === "REFUNDED" || order.status === "CHARGEBACK") {
+    const done = order.payments.find((p) => p.status === "REFUNDED" || p.status === "CHARGEBACK");
+    if (done) {
+      return { order: { id: order.id }, payment: { id: done.id }, gatewayStatus: done.status };
+    }
+  }
+
   // RECUPERAÇÃO (incidente 2026-08-14, pedido da Marcela): um erro DEPOIS do
   // gateway deixa o pagamento preso em REFUND_PENDING com o dinheiro JÁ
   // devolvido ao comprador. No clique seguinte, em vez de recusar, conferimos

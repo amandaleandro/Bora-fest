@@ -13,7 +13,7 @@ export class MeService {
   }
 
   async orders(userId: string) {
-    return prisma.order.findMany({
+    const orders = await prisma.order.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
       select: {
@@ -25,8 +25,14 @@ export class MeService {
         createdAt: true,
         event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
         items: { select: { quantity: true, ticketLot: { select: { name: true } } } },
+        refundRequests: { where: { status: "PENDING" }, select: { id: true } },
       },
     });
+    // o app mostra "reembolso em análise" e trava o botão com esta flag
+    return orders.map(({ refundRequests, ...order }) => ({
+      ...order,
+      refundRequested: refundRequests.length > 0,
+    }));
   }
 
   /** LGPD: portabilidade — tudo que temos sobre o titular, em JSON. */

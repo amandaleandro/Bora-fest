@@ -394,7 +394,9 @@ export default function ProfilePage() {
                         <p className="mt-1.5 text-[11.5px] font-semibold text-white/80">{formatDateTime(ticket.event.startsAt)}</p>
                       </div>
                       <div className="flex flex-col items-center gap-4 border-t border-dashed border-line p-5 text-center lg:flex-1 lg:flex-row lg:items-center lg:gap-[18px] lg:border-l lg:border-t-0 lg:px-[22px] lg:text-left">
-                        <div className="shrink-0 rounded-xl border border-line bg-white p-2">
+                        <div className={`shrink-0 rounded-xl border border-line bg-white p-2 ${
+                          ["CANCELED", "REFUNDED"].includes(ticket.status) ? "opacity-25" : ""
+                        }`}>
                           <QRCode value={ticket.qrToken} size={140} className="h-auto w-[140px] lg:w-[88px]" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -403,14 +405,25 @@ export default function ProfilePage() {
                               {ticket.typeName} · {ticket.lotName}
                             </span>
                             <span className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${
-                              ticket.status === "CHECKED_IN" ? "bg-line text-muted-2" : "bg-success/10 text-success"
+                              ticket.status === "CHECKED_IN" ? "bg-line text-muted-2" :
+                              ["CANCELED", "REFUNDED"].includes(ticket.status) ? "bg-danger/10 text-danger" :
+                              "bg-success/10 text-success"
                             }`}>
-                              {ticket.status === "CHECKED_IN" ? "Utilizado" : "Válido"}
+                              {ticket.status === "CHECKED_IN" ? "Utilizado" :
+                                ticket.status === "REFUNDED" ? "Reembolsado" :
+                                ticket.status === "CANCELED" ? "Cancelado" : "Válido"}
                             </span>
                           </div>
                           <p className="mt-2 truncate text-[15px] font-extrabold">{ticket.attendeeName ?? profile?.name ?? "Portador"}</p>
                           <p className="mt-1 text-[12px] font-medium text-muted-2">Código {ticket.code}</p>
-                          <div className="mt-3 flex flex-wrap justify-center gap-2 lg:justify-start">
+                          {["CANCELED", "REFUNDED"].includes(ticket.status) && (
+                            <p className="mt-2 text-[12px] font-semibold text-danger">
+                              Este ingresso foi {ticket.status === "REFUNDED" ? "reembolsado" : "cancelado"} — o QR não vale na portaria.
+                            </p>
+                          )}
+                          <div className={`mt-3 flex flex-wrap justify-center gap-2 lg:justify-start ${
+                            ["CANCELED", "REFUNDED"].includes(ticket.status) ? "hidden" : ""
+                          }`}>
                             <button disabled className="h-10 rounded-[11px] bg-ink px-[15px] text-[12px] font-bold text-white opacity-50">
                               Apple/Google Wallet · em breve
                             </button>

@@ -13,7 +13,9 @@ export async function reconcilePendingPayments(): Promise<void> {
   const cutoff = new Date(Date.now() - 2 * 60_000);
   const payments = await prisma.payment.findMany({
     where: {
-      status: { in: ["PENDING", "AUTHORIZED"] },
+      // REFUND_PENDING entra (2026-08-15): estorno executado no gateway cuja
+      // baixa local falhou se auto-cura aqui — sem depender de clique no backoffice
+      status: { in: ["PENDING", "AUTHORIZED", "REFUND_PENDING"] },
       externalId: { not: null },
       createdAt: { lt: cutoff },
     },

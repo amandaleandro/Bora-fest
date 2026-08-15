@@ -15,6 +15,8 @@ interface PurchaseRow {
   startsAt: string | null;
   itemsLabel: string;
   ended: boolean;
+  /** reembolso solicitado e ainda em análise — badge âmbar + botão travado */
+  refundRequested?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -79,6 +81,7 @@ export default function PurchasesPage() {
             startsAt: o.event.startsAt,
             itemsLabel: o.items.map((i) => `${i.quantity}× ${i.ticketLot.name}`).join(", "),
             ended: new Date(o.event.endsAt).getTime() < Date.now(),
+            refundRequested: o.refundRequested === true,
           }));
         } catch {
           /* sessão inválida ou API fora: sobra o que está no aparelho */
@@ -100,6 +103,8 @@ export default function PurchasesPage() {
       setRefundReviewer(created.reviewedBy ?? null);
       setRefundOk(token);
       setRefundFor(null);
+      // card vira "em análise" na hora, sem esperar recarregar
+      setRows((prev) => prev?.map((r) => (r.publicToken === token ? { ...r, refundRequested: true } : r)) ?? prev);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível solicitar");
     }
@@ -130,10 +135,13 @@ export default function PurchasesPage() {
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[14px] font-extrabold lg:text-[15px]">{row.eventTitle}</p>
                 <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                  row.refundRequested && ["PAID", "FULFILLED"].includes(row.status) ? "bg-warning/10 text-warning" :
                   ["PAID", "FULFILLED"].includes(row.status) ? "bg-success/10 text-success" :
                   row.status === "PAYMENT_PENDING" ? "bg-warning/10 text-warning" : "bg-line text-muted"
                 }`}>
-                  {row.ended ? "Evento encerrado" : STATUS_LABEL[row.status] ?? row.status}
+                  {row.refundRequested && ["PAID", "FULFILLED"].includes(row.status)
+                    ? "Reembolso em análise"
+                    : row.ended ? "Evento encerrado" : STATUS_LABEL[row.status] ?? row.status}
                 </span>
               </div>
               {row.startsAt && <p className="mt-0.5 text-[12px] font-medium text-muted">{formatDateTime(row.startsAt)}</p>}
@@ -158,9 +166,11 @@ export default function PurchasesPage() {
                   >
                     Reenviar ingressos
                   </button>
-                  <button onClick={() => setRefundFor(row.publicToken)} className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
-                    Reembolso
-                  </button>
+                  {!row.refundRequested && (
+                    <button onClick={() => setRefundFor(row.publicToken)} className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
+                      Reembolso
+                    </button>
+                  )}
                 </div>
               )}
             </article>
