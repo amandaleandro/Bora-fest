@@ -161,7 +161,7 @@ export default function PurchasesPage() {
                     Ver ingressos
                   </Link>
                   <button
-                    onClick={async () => { try { await api.resendTickets(row.publicToken); alert("Ingressos reenviados por e-mail e WhatsApp."); } catch (e) { alert(e instanceof ApiError ? e.message : "Não foi possível reenviar agora. Tente de novo em instantes."); } }}
+                    onClick={async () => { try { await api.resendTickets(row.publicToken); alert(process.env.NEXT_PUBLIC_WA_DELIVERY === "on" ? "Ingressos reenviados por e-mail e WhatsApp." : "Ingressos reenviados por e-mail."); } catch (e) { alert(e instanceof ApiError ? e.message : "Não foi possível reenviar agora. Tente de novo em instantes."); } }}
                     className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold"
                   >
                     Reenviar ingressos

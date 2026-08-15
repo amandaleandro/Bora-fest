@@ -9,6 +9,9 @@ import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
 import { EventReview } from "../../../components/EventReview";
 
+// entrega por WhatsApp desligada por padrão (decisão 2026-08-15): só aparece com NEXT_PUBLIC_WA_DELIVERY=on
+const WA_ON = process.env.NEXT_PUBLIC_WA_DELIVERY === "on";
+
 /** Evento do Chrome/Edge para instalar o PWA (não existe no Safari). */
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
 
@@ -137,7 +140,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     setResendMessage(null);
     try {
       await api.resendTickets(publicToken);
-      setResendMessage("Reenviado por e-mail e WhatsApp ✅");
+      setResendMessage(WA_ON ? "Reenviado por e-mail e WhatsApp ✅" : "Reenviado por e-mail ✅");
     } catch (e) {
       setResendMessage(e instanceof ApiError ? e.message : "Não foi possível reenviar agora");
     }
@@ -243,7 +246,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
           </div>
         </div>
 
-        {process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ? (
+        {WA_ON && process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ? (
           <a
             href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}?text=${encodeURIComponent(`Quero meu ingresso do pedido ${publicToken.slice(0, 8).toUpperCase()}`)}`}
             target="_blank"
@@ -272,9 +275,9 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                 <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary">
                   {ticket.typeName} — {ticket.lotName}
                 </span>
-                <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className={`mt-4 grid gap-2 ${WA_ON ? "grid-cols-3" : "grid-cols-2"}`}>
                   <button disabled className="rounded-xl bg-black py-2.5 text-[11px] font-bold text-white opacity-50">Wallet · breve</button>
-                  <button onClick={resend} className="rounded-xl border-[1.5px] border-line-input py-2.5 text-[11px] font-bold text-ink">WhatsApp</button>
+                  {WA_ON && (<button onClick={resend} className="rounded-xl border-[1.5px] border-line-input py-2.5 text-[11px] font-bold text-ink">WhatsApp</button>)}
                   <button
                     onClick={() => { setTransferFor(ticket.id); setTransferMsg(null); }}
                     className="rounded-xl border-[1.5px] border-line-input py-2.5 text-[11px] font-bold text-ink"
@@ -342,7 +345,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         Pagamento confirmado
       </span>
       <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
-        Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b> e pelo WhatsApp — e eles já
+        Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b>{WA_ON ? " e pelo WhatsApp" : ""} — e eles já
         estão na sua conta, que vale aqui no site e no app BoraFest.
       </p>
 
@@ -367,6 +370,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       </div>
 
       {/* entrega por WhatsApp: texto + QR de cada ingresso, direto no celular */}
+      {WA_ON && (
       <div className="mt-6 text-left">
         {whatsState === "ok" ? (
           <p className="flex h-14 items-center justify-center rounded-2xl bg-success/10 text-[14px] font-extrabold text-success">
@@ -405,6 +409,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
           </div>
         )}
       </div>
+      )}
 
       <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:justify-center">
         <Link
