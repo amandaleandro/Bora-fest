@@ -229,10 +229,18 @@ export class AdminService {
               "Organização tem pagamentos com movimentação — bloqueie em vez de excluir",
             );
           }
+          // ORDEM PROVADA pelo teste de FKs (scratchpad/fk_delete_test.py):
+          // tudo que aponta pra Order/TicketLot SEM cascade sai antes.
           await tx.refundRequest.deleteMany({ where: { orderId: { in: orderIds } } });
           await tx.pushToken.deleteMany({ where: { orderId: { in: orderIds } } });
+          await tx.payment.deleteMany({ where: { orderId: { in: orderIds } } }); // Payment→Order é RESTRICT (era o 500)
+          await tx.ticket.deleteMany({ where: { orderId: { in: orderIds } } }); // teoricamente vazio (guard barra pago) — cinto de segurança
           await tx.order.deleteMany({ where: { id: { in: orderIds } } });
         }
+        // Restrict contra TicketLot no MESMO cascade do evento: sai explícito antes
+        await tx.reservationItem.deleteMany({ where: { reservation: { eventId: { in: eventIds } } } });
+        await tx.reservation.deleteMany({ where: { eventId: { in: eventIds } } });
+        await tx.guestListEntry.deleteMany({ where: { eventId: { in: eventIds } } });
       }
       // auditoria ANTES do delete (entityId é string, sem FK — sobrevive à exclusão)
       await tx.auditLog.create({
