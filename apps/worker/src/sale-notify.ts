@@ -42,8 +42,11 @@ export async function notifySale(orderId: string): Promise<void> {
         totalCents: true,
         soldByUserId: true,
         publicToken: true,
+        promoterCommissionCents: true,
+        partnerCommissionCents: true,
         event: { select: { title: true, organizationId: true } },
         promoterLink: { select: { promoterUserId: true } },
+        items: { select: { quantity: true, feeCents: true } },
         payments: {
           where: { status: "PAID" },
           orderBy: { createdAt: "desc" },
@@ -71,25 +74,44 @@ export async function notifySale(orderId: string): Promise<void> {
 
     if (recipientIds.size === 0) return;
 
-    const valor = (order.totalCents / 100).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
-    // Padrão Hotmart/Kiwify (decisão 2026-08-14): título com o MEIO de
-    // pagamento, corpo com valor em destaque + evento + código curto do pedido
-    // (rastreável no painel sem expor o token inteiro).
-    const metodo = order.payments[0]?.method === "CARD" ? "no Cartão" : "no Pix";
+    const brl = (cents: number) =>
+      (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    // Padrão Kiwify (decisão do Arthur 2026-08-15): cada um vê o que GANHOU,
+    // nunca o total com taxa. Casa = líquido (total − taxa de serviço −
+    // comissões); promoter = a comissão dele.
+    const taxaServico = order.items.reduce((sum, item) => sum + item.feeCents * item.quantity, 0);
+    const liquidoCasa = Math.max(
+      order.totalCents - taxaServico - order.promoterCommissionCents - order.partnerCommissionCents,
+      0,
+    );
+    const metodo = order.payments[0]?.method === "CARD" ? "Cartão" : "Pix";
     const codigo = order.publicToken.slice(0, 6).toUpperCase();
-    const payload = JSON.stringify({
-      title: `Venda realizada ${metodo} 💸`,
-      body: `${valor} · ${order.event.title} · #BF${codigo}`,
+    const payloadCasa = JSON.stringify({
+      title: "Venda aprovada! 💰",
+      body: `Você ganhou ${brl(liquidoCasa)} no ${metodo} · ${order.event.title} · #BF${codigo}`,
       url: "/",
     });
+    const payloadPromoter = JSON.stringify({
+      title: "Venda aprovada! 💰",
+      body: `Sua comissão: ${brl(order.promoterCommissionCents)} · ${order.event.title}`,
+      url: "/",
+    });
+    const promoterId = order.promoterLink?.promoterUserId ?? null;
 
     const subs = await prisma.webPushSubscription.findMany({
       where: { userId: { in: [...recipientIds] } },
     });
-    await Promise.all(subs.map((sub) => sendOne(sub.id, sub.endpoint, sub.p256dh, sub.auth, payload)));
+    await Promise.all(
+      subs.map((sub) =>
+        sendOne(
+          sub.id,
+          sub.endpoint,
+          sub.p256dh,
+          sub.auth,
+          sub.userId === promoterId && order.promoterCommissionCents > 0 ? payloadPromoter : payloadCasa,
+        ),
+      ),
+    );
 
     if (subs.length > 0) {
       log.info({ orderId, recipients: recipientIds.size, sent: subs.length }, "push de venda disparado");
