@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Patch, Post, UseGuards } from "@nestjs/common";
+import { updateMeSchema } from "@borafest/contracts";
+import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { MeService } from "./me.service";
@@ -11,6 +13,12 @@ export class MeController {
   @Get()
   profile(@CurrentUserId() userId: string) {
     return this.meService.profile(userId);
+  }
+
+  /** Verificação/edição da conta: CPF (uma vez), nome e preferências. */
+  @Patch()
+  updateMe(@CurrentUserId() userId: string, @Body(ZodBody(updateMeSchema)) body: unknown) {
+    return this.meService.updateMe(userId, body as any);
   }
 
   /** Inscreve o navegador/PWA para receber push de venda (gamificação). */

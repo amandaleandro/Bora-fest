@@ -174,20 +174,36 @@ export class TicketsService {
       throw new BadRequestException("Evento sem chave de assinatura configurada");
     }
 
-    // a posse só muda para uma conta que EXISTE (decisão 2026-08-06: destino
-    // já validado) — e com CPF na conta quando o lote exige documento
-    const toUser = await prisma.user.findUnique({
-      where: { email: input.toEmail.toLowerCase().trim() },
-    });
-    if (!toUser) {
-      throw new NotFoundException(
-        "A pessoa precisa criar a conta BoraFest primeiro (com este e-mail)",
-      );
+    // a posse só muda para uma conta que EXISTE. Caminho NOVO (2026-08-15):
+    // transferência POR CPF — acha a conta verificada pelo documento e o
+    // ingresso passa para o NOME+CPF de quem recebe. E-mail fica como legado.
+    let toUser;
+    if (input.toCpf) {
+      const cpfDigits = input.toCpf.replace(/\D/g, "");
+      if (cpfDigits.length !== 11) throw new BadRequestException("CPF inválido — são 11 dígitos");
+      toUser = await prisma.user.findUnique({ where: { cpf: cpfDigits } });
+      if (!toUser) {
+        throw new NotFoundException(
+          "Nenhuma conta verificada com este CPF — a pessoa precisa criar a conta BoraFest e informar o CPF em Dados pessoais",
+        );
+      }
+    } else {
+      toUser = await prisma.user.findUnique({
+        where: { email: input.toEmail!.toLowerCase().trim() },
+      });
+      if (!toUser) {
+        throw new NotFoundException(
+          "A pessoa precisa criar a conta BoraFest primeiro (com este e-mail)",
+        );
+      }
+      if (ticket.ticketLot.requiresCpf && !toUser.cpf) {
+        throw new BadRequestException(
+          "Este lote exige CPF: a conta destino precisa completar o cadastro (Dados pessoais) antes de receber o ingresso",
+        );
+      }
     }
-    if (ticket.ticketLot.requiresCpf && !toUser.cpf) {
-      throw new BadRequestException(
-        "Este lote exige CPF: a conta destino precisa completar o cadastro (Dados pessoais) antes de receber o ingresso",
-      );
+    if (toUser.id === userId) {
+      throw new BadRequestException("O ingresso já é seu — transferência para a própria conta não faz nada");
     }
 
     const fromName = ticket.attendeeName;
@@ -205,7 +221,7 @@ export class TicketsService {
       ticket.event.signingKey.privateKeyPem,
     );
 
-    const toName = toUser.name ?? input.toEmail;
+    const toName = toUser.name ?? toUser.email ?? "Novo titular";
     const lotLabel = `${ticket.ticketLot.ticketType.name} — ${ticket.ticketLot.name}`;
 
     const [updated] = await prisma.$transaction([
@@ -213,9 +229,11 @@ export class TicketsService {
         where: { id: ticket.id },
         data: {
           ownerUserId: toUser.id,
+          // re-nomina SEMPRE (decisão 2026-08-15): o ingresso passa a ser do
+          // nome+CPF de quem recebe — na portaria, o documento confere
           attendeeName: toName,
           attendeeEmail: toUser.email,
-          attendeeCpf: ticket.ticketLot.requiresCpf ? toUser.cpf : ticket.attendeeCpf,
+          attendeeCpf: toUser.cpf ?? null,
           qrToken,
         },
         include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },

@@ -12,6 +12,16 @@ export const verifyOtpSchema = z.object({
 });
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 
+/** PATCH /v1/me — verificação/edição da conta (decisão 2026-08-15: conta
+ * verificada = tem CPF; necessário para receber/transferir ingresso nominal). */
+export const updateMeSchema = z.object({
+  name: z.string().min(2).max(120).optional(),
+  cpf: z.string().min(11).max(14).optional(),
+  notifyWhatsapp: z.boolean().optional(),
+  notifyEmailOffers: z.boolean().optional(),
+});
+export type UpdateMeInput = z.infer<typeof updateMeSchema>;
+
 export const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),

@@ -20,7 +20,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       items: true,
       attendees: true,
       event: { include: { signingKey: true } },
-      user: { select: { id: true, emailVerifiedAt: true } },
+      user: { select: { id: true, emailVerifiedAt: true, name: true, cpf: true } },
     },
   });
 
@@ -73,8 +73,10 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
             qrToken,
             status: "ACTIVE",
             attendeeEmail: order.contactEmail,
-            attendeeName: attendee?.name ?? order.contactName,
-            attendeeCpf: attendee?.cpf ?? null,
+            // TODO ingresso nasce NOMINAL (decisão 2026-08-15): sem participante
+            // digitado, o titular é QUEM PAGOU (nome + CPF da conta do comprador)
+            attendeeName: attendee?.name ?? order.contactName ?? order.user?.name ?? null,
+            attendeeCpf: attendee?.cpf ?? order.user?.cpf ?? null,
           },
         });
       } catch (error) {

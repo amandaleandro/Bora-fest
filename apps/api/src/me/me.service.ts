@@ -6,10 +6,61 @@ export class MeService {
   async profile(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, phone: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        cpf: true,
+        notifyWhatsapp: true,
+        notifyEmailOffers: true,
+        createdAt: true,
+      },
     });
     if (!user) throw new NotFoundException("Usuário não encontrado");
-    return user;
+    // conta VERIFICADA = tem CPF (recebe/transfere ingresso nominal)
+    return { ...user, verified: Boolean(user.cpf) };
+  }
+
+  /**
+   * Verificação da conta (decisão 2026-08-15): quem loga sem nunca ter
+   * comprado pode informar o CPF aqui e ficar apto a RECEBER transferências.
+   * CPF é definido UMA vez (trocar depois = suporte, anti-fraude) e é único.
+   */
+  async updateMe(
+    userId: string,
+    input: { name?: string; cpf?: string; notifyWhatsapp?: boolean; notifyEmailOffers?: boolean },
+  ) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException("Usuário não encontrado");
+
+    let cpf: string | undefined;
+    if (input.cpf !== undefined) {
+      const digits = input.cpf.replace(/\D/g, "");
+      if (digits.length !== 11) throw new BadRequestException("CPF inválido — são 11 dígitos");
+      if (user.cpf && user.cpf !== digits) {
+        throw new BadRequestException("CPF já definido nesta conta — para trocar, fale com o suporte");
+      }
+      if (!user.cpf) {
+        const dono = await prisma.user.findUnique({ where: { cpf: digits } });
+        if (dono && dono.id !== userId) {
+          throw new BadRequestException("Este CPF já está em outra conta BoraFest");
+        }
+        cpf = digits;
+      }
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        ...(cpf ? { cpf } : {}),
+        ...(input.notifyWhatsapp !== undefined ? { notifyWhatsapp: input.notifyWhatsapp } : {}),
+        ...(input.notifyEmailOffers !== undefined ? { notifyEmailOffers: input.notifyEmailOffers } : {}),
+      },
+      select: { id: true, name: true, email: true, phone: true, cpf: true, notifyWhatsapp: true, notifyEmailOffers: true },
+    });
+    return { ...updated, verified: Boolean(updated.cpf) };
   }
 
   async orders(userId: string) {

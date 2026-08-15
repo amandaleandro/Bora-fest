@@ -105,6 +105,12 @@ export default function ProfilePage() {
   // transferência de ingresso (painel inline por cartão)
   const [transferFor, setTransferFor] = useState<string | null>(null); // ticket.id com painel aberto
   const [transferEmail, setTransferEmail] = useState("");
+  // transferência POR CPF (decisão 2026-08-15): o ingresso passa pro nome+CPF de quem recebe
+  const [transferCpf, setTransferCpf] = useState("");
+  // verificação da conta (CPF em Dados pessoais)
+  const [cpfInput, setCpfInput] = useState("");
+  const [cpfSaving, setCpfSaving] = useState(false);
+  const [cpfMsg, setCpfMsg] = useState<string | null>(null);
   const [transferSending, setTransferSending] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferNeedsAccount, setTransferNeedsAccount] = useState(false); // 404: destino sem conta
@@ -225,15 +231,16 @@ export default function ProfilePage() {
   }
 
   async function doTransfer(ticket: MyTicket) {
-    const toEmail = transferEmail.trim().toLowerCase();
+    const toCpf = transferCpf.replace(/\D/g, "");
     setTransferError(null);
     setTransferNeedsAccount(false);
-    if (!/^\S+@\S+\.\S+$/.test(toEmail)) {
-      setTransferError("Informe um e-mail válido da conta destino");
+    if (toCpf.length !== 11) {
+      setTransferError("Informe o CPF da conta destino (11 dígitos)");
       return;
     }
+    const cpfExibicao = `${toCpf.slice(0, 3)}.***.***-${toCpf.slice(9)}`;
     const ok = window.confirm(
-      `Transferir o ingresso de ${ticket.event.title} para ${toEmail}?\n\nO ingresso sai da sua conta, o QR atual deixa de valer e a ação não pode ser desfeita.`,
+      `Transferir o ingresso de ${ticket.event.title} para o CPF ${cpfExibicao}?\n\nO ingresso passa para o nome e CPF de quem recebe, o QR atual deixa de valer e a ação não pode ser desfeita.`,
     );
     if (!ok) return;
     if (!token) {
@@ -242,11 +249,11 @@ export default function ProfilePage() {
     }
     setTransferSending(true);
     try {
-      await api.transferTicket(ticket.id, { orderPublicToken: ticket.orderPublicToken, toEmail }, token);
-      const keptInWallet = (profile?.email ?? "").trim().toLowerCase() === toEmail;
-      setTransferredTo(toEmail);
+      await api.transferTicket(ticket.id, { orderPublicToken: ticket.orderPublicToken, toCpf }, token);
+      const keptInWallet = (profile?.cpf ?? "") === toCpf;
+      setTransferredTo(cpfExibicao);
       setTransferFor(null);
-      setTransferEmail("");
+      setTransferCpf("");
       if (!keptInWallet) {
         setTickets((prev) => (prev ? prev.filter((t) => t.id !== ticket.id) : prev));
       }
@@ -442,22 +449,23 @@ export default function ProfilePage() {
                           {transferFor === ticket.id && (
                             <div className="mt-3 rounded-2xl border border-line bg-[#faf9fd] p-4 text-left">
                               <p className="text-[12px] font-semibold leading-relaxed text-ink-soft">
-                                O ingresso sai da sua conta e o QR antigo deixa de valer. A pessoa precisa já ter
-                                conta BoraFest.
+                                Transferência por CPF: o ingresso passa para o <b>nome e CPF</b> de quem recebe e o
+                                QR antigo deixa de valer. A pessoa precisa ter conta BoraFest <b>verificada</b> (CPF
+                                em Dados pessoais).
                               </p>
                               <input
-                                type="email"
-                                value={transferEmail}
-                                onChange={(e) => setTransferEmail(e.target.value)}
-                                placeholder="E-mail da conta destino"
+                                inputMode="numeric"
+                                value={transferCpf}
+                                onChange={(e) => setTransferCpf(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                                placeholder="CPF da conta destino (só números)"
                                 disabled={transferSending}
                                 className="mt-3 h-12 w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[13px] font-medium outline-none focus:border-primary"
                               />
                               {transferError &&
                                 (transferNeedsAccount ? (
                                   <p className="mt-2.5 rounded-xl bg-warning/10 p-3 text-[12px] font-semibold leading-relaxed text-warning">
-                                    {transferError} Dica: compartilhe borafest.com.br/perfil — criar a conta leva
-                                    menos de um minuto, sem senha.
+                                    {transferError} Dica: compartilhe borafest.com.br/perfil — criar a conta e
+                                    informar o CPF em Dados pessoais leva menos de um minuto.
                                   </p>
                                 ) : (
                                   <p className="mt-2.5 text-[12px] font-semibold leading-relaxed text-danger">{transferError}</p>
@@ -584,9 +592,63 @@ export default function ProfilePage() {
 
           {section === "dados" && (
             <section className="space-y-3.5 lg:max-w-[560px]">
+              {!profile?.cpf && (
+                <div className="rounded-[20px] border border-warning/40 bg-warning/10 p-5">
+                  <p className="text-[14px] font-extrabold text-warning">Verifique sua conta</p>
+                  <p className="mt-1 text-[12.5px] font-semibold leading-relaxed text-ink-soft">
+                    Informe seu CPF abaixo para poder <b>receber ingressos transferidos</b> e entrar em eventos
+                    com ingresso nominal. Leva 10 segundos.
+                  </p>
+                </div>
+              )}
               <div className="rounded-[20px] border border-line bg-surface p-6">
                 <h2 className="text-[16px] font-extrabold">Dados pessoais</h2>
                 <div className="mt-[18px] space-y-3.5">
+                  <div>
+                    <p className="mb-1.5 text-[12px] font-bold text-ink-soft">CPF</p>
+                    {profile?.cpf ? (
+                      <p className="flex h-12 items-center justify-between rounded-xl border-[1.5px] border-line-input px-3.5 text-[14px] font-medium">
+                        <span>{profile.cpf.slice(0, 3)}.***.***-{profile.cpf.slice(9)}</span>
+                        <span className="rounded-full bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">Conta verificada ✓</span>
+                      </p>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          inputMode="numeric"
+                          value={cpfInput}
+                          onChange={(e) => setCpfInput(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                          placeholder="000.000.000-00"
+                          className="h-12 min-w-0 flex-1 rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary"
+                        />
+                        <button
+                          type="button"
+                          disabled={cpfSaving || cpfInput.length !== 11 || !token}
+                          onClick={async () => {
+                            if (!token) return;
+                            setCpfMsg(null);
+                            setCpfSaving(true);
+                            try {
+                              const updated = await api.updateMe(token, { cpf: cpfInput });
+                              setProfile((prev) => (prev ? { ...prev, cpf: updated.cpf } : prev));
+                              setCpfMsg("Conta verificada ✓ — agora você pode receber transferências.");
+                            } catch (err) {
+                              setCpfMsg(err instanceof ApiError ? err.message : "Não foi possível salvar o CPF");
+                            } finally {
+                              setCpfSaving(false);
+                            }
+                          }}
+                          className="h-12 shrink-0 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta disabled:bg-line disabled:text-muted disabled:shadow-none"
+                        >
+                          {cpfSaving ? "Salvando…" : "Verificar"}
+                        </button>
+                      </div>
+                    )}
+                    {cpfMsg && <p className="mt-2 text-[12px] font-bold text-ink-soft">{cpfMsg}</p>}
+                    <p className="mt-1.5 text-[11px] font-medium text-muted-2">
+                      O CPF identifica sua conta em ingressos nominais e transferências. Definido uma vez — para
+                      alterar, fale com o suporte.
+                    </p>
+                  </div>
                   <div>
                     <p className="mb-1.5 text-[12px] font-bold text-ink-soft">Nome completo</p>
                     <p className="flex h-12 items-center rounded-xl border-[1.5px] border-line-input px-3.5 text-[14px] font-medium">{profile?.name ?? "—"}</p>

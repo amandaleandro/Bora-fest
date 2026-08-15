@@ -386,12 +386,24 @@ export const api = {
    */
   transferTicket: (
     ticketId: string,
-    input: { toEmail: string; orderPublicToken?: string | null; toName?: string },
+    input: { toCpf?: string; toEmail?: string; orderPublicToken?: string | null; toName?: string },
     token: string,
   ) =>
     request<OrderTicket>(`/v1/tickets/${ticketId}/transfer`, {
       method: "POST",
-      body: { toEmail: input.toEmail, ...(input.orderPublicToken ? { orderPublicToken: input.orderPublicToken } : {}) },
+      body: {
+        ...(input.toCpf ? { toCpf: input.toCpf } : {}),
+        ...(input.toEmail ? { toEmail: input.toEmail } : {}),
+        ...(input.orderPublicToken ? { orderPublicToken: input.orderPublicToken } : {}),
+      },
+      token,
+    }),
+
+  /** Verificação da conta: CPF (uma vez) e nome — PATCH /v1/me. */
+  updateMe: (token: string, input: { name?: string; cpf?: string }) =>
+    request<{ id: string; name: string | null; cpf: string | null; verified: boolean }>("/v1/me", {
+      method: "PATCH",
+      body: input,
       token,
     }),
 
@@ -431,6 +443,9 @@ export const api = {
       name: string | null;
       email: string | null;
       phone: string | null;
+      /** conta verificada = tem CPF (recebe/transfere ingresso nominal) */
+      cpf?: string | null;
+      verified?: boolean;
       // preferências de notificação são de CONTA (handoff §8); enquanto a API
       // não as devolver, a UI cai no espelho em localStorage
       notifyWhatsapp?: boolean;
