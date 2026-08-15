@@ -414,6 +414,8 @@ export default function HomePage() {
                         {event.bannerUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
+                            loading="lazy"
+                            decoding="async"
                             src={event.bannerUrl}
                             alt=""
                             className="h-14 w-14 shrink-0 rounded-2xl object-cover"
@@ -495,17 +497,17 @@ export default function HomePage() {
           {/* faixa Produza seu evento (desktop) — arte oficial da marca; o
               botão "Criar conta de produtor" faz parte da imagem, então o
               banner INTEIRO é o link */}
-          <section className="mt-8 lg:mt-10">
+          <section className="-mx-5 mt-8 sm:mx-0 lg:mt-10">
             <a
               href={`${PANEL}/cadastro`}
               aria-label="Criar conta de produtor — do bora ao ingresso vendido em minutos, sem burocracia"
-              className="group block overflow-hidden rounded-2xl shadow-card transition-transform duration-200 hover:-translate-y-0.5 lg:rounded-3xl"
+              className="group block overflow-hidden rounded-none shadow-card transition-transform duration-200 hover:-translate-y-0.5 sm:rounded-2xl lg:rounded-3xl"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/brand/banner-produtores.webp"
                 alt="Do bora? ao ingresso vendido em minutos. Sem burocracia — publique em minutos, Pix direto na tela, sem trava de verificação. Grátis para começar."
-                loading="lazy" decoding="async" className="h-[150px] w-full object-cover object-left transition-transform duration-300 group-hover:scale-[1.01] sm:h-[190px] lg:h-auto lg:object-contain"
+                loading="lazy" decoding="async" className="h-auto w-full transition-transform duration-300 group-hover:scale-[1.01]"
               />
             </a>
           </section>
