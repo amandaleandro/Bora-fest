@@ -521,12 +521,16 @@ export default function ProfilePage() {
                             #BF-{order.publicToken.slice(0, 8).toUpperCase()} · {shortDate(order.createdAt)}
                           </span>
                           <span className={`rounded-full px-3 py-1.5 text-[11px] font-bold ${
+                            order.refundRequested && APPROVED.includes(order.status) ? "bg-warning/10 text-warning" :
                             ended ? "bg-line text-muted-2" :
                             APPROVED.includes(order.status) ? "bg-success/10 text-success" :
                             order.status === "PAYMENT_PENDING" || order.status === "CREATED" ? "bg-warning/10 text-warning" :
+                            order.status === "REFUNDED" ? "bg-danger/10 text-danger" :
                             "bg-line text-muted-2"
                           }`}>
-                            {ended ? "Evento encerrado" : ORDER_STATUS[order.status] ?? order.status}
+                            {order.refundRequested && APPROVED.includes(order.status)
+                              ? "Reembolso em análise"
+                              : ended ? "Evento encerrado" : ORDER_STATUS[order.status] ?? order.status}
                           </span>
                         </div>
                         <p className="mt-3 text-[16px] font-extrabold leading-tight">{order.event.title}</p>
@@ -560,7 +564,7 @@ export default function ProfilePage() {
                           <button onClick={() => resend(order.publicToken)} className="h-11 rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-ink">
                             Reenviar por e-mail
                           </button>
-                          {APPROVED.includes(order.status) && !ended && (
+                          {APPROVED.includes(order.status) && !ended && !order.refundRequested && (
                             <Link href="/minhas-compras" className="flex h-11 items-center rounded-xl border-[1.5px] border-[#f5c6cf] px-[18px] text-[13px] font-bold text-danger">
                               Solicitar reembolso
                             </Link>
