@@ -52,6 +52,23 @@ export async function executeOrderRefund(
   if (!payment || !payment.externalId) {
     throw new BadRequestException("Pedido não tem pagamento aprovado para estornar");
   }
+
+  // Caso Marcela (2026-08-15): crash DENTRO do gateway.refund devolvia o
+  // pagamento para PAID com o estorno JÁ FEITO lá. Pro Asaas, re-estornar
+  // seria recusado ("já estornado") e travaria para sempre. Antes de estornar
+  // um PAID, conferimos o gateway: se lá já consta estornado, só aplicamos a
+  // contabilidade — sem novo estorno.
+  {
+    const gatewayCheck = getGateway(payment.provider);
+    const statusNoGateway = await gatewayCheck.getStatus(payment.externalId).catch(() => null);
+    if (statusNoGateway === "REFUNDED" || statusNoGateway === "CHARGEBACK") {
+      await applyGatewayStatus(payment.id, statusNoGateway, undefined, {
+        refundAmountCents: input.amountCents,
+      });
+      return { order: { id: order.id }, payment: { id: payment.id }, gatewayStatus: statusNoGateway };
+    }
+  }
+
   await assertRefundWithinCap(payment, input.amountCents);
 
   const marked = await prisma.payment.updateMany({
