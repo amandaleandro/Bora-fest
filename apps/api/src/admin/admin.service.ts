@@ -205,17 +205,47 @@ export class AdminService {
       );
     }
 
-    // auditoria ANTES do delete (entityId é string, sem FK — sobrevive à exclusão)
-    await prisma.auditLog.create({
-      data: {
-        actorUserId: actor.id,
-        action: "admin.organization.delete",
-        entityType: "organization",
-        entityId: organizationId,
-        metadata: { name: organization.name, document: organization.document, status: organization.status },
-      },
+    // Limpeza transacional: pedidos NÃO-pagos de teste (CREATED/EXPIRED/…)
+    // travavam o delete por FKs sem cascade (Order.reservation, RefundRequest,
+    // PushToken → era o 500). Removemos o lixo explicitamente — com uma trava
+    // extra: pagamento com movimentação de dinheiro em QUALQUER estado bloqueia.
+    await prisma.$transaction(async (tx) => {
+      const eventIds = (
+        await tx.event.findMany({ where: { organizationId }, select: { id: true } })
+      ).map((e) => e.id);
+      if (eventIds.length > 0) {
+        const orderIds = (
+          await tx.order.findMany({ where: { eventId: { in: eventIds } }, select: { id: true } })
+        ).map((o) => o.id);
+        if (orderIds.length > 0) {
+          const moneyPayments = await tx.payment.count({
+            where: {
+              orderId: { in: orderIds },
+              status: { in: ["PAID", "AUTHORIZED", "REFUND_PENDING", "REFUNDED", "CHARGEBACK"] },
+            },
+          });
+          if (moneyPayments > 0) {
+            throw new BadRequestException(
+              "Organização tem pagamentos com movimentação — bloqueie em vez de excluir",
+            );
+          }
+          await tx.refundRequest.deleteMany({ where: { orderId: { in: orderIds } } });
+          await tx.pushToken.deleteMany({ where: { orderId: { in: orderIds } } });
+          await tx.order.deleteMany({ where: { id: { in: orderIds } } });
+        }
+      }
+      // auditoria ANTES do delete (entityId é string, sem FK — sobrevive à exclusão)
+      await tx.auditLog.create({
+        data: {
+          actorUserId: actor.id,
+          action: "admin.organization.delete",
+          entityType: "organization",
+          entityId: organizationId,
+          metadata: { name: organization.name, document: organization.document, status: organization.status },
+        },
+      });
+      await tx.organization.delete({ where: { id: organizationId } });
     });
-    await prisma.organization.delete({ where: { id: organizationId } });
     return { deleted: true };
   }
 
