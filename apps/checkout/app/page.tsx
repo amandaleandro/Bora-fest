@@ -63,7 +63,7 @@ function MiniCard({ event }: { event: EventListItem }) {
     >
       {event.bannerUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={event.bannerUrl} alt="" className="h-28 w-full object-cover" />
+        <img src={event.bannerUrl} alt="" loading="lazy" decoding="async" className="h-28 w-full object-cover" />
       ) : (
         <div className="flex h-28 items-center justify-center bg-brand-gradient text-[28px] font-extrabold text-white/85">
           {event.title.slice(0, 1).toUpperCase()}
@@ -97,7 +97,7 @@ function GridCard({ event }: { event: EventListItem }) {
     >
       {event.bannerUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={event.bannerUrl} alt="" className="h-36 w-full object-cover" />
+        <img src={event.bannerUrl} alt="" loading="lazy" decoding="async" className="h-36 w-full object-cover" />
       ) : (
         <div className="flex h-36 items-center justify-center bg-brand-gradient text-[40px] font-extrabold text-white/80">
           {event.title.slice(0, 1).toUpperCase()}
@@ -216,7 +216,7 @@ export default function HomePage() {
               // a arte preenche o hero igual ao card do mobile; o hero mais alto (min-h-420)
               // evita o corte ultra-wide que espremia o flyer numa faixa fina.
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={highlight.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
+              <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-center" />
             )}
             <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/80 via-black/45 to-black/10" : ""}`}>
               {!highlight.bannerUrl && (
@@ -335,7 +335,7 @@ export default function HomePage() {
               >
                 {highlight.bannerUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={highlight.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
                 )}
                 {highlight.bannerUrl ? (
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
@@ -505,7 +505,7 @@ export default function HomePage() {
               <img
                 src="/brand/banner-produtores.webp"
                 alt="Do bora? ao ingresso vendido em minutos. Sem burocracia — publique em minutos, Pix direto na tela, sem trava de verificação. Grátis para começar."
-                className="w-full transition-transform duration-300 group-hover:scale-[1.01]"
+                loading="lazy" decoding="async" className="h-[150px] w-full object-cover object-left transition-transform duration-300 group-hover:scale-[1.01] sm:h-[190px] lg:h-auto lg:object-contain"
               />
             </a>
           </section>

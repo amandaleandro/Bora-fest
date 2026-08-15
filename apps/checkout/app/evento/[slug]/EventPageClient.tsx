@@ -108,7 +108,7 @@ export function EventPageClient({ slug }: { slug: string }) {
           <div className="relative h-[320px] overflow-hidden rounded-3xl bg-brand-gradient">
             {event.bannerUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={event.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img src={event.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
             )}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-8">
               <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold backdrop-blur ${closed ? "bg-black/50 text-white/90" : "bg-black/25 text-white"}`}>
@@ -181,7 +181,7 @@ export function EventPageClient({ slug }: { slug: string }) {
       <div className="relative h-[430px] overflow-hidden bg-brand-gradient">
         {event.bannerUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.bannerUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img src={event.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5">
