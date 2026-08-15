@@ -86,7 +86,7 @@ async function seed(opts: {
       method: "PIX",
       amountCents: 1100,
       status: opts.payStatus,
-      externalId: `ext-${n}`,
+      externalId: `ext-${n}-${randomUUID().slice(0, 8)}`,
       ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
     },
   });
@@ -176,6 +176,23 @@ async function main() {
     const e = await estado(s.order.id, s.payment.id, s.lot.id);
     check("S5 auto-cura do worker: pedido→REFUNDED sem clique", e.order === "REFUNDED" && e.payment === "REFUNDED", JSON.stringify(e));
     check("S5 auto-cura: ZERO chamada de estorno", refundCalls - antes === 0, `calls=${refundCalls - antes}`);
+  }
+
+  // S7 — CONGRUÊNCIA: pagamento "pago" + request de reembolso ABERTO + gateway
+  // diz estornado → o worker baixa tudo E FECHA o request sozinho (zero clique)
+  {
+    const s = await seed({ payStatus: "PAID", orderStatus: "FULFILLED" });
+    const request = await prisma.refundRequest.create({
+      data: { orderId: s.order.id, reason: "lab S7", status: "PENDING" },
+    });
+    gatewayDiz = "REFUNDED";
+    const antes = refundCalls;
+    await reconcilePendingPayments();
+    const e = await estado(s.order.id, s.payment.id, s.lot.id);
+    const reqDepois = await prisma.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    check("S7 drift pago+request aberto: pedido→REFUNDED sem clique", e.order === "REFUNDED" && e.payment === "REFUNDED", JSON.stringify(e));
+    check("S7 request FECHADO automaticamente (APPROVED)", reqDepois.status === "APPROVED" && reqDepois.resolvedAt !== null, reqDepois.status);
+    check("S7 ZERO chamada de estorno", refundCalls - antes === 0, `calls=${refundCalls - antes}`);
   }
 
   const falhas = resultados.filter(([, ok]) => !ok);
