@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { isValidCpf } from "@borafest/auth";
 
 @Injectable()
 export class MeService {
@@ -38,6 +39,10 @@ export class MeService {
     if (input.cpf !== undefined) {
       const digits = input.cpf.replace(/\D/g, "");
       if (digits.length !== 11) throw new BadRequestException("CPF inválido — são 11 dígitos");
+      // dígitos verificadores: pega praticamente qualquer erro de digitação
+      if (!isValidCpf(digits)) {
+        throw new BadRequestException("CPF inválido — confira os números digitados");
+      }
       if (user.cpf && user.cpf !== digits) {
         throw new BadRequestException("CPF já definido nesta conta — para trocar, fale com o suporte");
       }
@@ -60,6 +65,21 @@ export class MeService {
       },
       select: { id: true, name: true, email: true, phone: true, cpf: true, notifyWhatsapp: true, notifyEmailOffers: true },
     });
+
+    // trilha de segurança (2026-08-15): CPF recém-definido gera aviso por
+    // e-mail — "se não foi você, fale com o suporte". Best-effort.
+    if (cpf && updated.email) {
+      await prisma.notification
+        .create({
+          data: {
+            channel: "EMAIL",
+            recipient: updated.email,
+            template: "cpf_defined",
+            payload: { cpfMasked: `${cpf.slice(0, 3)}.***.***-${cpf.slice(9)}`, name: updated.name },
+          },
+        })
+        .catch(() => undefined);
+    }
     return { ...updated, verified: Boolean(updated.cpf) };
   }
 

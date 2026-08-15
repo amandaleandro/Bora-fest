@@ -17,6 +17,18 @@ type MyTicket = Awaited<ReturnType<typeof api.myTickets>>[number];
 type MyOrder = Awaited<ReturnType<typeof api.myOrders>>[number];
 type Profile = Awaited<ReturnType<typeof api.myProfile>>;
 
+/** dígitos verificadores do CPF — barra typo antes de ir ao servidor */
+function isValidCpf(raw: string): boolean {
+  const cpf = raw.replace(/\D/g, "");
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const len of [9, 10]) {
+    let sum = 0;
+    for (let i = 0; i < len; i += 1) sum += Number(cpf[i]) * (len + 1 - i);
+    if (((sum * 10) % 11) % 10 !== Number(cpf[len])) return false;
+  }
+  return true;
+}
+
 const MENU: Array<{ id: Section; label: string }> = [
   { id: "ingressos", label: "Meus ingressos" },
   { id: "compras", label: "Minhas compras" },
@@ -238,6 +250,10 @@ export default function ProfilePage() {
       setTransferError("Informe o CPF da conta destino (11 dígitos)");
       return;
     }
+    if (!isValidCpf(toCpf)) {
+      setTransferError("CPF inválido — confira os números digitados");
+      return;
+    }
     const cpfExibicao = `${toCpf.slice(0, 3)}.***.***-${toCpf.slice(9)}`;
     const ok = window.confirm(
       `Transferir o ingresso de ${ticket.event.title} para o CPF ${cpfExibicao}?\n\nO ingresso passa para o nome e CPF de quem recebe, o QR atual deixa de valer e a ação não pode ser desfeita.`,
@@ -356,6 +372,9 @@ export default function ProfilePage() {
                 }`}
               >
                 {item.label}
+                {item.id === "dados" && profile && !profile.cpf ? (
+                  <span className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-warning text-[10px] font-extrabold text-white">!</span>
+                ) : null}
               </button>
             ))}
             <button onClick={logout} className="hidden px-4 py-3.5 text-left text-[13px] font-semibold text-danger lg:block">
@@ -372,6 +391,19 @@ export default function ProfilePage() {
         <div className="mt-6 lg:mt-0 lg:flex-1">
           {section === "ingressos" && (
             <section>
+              {profile && !profile.cpf && (
+                <button
+                  type="button"
+                  onClick={() => setSection("dados")}
+                  className="mb-3.5 w-full rounded-2xl border border-warning/40 bg-warning/10 p-3.5 text-left"
+                >
+                  <span className="block text-[13px] font-extrabold text-warning">Verifique sua conta</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold leading-relaxed text-ink-soft">
+                    Informe seu CPF em Dados pessoais para <b>receber ingressos transferidos</b> e agilizar a
+                    portaria. Toque aqui — leva 10 segundos →
+                  </span>
+                </button>
+              )}
               {transferredTo && (
                 <p className="mb-3.5 rounded-2xl bg-success/10 p-3.5 text-[12.5px] font-bold leading-relaxed text-success break-words">
                   Ingresso transferido para {transferredTo} — já está na conta dela 🎟️
@@ -626,6 +658,10 @@ export default function ProfilePage() {
                           onClick={async () => {
                             if (!token) return;
                             setCpfMsg(null);
+                            if (!isValidCpf(cpfInput)) {
+                              setCpfMsg("CPF inválido — confira os números digitados");
+                              return;
+                            }
                             setCpfSaving(true);
                             try {
                               const updated = await api.updateMe(token, { cpf: cpfInput });

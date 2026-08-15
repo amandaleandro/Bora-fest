@@ -121,6 +121,35 @@ async function send(
     throw new Error(`Canal não suportado para ticket_transferred: ${channel}`);
   }
 
+  if (template === "cpf_defined") {
+    if (channel === "EMAIL") {
+      const p = payload as { cpfMasked: string; name?: string | null };
+      const ola = p.name ? `Olá, ${p.name}!` : "Olá!";
+      await getEmailSender().send({
+        to: recipient,
+        subject: "Seu CPF foi definido na conta BoraFest",
+        text: [
+          ola,
+          "",
+          `O CPF ${p.cpfMasked} acabou de ser definido como identidade da sua conta BoraFest — é ele que vale em ingressos nominais e transferências.`,
+          "",
+          "Se NÃO foi você, fale com o suporte imediatamente respondendo este e-mail.",
+          "",
+          "Equipe BoraFest",
+        ].join("\n"),
+        html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p>${ola}</p>
+  <p>O CPF <b>${p.cpfMasked}</b> acabou de ser definido como identidade da sua conta BoraFest — é ele que vale em ingressos nominais e transferências.</p>
+  <p style="color:#b45309;font-weight:600">Se NÃO foi você, fale com o suporte imediatamente respondendo este e-mail.</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+      });
+      return;
+    }
+    throw new Error(`Canal não suportado para cpf_defined: ${channel}`);
+  }
+
   if (template !== "ticket_delivery") {
     throw new Error(`Template de notificação desconhecido: ${template}`);
   }

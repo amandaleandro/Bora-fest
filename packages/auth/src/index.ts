@@ -4,3 +4,4 @@ export * from "./rbac";
 export * from "./validator";
 export * from "./platform";
 export * from "./password";
+export * from "./cpf";

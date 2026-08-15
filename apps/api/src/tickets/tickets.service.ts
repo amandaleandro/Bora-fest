@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
@@ -181,6 +182,9 @@ export class TicketsService {
     if (input.toCpf) {
       const cpfDigits = input.toCpf.replace(/\D/g, "");
       if (cpfDigits.length !== 11) throw new BadRequestException("CPF inválido — são 11 dígitos");
+      if (!isValidCpf(cpfDigits)) {
+        throw new BadRequestException("CPF inválido — confira os números digitados");
+      }
       toUser = await prisma.user.findUnique({ where: { cpf: cpfDigits } });
       if (!toUser) {
         throw new NotFoundException(
