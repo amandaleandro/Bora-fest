@@ -122,7 +122,12 @@ export class OrdersService {
         where: {
           slug: input.sellerSlug,
           status: "ACTIVE",
-          promoterLink: { organizationId: eventOrg.organizationId, status: "ACTIVE" },
+          promoterLink: {
+            organizationId: eventOrg.organizationId,
+            status: "ACTIVE",
+            // escopo por evento: link de outro evento NÃO atribui aqui
+            OR: [{ eventId: null }, { eventId: reservation.eventId }],
+          },
         },
         select: {
           id: true,
@@ -142,6 +147,8 @@ export class OrdersService {
           organizationId: eventOrg.organizationId,
           slug: input.promoterSlug,
           status: "ACTIVE",
+          // escopo por evento: ?pr= de outro evento é ignorado (sem comissão)
+          OR: [{ eventId: null }, { eventId: reservation.eventId }],
         },
         select: { id: true, commissionType: true, commissionBps: true, commissionFixedCents: true },
       });

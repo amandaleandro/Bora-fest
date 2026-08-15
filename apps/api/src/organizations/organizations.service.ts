@@ -351,6 +351,7 @@ export class OrganizationsService {
     actorUserId: string,
     input: {
       email: string;
+      eventId?: string;
       commissionType: "NONE" | "PERCENT" | "FIXED";
       commissionBps?: number;
       commissionFixedCents?: number;
@@ -359,10 +360,20 @@ export class OrganizationsService {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     const promoter = await this.upsertBasicUser(input.email);
 
+    // escopo por evento (decisão 2026-08-15): o evento tem que ser DESTA casa
+    if (input.eventId) {
+      const evento = await prisma.event.findFirst({
+        where: { id: input.eventId, organizationId },
+        select: { id: true },
+      });
+      if (!evento) throw new BadRequestException("Evento não pertence a esta organização");
+    }
+
     const data = {
       commissionType: input.commissionType,
       commissionBps: input.commissionType === "PERCENT" ? input.commissionBps ?? 0 : 0,
       commissionFixedCents: input.commissionType === "FIXED" ? input.commissionFixedCents ?? 0 : 0,
+      eventId: input.eventId ?? null,
     };
     const existente = await prisma.promoterLink.findUnique({
       where: { organizationId_promoterUserId: { organizationId, promoterUserId: promoter.id } },
@@ -397,7 +408,11 @@ export class OrganizationsService {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     const links = await prisma.promoterLink.findMany({
       where: { organizationId, status: { in: ["INVITED", "ACTIVE"] } },
-      include: { promoterUser: { select: { name: true, email: true } }, _count: { select: { sellers: true } } },
+      include: {
+        promoterUser: { select: { name: true, email: true } },
+        event: { select: { title: true } },
+        _count: { select: { sellers: true } },
+      },
       orderBy: { invitedAt: "desc" },
     });
     const stats = await prisma.order.groupBy({
@@ -411,6 +426,8 @@ export class OrganizationsService {
       id: link.id,
       status: link.status,
       slug: link.slug,
+      /** null = todos os eventos; senão, o título do evento do escopo */
+      eventTitle: link.event?.title ?? null,
       promoterName: link.promoterUser.name ?? link.promoterUser.email,
       sellers: link._count.sellers,
       paidOrders: porLink.get(link.id)?._count._all ?? 0,

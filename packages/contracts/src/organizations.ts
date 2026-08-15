@@ -52,6 +52,8 @@ export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export const invitePromoterSchema = z
   .object({
     email: z.string().email(),
+    /** escopo: ausente = todos os eventos da casa; presente = SÓ este evento */
+    eventId: z.string().uuid().optional(),
     commissionType: z.enum(["NONE", "PERCENT", "FIXED"]).default("NONE"),
     /** PERCENT: bps (500 = 5%) */
     commissionBps: z.number().int().min(0).max(5000).optional(),

@@ -87,6 +87,8 @@ export interface PromoterRow {
   id: string;
   status: string;
   slug: string;
+  /** null = todos os eventos da casa; senão o título do evento do escopo */
+  eventTitle?: string | null;
   promoterName: string;
   sellers: number;
   paidOrders: number;
@@ -116,6 +118,8 @@ export const organizationsApi = {
     organizationId: string,
     input: {
       email: string;
+      /** escopo: ausente = todos os eventos; presente = SÓ este evento */
+      eventId?: string;
       commissionType: "NONE" | "PERCENT" | "FIXED";
       commissionBps?: number;
       commissionFixedCents?: number;

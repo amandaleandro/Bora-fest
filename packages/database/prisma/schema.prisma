@@ -304,12 +304,16 @@ model PromoterLink {
   commissionFixedCents Int           @default(0) @map("commission_fixed_cents")
   /// slug global do link rastreável (?pr=slug) — único entre todos os promoters
   slug           String              @unique
+  /// escopo (decisão 2026-08-15): null = TODOS os eventos da casa; preenchido =
+  /// o link/comissão só valem NESTE evento (em outro, a atribuição é ignorada)
+  eventId        String?             @map("event_id") @db.Uuid
   invitedBy      String?             @map("invited_by") @db.Uuid
   invitedAt      DateTime            @default(now()) @map("invited_at")
   respondedAt    DateTime?           @map("responded_at")
 
   organization Organization @relation("PromoterHost", fields: [organizationId], references: [id], onDelete: Cascade)
   promoterUser User         @relation("PromoterPerson", fields: [promoterUserId], references: [id], onDelete: Cascade)
+  event        Event?       @relation("PromoterEventScope", fields: [eventId], references: [id], onDelete: Cascade)
   sellers      PromoterSeller[]
   orders       Order[]
 
@@ -560,6 +564,7 @@ model Event {
   reviews              EventReview[]
   addOns               EventAddOn[]
   guestListEntries     GuestListEntry[]
+  promoterLinks        PromoterLink[]      @relation("PromoterEventScope")
 
   @@index([organizationId])
   @@index([status])

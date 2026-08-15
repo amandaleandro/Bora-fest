@@ -312,6 +312,9 @@ function Promoters({ orgId }: { orgId: string }) {
   const { token } = useAuth();
   const [promoters, setPromoters] = useState<PromoterRow[]>([]);
   const [email, setEmail] = useState("");
+  // escopo do convite: "" = todos os eventos da casa; senão o id do evento
+  const [eventoEscopo, setEventoEscopo] = useState("");
+  const [eventos, setEventos] = useState<EventSummary[]>([]);
   const [commissionType, setCommissionType] = useState<"NONE" | "PERCENT" | "FIXED">("NONE");
   const [valor, setValor] = useState("10");
   const [busy, setBusy] = useState(false);
@@ -323,6 +326,7 @@ function Promoters({ orgId }: { orgId: string }) {
   async function load() {
     if (!token) return;
     setPromoters(await organizationsApi.listPromoters(token, orgId).catch(() => []));
+    setEventos(await eventsApi.list(token, orgId).catch(() => []));
   }
 
   useEffect(() => {
@@ -337,6 +341,7 @@ function Promoters({ orgId }: { orgId: string }) {
     try {
       await organizationsApi.invitePromoter(token, orgId, {
         email: email.trim(),
+        ...(eventoEscopo ? { eventId: eventoEscopo } : {}),
         commissionType,
         // contrato: commissionBps 0..5000 (máx. 50%) — clampa pra não tomar 400
         ...(commissionType === "PERCENT"
@@ -386,13 +391,24 @@ function Promoters({ orgId }: { orgId: string }) {
       </p>
 
       <div className="rounded-[16px] border border-dashed border-line bg-bg/40 p-4">
-        <div className="grid gap-2 md:grid-cols-[1fr_170px_120px_auto]">
+        <div className="grid gap-2 md:grid-cols-[1fr_180px_170px_120px_auto]">
           <input
             className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
             placeholder="E-mail do promoter"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
+          <select
+            className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
+            value={eventoEscopo}
+            onChange={(e) => setEventoEscopo(e.target.value)}
+            title="Em qual evento este promoter atua — o link dele só conta/comissiona no escopo escolhido"
+          >
+            <option value="">Todos os eventos</option>
+            {eventos.map((ev) => (
+              <option key={ev.id} value={ev.id}>Só: {ev.title}</option>
+            ))}
+          </select>
           <select
             className="h-11 rounded-xl border border-line-input px-3 text-[13px]"
             value={commissionType}
@@ -436,6 +452,7 @@ function Promoters({ orgId }: { orgId: string }) {
                 <div>
                   <p className="text-[13.5px] font-extrabold">{p.promoterName}</p>
                   <p className="text-[12px] font-semibold text-muted">
+                    {p.eventTitle ? `Só no evento: ${p.eventTitle}` : "Todos os eventos"} ·{" "}
                     {p.status === "INVITED" ? "Aguardando aceite" : "Ativo"} · {comissaoLabel(p)} ·{" "}
                     {p.paidOrders} venda{p.paidOrders === 1 ? "" : "s"} ({brl(p.soldCents)})
                     {p.commissionCents > 0 ? ` · ${brl(p.commissionCents)} em comissões` : ""}
