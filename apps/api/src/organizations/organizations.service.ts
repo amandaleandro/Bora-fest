@@ -426,6 +426,33 @@ export class OrganizationsService {
     return link;
   }
 
+  /**
+   * A CASA revoga o acesso do promoter (decisão 2026-08-15): o link para de
+   * atribuir/comissionar NA HORA (guards filtram status ACTIVE) e os
+   * vendedores dele ficam inertes junto (o caminho ?vd= exige o link ativo).
+   */
+  async revokePromoter(linkId: string, actorUserId: string) {
+    const link = await prisma.promoterLink.findUnique({ where: { id: linkId } });
+    if (!link) throw new NotFoundException("Promoter não encontrado");
+    await this.orgAccess.assertPermission(link.organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+    if (link.status === "REMOVED") throw new BadRequestException("Este promoter já foi removido");
+    const updated = await prisma.promoterLink.update({
+      where: { id: linkId },
+      data: { status: "REMOVED", respondedAt: new Date() },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorUserId,
+        organizationId: link.organizationId,
+        action: "promoter.revoked",
+        entityType: "promoter_link",
+        entityId: linkId,
+        metadata: { promoterUserId: link.promoterUserId, slug: link.slug },
+      },
+    });
+    return updated;
+  }
+
   /** Visão da CASA: promoters com vendas e comissão acumulada. */
   async listPromoters(organizationId: string, actorUserId: string) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);

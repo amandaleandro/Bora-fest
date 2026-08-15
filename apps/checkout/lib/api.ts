@@ -399,6 +399,13 @@ export const api = {
       token,
     }),
 
+  /** Convites de promoter pendentes PARA MIM (aceite acontece no painel). */
+  myPromoterInvites: (token: string) =>
+    request<Array<{ id: string; organization: { name: string; displayName?: string | null } }>>(
+      "/v1/organizations/promoter-invites/mine",
+      { token },
+    ),
+
   /** Verificação da conta: CPF (uma vez) e nome — PATCH /v1/me. */
   updateMe: (token: string, input: { name?: string; cpf?: string }) =>
     request<{ id: string; name: string | null; cpf: string | null; verified: boolean }>("/v1/me", {

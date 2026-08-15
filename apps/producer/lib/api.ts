@@ -156,6 +156,10 @@ export const organizationsApi = {
       method: "POST",
       token,
     }),
+  /** a casa revoga o acesso do promoter — link e vendedores param na hora */
+  revokePromoter: (token: string, linkId: string) =>
+    request(`/v1/organizations/promoter-links/${linkId}/revoke`, { method: "POST", token }),
+
   listPromoters: (token: string, organizationId: string) =>
     request<PromoterRow[]>(`/v1/organizations/${organizationId}/promoters`, { token }),
   myPromoterInvites: (token: string) =>

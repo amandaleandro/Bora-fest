@@ -119,6 +119,8 @@ export default function ProfilePage() {
   const [transferEmail, setTransferEmail] = useState("");
   // transferência POR CPF (decisão 2026-08-15): o ingresso passa pro nome+CPF de quem recebe
   const [transferCpf, setTransferCpf] = useState("");
+  // convite de promoter pendente — o aceite é no PAINEL; aqui só avisamos
+  const [promoterInvites, setPromoterInvites] = useState(0);
   // verificação da conta (CPF em Dados pessoais)
   const [cpfInput, setCpfInput] = useState("");
   const [cpfSaving, setCpfSaving] = useState(false);
@@ -147,9 +149,14 @@ export default function ProfilePage() {
         if (typeof p.notifyEmailOffers === "boolean") setEmailOffers(p.notifyEmailOffers);
       })
       .catch(() => {
+        // sessão inválida: limpa o token (comportamento original)
         localStorage.removeItem("bf.token");
         setToken(null);
       });
+    api
+      .myPromoterInvites(t)
+      .then((inv) => setPromoterInvites(inv.length))
+      .catch(() => undefined);
   }, []);
 
   // carrega cada aba na primeira visita (o ref evita disparar de novo enquanto a resposta não chega)
@@ -391,6 +398,19 @@ export default function ProfilePage() {
         <div className="mt-6 lg:mt-0 lg:flex-1">
           {section === "ingressos" && (
             <section>
+              {promoterInvites > 0 && (
+                <a
+                  href={`${process.env.NEXT_PUBLIC_PANEL_URL ?? "https://painel.borafest.com.br"}/organizacoes`}
+                  className="mb-3.5 block rounded-2xl border border-primary/30 bg-primary/[.06] p-3.5"
+                >
+                  <span className="block text-[13px] font-extrabold text-primary">
+                    Você foi convidada(o) para ser promoter! 🎉
+                  </span>
+                  <span className="mt-0.5 block text-[12px] font-semibold leading-relaxed text-ink-soft">
+                    Aceite no painel (entre com este mesmo e-mail) e ganhe seu link de divulgação — toque aqui →
+                  </span>
+                </a>
+              )}
               {profile && !profile.cpf && (
                 <button
                   type="button"

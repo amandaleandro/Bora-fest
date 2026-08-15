@@ -475,6 +475,23 @@ function Promoters({ orgId }: { orgId: string }) {
                       {copied === p.id ? "Copiado ✓" : "Copiar link"}
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!token) return;
+                      if (!window.confirm(`Remover ${p.promoterName} como promoter? O link dele (e dos vendedores dele) para de contar NA HORA. Vendas já feitas ficam registradas.`)) return;
+                      setMessage(null);
+                      try {
+                        await organizationsApi.revokePromoter(token, p.id);
+                        await load();
+                      } catch (err) {
+                        setMessage(err instanceof Error ? err.message : "Não foi possível remover");
+                      }
+                    }}
+                    className="h-9 rounded-xl border border-danger/40 px-3 text-[12.5px] font-bold text-danger hover:bg-danger/5"
+                  >
+                    Remover
+                  </button>
                 </div>
               </div>
               {aberto === p.id ? (

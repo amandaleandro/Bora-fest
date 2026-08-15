@@ -66,6 +66,12 @@ export class OrganizationsController {
     return this.organizationsService.inviteSeller(linkId, userId, body as any);
   }
 
+  /** a CASA revoga o acesso do promoter — link e vendedores param na hora */
+  @Post("promoter-links/:linkId/revoke")
+  revokePromoter(@Param("linkId") linkId: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.revokePromoter(linkId, userId);
+  }
+
   /** cascata: promoter (ou a casa) vê os vendedores e quanto cada um vendeu */
   @Get("promoter-links/:linkId/sellers")
   listSellers(@Param("linkId") linkId: string, @CurrentUserId() userId: string) {
