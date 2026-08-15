@@ -400,14 +400,22 @@ export default function ProfilePage() {
             <section>
               {promoterInvites > 0 && (
                 <a
-                  href={`${process.env.NEXT_PUBLIC_PANEL_URL ?? "https://painel.borafest.com.br"}/organizacoes`}
+                  // conta é ÚNICA: quem já tem senha vai direto ao login do
+                  // painel; 1º acesso cria a senha (link seguro por e-mail)
+                  href={
+                    profile?.hasPassword
+                      ? `${process.env.NEXT_PUBLIC_PANEL_URL ?? "https://painel.borafest.com.br"}/login`
+                      : `${process.env.NEXT_PUBLIC_PANEL_URL ?? "https://painel.borafest.com.br"}/recuperar?email=${encodeURIComponent(profile?.email ?? "")}&novo=1`
+                  }
                   className="mb-3.5 block rounded-2xl border border-primary/30 bg-primary/[.06] p-3.5"
                 >
                   <span className="block text-[13px] font-extrabold text-primary">
                     Você foi convidada(o) para ser promoter! 🎉
                   </span>
                   <span className="mt-0.5 block text-[12px] font-semibold leading-relaxed text-ink-soft">
-                    Aceite no painel (entre com este mesmo e-mail) e ganhe seu link de divulgação — toque aqui →
+                    {profile?.hasPassword
+                      ? "Aceite no painel — entre com este mesmo e-mail e sua senha. Toque aqui →"
+                      : "Primeiro acesso ao painel: toque aqui, crie sua senha (mesma conta, mesmo e-mail) e aceite o convite →"}
                   </span>
                 </a>
               )}

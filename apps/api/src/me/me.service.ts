@@ -13,14 +13,21 @@ export class MeService {
         email: true,
         phone: true,
         cpf: true,
+        passwordHash: true,
         notifyWhatsapp: true,
         notifyEmailOffers: true,
         createdAt: true,
       },
     });
     if (!user) throw new NotFoundException("Usuário não encontrado");
-    // conta VERIFICADA = tem CPF (recebe/transfere ingresso nominal)
-    return { ...user, verified: Boolean(user.cpf) };
+    const { passwordHash, ...publico } = user;
+    return {
+      ...publico,
+      // conta VERIFICADA = tem CPF (recebe/transfere ingresso nominal)
+      verified: Boolean(user.cpf),
+      // tem senha = já consegue entrar no PAINEL; sem senha = 1º acesso cria uma
+      hasPassword: Boolean(passwordHash),
+    };
   }
 
   /**

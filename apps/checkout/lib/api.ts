@@ -453,6 +453,8 @@ export const api = {
       /** conta verificada = tem CPF (recebe/transfere ingresso nominal) */
       cpf?: string | null;
       verified?: boolean;
+      /** já tem senha do painel; false = primeiro acesso cria uma */
+      hasPassword?: boolean;
       // preferências de notificação são de CONTA (handoff §8); enquanto a API
       // não as devolver, a UI cai no espelho em localStorage
       notifyWhatsapp?: boolean;
