@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type EventListItem, type EventCategory } from "../lib/api";
+import { getFavorites } from "../lib/favorites";
 import { formatCents } from "../lib/format";
 import { captureAttributionFromUrl } from "../lib/attribution";
 import { Icon, paths } from "../components/icons";
@@ -167,6 +168,18 @@ export default function HomePage() {
 
   // home viva: Em alta (placar de vendas) + prateleiras por categoria
   const [sections, setSections] = useState<HomeSections | null>(null);
+  const [favIds, setFavIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const read = () => setFavIds(getFavorites());
+    read();
+    window.addEventListener("bf.favs", read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener("bf.favs", read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
   useEffect(() => {
     api
       .getHomeSections(city ?? undefined)
@@ -202,6 +215,18 @@ export default function HomePage() {
     ? sections.upcoming.filter((e) => e.id !== highlight?.id)
     : filtered.slice(1);
   const rest = upcoming;
+
+  // favoritos do aparelho (bf.favs) cruzados com os eventos já carregados
+  const favoritos = (() => {
+    if (!favIds.length) return [] as EventListItem[];
+    const pool = new Map<string, EventListItem>();
+    const fontes = [
+      ...(events ?? []),
+      ...(sections ? [...sections.highlights, ...sections.upcoming, ...sections.shelves.flatMap((s) => s.events)] : []),
+    ];
+    for (const e of fontes) pool.set(e.id, e);
+    return favIds.map((id) => pool.get(id)).filter(Boolean) as EventListItem[];
+  })();
 
   const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
 
@@ -375,6 +400,18 @@ export default function HomePage() {
             </section>
           )}
 
+          {/* Seus favoritos (coração do evento — guardado no aparelho) */}
+          {sectionsView && favoritos.length > 0 && (
+            <section className="mt-7 lg:hidden">
+              <h2 className="text-[15px] font-extrabold">Seus favoritos ♥</h2>
+              <div className="-mx-5 mt-3 flex gap-3 overflow-x-auto px-5 pb-2">
+                {favoritos.map((event) => (
+                  <MiniCard key={event.id} event={event} />
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* prateleiras por categoria (nascem com 3+ eventos) */}
           {shelves.map((shelf) => (
             <section key={shelf.category} className="mt-7 lg:hidden">
@@ -453,6 +490,18 @@ export default function HomePage() {
               <h2 className="text-[20px] font-extrabold">Em alta 🔥</h2>
               <div className="mt-4 grid grid-cols-4 gap-5">
                 {emAlta.slice(0, 4).map((event) => (
+                  <GridCard key={event.id} event={event} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Seus favoritos desktop */}
+          {sectionsView && favoritos.length > 0 && (
+            <section className="hidden lg:block">
+              <h2 className="text-[20px] font-extrabold">Seus favoritos ♥</h2>
+              <div className="mt-4 grid grid-cols-4 gap-5">
+                {favoritos.slice(0, 8).map((event) => (
                   <GridCard key={event.id} event={event} />
                 ))}
               </div>

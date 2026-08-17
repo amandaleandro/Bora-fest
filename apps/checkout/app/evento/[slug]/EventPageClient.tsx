@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../../lib/api";
 import { formatCents } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
+import { FavoriteButton } from "../../../components/FavoriteButton";
 import { TicketSelector } from "../../../components/TicketSelector";
 import { PixelTracker } from "../../../components/PixelTracker";
 import { captureAttributionFromUrl } from "../../../lib/attribution";
@@ -195,9 +196,7 @@ export function EventPageClient({ slug }: { slug: string }) {
             <Icon d={paths.back} />
           </button>
           <div className="flex gap-2">
-            <button aria-label="Favoritar" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur">
-              <Icon d={paths.heart} size={18} />
-            </button>
+            <FavoriteButton eventId={event.id} />
             <button
               aria-label="Compartilhar"
               onClick={() => navigator.share?.({ title: event.title, url: location.href }).catch(() => {})}
