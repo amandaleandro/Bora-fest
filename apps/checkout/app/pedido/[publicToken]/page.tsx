@@ -513,7 +513,7 @@ function VerificationGate({
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
             placeholder="••••••"
-            className="mt-4 h-[58px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface text-center text-[24px] font-extrabold tracking-[10px] outline-none focus:border-primary"
+            className="mt-4 h-[58px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface text-center !text-[24px] font-extrabold tracking-[10px] outline-none focus:border-primary"
           />
           <button
             type="button"

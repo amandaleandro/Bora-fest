@@ -329,7 +329,7 @@ export default function ProfilePage() {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               placeholder="Código de 6 dígitos"
-              className="mt-3 h-[56px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-4 text-center text-[20px] font-extrabold tracking-[8px] outline-none focus:border-primary"
+              className="mt-3 h-[56px] w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-4 text-center !text-[20px] font-extrabold tracking-[8px] outline-none focus:border-primary"
             />
           )}
           {error && <p className="mt-2 text-[12px] font-semibold text-danger">{error}</p>}

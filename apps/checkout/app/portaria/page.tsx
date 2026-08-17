@@ -1284,7 +1284,7 @@ export default function PortariaPage() {
                   autoCapitalize="characters"
                   autoCorrect="off"
                   spellCheck={false}
-                  className="w-full bg-transparent text-[20px] font-extrabold uppercase tracking-[.12em] text-white outline-none placeholder:text-white/25"
+                  className="w-full bg-transparent !text-[20px] font-extrabold uppercase tracking-[.12em] text-white outline-none placeholder:text-white/25"
                 />
               </div>
 

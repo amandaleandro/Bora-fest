@@ -24,3 +24,25 @@ body {
 }
 .ticket-notch::before { left: -11px; }
 .ticket-notch::after { right: -11px; }
+
+/*
+ * iOS Safari dá ZOOM automático ao focar um campo com fonte < 16px — e o zoom
+ * empurra o layout pra fora da tela (relato do Arthur 2026-08-17: tela de login
+ * "quebrada" com o teclado aberto). Fonte >= 16px no mobile mata o zoom na raiz.
+ * Acima de 1024px nada muda: o desenho original dos campos continua.
+ */
+@media (max-width: 1023px) {
+  /* seletor de ELEMENTO puro (especificidade 0,0,1) de propósito: com !important
+   * dos dois lados, quem tiver especificidade maior vence — então `!text-[20px]`
+   * numa classe (0,1,0) continua mandando nos campos de código. Se usasse
+   * :not([type=...]) aqui, a regra passaria por cima deles. */
+  input,
+  select,
+  textarea {
+    /* !important porque a classe do Tailwind (text-[13px]) tem especificidade
+     * maior que o seletor de elemento e venceria. Com !important dos dois lados,
+     * a especificidade decide — então um campo que PRECISE ser maior no celular
+     * (código de 6 dígitos) continua mandando com `!text-[20px]`. */
+    font-size: 16px !important;
+  }
+}
