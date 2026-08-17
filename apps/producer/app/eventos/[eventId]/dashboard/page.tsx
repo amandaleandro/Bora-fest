@@ -4,11 +4,49 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
+import { CHECKOUT_URL } from "@/lib/config";
+import { useEventShell } from "@/lib/eventContext";
 import { dashboardApi, type Dashboard } from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+
+/** "R$ 96,1 mil" — valor grande não quebra linha no celular. */
+function brlCompact(cents: number): string {
+  const v = cents / 100;
+  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
+  if (v >= 10_000) return `R$ ${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil`;
+  return formatCents(cents);
+}
+
+const STATUS_CHIP: Record<string, { bg: string; fg: string; label: string }> = {
+  PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
+  DRAFT: { bg: "bg-warning/10", fg: "text-warning", label: "Rascunho" },
+  SALES_PAUSED: { bg: "bg-warning/10", fg: "text-warning", label: "Pausado" },
+  UNPUBLISHED: { bg: "bg-line", fg: "text-muted", label: "Despublicado" },
+};
+
+/** Enums do banco viravam texto cru na tela (FULFILLED, CHECKED_IN…). */
+const ORDER_STATUS_PT: Record<string, string> = {
+  PENDING: "Aguardando pagamento",
+  PAID: "Pago",
+  FULFILLED: "Concluído",
+  EXPIRED: "Expirado",
+  CANCELLED: "Cancelado",
+  CANCELED: "Cancelado",
+  REFUNDED: "Reembolsado",
+  REFUND_PENDING: "Reembolso em análise",
+};
+const TICKET_STATUS_PT: Record<string, string> = {
+  ISSUED: "Emitido",
+  CHECKED_IN: "Check-in feito",
+  TRANSFERRED: "Transferido",
+  REFUNDED: "Reembolsado",
+  VOID: "Cancelado",
+  CANCELLED: "Cancelado",
+  CANCELED: "Cancelado",
+};
 
 const KPI_STYLES = [
   { bg: "bg-primary/10", fg: "text-primary" },
@@ -19,6 +57,7 @@ const KPI_STYLES = [
 
 function DashboardContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
+  const { event } = useEventShell();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,33 +116,75 @@ function DashboardContent({ eventId }: { eventId: string }) {
   const hasSales = dashboard.orders.total > 0;
 
   const kpis = [
-    { label: "Valor vendido", value: formatCents(dashboard.revenueCents) },
+    { label: "Valor vendido", value: brlCompact(dashboard.revenueCents) },
     { label: "Ingressos emitidos", value: String(dashboard.tickets.total) },
     { label: "Vendas aprovadas", value: String(approved + paid), delta: approved + paid > 0 ? `+${approved + paid}` : undefined },
     { label: "Pedidos no total", value: String(dashboard.orders.total) },
   ];
 
+  const slug = (dashboard.event as { slug?: string }).slug ?? event?.slug ?? "";
+  const chip = event ? (STATUS_CHIP[event.status] ?? { bg: "bg-line", fg: "text-muted", label: event.status }) : null;
+
   return (
     <main>
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[22px] font-extrabold">{dashboard.event.title} — Geral</h1>
-        <Link href={`/eventos/${eventId}`} className="text-sm font-bold text-primary">Gerenciar evento →</Link>
+      {/* cartão de identidade do evento — mesmo padrão do Resumo */}
+      <div className="mt-1 flex items-center gap-3.5 rounded-[20px] border border-line bg-surface p-4 lg:mt-6">
+        {event?.startsAt ? (
+          <span className="flex h-[52px] w-[52px] shrink-0 flex-col items-center justify-center rounded-xl bg-brand-gradient text-white">
+            <span className="text-[15px] font-extrabold leading-none">
+              {new Date(event.startsAt).toLocaleDateString("pt-BR", { day: "2-digit" })}
+            </span>
+            <span className="text-[9px] font-bold uppercase">
+              {new Date(event.startsAt).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}
+            </span>
+          </span>
+        ) : (
+          <span className="h-[52px] w-[52px] shrink-0 rounded-xl bg-brand-gradient" />
+        )}
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[17px] font-extrabold leading-tight">{dashboard.event.title}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {chip && (
+              <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${chip.bg} ${chip.fg}`}>{chip.label}</span>
+            )}
+            {slug && (
+              <a
+                href={`${CHECKOUT_URL}/evento/${slug}`}
+                target="_blank"
+                rel="noopener"
+                className="text-[12px] font-extrabold text-primary"
+              >
+                Ver no site ↗
+              </a>
+            )}
+          </div>
+        </div>
+        <Link href={`/eventos/${eventId}`} className="hidden shrink-0 text-sm font-bold text-primary lg:inline">
+          Gerenciar evento →
+        </Link>
       </div>
 
-      {/* 4 KPIs do protótipo */}
-      <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {kpis.map((kpi, i) => (
-          <div key={kpi.label} className="rounded-2xl border border-line bg-surface p-4">
-            <div className={`mb-2 flex h-9 w-9 items-center justify-center rounded-xl text-[15px] font-extrabold ${KPI_STYLES[i].bg} ${KPI_STYLES[i].fg}`}>
-              {["R$", "🎟", "✓", "Σ"][i]}
+      {/* 4 KPIs — receita em destaque no gradiente da marca */}
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:mt-5 lg:grid-cols-4 lg:gap-4">
+        {kpis.map((kpi, i) =>
+          i === 0 ? (
+            <div key={kpi.label} className="rounded-2xl bg-brand-gradient p-4 text-white">
+              <p className="text-[10.5px] font-extrabold uppercase tracking-[.06em] text-white/80">{kpi.label}</p>
+              <p className="mt-1 truncate text-[22px] font-extrabold">{kpi.value}</p>
             </div>
-            <p className="text-[12px] font-bold text-muted">{kpi.label}</p>
-            <p className="mt-0.5 text-[22px] font-extrabold">
-              {kpi.value}
-              {kpi.delta && <span className="ml-2 text-[12px] font-bold text-success">{kpi.delta}</span>}
-            </p>
-          </div>
-        ))}
+          ) : (
+            <div key={kpi.label} className="rounded-2xl border border-line bg-surface p-4">
+              <div className={`mb-2 flex h-9 w-9 items-center justify-center rounded-xl text-[15px] font-extrabold ${KPI_STYLES[i].bg} ${KPI_STYLES[i].fg}`}>
+                {["R$", "🎟", "✓", "Σ"][i]}
+              </div>
+              <p className="text-[12px] font-bold text-muted">{kpi.label}</p>
+              <p className="mt-0.5 text-[22px] font-extrabold">
+                {kpi.value}
+                {kpi.delta && <span className="ml-2 text-[12px] font-bold text-success">{kpi.delta}</span>}
+              </p>
+            </div>
+          ),
+        )}
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -167,7 +248,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
           <div className="mt-3 space-y-1.5">
             {Object.entries(dashboard.orders.byStatus).map(([status, count]) => (
               <p key={status} className="flex justify-between text-[13px] font-semibold">
-                <span className="text-muted">{status}</span><span>{count}</span>
+                <span className="text-muted">{ORDER_STATUS_PT[status] ?? status}</span><span>{count}</span>
               </p>
             ))}
           </div>
@@ -177,7 +258,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
           <div className="mt-3 space-y-1.5">
             {Object.entries(dashboard.tickets.byStatus).map(([status, count]) => (
               <p key={status} className="flex justify-between text-[13px] font-semibold">
-                <span className="text-muted">{status}</span><span>{count}</span>
+                <span className="text-muted">{TICKET_STATUS_PT[status] ?? status}</span><span>{count}</span>
               </p>
             ))}
           </div>

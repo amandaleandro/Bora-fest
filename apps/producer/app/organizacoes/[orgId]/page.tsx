@@ -159,7 +159,7 @@ function EventsList({ orgId }: { orgId: string }) {
             return (
               <tr key={event.id} className="border-b border-line-divider last:border-0 hover:bg-bg/50">
                 <td className="px-5 py-3.5">
-                  <Link href={`/eventos/${event.id}`} className="font-bold text-ink">
+                  <Link href={`/eventos/${event.id}/dashboard`} className="font-bold text-ink">
                     {event.title}
                   </Link>
                 </td>
@@ -168,7 +168,7 @@ function EventsList({ orgId }: { orgId: string }) {
                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${s.bg} ${s.fg}`}>{s.label}</span>
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  <Link href={`/eventos/${event.id}`} className="text-[12px] font-bold text-primary">
+                  <Link href={`/eventos/${event.id}/dashboard`} className="text-[12px] font-bold text-primary">
                     Gerenciar →
                   </Link>
                 </td>

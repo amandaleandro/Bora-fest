@@ -78,7 +78,7 @@ export function BottomTabs() {
   function activeId(): string {
     if (pathname.startsWith("/resumo")) return "resumo";
     if (pathname.startsWith("/mais") || pathname.includes("/financeiro") || pathname.includes("/reembolsos")) return "mais";
-    if (pathname.includes("/vendas") || pathname.includes("/dashboard")) return "vendas";
+    if (pathname.includes("/vendas")) return "vendas";
     if (pathname.includes("/portaria") || pathname.includes("/checkin-ao-vivo")) return "portaria";
     if (pathname.startsWith("/organizacoes") || pathname.startsWith("/eventos")) return "eventos";
     return "";

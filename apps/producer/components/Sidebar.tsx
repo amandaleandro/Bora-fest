@@ -190,7 +190,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
       {event ? (
         <>
           <Link
-            href={`/eventos/${event.id}`}
+            href={`/eventos/${event.id}/dashboard`}
             className="mx-2 mb-2 mt-4 flex items-center gap-2.5 rounded-xl bg-white/[.06] px-3 py-[11px] hover:bg-white/10"
           >
             <span className="h-[30px] w-[30px] shrink-0 rounded-lg bg-brand-gradient" />

@@ -184,7 +184,7 @@ function ResumoContent() {
             return (
               <Link
                 key={ev.id}
-                href={`/eventos/${ev.id}`}
+                href={`/eventos/${ev.id}/dashboard`}
                 onClick={() => localStorage.setItem("bf.activeEvent", ev.id)}
                 className="flex items-center gap-3.5 rounded-[18px] border border-line bg-surface p-3.5"
               >

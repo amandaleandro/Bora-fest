@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { PanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
+import { EventTabs } from "@/components/EventTabs";
 import { EventShellProvider, useEventContext } from "@/lib/eventContext";
 
 /** Títulos da topbar por sub-rota (titleMap do protótipo). */
@@ -58,6 +59,7 @@ export default function EventLayout({
               : undefined
           }
         >
+          <EventTabs eventId={params.eventId} />
           {children}
         </PanelShell>
       </EventShellProvider>
