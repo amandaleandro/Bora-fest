@@ -38,3 +38,11 @@
     font-size: 16px !important;
   }
 }
+
+/* Trava de arrasto lateral (2026-08-17): nenhum elemento que vaze da tela pode
+ * transformar a página inteira em algo arrastável pro lado. Carrosséis internos
+ * (overflow-x-auto) continuam rolando normalmente — isto só bloqueia o BODY. */
+html,
+body {
+  overflow-x: hidden;
+}

@@ -194,9 +194,9 @@ export default function HomePage() {
       {/* saudação + avatar (mobile) */}
       <header className="flex items-center justify-between lg:hidden">
         <div>
-          <h1 className="flex items-center gap-1.5 text-[24px] font-extrabold leading-none">
-            bora
-            <span className="rounded-full bg-primary px-2 py-1 text-[10px] font-extrabold uppercase tracking-[.08em] text-white">Fest</span>
+          <h1>
+            {/* eslint-disable-next-line @next/next/no-img-element -- logo local, svg leve */}
+            <img src="/brand/logo-horizontal-escuro.svg" alt="BoraFest" className="h-7 w-auto" />
           </h1>
           <p className="mt-1 text-[12.5px] font-semibold text-muted">Seu próximo rolê começa aqui</p>
           <button
@@ -301,12 +301,12 @@ export default function HomePage() {
                     ) : (
                       <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/40 blur-2xl" />
                     )}
+                    <span className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-black/35 px-3 py-1 text-[11px] font-bold backdrop-blur">
+                      <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
+                      {highlightBadge(highlight)}
+                    </span>
                     <div className="absolute inset-x-5 bottom-4">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-black/30 px-3 py-1 text-[11px] font-bold backdrop-blur">
-                        <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
-                        {highlightBadge(highlight)}
-                      </span>
-                      <h3 className="mt-2 truncate text-[23px] font-extrabold leading-tight">{highlight.title}</h3>
+                      <h3 className="truncate text-[23px] font-extrabold leading-tight">{highlight.title}</h3>
                       <p className="mt-0.5 truncate text-[12px] font-semibold text-white/85">
                         {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
                       </p>
