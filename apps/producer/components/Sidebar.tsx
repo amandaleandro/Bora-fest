@@ -31,6 +31,11 @@ const icons = {
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
   ),
+  pencil: (
+    <svg {...ICON_PROPS}>
+      <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  ),
   ticket: (
     <svg {...ICON_PROPS}>
       <path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2 2 2 0 0 0 0 4 2 2 0 0 1-2 2H6a2 2 0 0 1-2-2 2 2 0 0 0 0-4Z" />
@@ -124,6 +129,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
     ? [
         { href: `/eventos/${event.id}/dashboard`, icon: icons.grid, label: "Geral" },
         { href: `/eventos/${event.id}`, icon: icons.ticket, label: "Ingressos" },
+        { href: `/eventos/${event.id}/editar`, icon: icons.pencil, label: "Editar evento" },
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
         { href: `/eventos/${event.id}/vendas`, icon: icons.cart, label: "Vendas" },
         ...orgLinks,

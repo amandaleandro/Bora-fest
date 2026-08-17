@@ -442,26 +442,19 @@ function EventContent({ eventId }: { eventId: string }) {
             Publicar evento
           </button>
         ) : null}
-        <Link href={`/eventos/${eventId}/dashboard`} className="chip-nav">
-          Dashboard de vendas
-        </Link>
-        <Link href={`/eventos/${eventId}/vendas`} className="chip-nav">
-          Vendas
-        </Link>
-        <Link href={`/eventos/${eventId}/participantes`} className="chip-nav">
-          Participantes
-        </Link>
-        <Link href={`/eventos/${eventId}/portaria`} className="chip-nav">
-          Portaria/validadores
+        {/* o resto da navegação vive na sidebar (desktop) e nas pills (mobile);
+            aqui só o que não existe lá — e a edição em destaque (2026-08-17) */}
+        <Link
+          href={`/eventos/${eventId}/editar`}
+          className="rounded-full bg-primary px-4 py-1.5 text-[12.5px] font-extrabold text-white shadow-cta"
+        >
+          ✎ Editar dados do evento
         </Link>
         <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="chip-nav">
           Check-in ao vivo
         </Link>
         <Link href={`/eventos/${eventId}/lista-convidados`} className="chip-nav">
           Lista de convidados
-        </Link>
-        <Link href={`/eventos/${eventId}/divulgue`} className="chip-nav">
-          Divulgue
         </Link>
       </div>
 
