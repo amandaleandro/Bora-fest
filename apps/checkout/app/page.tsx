@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type EventListItem, type EventCategory } from "../lib/api";
 import { getFavorites } from "../lib/favorites";
-import { formatCents } from "../lib/format";
+import { FavoriteButton } from "../components/FavoriteButton";
+import { GridCard, MiniCard, priceLabel, shortDate } from "../components/EventCards";
 import { captureAttributionFromUrl } from "../lib/attribution";
 import { Icon, paths } from "../components/icons";
 
@@ -29,10 +30,16 @@ const CATEGORIES: Array<{ label: string; value: EventCategory | null }> = [
   { label: "Teatro", value: "TEATRO" },
 ];
 
-/** "R$ 45,00" honesto (com taxas) ou "Grátis" — nunca um preço que muda depois. */
-function priceLabel(cents: number | null): string | null {
-  if (cents === null) return null;
-  return cents === 0 ? "Grátis" : `a partir de ${formatCents(cents)}`;
+
+/** "Hoje, 21:00" / "Amanhã, 20:00" / "sáb., 12 de set · 22:00" — faixa do destaque. */
+function featureWhen(iso: string): string {
+  const d = new Date(iso);
+  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+  const hoje = new Date();
+  if (d.toDateString() === hoje.toDateString()) return `Hoje, ${hora}`;
+  if (d.toDateString() === new Date(hoje.getTime() + 86_400_000).toDateString()) return `Amanhã, ${hora}`;
+  const data = d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" }).replace(".", "");
+  return `${data} · ${hora}`;
 }
 
 /** Selo do destaque: urgência REAL (fim de lote < 48h) ou "Em alta" — nunca inventado. */
@@ -49,93 +56,9 @@ function highlightBadge(event: EventListItem): string {
   return "Em alta agora";
 }
 
-function shortDate(iso: string): string {
-  return new Date(iso)
-    .toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" })
-    .replace(".", "");
-}
 
-/** Cartão compacto das fileiras horizontais (Em alta / prateleiras, mobile). */
-function MiniCard({ event }: { event: EventListItem }) {
-  return (
-    <Link
-      href={`/evento/${event.slug}`}
-      className="w-[240px] shrink-0 overflow-hidden rounded-2xl border border-line bg-surface"
-    >
-      {event.bannerUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={event.bannerUrl} alt="" loading="lazy" decoding="async" className="h-28 w-full object-cover" />
-      ) : (
-        <div className="flex h-28 items-center justify-center bg-brand-gradient text-[28px] font-extrabold text-white/85">
-          {event.title.slice(0, 1).toUpperCase()}
-        </div>
-      )}
-      <div className="p-3">
-        <p className="truncate text-[13px] font-extrabold">{event.title}</p>
-        <p className="mt-0.5 truncate text-[11px] font-medium text-muted">
-          {shortDate(event.startsAt)}
-          {event.venue ? ` · ${event.venue.city}` : ""}
-        </p>
-        {event.fromPriceCents !== null && (
-          <p className="mt-1 text-[12px] font-extrabold text-primary">
-            {event.fromPriceCents === 0 ? "Grátis" : formatCents(event.fromPriceCents)}
-            {event.fromPriceCents !== 0 && (
-              <span className="font-semibold text-muted"> · com taxas</span>
-            )}
-          </p>
-        )}
-      </div>
-    </Link>
-  );
-}
 
-/** Cartão da grade desktop (Em alta / prateleiras / próximos). */
-function GridCard({ event }: { event: EventListItem }) {
-  return (
-    <Link
-      href={`/evento/${event.slug}`}
-      className="overflow-hidden rounded-2xl border border-line bg-surface transition-shadow hover:shadow-card"
-    >
-      {event.bannerUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={event.bannerUrl} alt="" loading="lazy" decoding="async" className="h-36 w-full object-cover" />
-      ) : (
-        <div className="flex h-36 items-center justify-center bg-brand-gradient text-[40px] font-extrabold text-white/80">
-          {event.title.slice(0, 1).toUpperCase()}
-        </div>
-      )}
-      <div className="p-4">
-        <p className="truncate text-[15px] font-extrabold">{event.title}</p>
-        <p className="mt-0.5 truncate text-[12px] font-medium text-muted">
-          {shortDate(event.startsAt)}
-          {event.venue ? ` · ${event.venue.city}` : ""}
-        </p>
-        {priceLabel(event.fromPriceCents) && (
-          <p className="mt-2 text-[13px] font-extrabold text-primary">
-            {priceLabel(event.fromPriceCents)}
-            {event.fromPriceCents ? (
-              <span className="font-semibold text-muted"> · com taxas</span>
-            ) : null}
-          </p>
-        )}
-      </div>
-    </Link>
-  );
-}
 
-function DateBlock({ iso }: { iso: string }) {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Sao_Paulo" });
-  const month = d
-    .toLocaleDateString("pt-BR", { month: "short", timeZone: "America/Sao_Paulo" })
-    .replace(".", "");
-  return (
-    <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-brand-gradient text-white">
-      <span className="text-lg font-extrabold leading-none">{day}</span>
-      <span className="text-[11px] font-bold uppercase">{month}</span>
-    </div>
-  );
-}
 
 export default function HomePage() {
   const [events, setEvents] = useState<EventListItem[] | null>(null);
@@ -271,7 +194,11 @@ export default function HomePage() {
       {/* saudação + avatar (mobile) */}
       <header className="flex items-center justify-between lg:hidden">
         <div>
-          <h1 className="text-[22px] font-extrabold">Olá! 👋</h1>
+          <h1 className="flex items-center gap-1.5 text-[24px] font-extrabold leading-none">
+            bora
+            <span className="rounded-full bg-primary px-2 py-1 text-[10px] font-extrabold uppercase tracking-[.08em] text-white">Fest</span>
+          </h1>
+          <p className="mt-1 text-[12.5px] font-semibold text-muted">Seu próximo rolê começa aqui</p>
           <button
             type="button"
             onClick={() => setCityOpen((v) => !v)}
@@ -350,41 +277,57 @@ export default function HomePage() {
         <p className="mt-10 text-center text-[13px] text-muted">Nenhum evento encontrado.</p>
       ) : (
         <>
-          {/* destaque (mobile) */}
+          {/* destaque (mobile) — "O que vai rolar?" (mockup do Arthur, 2026-08-17) */}
           {highlight && (
             <section className="mt-6 lg:hidden">
-              <h2 className="text-[15px] font-extrabold">{emAlta.length >= 2 ? "Destaque" : "Em alta"}</h2>
-              <Link
-                href={`/evento/${highlight.slug}`}
-                className="relative mt-3 block h-[190px] overflow-hidden rounded-3xl bg-brand-gradient p-5 text-white"
-              >
-                {highlight.bannerUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-                )}
-                {highlight.bannerUrl ? (
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
-                ) : (
-                  <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/40 blur-2xl" />
-                )}
-                <div className="relative">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-3 py-1 text-[11px] font-bold backdrop-blur">
-                    <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
-                    {highlightBadge(highlight)}
-                  </span>
-                  <h3 className="mt-3 max-w-[85%] text-[22px] font-extrabold leading-tight">
-                    {highlight.title}
-                  </h3>
-                  <p className="mt-1 text-[12px] font-semibold text-white/85">
-                    {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-[11px] font-extrabold uppercase tracking-[.09em] text-primary">
+                    {featureWhen(highlight.startsAt).startsWith("Hoje") ? "Para hoje" : "Em destaque"}
                   </p>
+                  <h2 className="mt-0.5 text-[19px] font-extrabold leading-tight">O que vai rolar?</h2>
                 </div>
-                {priceLabel(highlight.fromPriceCents) && (
-                  <span className="absolute bottom-5 left-5 rounded-full bg-white px-4 py-2 text-[13px] font-extrabold text-ink">
-                    {priceLabel(highlight.fromPriceCents)}
-                  </span>
-                )}
-              </Link>
+                <Link href="/explorar" className="text-[12.5px] font-extrabold text-primary">Ver tudo</Link>
+              </div>
+              <div className="relative mt-3 overflow-hidden rounded-3xl">
+                <Link href={`/evento/${highlight.slug}`} className="block">
+                  <div className="relative h-[200px] bg-brand-gradient p-5 text-white">
+                    {highlight.bannerUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+                    )}
+                    {highlight.bannerUrl ? (
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/20" />
+                    ) : (
+                      <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/40 blur-2xl" />
+                    )}
+                    <div className="absolute inset-x-5 bottom-4">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-black/30 px-3 py-1 text-[11px] font-bold backdrop-blur">
+                        <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
+                        {highlightBadge(highlight)}
+                      </span>
+                      <h3 className="mt-2 truncate text-[23px] font-extrabold leading-tight">{highlight.title}</h3>
+                      <p className="mt-0.5 truncate text-[12px] font-semibold text-white/85">
+                        {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 bg-ink px-5 py-3.5 text-white">
+                    <div className="min-w-0">
+                      <p className="text-[11.5px] font-semibold text-white/65">{featureWhen(highlight.startsAt)}</p>
+                      <p className="truncate text-[15px] font-extrabold">
+                        {priceLabel(highlight.fromPriceCents) ?? "Garanta seu lugar"}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-extrabold shadow-cta">
+                      Quero ir →
+                    </span>
+                  </div>
+                </Link>
+                <div className="absolute right-4 top-4">
+                  <FavoriteButton eventId={highlight.id} />
+                </div>
+              </div>
             </section>
           )}
 
@@ -435,53 +378,20 @@ export default function HomePage() {
             </section>
           ))}
 
-          {/* próximos eventos */}
+          {/* perto de você / próximos — grade 2 col (mockup 2026-08-17) */}
           {rest.length > 0 && (
             <section className="mt-7 lg:hidden">
-              <h2 className="text-[15px] font-extrabold">Próximos eventos</h2>
-              <ul className="mt-3 space-y-3">
-                {rest.map((event) => {
-                  const min = event.fromPriceCents;
-                  return (
-                    <li key={event.id}>
-                      <Link
-                        href={`/evento/${event.slug}`}
-                        className="flex items-center gap-3.5 rounded-2xl border border-line bg-surface p-3.5"
-                      >
-                        {event.bannerUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            loading="lazy"
-                            decoding="async"
-                            src={event.bannerUrl}
-                            alt=""
-                            className="h-14 w-14 shrink-0 rounded-2xl object-cover"
-                          />
-                        ) : (
-                          <DateBlock iso={event.startsAt} />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[14px] font-bold">{event.title}</p>
-                          <p className="truncate text-[12px] font-medium text-muted">
-                            {event.bannerUrl
-                              ? `${new Date(event.startsAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" }).replace(".", "")} · `
-                              : ""}
-                            {event.venue ? `${event.venue.name} · ${event.venue.city}` : "Local a definir"}
-                          </p>
-                        </div>
-                        {min !== null && (
-                          <span className="shrink-0 text-right text-[13px] font-extrabold leading-tight text-primary">
-                            {min === 0 ? "Grátis" : formatCents(min)}
-                            {min !== 0 && (
-                              <span className="block text-[10px] font-semibold text-muted">com taxas</span>
-                            )}
-                          </span>
-                        )}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-[15px] font-extrabold">{city ? "Perto de você" : "Próximos eventos"}</h2>
+                <span className="text-[12px] font-semibold text-muted">
+                  {rest.length} {rest.length === 1 ? "opção" : "opções"}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                {rest.map((event) => (
+                  <GridCard key={event.id} event={event} />
+                ))}
+              </div>
             </section>
           )}
           {/* Em alta desktop (placar de vendas) */}

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { SiteFooter, SiteFrame, SiteHeader } from "../components/SiteChrome";
+import { BuyerTabs } from "../components/BuyerTabs";
 import { SITE_URL } from "../lib/config";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* mobile: moldura 430px · desktop: as páginas controlam a largura · portaria: sem moldura */}
         <SiteFrame>{children}</SiteFrame>
         <SiteFooter />
+        <BuyerTabs />
         {/* SW só em produção — em dev ele cacheia chunks e confunde o hot reload */}
         <script
           dangerouslySetInnerHTML={{

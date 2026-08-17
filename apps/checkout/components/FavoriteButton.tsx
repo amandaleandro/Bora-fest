@@ -4,8 +4,12 @@ import { useEffect, useState } from "react";
 import { paths } from "./icons";
 import { isFavorite, toggleFavorite } from "../lib/favorites";
 
-/** Coração do hero do evento — estava morto no protótipo (report 2026-08-17). */
-export function FavoriteButton({ eventId }: { eventId: string }) {
+/**
+ * Coração de favoritar — no hero do evento e sobre os cards da vitrine.
+ * Dentro de um card que é <Link>, o preventDefault impede a navegação:
+ * tocar no coração favorita, tocar no card abre o evento.
+ */
+export function FavoriteButton({ eventId, small }: { eventId: string; small?: boolean }) {
   const [fav, setFav] = useState(false);
 
   useEffect(() => {
@@ -17,14 +21,18 @@ export function FavoriteButton({ eventId }: { eventId: string }) {
       type="button"
       aria-label={fav ? "Remover dos favoritos" : "Adicionar aos favoritos"}
       aria-pressed={fav}
-      onClick={() => setFav(toggleFavorite(eventId))}
-      className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur transition-colors ${
-        fav ? "bg-white text-primary" : "bg-white/20 text-white"
-      }`}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFav(toggleFavorite(eventId));
+      }}
+      className={`flex items-center justify-center rounded-full backdrop-blur transition-colors ${
+        small ? "h-8 w-8" : "h-10 w-10"
+      } ${fav ? "bg-white text-primary" : small ? "bg-black/30 text-white" : "bg-white/20 text-white"}`}
     >
       <svg
-        width={18}
-        height={18}
+        width={small ? 15 : 18}
+        height={small ? 15 : 18}
         viewBox="0 0 24 24"
         fill={fav ? "currentColor" : "none"}
         stroke="currentColor"
