@@ -194,9 +194,12 @@ export default function HomePage() {
       {/* saudação + avatar (mobile) */}
       <header className="flex items-center justify-between lg:hidden">
         <div>
-          <h1>
+          {/* mesmo padrão do header desktop: B gradiente + nome em ink — o SVG
+              horizontal tem letras brancas e sumia no fundo claro (aviso do Arthur) */}
+          <h1 className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element -- logo local, svg leve */}
-            <img src="/brand/logo-horizontal-escuro.svg" alt="BoraFest" className="h-7 w-auto" />
+            <img src="/brand/logo-b.svg" alt="" className="h-8 w-8" />
+            <span className="text-[21px] font-extrabold italic tracking-tight text-ink">BoraFest</span>
           </h1>
           <p className="mt-1 text-[12.5px] font-semibold text-muted">Seu próximo rolê começa aqui</p>
           <button
