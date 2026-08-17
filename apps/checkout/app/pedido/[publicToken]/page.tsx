@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import QRCode from "react-qr-code";
 import { api, ApiError, type Order, type OrderTicketsResponse, type PixelSettings } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
+import { RevealQr } from "../../../components/RevealQr";
 import { EventReview } from "../../../components/EventReview";
 
 // entrega por WhatsApp desligada por padrão (decisão 2026-08-15): só aparece com NEXT_PUBLIC_WA_DELIVERY=on
@@ -268,7 +268,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
               </div>
               <div className="ticket-notch border-t-2 border-dashed border-line px-5 pb-5 pt-6 text-center">
                 <div className="mx-auto w-fit rounded-2xl border border-line bg-white p-3">
-                  <QRCode value={ticket.qrToken} size={184} />
+                  <RevealQr value={ticket.qrToken} size={184} className="w-[184px]" />
                 </div>
                 <p className="mt-3 text-[15px] font-extrabold">{ticket.attendeeName ?? order.contactName ?? "Portador"}</p>
                 <p className="text-[12px] font-bold text-muted">{ticket.code}</p>

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RevealQr } from "@/components/RevealQr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import QRCode from "react-qr-code";
 import { api, ApiError } from "../../lib/api";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { Icon, paths } from "../../components/icons";
@@ -464,7 +464,7 @@ export default function ProfilePage() {
                         <div className={`shrink-0 rounded-xl border border-line bg-white p-2 ${
                           ["CANCELED", "REFUNDED"].includes(ticket.status) ? "opacity-25" : ""
                         }`}>
-                          <QRCode value={ticket.qrToken} size={140} className="h-auto w-[140px] lg:w-[88px]" />
+                          <RevealQr value={ticket.qrToken} size={140} className="w-[140px] lg:w-[88px]" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap justify-center gap-2 lg:justify-start">

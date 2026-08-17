@@ -37,6 +37,16 @@ function ctaClass(disabled: boolean) {
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
 
+/** Máscara de celular BR: "(11) 91234-5678" — o campo aceitava letras. */
+function maskBrPhone(value: string): string {
+  let d = value.replace(/\D/g, "");
+  if (d.length === 13 && d.startsWith("55")) d = d.slice(2);
+  d = d.slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
 function maskCpf(value: string) {
   const d = onlyDigits(value).slice(0, 11);
   return d
@@ -754,8 +764,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   <div>
                     <label className={labelClass}>Celular / WhatsApp</label>
                     <input
+                      inputMode="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => setPhone(maskBrPhone(e.target.value))}
                       placeholder="(11) 99999-8888"
                       className={inputClass}
                     />
@@ -776,6 +787,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     }
                     if (onlyDigits(buyerCpf).length !== 11) {
                       setError("Informe um CPF válido — o banco exige para emitir o pagamento");
+                      return;
+                    }
+                    if (phone.trim() !== "" && onlyDigits(phone).length < 10) {
+                      setError("Celular incompleto — use DDD + número, ou deixe em branco");
                       return;
                     }
                     setError(null);
@@ -846,7 +861,12 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                             onClick={() =>
                               setAttendees((prev) => ({
                                 ...prev,
-                                [slot.key]: { ...filled, name: name.trim() },
+                                [slot.key]: {
+                                  ...filled,
+                                  name: name.trim(),
+                                  // CPF vai junto — feedback de cliente 2026-08-17
+                                  cpf: slot.requiresCpf && !filled.cpf ? buyerCpf : filled.cpf,
+                                },
                               }))
                             }
                             className="mt-3 h-[34px] rounded-[9px] border border-dashed border-muted-4 px-3 text-[11.5px] font-bold text-primary"
