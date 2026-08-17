@@ -49,7 +49,8 @@ export async function resolveHomePath(token: string): Promise<string> {
       sellerEngagements.length > 0;
     return ehPromoterOuVendedor ? "/organizacoes" : "/onboarding";
   }
-  return `/organizacoes/${organizations[0].id}`;
+  // redesenho mobile 2026-08-15: o lar do painel é o RESUMO (números + atalhos)
+  return "/resumo";
 }
 
 export function useEventContext(eventId: string, token: string | null) {

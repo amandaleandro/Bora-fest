@@ -602,6 +602,14 @@ function Team({ orgId }: { orgId: string }) {
  * direto nesta página e nunca via a caixa de convites da lista (bug 2026-08-15
  * — convite da Amanda invisível). Banner leva pra caixa completa.
  */
+/** grava a organização ativa (alimenta as abas do rodapé no mobile) */
+function ActiveOrgTracker({ orgId }: { orgId: string }) {
+  useEffect(() => {
+    localStorage.setItem("bf.activeOrg", orgId);
+  }, [orgId]);
+  return null;
+}
+
 function ConvitesPendentesBanner() {
   const { token } = useAuth();
   const [total, setTotal] = useState(0);
@@ -667,6 +675,7 @@ export default function OrganizationPage({ params }: { params: { orgId: string }
         </Link>
       }
     >
+      <ActiveOrgTracker orgId={params.orgId} />
       <ConvitesPendentesBanner />
       <div className="mb-6">
         <SalesPushButton />

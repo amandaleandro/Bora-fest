@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Sidebar, type SidebarEventInfo } from "@/components/Sidebar";
+import { BottomTabs } from "@/components/BottomTabs";
 import { useAuth } from "@/lib/auth";
 
 interface PanelShellProps {
@@ -77,7 +78,8 @@ export function PanelShell({ title, event, organizationId, actions, children }: 
           </div>
         </header>
 
-        <div className="mx-auto w-full max-w-[1160px] px-5 py-6 lg:px-8 lg:py-7">{children}</div>
+        <div className="mx-auto w-full max-w-[1160px] px-5 py-6 pb-28 lg:px-8 lg:py-7">{children}</div>
+        <BottomTabs />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { PanelShell } from "@/components/PanelShell";
@@ -28,6 +29,11 @@ export default function EventLayout({
   const { token } = useAuth();
   const { context, loading, reload } = useEventContext(params.eventId, token);
   const pathname = usePathname() ?? "";
+
+  useEffect(() => {
+    localStorage.setItem("bf.activeEvent", params.eventId);
+    if (context?.organization.id) localStorage.setItem("bf.activeOrg", context.organization.id);
+  }, [params.eventId, context?.organization.id]);
 
   const segment = pathname.split(`/eventos/${params.eventId}`)[1]?.replace(/^\//, "") ?? "";
   const title = TITLES[segment] ?? "Painel do evento";
