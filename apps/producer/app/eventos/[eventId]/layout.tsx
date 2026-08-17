@@ -11,6 +11,7 @@ import { EventShellProvider, useEventContext } from "@/lib/eventContext";
 /** Títulos da topbar por sub-rota (titleMap do protótipo). */
 const TITLES: Record<string, string> = {
   "": "Ingressos & lotes",
+  editar: "Editar evento",
   dashboard: "Painel do evento",
   divulgue: "Divulgue",
   vendas: "Vendas",

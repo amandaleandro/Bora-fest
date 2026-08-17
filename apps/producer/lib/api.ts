@@ -225,6 +225,11 @@ export interface EventSummary {
   endsAt: string;
   organizationId: string;
   description?: string | null;
+  /** atrações, uma por linha */
+  lineup?: string | null;
+  /** o que está incluso, um item por linha */
+  amenities?: string | null;
+  minAge?: number | null;
   bannerUrl?: string | null;
   category?: EventCategory | null;
   venue?: EventVenue | null;

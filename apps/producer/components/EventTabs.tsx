@@ -26,7 +26,7 @@ export function EventTabs({ eventId }: { eventId: string }) {
   const segment = pathname.split(base)[1]?.replace(/^\//, "").split("/")[0] ?? "";
   const active =
     segment === "" ? "ingressos"
-    : segment === "dashboard" ? "geral"
+    : segment === "dashboard" || segment === "editar" ? "geral"
     : segment === "portaria" || segment === "checkin-ao-vivo" || segment === "lista-convidados" ? "checkin"
     : segment;
 

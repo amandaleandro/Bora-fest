@@ -157,6 +157,9 @@ function DashboardContent({ eventId }: { eventId: string }) {
                 Ver no site ↗
               </a>
             )}
+            <Link href={`/eventos/${eventId}/editar`} className="text-[12px] font-extrabold text-primary">
+              Editar dados ✎
+            </Link>
           </div>
         </div>
         <Link href={`/eventos/${eventId}`} className="hidden shrink-0 text-sm font-bold text-primary lg:inline">
