@@ -159,14 +159,14 @@ export default function HomePage() {
       {highlight && (
         <section className="mb-8 hidden lg:block">
           <Link href={`/evento/${highlight.slug}`}
-            className="relative flex min-h-[420px] flex-col justify-center overflow-hidden rounded-3xl bg-brand-gradient p-12 text-white">
+            className="relative flex min-h-[420px] flex-col justify-end overflow-hidden rounded-3xl bg-brand-gradient p-12 pb-10 text-white">
             {highlight.bannerUrl && (
               // a arte preenche o hero igual ao card do mobile; o hero mais alto (min-h-420)
               // evita o corte ultra-wide que espremia o flyer numa faixa fina.
               // eslint-disable-next-line @next/next/no-img-element
               <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-center" />
             )}
-            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-r from-black/80 via-black/45 to-black/10" : ""}`}>
+            <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-t from-black/85 via-black/25 to-transparent" : ""}`}>
               {!highlight.bannerUrl && (
                 <div className="absolute -right-16 -top-16 h-72 w-72 rounded-full bg-accent/40 blur-3xl" />
               )}
@@ -176,12 +176,12 @@ export default function HomePage() {
                 <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />
                 {highlightBadge(highlight)}
               </span>
-              <h2 className="mt-4 max-w-2xl text-[40px] font-extrabold leading-tight">{highlight.title}</h2>
+              <h2 className="mt-3 max-w-2xl truncate text-[36px] font-extrabold leading-tight">{highlight.title}</h2>
               <p className="mt-2 text-[15px] font-semibold text-white/85">
                 {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
               </p>
               {priceLabel(highlight.fromPriceCents) && (
-                <span className="mt-6 inline-block rounded-full bg-white px-6 py-3 text-[15px] font-extrabold text-ink">
+                <span className="mt-4 inline-block rounded-full bg-white px-6 py-3 text-[15px] font-extrabold text-ink">
                   {priceLabel(highlight.fromPriceCents)}
                   {highlight.fromPriceCents ? <span className="font-bold text-muted"> · com taxas</span> : null}
                 </span>
