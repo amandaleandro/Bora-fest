@@ -191,7 +191,7 @@ export class IdentityService {
   /** Sempre responde {sent:true} — sem enumeração de contas. */
   async recoverPassword(input: RecoverPasswordInput) {
     const user = await prisma.user.findUnique({ where: { email: input.email } });
-    if (user?.passwordHash) {
+    if (user) {
       const { token, tokenHash } = generateResetToken();
       const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
       const baseUrl = process.env.PRODUCER_BASE_URL ?? "http://localhost:3001";
