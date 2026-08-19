@@ -7,6 +7,7 @@ import { getFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { GridCard, MiniCard, priceLabel, shortDate } from "../components/EventCards";
 import { EventImage } from "../components/EventImage";
+import { PromoBanner } from "../components/PromoBanner";
 import { captureAttributionFromUrl } from "../lib/attribution";
 import { Icon, paths } from "../components/icons";
 
@@ -455,23 +456,8 @@ export default function HomePage() {
             </section>
           )}
 
-          {/* faixa Produza seu evento (desktop) — arte oficial da marca; o
-              botão "Criar conta de produtor" faz parte da imagem, então o
-              banner INTEIRO é o link */}
-          <section className="mt-12 lg:mt-14">
-            <a
-              href={`${PANEL}/cadastro`}
-              aria-label="Criar conta de produtor — do bora ao ingresso vendido em minutos, sem burocracia"
-              className="group block overflow-hidden rounded-2xl shadow-card transition-transform duration-200 hover:-translate-y-0.5 lg:rounded-3xl"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/brand/banner-produtores.webp"
-                alt="Do bora? ao ingresso vendido em minutos. Sem burocracia — publique em minutos, Pix direto na tela, sem trava de verificação. Grátis para começar."
-                loading="lazy" decoding="async" className="h-auto w-full transition-transform duration-300 group-hover:scale-[1.01]"
-              />
-            </a>
-          </section>
+          {/* faixa Produza seu evento — arte trocável no admin (desktop|mobile) */}
+          <PromoBanner panelUrl={PANEL} />
         </>
       )}
     </main>

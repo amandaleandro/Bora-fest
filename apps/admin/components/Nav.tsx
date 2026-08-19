@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/webhooks", label: "Webhooks" },
   { href: "/filas", label: "Filas" },
   { href: "/auditoria", label: "Auditoria" },
+  { href: "/banners", label: "Banners do site" },
 ];
 
 export function Nav() {

@@ -249,6 +249,10 @@ export const api = {
       upcoming: EventListItem[];
     }>(`/v1/public/events/home/sections${params}`);
   },
+  /** Banner de divulgação da home — arte trocável pelo admin (desktop|mobile). */
+  publicBanners: () =>
+    request<{ desktopUrl: string | null; mobileUrl: string | null }>("/v1/public/banners"),
+
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
   getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
