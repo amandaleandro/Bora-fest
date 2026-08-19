@@ -112,14 +112,17 @@ export function EventPageClient({ slug }: { slug: string }) {
               // eslint-disable-next-line @next/next/no-img-element
               <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" className="object-cover" />
             )}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-8">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold backdrop-blur ${closed ? "bg-black/50 text-white/90" : "bg-black/25 text-white"}`}>
-                {closed ? "Vendas encerradas" : "Vendas abertas"}
-              </span>
-              <h1 className="mt-2 text-[32px] font-extrabold leading-tight text-white">{event.title}</h1>
-            </div>
           </div>
-          <div className="mt-4 flex items-center justify-between gap-2">
+          {/* título FORA do banner (pedido do Arthur 2026-08-17): a arte do
+              flyer costuma ter o nome do evento — escrever por cima duplicava
+              e sujava a imagem */}
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <h1 className="text-[30px] font-extrabold leading-tight">{event.title}</h1>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
+              {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
             <p className="text-[13px] font-semibold text-muted">
               Por {event.organization.name}
               {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
@@ -185,7 +188,7 @@ export function EventPageClient({ slug }: { slug: string }) {
           // eslint-disable-next-line @next/next/no-img-element
           <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" className="object-cover" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
+        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/40 to-transparent" />
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5">
           <button
             // sempre volta pra home do site — router.back() jogava pra fora
@@ -207,17 +210,15 @@ export function EventPageClient({ slug }: { slug: string }) {
             </button>
           </div>
         </div>
-        <div className="absolute inset-x-0 bottom-8 px-5">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold backdrop-blur ${closed ? "bg-black/50 text-white/90" : "bg-black/25 text-white"}`}>
-            {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-emerald-400" />Vendas abertas</>)}
-          </span>
-          <h1 className="mt-2 text-[27px] font-extrabold leading-tight text-white">{event.title}</h1>
-        </div>
       </div>
 
-      {/* corpo sobreposto */}
+      {/* corpo sobreposto — título aqui, não em cima da arte (2026-08-17) */}
       <div className="relative -mt-[22px] rounded-t-3xl bg-bg px-5 pt-6">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
+          {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+        </span>
+        <h1 className="mt-2 text-[26px] font-extrabold leading-tight">{event.title}</h1>
+        <div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="min-w-0 text-[13px] font-semibold text-muted">
             Por {event.organization.name}
             {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
