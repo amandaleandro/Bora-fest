@@ -71,17 +71,30 @@ function minPriceCents(event: PublicEvent): number | null {
   return prices.length ? Math.min(...prices) : null;
 }
 
-export function EventPageClient({ slug }: { slug: string }) {
+export function EventPageClient({
+  slug,
+  initialEvent = null,
+}: {
+  slug: string;
+  /** já veio do servidor (o mesmo fetch do metadata) — a arte pinta no 1º quadro */
+  initialEvent?: PublicEvent | null;
+}) {
   const router = useRouter();
-  const [event, setEvent] = useState<PublicEvent | null>(null);
+  const [event, setEvent] = useState<PublicEvent | null>(initialEvent);
   const [error, setError] = useState(false);
   const [reviews, setReviews] = useState<{ average: number | null; count: number } | null>(null);
 
   useEffect(() => {
     captureAttributionFromUrl();
-    api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
+    // sem dado do servidor (ex.: navegação client-side), busca; com dado, só
+    // revalida em segundo plano — a tela nunca fica em branco esperando
+    if (!initialEvent) {
+      api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
+    } else {
+      api.getPublicEvent(slug).then(setEvent).catch(() => undefined);
+    }
     api.getReviews(slug).then(setReviews).catch(() => {});
-  }, [slug]);
+  }, [slug, initialEvent]);
 
   if (error) {
     return (

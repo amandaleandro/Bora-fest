@@ -96,7 +96,7 @@ export default async function EventPage({ params }: { params: { slug: string } }
         // eslint-disable-next-line react/no-danger -- JSON-LD estático montado no servidor, sem input de usuário
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       )}
-      <EventPageClient slug={params.slug} />
+      <EventPageClient slug={params.slug} initialEvent={event} />
     </>
   );
 }
