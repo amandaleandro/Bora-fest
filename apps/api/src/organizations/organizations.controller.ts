@@ -121,6 +121,20 @@ export class OrganizationsController {
     return this.organizationsService.inviteMember(organizationId, actorUserId, body as any);
   }
 
+  @Get(":id/members")
+  listMembers(@Param("id") organizationId: string, @CurrentUserId() actorUserId: string) {
+    return this.organizationsService.listMembers(organizationId, actorUserId);
+  }
+
+  @Delete(":id/members/:memberId")
+  removeMember(
+    @Param("id") organizationId: string,
+    @Param("memberId") memberId: string,
+    @CurrentUserId() actorUserId: string,
+  ) {
+    return this.organizationsService.removeMember(organizationId, actorUserId, memberId);
+  }
+
   @Post(":id/sales-partners")
   createSalesPartner(
     @Param("id") organizationId: string,

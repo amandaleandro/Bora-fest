@@ -252,6 +252,44 @@ export class OrganizationsService {
     return membership;
   }
 
+  /** Equipe da organização (papéis internos): quem gerencia membros vê todo mundo, ativo ou convidado. */
+  async listMembers(organizationId: string, actorUserId: string) {
+    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+    return prisma.organizationMember.findMany({
+      where: { organizationId, status: { in: ["INVITED", "ACTIVE"] } },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        role: { select: { key: true } },
+      },
+      orderBy: [{ status: "asc" }, { invitedAt: "desc" }],
+    });
+  }
+
+  /** Remove um membro da equipe (revoga acesso). Dono não é removível por aqui. */
+  async removeMember(organizationId: string, actorUserId: string, memberId: string) {
+    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+    const membership = await prisma.organizationMember.findFirst({
+      where: { id: memberId, organizationId },
+      include: { role: true },
+    });
+    if (!membership) throw new NotFoundException("Membro não encontrado");
+    if (membership.role.key === "owner") {
+      throw new ForbiddenException("Não é possível remover o dono da organização por aqui");
+    }
+    if (membership.userId === actorUserId) {
+      throw new BadRequestException("Você não pode remover a si mesmo da equipe");
+    }
+    if (membership.salesPartnerId) {
+      await prisma.salesPartnerMember.deleteMany({
+        where: { partnerId: membership.salesPartnerId, userId: membership.userId },
+      });
+    }
+    return prisma.organizationMember.update({
+      where: { id: memberId },
+      data: { status: "REMOVED", salesPartnerId: null },
+    });
+  }
+
   async createSalesPartner(organizationId: string, userId: string, input: CreateSalesPartnerInput) {
     await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     const baseSlug = slugify(input.name) || "parceiro";

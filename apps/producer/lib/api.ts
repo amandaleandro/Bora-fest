@@ -185,6 +185,10 @@ export const organizationsApi = {
     request<SalesPartner>(`/v1/organizations/${organizationId}/sales-partners`, { method: "POST", body: input, token }),
   listSalesPartners: (token: string, organizationId: string) =>
     request<SalesPartner[]>(`/v1/organizations/${organizationId}/sales-partners`, { token }),
+  listMembers: (token: string, organizationId: string) =>
+    request<OrgMember[]>(`/v1/organizations/${organizationId}/members`, { token }),
+  removeMember: (token: string, organizationId: string, memberId: string) =>
+    request(`/v1/organizations/${organizationId}/members/${memberId}`, { method: "DELETE", token }),
 };
 
 // ---------------------------------------------------------------------------
@@ -262,6 +266,15 @@ export interface SalesPartner {
 }
 
 export type MemberRoleKey = (typeof MEMBER_ROLES)[number]["key"];
+
+export interface OrgMember {
+  id: string;
+  status: "INVITED" | "ACTIVE";
+  invitedAt: string;
+  joinedAt: string | null;
+  user: { id: string; name: string | null; email: string | null };
+  role: { key: string };
+}
 
 export const eventsApi = {
   list: (token: string, organizationId: string) =>

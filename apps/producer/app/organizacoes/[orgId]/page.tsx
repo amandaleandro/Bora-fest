@@ -6,7 +6,7 @@ import { GuardedPanelShell } from "@/components/PanelShell";
 import { SalesPushButton } from "@/components/SalesPushButton";
 import { InviteMemberModal } from "@/components/InviteMemberModal";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, organizationsApi, type EventSummary, type PromoterRow, type SalesPartner } from "@/lib/api";
+import { eventsApi, organizationsApi, MEMBER_ROLES, type EventSummary, type OrgMember, type PromoterRow, type SalesPartner } from "@/lib/api";
 
 function PublicProfile({ orgId }: { orgId: string }) {
   const { token } = useAuth();
@@ -567,15 +567,89 @@ function SalesPartners({ orgId }: { orgId: string }) {
   );
 }
 
+function roleLabel(key: string): string {
+  if (key === "owner") return "Dono";
+  return MEMBER_ROLES.find((r) => r.key === key)?.label ?? key;
+}
+
+function MembersList({ orgId, refreshKey, onChanged }: { orgId: string; refreshKey: number; onChanged: () => void }) {
+  const { token, user } = useAuth();
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    organizationsApi
+      .listMembers(token, orgId)
+      .then(setMembers)
+      .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar a equipe"))
+      .finally(() => setLoading(false));
+  }, [token, orgId, refreshKey]);
+
+  async function remove(member: OrgMember) {
+    if (!token) return;
+    if (!window.confirm(`Remover ${member.user.name ?? member.user.email} da equipe?`)) return;
+    setRemovingId(member.id);
+    setError(null);
+    try {
+      await organizationsApi.removeMember(token, orgId, member.id);
+      setMembers((prev) => prev.filter((m) => m.id !== member.id));
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível remover");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  if (loading) return <p className="text-[13px] font-semibold text-muted">Carregando…</p>;
+  if (error) return <p className="text-[13px] font-bold text-danger">{error}</p>;
+  if (members.length === 0) return <p className="text-[13px] font-semibold text-muted">Ninguém na equipe ainda.</p>;
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {members.map((m) => (
+        <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-line bg-surface px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-line text-[11px] font-extrabold text-muted-2">
+              {(m.user.name ?? m.user.email ?? "?").slice(0, 1).toUpperCase()}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-extrabold text-ink">{m.user.name ?? m.user.email ?? m.user.id}</span>
+              <span className="block truncate text-[11.5px] font-semibold text-muted">
+                {roleLabel(m.role.key)} · {m.status === "INVITED" ? "Aguardando aceite" : "Ativo"}
+                {m.user.name && m.user.email ? ` · ${m.user.email}` : ""}
+              </span>
+            </span>
+          </div>
+          {m.role.key === "owner" || m.user.id === user?.id ? null : (
+            <button
+              type="button"
+              onClick={() => remove(m)}
+              disabled={removingId === m.id}
+              className="h-9 shrink-0 rounded-xl border border-danger/40 px-3 text-[12.5px] font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
+            >
+              {removingId === m.id ? "Removendo…" : "Remover"}
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * Equipe da organização: convite de papéis internos (admin/financeiro/check-in).
- * Antes, o InviteMemberModal existia pronto mas não era renderizado em lugar
- * nenhum — não havia como o dono delegar esses papéis pela UI (só vendedor, via
- * atlética). Não há endpoint de LISTAR membros, então por ora a seção é só de
- * convite; os rótulos dos papéis foram alinhados ao poder real (lib/api.ts).
+ * Equipe da organização: convite e listagem de papéis internos
+ * (admin/financeiro/check-in/vendedor), com remoção. Os rótulos dos papéis
+ * foram alinhados ao poder real (lib/api.ts).
  */
 function Team({ orgId }: { orgId: string }) {
   const [open, setOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -592,7 +666,18 @@ function Team({ orgId }: { orgId: string }) {
           Convidar para a equipe
         </button>
       </div>
-      {open ? <InviteMemberModal organizationId={orgId} onClose={() => setOpen(false)} /> : null}
+      <div className="mt-4">
+        <MembersList orgId={orgId} refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
+      </div>
+      {open ? (
+        <InviteMemberModal
+          organizationId={orgId}
+          onClose={() => {
+            setOpen(false);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
