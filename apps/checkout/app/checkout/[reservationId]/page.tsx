@@ -762,7 +762,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   </div>
 
                   <div>
-                    <label className={labelClass}>Celular / WhatsApp</label>
+                    <label className={labelClass}>Celular</label>
                     <input
                       inputMode="tel"
                       value={phone}

@@ -123,6 +123,10 @@ export default function ProfilePage() {
   const [promoterInvites, setPromoterInvites] = useState(0);
   // verificação da conta (CPF em Dados pessoais)
   const [cpfInput, setCpfInput] = useState("");
+  // conta criada por código nasce sem nome e não tinha onde preencher (report 2026-08-17)
+  const [nameInput, setNameInput] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameMsg, setNameMsg] = useState<string | null>(null);
   const [cpfSaving, setCpfSaving] = useState(false);
   const [cpfMsg, setCpfMsg] = useState<string | null>(null);
   const [transferSending, setTransferSending] = useState(false);
@@ -166,6 +170,7 @@ export default function ProfilePage() {
     if (section === "ingressos" && !requested.current.has("ingressos")) {
       requested.current.add("ingressos");
       api.myTickets(token).then(setTickets).catch(() => setTickets([]));
+      api.myProfile(token).then((pf) => setNameInput(pf?.name ?? "")).catch(() => undefined);
     }
     if (section === "compras" && !requested.current.has("compras")) {
       requested.current.add("compras");
@@ -715,7 +720,40 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <p className="mb-1.5 text-[12px] font-bold text-ink-soft">Nome completo</p>
-                    <p className="flex h-12 items-center rounded-xl border-[1.5px] border-line-input px-3.5 text-[14px] font-medium">{profile?.name ?? "—"}</p>
+                    <div className="flex gap-2">
+                      <input
+                        value={nameInput}
+                        onChange={(e) => { setNameInput(e.target.value); setNameMsg(null); }}
+                        placeholder="Como no seu documento"
+                        className="h-12 w-full rounded-xl border-[1.5px] border-line-input px-3.5 text-[14px] font-medium outline-none focus:border-primary"
+                      />
+                      {nameInput.trim().length >= 2 && nameInput.trim() !== (profile?.name ?? "") && (
+                        <button
+                          type="button"
+                          disabled={nameSaving}
+                          onClick={async () => {
+                            if (!token) return;
+                            setNameSaving(true);
+                            setNameMsg(null);
+                            try {
+                              await api.updateMe(token, { name: nameInput.trim() });
+                              setProfile(await api.myProfile(token));
+                              setNameMsg("Nome salvo ✓");
+                            } catch {
+                              setNameMsg("Não foi possível salvar — tente de novo");
+                            } finally {
+                              setNameSaving(false);
+                            }
+                          }}
+                          className="h-12 shrink-0 rounded-xl bg-primary px-4 text-[13px] font-extrabold text-white"
+                        >
+                          {nameSaving ? "…" : "Salvar"}
+                        </button>
+                      )}
+                    </div>
+                    {nameMsg && (
+                      <p className={`mt-1 text-[11.5px] font-bold ${nameMsg.startsWith("Nome salvo") ? "text-success" : "text-danger"}`}>{nameMsg}</p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <div className="flex-[1.3]">
@@ -740,17 +778,6 @@ export default function ProfilePage() {
                   Preferência da conta — vale no site e no app. Avisos do ingresso e lembretes do evento são sempre
                   enviados.
                 </p>
-                <div className="flex items-center gap-3 border-t border-line-divider px-6 py-4">
-                  <span className="flex-1">
-                    <span className="block text-[14px] font-bold">Avisos por WhatsApp</span>
-                    <span className="mt-1 block text-[11px] font-medium text-muted-2">Ingressos e lembretes do evento</span>
-                  </span>
-                  <Toggle
-                    label="Avisos por WhatsApp"
-                    checked={waNotif}
-                    onChange={(v) => savePrefs({ notifyWhatsapp: v, notifyEmailOffers: emailOffers })}
-                  />
-                </div>
                 <div className="flex items-center gap-3 border-t border-line-divider px-6 py-4">
                   <span className="flex-1">
                     <span className="block text-[14px] font-bold">Ofertas por e-mail</span>
