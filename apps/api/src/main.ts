@@ -88,6 +88,10 @@ async function bootstrap() {
     root: UPLOADS_DIR,
     prefix: "/uploads/",
     decorateReply: false,
+    // cache imutável: o nome do arquivo muda a cada upload (timestamp+hash),
+    // então o navegador/CDN pode guardar 1 ano sem revalidar
+    maxAge: "365d",
+    immutable: true,
   });
 
   const port = process.env.API_PORT ? Number(process.env.API_PORT) : 3333;

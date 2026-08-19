@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" className={jakarta.variable}>
       <body className="font-sans">
+        {process.env.NEXT_PUBLIC_API_URL && (
+          <link rel="preconnect" href={process.env.NEXT_PUBLIC_API_URL} crossOrigin="anonymous" />
+        )}
         <SiteHeader />
         {/* mobile: moldura 430px · desktop: as páginas controlam a largura · portaria: sem moldura */}
         <SiteFrame>{children}</SiteFrame>

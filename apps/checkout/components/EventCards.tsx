@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type EventListItem } from "../lib/api";
 import { formatCents } from "../lib/format";
 import { FavoriteButton } from "./FavoriteButton";
+import { EventImage } from "./EventImage";
 
 /** "R$ 45,00" honesto (com taxas) ou "Grátis" — nunca um preço que muda depois. */
 export function priceLabel(cents: number | null): string | null {
@@ -26,8 +27,9 @@ export function MiniCard({ event }: { event: EventListItem }) {
         className="block overflow-hidden rounded-2xl border border-line bg-surface"
       >
         {event.bannerUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.bannerUrl} alt="" loading="lazy" decoding="async" className="h-28 w-full object-cover" />
+          <div className="relative h-28 w-full">
+            <EventImage src={event.bannerUrl} sizes="240px" className="object-cover" />
+          </div>
         ) : (
           <div className="flex h-28 items-center justify-center bg-brand-gradient text-[28px] font-extrabold text-white/85">
             {event.title.slice(0, 1).toUpperCase()}
@@ -60,8 +62,9 @@ export function GridCard({ event }: { event: EventListItem }) {
         className="block overflow-hidden rounded-2xl border border-line bg-surface transition-shadow hover:shadow-card"
       >
         {event.bannerUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.bannerUrl} alt="" loading="lazy" decoding="async" className="h-32 w-full object-cover lg:h-36" />
+          <div className="relative h-32 w-full lg:h-36">
+            <EventImage src={event.bannerUrl} sizes="(min-width: 1024px) 25vw, 50vw" className="object-cover" />
+          </div>
         ) : (
           <div className="flex h-32 items-center justify-center bg-brand-gradient text-[36px] font-extrabold text-white/80 lg:h-36">
             {event.title.slice(0, 1).toUpperCase()}

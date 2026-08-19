@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { EventImage } from "../../../../components/EventImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../../../lib/api";
@@ -65,12 +66,9 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
             vista qual festa é, quando e onde */}
         <div className="mb-4 flex items-center gap-3 rounded-[18px] border border-line bg-surface p-3.5">
           {event.bannerUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={event.bannerUrl}
-              alt=""
-              className="h-14 w-14 shrink-0 rounded-xl object-cover"
-            />
+            <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl">
+              <EventImage src={event.bannerUrl} sizes="56px" className="object-cover" />
+            </div>
           ) : (
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-magenta via-brand-pink to-brand-orange text-[20px] font-extrabold text-white">
               {event.title.slice(0, 1).toUpperCase()}

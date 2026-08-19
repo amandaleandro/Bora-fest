@@ -6,6 +6,7 @@ import { api, type EventListItem, type EventCategory } from "../lib/api";
 import { getFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { GridCard, MiniCard, priceLabel, shortDate } from "../components/EventCards";
+import { EventImage } from "../components/EventImage";
 import { captureAttributionFromUrl } from "../lib/attribution";
 import { Icon, paths } from "../components/icons";
 
@@ -163,8 +164,7 @@ export default function HomePage() {
             {highlight.bannerUrl && (
               // a arte preenche o hero igual ao card do mobile; o hero mais alto (min-h-420)
               // evita o corte ultra-wide que espremia o flyer numa faixa fina.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover object-center" />
+              <EventImage src={highlight.bannerUrl} priority sizes="(min-width: 1200px) 1160px, 100vw" className="object-cover object-center" />
             )}
             <div className={`absolute inset-0 ${highlight.bannerUrl ? "bg-gradient-to-t from-black/85 via-black/25 to-transparent" : ""}`}>
               {!highlight.bannerUrl && (
@@ -296,8 +296,7 @@ export default function HomePage() {
                 <Link href={`/evento/${highlight.slug}`} className="block">
                   <div className="relative h-[200px] bg-brand-gradient p-5 text-white">
                     {highlight.bannerUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={highlight.bannerUrl} alt="" fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+                      <EventImage src={highlight.bannerUrl} priority sizes="430px" className="object-cover" />
                     )}
                     {highlight.bannerUrl ? (
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/20" />
