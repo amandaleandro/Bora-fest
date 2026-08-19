@@ -151,6 +151,33 @@ async function send(
     throw new Error(`Canal não suportado para promoter_invited: ${channel}`);
   }
 
+  if (template === "member_invited") {
+    if (channel === "EMAIL") {
+      const p = payload as { orgName: string; roleKey: string; panelUrl: string };
+      await getEmailSender().send({
+        to: recipient,
+        subject: `${p.orgName} te convidou para a equipe 🎉`,
+        text: [
+          `${p.orgName} te convidou para fazer parte da equipe na BoraFest (papel: ${p.roleKey}).`,
+          "",
+          "Entre no painel com este mesmo e-mail para aceitar:",
+          p.panelUrl,
+          "",
+          "Equipe BoraFest",
+        ].join("\n"),
+        html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p><b>${p.orgName}</b> te convidou para fazer parte da equipe na BoraFest (papel: <b>${p.roleKey}</b>).</p>
+  <p><a href="${p.panelUrl}" style="display:inline-block;background:#D9128F;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Entrar no painel</a></p>
+  <p style="color:#666;font-size:13px">Entre com este mesmo e-mail para aceitar o convite.</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+      });
+      return;
+    }
+    throw new Error(`Canal não suportado para member_invited: ${channel}`);
+  }
+
   if (template === "cpf_defined") {
     if (channel === "EMAIL") {
       const p = payload as { cpfMasked: string; name?: string | null };

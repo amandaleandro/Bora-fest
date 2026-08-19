@@ -229,6 +229,26 @@ export class OrganizationsService {
         create: { partnerId: input.partnerId, userId: invitedUser.id },
       });
     }
+
+    const org = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, displayName: true },
+    });
+    await prisma.notification
+      .create({
+        data: {
+          channel: "EMAIL",
+          recipient: input.email.toLowerCase().trim(),
+          template: "member_invited",
+          payload: {
+            orgName: org?.displayName ?? org?.name ?? "uma casa na BoraFest",
+            roleKey: input.roleKey,
+            panelUrl: `${process.env.PRODUCER_BASE_URL ?? "https://painel.borafest.com.br"}/organizacoes`,
+          },
+        },
+      })
+      .catch(() => undefined);
+
     return membership;
   }
 
