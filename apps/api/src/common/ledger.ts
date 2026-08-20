@@ -13,8 +13,15 @@ export async function getOrganizationBalanceCents(organizationId: string): Promi
 }
 
 /**
- * Saldo maduro = tudo menos os créditos ainda dentro da janela de reembolso
- * (availableAt no futuro). Débitos contam sempre — dívida não espera janela.
+ * Saldo maduro = tudo menos o LÍQUIDO do que ainda não liberou (availableAt no
+ * futuro). Correção 2026-08-19: antes descontava só os créditos POSITIVOS em
+ * janela, então a taxa da plataforma (débito, nascida madura) era subtraída do
+ * saldo sacável de HOJE enquanto seu crédito só entrava depois do evento —
+ * cada venda futura derrubava o que o produtor podia sacar.
+ *
+ * Dívida de verdade (reembolso, saque, comissão paga, antecipação) continua
+ * contando na hora: esses lançamentos nascem com availableAt = agora, então
+ * ficam fora do bloco "em janela" por construção.
  */
 export async function getMaturedBalanceCents(organizationId: string): Promise<number> {
   const ledgerAccount = await prisma.ledgerAccount.findUnique({ where: { organizationId } });
@@ -29,7 +36,6 @@ export async function getMaturedBalanceCents(organizationId: string): Promise<nu
       where: {
         ledgerAccountId: ledgerAccount.id,
         availableAt: { gt: new Date() },
-        amountCents: { gt: 0 },
       },
       _sum: { amountCents: true },
     }),

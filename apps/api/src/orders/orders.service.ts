@@ -495,6 +495,11 @@ export class OrdersService {
               amountCents: -feeCents,
               referenceType: "order",
               referenceId: created.id,
+              // taxa matura junto com o crédito (correção 2026-08-19)
+              availableAt: addBusinessDays(
+                event.endsAt,
+                Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
+              ),
             },
           ],
         });

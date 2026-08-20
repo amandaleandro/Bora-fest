@@ -219,6 +219,10 @@ async function creditOrganizationLedger(
         amountCents: -feeCents,
         referenceType: "payment",
         referenceId: payment.id,
+        // MESMA data do crédito (correção 2026-08-19): a taxa nascia madura
+        // enquanto o crédito esperava o evento — o painel mostrava o BRUTO
+        // "a liberar" e a taxa comia saldo maduro de outros eventos.
+        availableAt,
       },
     ],
   });
@@ -495,6 +499,8 @@ async function splitPromoterCommission(
         amountCents: -order.promoterCommissionCents,
         referenceType: "payment",
         referenceId: payment.id,
+        // matura junto com o crédito da venda (correção 2026-08-19)
+        availableAt,
         description: "Comissão de promoter",
       },
       {
