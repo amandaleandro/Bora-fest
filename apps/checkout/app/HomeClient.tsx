@@ -18,7 +18,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   TEATRO: "Teatro",
 };
 
-type HomeSections = {
+export type HomeSections = {
   highlights: EventListItem[];
   shelves: Array<{ category: EventCategory; events: EventListItem[] }>;
   upcoming: EventListItem[];
