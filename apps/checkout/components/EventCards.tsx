@@ -23,7 +23,7 @@ export function MiniCard({ event }: { event: EventListItem }) {
   return (
     <div className="relative w-[240px] shrink-0">
       <Link
-        href={`/evento/${event.slug}`}
+        href={`/${event.slug}`}
         className="block overflow-hidden rounded-2xl border border-line bg-surface"
       >
         {event.bannerUrl ? (
@@ -58,7 +58,7 @@ export function GridCard({ event }: { event: EventListItem }) {
   return (
     <div className="relative">
       <Link
-        href={`/evento/${event.slug}`}
+        href={`/${event.slug}`}
         className="block overflow-hidden rounded-2xl border border-line bg-surface transition-shadow hover:shadow-card"
       >
         {event.bannerUrl ? (

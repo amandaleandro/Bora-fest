@@ -58,7 +58,7 @@ function DivulgueContent({ eventId }: { eventId: string }) {
   }
 
   const slug = (dashboard.event as { slug?: string }).slug ?? "";
-  const link = `${CHECKOUT_URL}/evento/${slug}`;
+  const link = `${CHECKOUT_URL}/${slug}`;
   const shareText = `Vem pro ${dashboard.event.title}! Garanta seu ingresso: ${link}`;
 
   async function copyLink() {

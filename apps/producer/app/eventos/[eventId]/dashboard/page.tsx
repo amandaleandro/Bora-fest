@@ -149,7 +149,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
             )}
             {slug && (
               <a
-                href={`${CHECKOUT_URL}/evento/${slug}`}
+                href={`${CHECKOUT_URL}/${slug}`}
                 target="_blank"
                 rel="noopener"
                 className="text-[12px] font-extrabold text-primary"

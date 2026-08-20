@@ -35,6 +35,34 @@ function slugify(title: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
+
+/**
+ * Caminhos que já existem no site — um evento com esse slug sequestraria a
+ * página (o link curto mora na raiz: borafest.com.br/nome-do-evento).
+ */
+const SLUGS_RESERVADOS = new Set([
+  "acesso", "checkout", "evento", "explorar", "favoritos", "legal",
+  "minhas-compras", "offline", "pedido", "perfil", "portaria",
+  "api", "admin", "painel", "sitemap.xml", "robots.txt", "_next",
+]);
+
+/**
+ * Slug curto e legível (2026-08-19): antes todo evento nascia com um sufixo
+ * aleatório ("dvc-submundo-5z3vx") só para garantir unicidade, e isso ia parar
+ * no cartaz. Agora tenta o nome limpo e só numera se realmente colidir.
+ */
+async function gerarSlugUnico(titulo: string): Promise<string> {
+  const base = slugify(titulo) || "evento";
+  for (let n = 0; n < 50; n += 1) {
+    const candidato = n === 0 ? base : `${base}-${n + 1}`;
+    if (SLUGS_RESERVADOS.has(candidato)) continue;
+    const existe = await prisma.event.findUnique({ where: { slug: candidato }, select: { id: true } });
+    if (!existe) return candidato;
+  }
+  // saída de emergência: mantém o comportamento antigo
+  return `${base}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 @Injectable()
 export class EventsService {
   constructor(private readonly orgAccess: OrgAccessService) {}
@@ -42,7 +70,7 @@ export class EventsService {
   async create(organizationId: string, actorUserId: string, input: CreateEventInput) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
 
-    const slug = `${slugify(input.title)}-${Math.random().toString(36).slice(2, 7)}`;
+    const slug = await gerarSlugUnico(input.title);
 
     // local inline: reaproveita o mesmo (nome+cidade) da organização ou cria
     const venueId = input.venue

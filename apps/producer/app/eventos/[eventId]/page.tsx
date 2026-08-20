@@ -425,7 +425,7 @@ function EventContent({ eventId }: { eventId: string }) {
   }
 
   const statusStyle = STATUS_STYLES[dashboard.event.status] ?? { bg: "bg-line", fg: "text-muted", label: dashboard.event.status };
-  const publicUrl = `${CHECKOUT_URL}/evento/${dashboard.event.slug}`;
+  const publicUrl = `${CHECKOUT_URL}/${dashboard.event.slug}`;
 
   return (
     <main>

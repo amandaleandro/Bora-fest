@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { EventImage } from "../../../components/EventImage";
+import { EventImage } from "../../components/EventImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type PublicEvent } from "../../../lib/api";
-import { formatCents } from "../../../lib/format";
-import { Icon, paths } from "../../../components/icons";
-import { FavoriteButton } from "../../../components/FavoriteButton";
-import { TicketSelector } from "../../../components/TicketSelector";
-import { PixelTracker } from "../../../components/PixelTracker";
-import { captureAttributionFromUrl } from "../../../lib/attribution";
-import { FollowButton } from "../../../components/FollowButton";
+import { api, type PublicEvent } from "../../lib/api";
+import { formatCents } from "../../lib/format";
+import { Icon, paths } from "../../components/icons";
+import { FavoriteButton } from "../../components/FavoriteButton";
+import { TicketSelector } from "../../components/TicketSelector";
+import { PixelTracker } from "../../components/PixelTracker";
+import { captureAttributionFromUrl } from "../../lib/attribution";
+import { FollowButton } from "../../components/FollowButton";
 
 
 /** Seções estruturadas do evento (line-up, incluso, idade) — página rica sem o produtor redigir nada. */
@@ -297,7 +297,7 @@ export function EventPageClient({
           </div>
         ) : (
           <Link
-            href={`/evento/${event.slug}/ingressos`}
+            href={`/${event.slug}/ingressos`}
             className="flex h-14 items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
           >
             Comprar ingressos{min !== null ? ` · a partir de ${formatCents(min)}` : ""}

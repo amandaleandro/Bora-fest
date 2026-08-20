@@ -574,7 +574,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           Os ingressos voltaram para o estoque. Escolha novamente para garantir o seu.
         </p>
         <Link
-          href={slug ? `/evento/${slug}/ingressos` : "/"}
+          href={slug ? `/${slug}/ingressos` : "/"}
           className="mt-6 flex h-14 w-full max-w-[360px] items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
         >
           Escolher ingressos novamente

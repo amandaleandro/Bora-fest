@@ -182,7 +182,7 @@ export function HomeClient({
       {/* hero desktop */}
       {highlight && (
         <section className="mb-8 hidden lg:block">
-          <Link href={`/evento/${highlight.slug}`}
+          <Link href={`/${highlight.slug}`}
             className="relative flex min-h-[420px] flex-col justify-end overflow-hidden rounded-3xl bg-brand-gradient p-12 pb-10 text-white">
             {highlight.bannerUrl && (
               // a arte preenche o hero igual ao card do mobile; o hero mais alto (min-h-420)
@@ -316,7 +316,7 @@ export function HomeClient({
                 <Link href="/explorar" className="text-[12.5px] font-extrabold text-primary">Ver tudo</Link>
               </div>
               <div className="relative mt-3 overflow-hidden rounded-3xl">
-                <Link href={`/evento/${highlight.slug}`} className="block">
+                <Link href={`/${highlight.slug}`} className="block">
                   <div className="relative h-[200px] bg-brand-gradient p-5 text-white">
                     {highlight.bannerUrl && (
                       <EventImage src={highlight.bannerUrl} priority sizes="430px" className="object-cover" />
