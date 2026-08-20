@@ -1,26 +1,27 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import Image from "next/image";
 
 /**
- * Faixa "Produza seu evento" da home (2026-08-17): a arte agora vem do painel
- * de admin — um slot pro desktop (faixa larga) e outro pro mobile (formato de
- * post, MAIOR e legível). Sem arte anexada, cai no banner padrão da marca.
- * O banner inteiro é o link — o botão faz parte da imagem.
+ * Faixa "Produza seu evento" da home. A arte vem do painel de admin (slot
+ * desktop e slot mobile); sem arte anexada, cai no banner padrão da marca.
+ *
+ * 2026-08-17 (waterfall do GTmetrix): era um <img> cru de 54,6 KB — o maior
+ * arquivo da página — e ainda buscava as URLs na API DEPOIS do carregamento.
+ * Agora as URLs vêm do servidor (a home já é Server Component) e a arte passa
+ * pelo otimizador: WebP no tamanho do slot, carregada só ao chegar perto.
  */
-export function PromoBanner({ panelUrl }: { panelUrl: string }) {
-  const [urls, setUrls] = useState<{ desktopUrl: string | null; mobileUrl: string | null }>({
-    desktopUrl: null,
-    mobileUrl: null,
-  });
-
-  useEffect(() => {
-    api.publicBanners().then(setUrls).catch(() => undefined);
-  }, []);
-
-  const desktop = urls.desktopUrl ?? "/brand/banner-produtores.webp";
-  const mobile = urls.mobileUrl ?? "/brand/banner-produtores.webp";
+export function PromoBanner({
+  panelUrl,
+  desktopUrl,
+  mobileUrl,
+}: {
+  panelUrl: string;
+  desktopUrl?: string | null;
+  mobileUrl?: string | null;
+}) {
+  const desktop = desktopUrl ?? "/brand/banner-produtores.webp";
+  const mobile = mobileUrl ?? "/brand/banner-produtores.webp";
+  const alt =
+    "Do bora? ao ingresso vendido em minutos. Sem burocracia — publique em minutos, Pix direto na tela, sem trava de verificação. Grátis para começar.";
 
   return (
     <section className="mt-12 lg:mt-14">
@@ -29,20 +30,20 @@ export function PromoBanner({ panelUrl }: { panelUrl: string }) {
         aria-label="Criar conta de produtor — do bora ao ingresso vendido em minutos, sem burocracia"
         className="group block overflow-hidden rounded-2xl shadow-card transition-transform duration-200 hover:-translate-y-0.5 lg:rounded-3xl"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element -- proporção livre, definida pela arte */}
-        <img
+        <Image
           src={desktop}
-          alt="Do bora? ao ingresso vendido em minutos. Sem burocracia — publique em minutos, Pix direto na tela, sem trava de verificação. Grátis para começar."
-          loading="lazy"
-          decoding="async"
+          alt={alt}
+          width={1600}
+          height={420}
+          sizes="(min-width: 1024px) 1160px, 100vw"
           className="hidden h-auto w-full transition-transform duration-300 group-hover:scale-[1.01] lg:block"
         />
-        {/* eslint-disable-next-line @next/next/no-img-element -- proporção livre, definida pela arte */}
-        <img
+        <Image
           src={mobile}
-          alt="Do bora? ao ingresso vendido em minutos. Sem burocracia."
-          loading="lazy"
-          decoding="async"
+          alt={alt}
+          width={1080}
+          height={1080}
+          sizes="430px"
           className="h-auto w-full transition-transform duration-300 group-hover:scale-[1.01] lg:hidden"
         />
       </a>

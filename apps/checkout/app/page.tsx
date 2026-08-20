@@ -26,10 +26,11 @@ async function buscar<T>(caminho: string): Promise<T | null> {
 export default async function HomePage() {
   // sem cidade: é o que o visitante novo vê. Quem já escolheu cidade recebe
   // isto no primeiro quadro e o cliente ajusta em seguida.
-  const [sections, lista] = await Promise.all([
+  const [sections, lista, banners] = await Promise.all([
     buscar<HomeSections>("/v1/public/events/home/sections"),
     buscar<{ total: number; events: EventListItem[] }>("/v1/public/events"),
+    buscar<{ desktopUrl: string | null; mobileUrl: string | null }>("/v1/public/banners"),
   ]);
 
-  return <HomeClient initialSections={sections} initialEvents={lista?.events ?? null} />;
+  return <HomeClient initialSections={sections} initialEvents={lista?.events ?? null} banners={banners} />;
 }

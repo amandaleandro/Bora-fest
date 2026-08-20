@@ -65,9 +65,11 @@ function highlightBadge(event: EventListItem): string {
 export function HomeClient({
   initialSections,
   initialEvents,
+  banners,
 }: {
   initialSections: HomeSections | null;
   initialEvents: EventListItem[] | null;
+  banners?: { desktopUrl: string | null; mobileUrl: string | null } | null;
 }) {
   const [events, setEvents] = useState<EventListItem[] | null>(initialEvents);
   const [query, setQuery] = useState("");
@@ -477,7 +479,7 @@ export function HomeClient({
           )}
 
           {/* faixa Produza seu evento — arte trocável no admin (desktop|mobile) */}
-          <PromoBanner panelUrl={PANEL} />
+          <PromoBanner panelUrl={PANEL} desktopUrl={banners?.desktopUrl} mobileUrl={banners?.mobileUrl} />
         </>
       )}
     </main>
