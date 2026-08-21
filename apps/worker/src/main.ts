@@ -15,6 +15,9 @@ import {
   createPaymentWebhookProcessingWorker,
   createWaitingRoomSweepQueue,
   createWaitingRoomSweepWorker,
+  ABANDONED_CART_JOB_ID,
+  createAbandonedCartQueue,
+  createAbandonedCartWorker,
   NOTIFICATION_DELIVERY_JOB_ID,
   ORDER_EXPIRATION_JOB_ID,
   OUTBOX_DISPATCH_JOB_ID,
@@ -37,6 +40,7 @@ import { deliverPendingNotifications } from "./deliver-notifications";
 import { executeAutoTransfers } from "./auto-payouts";
 import { processPaymentWebhookJob } from "./process-payment-webhook";
 import { sweepWaitingRooms } from "./sweep-waiting-room";
+import { sendAbandonedCartReminders } from "./abandoned-cart";
 
 const log = withContext({ module: "worker" });
 
@@ -101,6 +105,16 @@ async function main() {
     { name: "expire", data: {} },
   );
 
+  // --- carrinho abandonado: lembrete de pedido pendente não pago -----------
+  const abandonedCartWorker = createAbandonedCartWorker(async () => {
+    await sendAbandonedCartReminders();
+  });
+  await createAbandonedCartQueue().upsertJobScheduler(
+    ABANDONED_CART_JOB_ID,
+    { every: 5 * 60_000 },
+    { name: "remind", data: {} },
+  );
+
   // --- notificações: entrega de e-mail/WhatsApp ----------------------------
   const notificationWorker = createNotificationDeliveryWorker(async () => {
     await deliverPendingNotifications();
@@ -135,6 +149,7 @@ async function main() {
     ["repasses", autoPayoutsWorker],
     ["webhooks de pagamento", webhookWorker],
     ["sala de espera", waitingRoomWorker],
+    ["carrinho abandonado", abandonedCartWorker],
   ] as const) {
     worker.on("failed", (job, error) => {
       jobsFailedTotal.inc({ queue: name });
@@ -149,7 +164,7 @@ async function main() {
   }
 
   log.info(
-    "workers iniciados: reservas, outbox, pagamentos, pedidos, notificações, repasses, webhooks de pagamento e sala de espera",
+    "workers iniciados: reservas, outbox, pagamentos, pedidos, notificações, repasses, webhooks de pagamento, sala de espera e carrinho abandonado",
   );
 
   // desligamento educado: sem isso o Docker espera, desiste e o deploy do
@@ -163,6 +178,7 @@ async function main() {
     autoPayoutsWorker,
     webhookWorker,
     waitingRoomWorker,
+    abandonedCartWorker,
   ];
   let encerrando = false;
   async function shutdown(signal: string) {
