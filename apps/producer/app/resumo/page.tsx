@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GuardedPanelShell } from "@/components/PanelShell";
@@ -114,20 +115,9 @@ function ResumoContent() {
       </p>
       <h2 className="mt-1 text-[24px] font-extrabold leading-tight">Seu palco está vivo.</h2>
 
-      {orgs.length > 1 && (
-        <select
-          className="mt-4 h-12 w-full rounded-2xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-bold"
-          value={activeOrg ?? ""}
-          onChange={(e) => {
-            localStorage.setItem("bf.activeOrg", e.target.value);
-            setActiveOrg(e.target.value);
-          }}
-        >
-          {orgs.map((o) => (
-            <option key={o.id} value={o.id}>{o.displayName ?? o.name}</option>
-          ))}
-        </select>
-      )}
+      <div className="mt-4 lg:hidden">
+        <OrgSwitcher organizationId={activeOrg ?? undefined} />
+      </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-[20px] bg-brand-gradient p-4 text-white">

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { CHECKOUT_URL } from "@/lib/config";
 
 const ICON_PROPS = {
@@ -191,7 +192,13 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
         <span className="mt-1 block text-[10px] font-semibold text-white/45">Painel do organizador</span>
       </Link>
 
-      <Item href={eventsHref} icon={icons.calendar} label="Meus eventos" active={pathname === eventsHref} />
+      {/* trocar de produtora — antes só existia a lista órfã em /organizacoes */}
+      <div className="px-2 pb-3">
+        <OrgSwitcher organizationId={organizationId} dark />
+      </div>
+
+      <Item href="/organizacoes" icon={icons.calendar} label="Minhas produtoras" active={pathname === "/organizacoes"} />
+      <Item href={eventsHref} icon={icons.ticket} label="Meus eventos" active={pathname === eventsHref} />
 
       {event ? (
         <>
