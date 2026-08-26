@@ -18,6 +18,56 @@ function slugify(name: string): string {
 export class OrganizationsService {
   constructor(private readonly orgAccess: OrgAccessService) {}
 
+
+  /**
+   * Resumo da produtora numa tacada (2026-08-19). Antes o painel montava esta
+   * tela com 1 + N requisições — listava os eventos e depois pedia o dashboard
+   * COMPLETO de cada um só para somar receita e ingressos. Com 8 eventos eram
+   * 10 idas à API em 3 rodadas encadeadas, e trocar de produtora demorava.
+   * Aqui são 3 consultas agregadas em paralelo, numa requisição só.
+   */
+  async getSummary(organizationId: string, actorUserId: string) {
+    // mesma régua do dashboard do evento: financeiro vê; vendedor também
+    // (ele já via o dashboard de cada evento separadamente)
+    try {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+    } catch {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    }
+
+    const [events, ordersByStatus, lots] = await Promise.all([
+      prisma.event.findMany({
+        where: { organizationId },
+        orderBy: { startsAt: "asc" },
+        select: {
+          id: true, title: true, slug: true, status: true,
+          startsAt: true, endsAt: true, bannerUrl: true, organizationId: true,
+        },
+      }),
+      prisma.order.groupBy({
+        by: ["status"],
+        where: { event: { organizationId } },
+        _sum: { totalCents: true },
+      }),
+      prisma.ticketLot.aggregate({
+        where: { ticketType: { event: { organizationId } } },
+        _sum: { capacity: true, soldCount: true },
+      }),
+    ]);
+
+    const revenueCents = ordersByStatus
+      .filter((o) => o.status === "PAID" || o.status === "FULFILLED")
+      .reduce((sum, o) => sum + (o._sum.totalCents ?? 0), 0);
+
+    return {
+      organizationId,
+      revenueCents,
+      ticketsSold: lots._sum.soldCount ?? 0,
+      ticketsCapacity: lots._sum.capacity ?? 0,
+      events,
+    };
+  }
+
   async create(userId: string, input: CreateOrganizationInput) {
     const ownerRole = await prisma.role.findUniqueOrThrow({ where: { key: "owner" } });
     const baseSlug = slugify(input.name);

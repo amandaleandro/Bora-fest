@@ -42,13 +42,20 @@ export function OrgSwitcher({ organizationId, dark }: { organizationId?: string;
   const nome = (o: Organization) => o.displayName ?? o.name;
 
   function trocar(id: string) {
+    if (id === ativaId) {
+      setAberto(false);
+      return;
+    }
     localStorage.setItem("bf.activeOrg", id);
     // evento ativo pertence à casa antiga — some, senão as abas Vendas/Portaria
     // levariam pra um evento de outra produtora
     localStorage.removeItem("bf.activeEvent");
     setAberto(false);
+    // AVISO da troca: se o usuário já está no /resumo, o push abaixo não
+    // remonta nada (mesma rota) e a tela ficava com os números da produtora
+    // ANTERIOR até um F5. Quem mostra dados escuta este evento e recarrega.
+    window.dispatchEvent(new CustomEvent("bf.orgchange", { detail: id }));
     router.push("/resumo");
-    router.refresh();
   }
 
   const claro = !dark;

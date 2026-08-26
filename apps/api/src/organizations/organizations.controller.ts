@@ -21,6 +21,13 @@ export class OrganizationsController {
   }
 
   // --- meus convites/vínculos (pessoa) — rotas estáticas ANTES de :id ------
+
+  /** Resumo da produtora (receita, ingressos e eventos) numa requisição só. */
+  @Get(":id/summary")
+  getSummary(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.organizationsService.getSummary(id, userId);
+  }
+
   @Get("promoter-invites/mine")
   myPromoterInvites(@CurrentUserId() userId: string) {
     return this.organizationsService.listMyPromoterInvites(userId);

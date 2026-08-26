@@ -112,6 +112,16 @@ export interface Organization {
 
 export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
+
+  /** Resumo da produtora numa requisição (receita, ingressos e eventos). */
+  getSummary: (token: string, organizationId: string) =>
+    request<{
+      organizationId: string;
+      revenueCents: number;
+      ticketsSold: number;
+      ticketsCapacity: number;
+      events: EventSummary[];
+    }>(`/v1/organizations/${organizationId}/summary`, { token }),
   /** Promoter v3: convida uma PESSOA por e-mail (conta simples criada na hora). */
   invitePromoter: (
     token: string,

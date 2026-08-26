@@ -7,8 +7,6 @@ import { useRouter } from "next/navigation";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import {
-  dashboardApi,
-  eventsApi,
   organizationsApi,
   type EventSummary,
   type Organization,
@@ -64,37 +62,49 @@ function ResumoContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // troca de produtora sem sair da tela: o /resumo não remonta quando já está
+  // aberto, então a mudança chega por evento (2026-08-19)
+  useEffect(() => {
+    const trocou = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (id) setActiveOrg(id);
+    };
+    window.addEventListener("bf.orgchange", trocou);
+    return () => window.removeEventListener("bf.orgchange", trocou);
+  }, []);
+
   useEffect(() => {
     if (!token || !activeOrg) return;
+    let atual = true;
     setLoading(true);
-    eventsApi
-      .list(token, activeOrg)
-      .then(async (evs) => {
-        setEvents(evs);
-        const preferido = evs.find((e) => e.status === "PUBLISHED") ?? evs[0];
+    // limpa o que era da produtora ANTERIOR: sem isso a tela mostrava o
+    // faturamento e os eventos da outra casa até a resposta chegar
+    setEvents([]);
+    setReceitaCents(null);
+    setVendidos(null);
+    setDisponiveis(null);
+
+    // uma requisição só (antes: lista de eventos + 1 dashboard POR evento)
+    organizationsApi
+      .getSummary(token, activeOrg)
+      .then((resumo) => {
+        if (!atual) return; // troca rápida: resposta velha não sobrescreve a nova
+        setEvents(resumo.events);
+        setReceitaCents(resumo.revenueCents);
+        setVendidos(resumo.ticketsSold);
+        setDisponiveis(resumo.ticketsCapacity);
+        const preferido = resumo.events.find((e) => e.status === "PUBLISHED") ?? resumo.events[0];
         if (preferido) localStorage.setItem("bf.activeEvent", preferido.id);
         else localStorage.removeItem("bf.activeEvent");
-        // KPIs: soma dos dashboards (poucos eventos por casa — barato)
-        const dashboards = await Promise.all(
-          evs.slice(0, 8).map((e) => dashboardApi.get(token, e.id).catch(() => null)),
-        );
-        let receita = 0;
-        let sold = 0;
-        let cap = 0;
-        for (const d of dashboards) {
-          if (!d) continue;
-          receita += d.revenueCents ?? 0;
-          for (const lot of d.lots) {
-            sold += lot.sold;
-            cap += lot.capacity;
-          }
-        }
-        setReceitaCents(receita);
-        setVendidos(sold);
-        setDisponiveis(cap);
       })
       .catch(() => undefined)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (atual) setLoading(false);
+      });
+
+    return () => {
+      atual = false;
+    };
   }, [token, activeOrg]);
 
   const primeiroNome = (user?.name ?? "").split(" ")[0];
