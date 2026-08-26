@@ -112,7 +112,9 @@ export function PixelTracker({
 
     const value = purchase.valueCents / 100;
     if (pixelSettings.metaPixelId && SAFE_PIXEL_ID.test(pixelSettings.metaPixelId)) {
-      window.fbq?.("track", "Purchase", { value, currency: "BRL" });
+      // eventID = id do pedido, o MESMO que a API de Conversões envia do
+      // servidor. Sem isso a Meta contaria a venda duas vezes.
+      window.fbq?.("track", "Purchase", { value, currency: "BRL" }, { eventID: purchase.orderId });
     }
     if (pixelSettings.ga4MeasurementId && SAFE_PIXEL_ID.test(pixelSettings.ga4MeasurementId)) {
       window.gtag?.("event", "purchase", { transaction_id: purchase.orderId, value, currency: "BRL" });

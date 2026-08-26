@@ -162,6 +162,13 @@ export class EventsService {
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,
         pixelSettings,
+        // token do CAPI: "" ou null desliga; undefined mantém o atual
+        metaCapiToken:
+          input.metaCapiToken === undefined
+            ? undefined
+            : input.metaCapiToken
+              ? input.metaCapiToken
+              : null,
         venueId,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,

@@ -3,6 +3,7 @@ import { getGateway } from "@borafest/payments";
 import { withContext } from "@borafest/observability";
 import { issueTicketsForOrder } from "./issue-tickets";
 import { notifySale } from "./sale-notify";
+import { sendPurchaseToMeta } from "./meta-capi";
 
 const log = withContext({ module: "outbox" });
 
@@ -66,6 +67,9 @@ async function handleOutboxEvent(
       // push de venda (gamificação) — best-effort, DEPOIS da emissão e sem
       // await que possa falhar o job: notifySale já engole os próprios erros
       await notifySale(payload.orderId);
+      // API de Conversões da Meta: server-side, o que o pixel do navegador
+      // perde (bloqueador, iOS, Safari). Engole os próprios erros.
+      await sendPurchaseToMeta(payload.orderId);
       return;
 
     case "payment.orphaned":

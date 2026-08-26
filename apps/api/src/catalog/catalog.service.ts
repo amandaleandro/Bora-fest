@@ -347,8 +347,11 @@ export class CatalogService {
     if (!event) throw new NotFoundException("Evento não encontrado");
     // público vê o nome comercial; o nome civil/razão social nem trafega
     const { displayName, ...organization } = event.organization;
+    // esta consulta usa `include`, então devolve TODOS os campos do evento —
+    // o token da API de Conversões é segredo e sai daqui explicitamente
+    const { metaCapiToken: _segredo, ...publico } = event;
     return {
-      ...event,
+      ...publico,
       organization: { ...organization, name: displayName ?? organization.name },
     };
   }

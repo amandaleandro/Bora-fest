@@ -546,6 +546,10 @@ model Event {
   /// IDs de pixel de conversão (Meta/GA4/TikTok) — schema livre pra não
   /// exigir migration nova a cada provedor: { metaPixelId?, ga4MeasurementId?, tiktokPixelId? }
   pixelSettings  Json?       @map("pixel_settings")
+  /// Token da API de Conversões da Meta (server-side). Fica FORA de
+  /// pixelSettings de proposito: aquele objeto vai inteiro para a pagina
+  /// publica do evento, e o token e segredo.
+  metaCapiToken  String?     @map("meta_capi_token")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 

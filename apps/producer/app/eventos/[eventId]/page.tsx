@@ -78,6 +78,9 @@ function EventContent({ eventId }: { eventId: string }) {
   const [metaPixelId, setMetaPixelId] = useState("");
   const [ga4MeasurementId, setGa4MeasurementId] = useState("");
   const [tiktokPixelId, setTiktokPixelId] = useState("");
+  // token do CAPI nunca volta do servidor: só sabemos se já existe
+  const [capiToken, setCapiToken] = useState("");
+  const [capiConfigured, setCapiConfigured] = useState(false);
   const [pixelSaving, setPixelSaving] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
   const [category, setCategory] = useState<EventCategory | "">("");
@@ -133,6 +136,7 @@ function EventContent({ eventId }: { eventId: string }) {
       setMetaPixelId(d.event.pixelSettings?.metaPixelId ?? "");
       setGa4MeasurementId(d.event.pixelSettings?.ga4MeasurementId ?? "");
       setTiktokPixelId(d.event.pixelSettings?.tiktokPixelId ?? "");
+      setCapiConfigured(Boolean((d.event as { metaCapiConfigured?: boolean }).metaCapiConfigured));
       setVenue(d.event.venue ?? null);
       setCategory(d.event.category ?? "");
       couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
@@ -183,6 +187,8 @@ function EventContent({ eventId }: { eventId: string }) {
             ga4MeasurementId: ga4MeasurementId.trim() || undefined,
             tiktokPixelId: tiktokPixelId.trim() || undefined,
           },
+          // só envia se o produtor digitou algo agora ("" mantém o atual)
+          ...(capiToken.trim() ? { metaCapiToken: capiToken.trim() } : {}),
         },
         token,
       );
@@ -897,6 +903,29 @@ function EventContent({ eventId }: { eventId: string }) {
               disabled={pixelSaving}
               onChange={(e) => setTiktokPixelId(e.target.value)}
               onBlur={savePixels}
+            />
+          </div>
+
+          <div className="mt-4">
+            <p className="text-[12.5px] font-extrabold">
+              API de Conversões da Meta{" "}
+              {capiConfigured && <span className="font-bold text-success">· ativa ✓</span>}
+            </p>
+            <p className="mt-0.5 text-[12px] font-semibold text-muted">
+              Manda a venda do nosso servidor direto pra Meta — pega o que o pixel do navegador perde
+              (bloqueador de anúncio, iPhone, Safari). Pegue em Gerenciador de Eventos → seu pixel →
+              Configurações → Token de acesso. Precisa do Meta Pixel ID acima preenchido.
+            </p>
+            <input
+              type="password"
+              placeholder={capiConfigured ? "Token salvo — cole outro para substituir" : "Token de acesso da API de Conversões"}
+              className="mt-2 w-full rounded-lg border border-line-input px-3 py-2 text-sm"
+              value={capiToken}
+              disabled={pixelSaving}
+              onChange={(e) => setCapiToken(e.target.value)}
+              onBlur={() => {
+                if (capiToken.trim()) savePixels();
+              }}
             />
           </div>
           {pixelError ? <p className="mt-2 text-[13px] font-semibold text-danger">{pixelError}</p> : null}

@@ -61,5 +61,7 @@ export const updateEventSchema = createEventSchema.partial().extend({
   waitingRoomEnabled: z.boolean().optional(),
   waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
   pixelSettings: pixelSettingsSchema.optional(),
+  /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */
+  metaCapiToken: z.string().max(500).nullable().optional(),
 });
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;

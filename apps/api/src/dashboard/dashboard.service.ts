@@ -94,6 +94,8 @@ export class DashboardService {
         waitingRoomEnabled: event.waitingRoomEnabled,
         waitingRoomConcurrency: event.waitingRoomConcurrency,
         pixelSettings: event.pixelSettings,
+        // nunca devolvemos o token; o painel só precisa saber se já existe
+        metaCapiConfigured: Boolean(event.metaCapiToken),
         venue,
       },
       revenueCents,
