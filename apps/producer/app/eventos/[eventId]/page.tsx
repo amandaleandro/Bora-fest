@@ -81,6 +81,7 @@ function EventContent({ eventId }: { eventId: string }) {
   // token do CAPI nunca volta do servidor: só sabemos se já existe
   const [capiToken, setCapiToken] = useState("");
   const [capiConfigured, setCapiConfigured] = useState(false);
+  const [pixelSaved, setPixelSaved] = useState(false);
   const [pixelSaving, setPixelSaving] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
   const [category, setCategory] = useState<EventCategory | "">("");
@@ -192,6 +193,12 @@ function EventContent({ eventId }: { eventId: string }) {
         },
         token,
       );
+      setPixelSaved(true);
+      if (capiToken.trim()) {
+        setCapiConfigured(true);
+        setCapiToken(""); // token não volta do servidor; some do campo após salvar
+      }
+      setTimeout(() => setPixelSaved(false), 2500);
     } catch (err) {
       setPixelError(err instanceof Error ? err.message : "Falha ao salvar os pixels");
     } finally {
@@ -886,7 +893,6 @@ function EventContent({ eventId }: { eventId: string }) {
               value={metaPixelId}
               disabled={pixelSaving}
               onChange={(e) => setMetaPixelId(e.target.value)}
-              onBlur={savePixels}
             />
             <input
               placeholder="GA4 Measurement ID"
@@ -894,7 +900,6 @@ function EventContent({ eventId }: { eventId: string }) {
               value={ga4MeasurementId}
               disabled={pixelSaving}
               onChange={(e) => setGa4MeasurementId(e.target.value)}
-              onBlur={savePixels}
             />
             <input
               placeholder="TikTok Pixel ID"
@@ -902,7 +907,6 @@ function EventContent({ eventId }: { eventId: string }) {
               value={tiktokPixelId}
               disabled={pixelSaving}
               onChange={(e) => setTiktokPixelId(e.target.value)}
-              onBlur={savePixels}
             />
           </div>
 
@@ -923,10 +927,21 @@ function EventContent({ eventId }: { eventId: string }) {
               value={capiToken}
               disabled={pixelSaving}
               onChange={(e) => setCapiToken(e.target.value)}
-              onBlur={() => {
-                if (capiToken.trim()) savePixels();
-              }}
             />
+
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={savePixels}
+                disabled={pixelSaving}
+                className="h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta disabled:opacity-60"
+              >
+                {pixelSaving ? "Salvando…" : "Salvar alterações"}
+              </button>
+              {pixelSaved && !pixelError && (
+                <span className="text-[12.5px] font-extrabold text-success">Salvo ✓</span>
+              )}
+            </div>
           </div>
           {pixelError ? <p className="mt-2 text-[13px] font-semibold text-danger">{pixelError}</p> : null}
         </div>

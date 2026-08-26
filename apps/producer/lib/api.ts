@@ -705,6 +705,8 @@ export interface UpdateEventInput {
   waitingRoomEnabled?: boolean;
   waitingRoomConcurrency?: number;
   pixelSettings?: PixelSettings;
+  /** Token da API de Conversões da Meta; "" ou null desliga. */
+  metaCapiToken?: string | null;
   /** A API cria/atualiza o local e vincula ao evento. */
   venue?: EventVenue;
 }

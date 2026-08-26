@@ -1,12 +1,25 @@
 import { BadRequestException, PipeTransform } from "@nestjs/common";
 import type { ZodSchema } from "zod";
 
+/**
+ * Valida o corpo com Zod. Correção 2026-08-20: antes lançava
+ * `BadRequestException(error.flatten())` — um objeto SEM campo `message`, e o
+ * painel caía no texto genérico "Erro ao falar com a API", escondendo o motivo
+ * real de qualquer formulário. Agora monta uma frase legível e mantém o
+ * detalhe por campo em `fields` para quem quiser destacar o input.
+ */
 export function ZodBody(schema: ZodSchema): PipeTransform {
   return {
     transform(value: unknown) {
       const result = schema.safeParse(value);
       if (!result.success) {
-        throw new BadRequestException(result.error.flatten());
+        const { fieldErrors, formErrors } = result.error.flatten();
+        const porCampo = Object.entries(fieldErrors)
+          .map(([campo, erros]) => `${campo}: ${(erros ?? []).join(", ")}`)
+          .filter(Boolean);
+        const message =
+          [...formErrors, ...porCampo].join(" · ") || "Dados invalidos";
+        throw new BadRequestException({ message, fields: fieldErrors });
       }
       return result.data;
     },

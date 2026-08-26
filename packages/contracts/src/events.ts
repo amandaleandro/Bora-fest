@@ -62,6 +62,8 @@ export const updateEventSchema = createEventSchema.partial().extend({
   waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
   pixelSettings: pixelSettingsSchema.optional(),
   /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */
-  metaCapiToken: z.string().max(500).nullable().optional(),
+  // 2000: token de system user da Meta pode passar de 500 quando vem com
+  // escopos extras (Dataset Quality API) — o limite curto barrava o salvamento
+  metaCapiToken: z.string().trim().max(2000).nullable().optional(),
 });
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
