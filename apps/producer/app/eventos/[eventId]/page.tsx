@@ -178,6 +178,18 @@ function EventContent({ eventId }: { eventId: string }) {
   async function savePixels() {
     if (!token) return;
     setPixelError(null);
+    // o navegador ja preencheu esses campos com e-mail via autocompletar
+    // (2026-08-20): avisa aqui, apontando o campo, em vez de deixar a API
+    // devolver um erro que nao diz qual dos tres esta errado
+    const invalido = [
+      ["Meta Pixel ID", metaPixelId],
+      ["GA4 Measurement ID", ga4MeasurementId],
+      ["TikTok Pixel ID", tiktokPixelId],
+    ].find(([, valor]) => valor.trim() && !/^[A-Za-z0-9_-]+$/.test(valor.trim()));
+    if (invalido) {
+      setPixelError(`${invalido[0]}: use apenas letras, números, - e _ (o valor "${invalido[1].trim()}" não é um ID válido)`);
+      return;
+    }
     setPixelSaving(true);
     try {
       await eventControls.update(
@@ -889,6 +901,8 @@ function EventContent({ eventId }: { eventId: string }) {
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             <input
               placeholder="Meta Pixel ID"
+              autoComplete="off"
+              spellCheck={false}
               className="rounded-lg border border-line-input px-3 py-2 text-sm"
               value={metaPixelId}
               disabled={pixelSaving}
@@ -896,6 +910,8 @@ function EventContent({ eventId }: { eventId: string }) {
             />
             <input
               placeholder="GA4 Measurement ID"
+              autoComplete="off"
+              spellCheck={false}
               className="rounded-lg border border-line-input px-3 py-2 text-sm"
               value={ga4MeasurementId}
               disabled={pixelSaving}
@@ -903,6 +919,8 @@ function EventContent({ eventId }: { eventId: string }) {
             />
             <input
               placeholder="TikTok Pixel ID"
+              autoComplete="off"
+              spellCheck={false}
               className="rounded-lg border border-line-input px-3 py-2 text-sm"
               value={tiktokPixelId}
               disabled={pixelSaving}
@@ -922,6 +940,7 @@ function EventContent({ eventId }: { eventId: string }) {
             </p>
             <input
               type="password"
+              autoComplete="new-password"
               placeholder={capiConfigured ? "Token salvo — cole outro para substituir" : "Token de acesso da API de Conversões"}
               className="mt-2 w-full rounded-lg border border-line-input px-3 py-2 text-sm"
               value={capiToken}

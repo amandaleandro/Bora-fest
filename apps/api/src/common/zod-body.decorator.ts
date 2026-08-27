@@ -13,13 +13,13 @@ export function ZodBody(schema: ZodSchema): PipeTransform {
     transform(value: unknown) {
       const result = schema.safeParse(value);
       if (!result.success) {
-        const { fieldErrors, formErrors } = result.error.flatten();
-        const porCampo = Object.entries(fieldErrors)
-          .map(([campo, erros]) => `${campo}: ${(erros ?? []).join(", ")}`)
-          .filter(Boolean);
+        // caminho COMPLETO do campo: "pixelSettings.tiktokPixelId" diz qual dos
+        // tres esta errado; so "pixelSettings" deixava o produtor adivinhando
         const message =
-          [...formErrors, ...porCampo].join(" · ") || "Dados invalidos";
-        throw new BadRequestException({ message, fields: fieldErrors });
+          result.error.issues
+            .map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message))
+            .join(" · ") || "Dados invalidos";
+        throw new BadRequestException({ message, fields: result.error.flatten().fieldErrors });
       }
       return result.data;
     },
