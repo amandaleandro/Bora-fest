@@ -87,9 +87,15 @@ function loadTiktokPixel(pixelId: string) {
 export function PixelTracker({
   pixelSettings,
   purchase,
+  viewContent,
+  initiateCheckout,
 }: {
   pixelSettings: PixelSettings | null | undefined;
   purchase?: { orderId: string; valueCents: number };
+  /** página do evento: alimenta público "viu o evento" para remarketing */
+  viewContent?: { eventId: string; name: string; valueCents: number | null };
+  /** começou a compra: o público mais valioso — quase comprou */
+  initiateCheckout?: { orderId: string; valueCents: number };
 }) {
   useEffect(() => {
     if (!pixelSettings) return;
@@ -124,6 +130,46 @@ export function PixelTracker({
     }
     sessionStorage.setItem(dedupeKey, "1");
   }, [pixelSettings, purchase]);
+
+  useEffect(() => {
+    if (!pixelSettings || !viewContent) return;
+    const value = viewContent.valueCents === null ? undefined : viewContent.valueCents / 100;
+    if (pixelSettings.metaPixelId && SAFE_PIXEL_ID.test(pixelSettings.metaPixelId)) {
+      window.fbq?.("track", "ViewContent", {
+        content_type: "product",
+        content_ids: [viewContent.eventId],
+        content_name: viewContent.name,
+        ...(value !== undefined ? { value, currency: "BRL" } : {}),
+      });
+    }
+    if (pixelSettings.tiktokPixelId && SAFE_PIXEL_ID.test(pixelSettings.tiktokPixelId)) {
+      window.ttq?.track("ViewContent", { content_id: viewContent.eventId, content_name: viewContent.name });
+    }
+  }, [pixelSettings, viewContent]);
+
+  useEffect(() => {
+    if (!pixelSettings || !initiateCheckout) return;
+    const dedupeKey = `bf.pixel.checkout.${initiateCheckout.orderId}`;
+    if (sessionStorage.getItem(dedupeKey)) return;
+    const value = initiateCheckout.valueCents / 100;
+    if (pixelSettings.metaPixelId && SAFE_PIXEL_ID.test(pixelSettings.metaPixelId)) {
+      // eventID igual ao que o servidor manda (ic-<pedido>) — sem isso a Meta
+      // contaria o mesmo início de compra duas vezes
+      window.fbq?.(
+        "track",
+        "InitiateCheckout",
+        { value, currency: "BRL" },
+        { eventID: `ic-${initiateCheckout.orderId}` },
+      );
+    }
+    if (pixelSettings.ga4MeasurementId && SAFE_PIXEL_ID.test(pixelSettings.ga4MeasurementId)) {
+      window.gtag?.("event", "begin_checkout", { value, currency: "BRL" });
+    }
+    if (pixelSettings.tiktokPixelId && SAFE_PIXEL_ID.test(pixelSettings.tiktokPixelId)) {
+      window.ttq?.track("InitiateCheckout", { value, currency: "BRL" });
+    }
+    sessionStorage.setItem(dedupeKey, "1");
+  }, [pixelSettings, initiateCheckout]);
 
   return null;
 }

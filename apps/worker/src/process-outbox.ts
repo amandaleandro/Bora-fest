@@ -3,7 +3,7 @@ import { getGateway } from "@borafest/payments";
 import { withContext } from "@borafest/observability";
 import { issueTicketsForOrder } from "./issue-tickets";
 import { notifySale } from "./sale-notify";
-import { sendPurchaseToMeta } from "./meta-capi";
+import { sendInitiateCheckoutToMeta, sendPurchaseToMeta } from "./meta-capi";
 
 const log = withContext({ module: "outbox" });
 
@@ -70,6 +70,12 @@ async function handleOutboxEvent(
       // API de Conversões da Meta: server-side, o que o pixel do navegador
       // perde (bloqueador, iOS, Safari). Engole os próprios erros.
       await sendPurchaseToMeta(payload.orderId);
+      return;
+
+    case "order.created":
+      // InitiateCheckout server-side: alimenta remarketing de carrinho
+      // abandonado no Meta (quem começou a compra e não terminou)
+      await sendInitiateCheckoutToMeta(payload.orderId);
       return;
 
     case "payment.orphaned":

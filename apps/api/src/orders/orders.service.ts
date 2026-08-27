@@ -331,6 +331,14 @@ export class OrdersService {
         });
       }
 
+      // InitiateCheckout para a Meta (2026-08-26): sai pelo outbox, junto da
+      // transação, para o worker mandar server-side. É o evento que alimenta
+      // remarketing de carrinho abandonado — aqui já temos e-mail e telefone,
+      // então a correspondência fica alta.
+      await tx.outboxEvent.create({
+        data: { eventType: "order.created", payload: { orderId: created.id } },
+      });
+
       return created;
     });
 

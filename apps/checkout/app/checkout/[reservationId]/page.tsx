@@ -15,6 +15,7 @@ import {
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { getAttributedPartnerSlug, getAttributedPromoterSlug, getAttributedSellerSlug } from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
+import { PixelTracker } from "../../../components/PixelTracker";
 
 type Step = "ident" | "participantes" | "pagamento";
 type PayTab = "pix" | "cartao";
@@ -600,6 +601,12 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
   return (
     <main className="pb-10 lg:pb-16">
+      {/* funil: começou a compra. O eventID casa com o do servidor
+          (ic-<pedido>) para a Meta não contar duas vezes */}
+      <PixelTracker
+        pixelSettings={event?.pixelSettings ?? null}
+        initiateCheckout={order ? { orderId: order.id, valueCents: order.totalCents } : undefined}
+      />
       <header className="sticky top-0 z-10 border-b border-line bg-bg/85 backdrop-blur">
         <div className="mx-auto max-w-[1160px] px-5 lg:px-7">
           <div className="flex items-center justify-between gap-3 py-3">

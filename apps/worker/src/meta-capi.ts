@@ -33,7 +33,27 @@ function hashTelefone(bruto: string | null | undefined): string | undefined {
   return createHash("sha256").update(d).digest("hex");
 }
 
+/**
+ * Eventos do funil que mandamos do servidor. O `event_id` precisa ser único
+ * POR TIPO — Purchase segue usando o id do pedido puro (já está em produção,
+ * mexer nele quebraria a dedupe das vendas em andamento) e os demais ganham
+ * prefixo.
+ */
+type EventoMeta = "Purchase" | "InitiateCheckout";
+
+function idDoEvento(nome: EventoMeta, orderId: string): string {
+  return nome === "Purchase" ? orderId : `ic-${orderId}`;
+}
+
 export async function sendPurchaseToMeta(orderId: string): Promise<void> {
+  return sendEventToMeta(orderId, "Purchase");
+}
+
+export async function sendInitiateCheckoutToMeta(orderId: string): Promise<void> {
+  return sendEventToMeta(orderId, "InitiateCheckout");
+}
+
+async function sendEventToMeta(orderId: string, nome: EventoMeta): Promise<void> {
   try {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -63,10 +83,12 @@ export async function sendPurchaseToMeta(orderId: string): Promise<void> {
     const body = {
       data: [
         {
-          event_name: "Purchase",
-          event_time: Math.floor((order.paidAt ?? order.createdAt).getTime() / 1000),
+          event_name: nome,
+          event_time: Math.floor(
+            (nome === "Purchase" ? (order.paidAt ?? order.createdAt) : order.createdAt).getTime() / 1000,
+          ),
           // MESMO id que o navegador usa — é o que impede a conversão dobrada
-          event_id: order.id,
+          event_id: idDoEvento(nome, order.id),
           event_source_url: `${site}/${order.event.slug}`,
           action_source: "website",
           user_data: {
@@ -96,11 +118,11 @@ export async function sendPurchaseToMeta(orderId: string): Promise<void> {
     if (!resposta.ok) {
       const texto = await resposta.text().catch(() => "");
       // não relança: marketing nunca pode derrubar a emissão do ingresso
-      log.warn({ orderId, status: resposta.status, corpo: texto.slice(0, 300) }, "Meta CAPI recusou o evento");
+      log.warn({ orderId, evento: nome, status: resposta.status, corpo: texto.slice(0, 300) }, "Meta CAPI recusou o evento");
       return;
     }
-    log.info({ orderId, pixelId }, "compra enviada à API de Conversões da Meta");
+    log.info({ orderId, pixelId, evento: nome }, "evento enviado à API de Conversões da Meta");
   } catch (erro) {
-    log.warn({ orderId, erro: (erro as Error).message }, "falha ao enviar compra à Meta (ignorada)");
+    log.warn({ orderId, evento: nome, erro: (erro as Error).message }, "falha ao enviar evento à Meta (ignorada)");
   }
 }

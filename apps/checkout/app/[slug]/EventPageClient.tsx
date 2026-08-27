@@ -116,7 +116,10 @@ export function EventPageClient({
 
   return (
     <main className="pb-32 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8">
-      <PixelTracker pixelSettings={event.pixelSettings} />
+      <PixelTracker
+        pixelSettings={event.pixelSettings}
+        viewContent={{ eventId: event.id, name: event.title, valueCents: min }}
+      />
       {/* ---------- hotsite desktop: 2 colunas ---------- */}
       <div className="hidden gap-8 lg:grid lg:grid-cols-[1fr_400px]">
         <div>
