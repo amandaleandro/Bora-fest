@@ -1,6 +1,7 @@
 "use client";
 
 import { CHECKOUT_URL } from "@/lib/config";
+import { Bloco } from "@/components/Bloco";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -697,9 +698,8 @@ function EventContent({ eventId }: { eventId: string }) {
         })()}
       </div>
       {/* --- Local do evento ------------------------------------------------ */}
-      <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
+      <Bloco titulo="Local do evento" descricao="Endereço que aparece pro comprador e no filtro por cidade" aberto>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-extrabold">Local</h2>
           {!editingVenue && (
             <button type="button" className="btn-secondary px-3 py-1.5" onClick={openVenueForm}>
               {venue ? "Editar" : "Adicionar local"}
@@ -784,11 +784,10 @@ function EventContent({ eventId }: { eventId: string }) {
             Este evento ainda não tem local. Sem local, ele não aparece na busca por cidade.
           </p>
         )}
-      </section>
+      </Bloco>
 
       {/* --- Publicação (link público + pausar/reabrir + banner) ------------ */}
-      <section className="mt-10 rounded-2xl border border-line bg-surface p-5">
-        <h2 className="text-lg font-extrabold">Publicação</h2>
+      <Bloco titulo="Link e publicação" descricao="O link que você divulga e o controle de vendas" aberto>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <a
             href={publicUrl}
@@ -822,8 +821,9 @@ function EventContent({ eventId }: { eventId: string }) {
           )}
         </div>
 
-        <div className="mt-5">
-          <h3 className="text-[13px] font-extrabold">Banner do evento</h3>
+      </Bloco>
+
+      <Bloco titulo="Arte do evento" descricao="A imagem que aparece no site e nos cards" aberto>
           <div className="mt-2 aspect-video w-full max-w-md overflow-hidden rounded-xl border border-line bg-bg">
             {bannerUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- domínio do banner é dinâmico
@@ -848,10 +848,10 @@ function EventContent({ eventId }: { eventId: string }) {
             <span className="text-[12px] font-semibold text-muted">JPG, PNG ou WebP · até 5 MB · ideal 1600×900</span>
           </div>
           {bannerError ? <p className="mt-2 text-[13px] font-semibold text-danger">{bannerError}</p> : null}
-        </div>
 
-        <div className="mt-5 border-t border-line pt-4">
-          <h3 className="text-[13px] font-extrabold">Sala de espera</h3>
+      </Bloco>
+
+      <Bloco titulo="Sala de espera" descricao="Só para abertura de venda com pico de acesso">
           <p className="mt-1 text-[12px] font-semibold text-muted">
             Para eventos com pico de acesso na abertura das vendas: admite N compradores por vez no checkout em vez
             de deixar todo mundo bater junto no lote.
@@ -890,10 +890,10 @@ function EventContent({ eventId }: { eventId: string }) {
             </label>
           </div>
           {waitingRoomError ? <p className="mt-2 text-[13px] font-semibold text-danger">{waitingRoomError}</p> : null}
-        </div>
 
-        <div className="mt-5 border-t border-line pt-4">
-          <h3 className="text-[13px] font-extrabold">Pixels de conversão</h3>
+      </Bloco>
+
+      <Bloco titulo="Rastreamento e anúncios" descricao="Meta, Google e TikTok — para medir campanha">
           <p className="mt-1 text-[12px] font-semibold text-muted">
             Cole os IDs das plataformas que você usa pra rastrear campanha — disparamos PageView na página do evento
             e Purchase na confirmação do pedido.
@@ -963,10 +963,10 @@ function EventContent({ eventId }: { eventId: string }) {
             </div>
           </div>
           {pixelError ? <p className="mt-2 text-[13px] font-semibold text-danger">{pixelError}</p> : null}
-        </div>
 
-        <div className="mt-5 border-t border-line pt-4">
-          <h3 className="text-[13px] font-extrabold">Categoria</h3>
+      </Bloco>
+
+      <Bloco titulo="Categoria" descricao="Onde o evento aparece nos filtros de busca">
           <p className="mt-1 text-[12px] font-semibold text-muted">
             Ajuda seu evento a aparecer nos filtros de busca do site.
           </p>
@@ -982,10 +982,10 @@ function EventContent({ eventId }: { eventId: string }) {
             ))}
           </select>
           {categoryError ? <p className="mt-2 text-[13px] font-semibold text-danger">{categoryError}</p> : null}
-        </div>
 
-        <div className="mt-5 border-t border-line pt-4">
-          <h3 className="text-[13px] font-extrabold">Itens adicionais (upsell)</h3>
+      </Bloco>
+
+      <Bloco titulo="Itens extras" descricao="Camiseta, copo — o comprador soma ao ingresso">
           <p className="mt-1 text-[12px] font-semibold text-muted">
             Itens opcionais que o comprador soma ao ingresso no checkout — ex.: camiseta do evento.
           </p>
@@ -1030,12 +1030,10 @@ function EventContent({ eventId }: { eventId: string }) {
             </button>
           </div>
           {addOnError ? <p className="mt-2 text-[13px] font-semibold text-danger">{addOnError}</p> : null}
-        </div>
-      </section>
+      </Bloco>
 
       {/* --- Cupons --------------------------------------------------------- */}
-      <section className="mt-6 rounded-2xl border border-line bg-surface p-5">
-        <h2 className="text-lg font-semibold">Cupons</h2>
+      <Bloco titulo="Cupons de desconto" descricao="Códigos promocionais para divulgação">
         <div className="mt-3 flex flex-wrap gap-2">
           <input placeholder="CÓDIGO" className="w-36 rounded-lg border border-line-input px-3 py-2 text-sm uppercase" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} />
           <select className="rounded-lg border border-line-input px-3 py-2 text-sm" value={couponType} onChange={(e) => setCouponType(e.target.value)}>
@@ -1065,11 +1063,10 @@ function EventContent({ eventId }: { eventId: string }) {
             </div>
           ))}
         </div>
-      </section>
+      </Bloco>
 
       {/* --- Cortesias ------------------------------------------------------ */}
-      <section className="mt-6 rounded-2xl border border-line bg-surface p-5">
-        <h2 className="text-lg font-semibold">Cortesias</h2>
+      <Bloco titulo="Cortesias" descricao="Ingressos gratuitos para convidados">
         <div className="mt-3 flex flex-wrap gap-2">
           <select className="rounded-lg border border-line-input px-3 py-2 text-sm" value={courtesyLot} onChange={(e) => setCourtesyLot(e.target.value)}>
             <option value="">Lote</option>
@@ -1094,7 +1091,7 @@ function EventContent({ eventId }: { eventId: string }) {
             </div>
           ))}
         </div>
-      </section>
+      </Bloco>
     </main>
   );
 }
