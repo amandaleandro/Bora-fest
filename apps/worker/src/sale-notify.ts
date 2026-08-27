@@ -88,12 +88,12 @@ export async function notifySale(orderId: string): Promise<void> {
     const codigo = order.publicToken.slice(0, 6).toUpperCase();
     const payloadCasa = JSON.stringify({
       title: "Venda aprovada! 💰",
-      body: `Você ganhou ${brl(liquidoCasa)} no ${metodo} · ${order.event.title} · #BF${codigo}`,
+      body: `Você recebeu ${brl(liquidoCasa)} no ${metodo} · ${order.event.title} · #BF${codigo}`,
       url: "/",
     });
     const payloadPromoter = JSON.stringify({
       title: "Venda aprovada! 💰",
-      body: `Sua comissão: ${brl(order.promoterCommissionCents)} · ${order.event.title}`,
+      body: `Você recebeu ${brl(order.promoterCommissionCents)} de comissão · ${order.event.title}`,
       url: "/",
     });
     const promoterId = order.promoterLink?.promoterUserId ?? null;
