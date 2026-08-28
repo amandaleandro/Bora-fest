@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
@@ -116,30 +117,63 @@ interface NavLink {
 function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
   const eventsHref = organizationId ? `/organizacoes/${organizationId}` : "/organizacoes";
 
-  // Sem organização carregada, Financeiro/Reembolsos apontariam todos para
-  // "/organizacoes" — mesmos hrefs (e keys) de "Meus eventos", o que duplicava
-  // itens na faixa mobile enquanto o contexto carregava. Só entram com o id.
-  const orgLinks: NavLink[] = organizationId
-    ? [
-        { href: `/organizacoes/${organizationId}/financeiro`, icon: icons.card, label: "Financeiro" },
-        { href: `/organizacoes/${organizationId}/reembolsos`, icon: icons.card, label: "Reembolsos" },
-      ]
-    : [];
+  /*
+   * Dois NIVEIS, nunca misturados (correção 2026-08-28). Financeiro e
+   * Reembolsos sao da PRODUTORA, mas estavam no meio do menu do evento — o
+   * produtor clicava, ia parar numa tela de outro nivel e o bloco do evento
+   * sumia da lateral, dando a sensacao de ter voltado pro inicio.
+   */
+  const daProdutora: NavLink[] = [
+    { href: "/resumo", icon: icons.grid, label: "Resumo" },
+    { href: eventsHref, icon: icons.calendar, label: "Meus eventos" },
+    ...(organizationId
+      ? [
+          { href: `/organizacoes/${organizationId}/financeiro`, icon: icons.card, label: "Financeiro" },
+          { href: `/organizacoes/${organizationId}/reembolsos`, icon: icons.card, label: "Reembolsos" },
+          { href: `/organizacoes/${organizationId}`, icon: icons.people, label: "Equipe e promoters" },
+        ]
+      : []),
+  ];
 
-  const manage: NavLink[] = event
+  const doEvento: NavLink[] = event
     ? [
         { href: `/eventos/${event.id}/dashboard`, icon: icons.grid, label: "Geral" },
         { href: `/eventos/${event.id}`, icon: icons.ticket, label: "Ingressos" },
         { href: `/eventos/${event.id}/editar`, icon: icons.pencil, label: "Editar evento" },
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
         { href: `/eventos/${event.id}/vendas`, icon: icons.cart, label: "Vendas" },
-        ...orgLinks,
         { href: `/eventos/${event.id}/participantes`, icon: icons.people, label: "Participantes" },
         { href: `/eventos/${event.id}/portaria`, icon: icons.scan, label: "Check-in" },
       ]
-    : orgLinks;
+    : [];
 
-  return { eventsHref, manage };
+  return { eventsHref, daProdutora, doEvento };
+}
+
+/**
+ * Evento em foco: vem por prop dentro das telas do evento e, FORA delas
+ * (financeiro, reembolsos, equipe), volta do que ficou guardado — assim o
+ * bloco do evento nao some quando o produtor abre o financeiro.
+ */
+function useEventoEmFoco(event?: SidebarEventInfo): SidebarEventInfo | undefined {
+  const [guardado, setGuardado] = useState<SidebarEventInfo | undefined>(undefined);
+  const pathname = usePathname() ?? "";
+
+  useEffect(() => {
+    if (event) {
+      localStorage.setItem("bf.activeEventInfo", JSON.stringify(event));
+      setGuardado(event);
+      return;
+    }
+    try {
+      const bruto = localStorage.getItem("bf.activeEventInfo");
+      setGuardado(bruto ? (JSON.parse(bruto) as SidebarEventInfo) : undefined);
+    } catch {
+      setGuardado(undefined);
+    }
+  }, [event, pathname]);
+
+  return event ?? guardado;
 }
 
 const itemBase = "flex items-center gap-[11px] rounded-[11px] px-3 py-[11px] text-[13px] transition-colors";
@@ -181,48 +215,51 @@ function useLogout() {
  */
 export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; organizationId?: string }) {
   const pathname = usePathname() ?? "";
-  const { eventsHref, manage } = useSidebarLinks(event, organizationId);
+  const emFoco = useEventoEmFoco(event);
+  const { eventsHref, daProdutora, doEvento } = useSidebarLinks(emFoco, organizationId);
   const signOut = useLogout();
 
   return (
     <aside className="flex w-[244px] shrink-0 flex-col bg-sidebar px-3.5 pb-4 pt-[22px]">
-      <Link href={eventsHref} className="block px-2 pb-5">
+      <Link href="/resumo" className="block px-2 pb-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/logo-horizontal-escuro.svg" alt="BoraFest" className="h-9 w-auto" />
         <span className="mt-1 block text-[10px] font-semibold text-white/45">Painel do organizador</span>
       </Link>
 
-      {/* trocar de produtora — antes só existia a lista órfã em /organizacoes */}
-      <div className="px-2 pb-3">
+      {/* NIVEL 1 — a produtora. Trocar de casa acontece aqui e só aqui. */}
+      <div className="px-2 pb-2">
         <OrgSwitcher organizationId={organizationId} dark />
       </div>
+      {daProdutora.map((link) => (
+        <Item key={link.label} {...link} active={pathname === link.href} />
+      ))}
 
-      <Item href="/organizacoes" icon={icons.calendar} label="Minhas produtoras" active={pathname === "/organizacoes"} />
-      <Item href={eventsHref} icon={icons.ticket} label="Meus eventos" active={pathname === eventsHref} />
-
-      {event ? (
+      {/* NIVEL 2 — o evento. Continua visível mesmo nas telas da produtora
+          (financeiro, reembolsos, equipe): o produtor nunca perde de vista
+          em qual evento estava trabalhando. */}
+      {emFoco ? (
         <>
+          <p className="px-3 pb-1 pt-5 text-[10px] font-bold uppercase tracking-[.08em] text-white/35">
+            Evento em foco
+          </p>
           <Link
-            href={`/eventos/${event.id}/dashboard`}
-            className="mx-2 mb-2 mt-4 flex items-center gap-2.5 rounded-xl bg-white/[.06] px-3 py-[11px] hover:bg-white/10"
+            href={`/eventos/${emFoco.id}/dashboard`}
+            className="mx-2 mb-1 flex items-center gap-2.5 rounded-xl bg-white/[.06] px-3 py-[11px] hover:bg-white/10"
           >
             <span className="h-[30px] w-[30px] shrink-0 rounded-lg bg-brand-gradient" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12px] font-bold leading-[1.1] text-white">{event.title}</span>
+              <span className="block truncate text-[12px] font-bold leading-[1.1] text-white">{emFoco.title}</span>
               <span className="mt-[3px] block text-[10px] font-medium text-white/45">
-                {EVENT_STATUS_LABEL[event.status] ?? event.status}
+                {EVENT_STATUS_LABEL[emFoco.status] ?? emFoco.status}
               </span>
             </span>
           </Link>
-          <p className="px-3 pb-2 pt-3 text-[10px] font-bold uppercase tracking-[.08em] text-white/35">
-            Gerenciar evento
-          </p>
+          {doEvento.map((link) => (
+            <Item key={link.label} {...link} active={pathname === link.href} />
+          ))}
         </>
       ) : null}
-
-      {manage.map((link) => (
-        <Item key={link.label} {...link} active={pathname === link.href} />
-      ))}
 
       <div className="flex-1" />
 

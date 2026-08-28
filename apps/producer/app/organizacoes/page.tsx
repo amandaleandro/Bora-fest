@@ -331,7 +331,8 @@ function OrganizationsContent() {
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] font-semibold text-muted">
-          Escolha a produtora para ver os eventos e o financeiro.
+          Suas produtoras e o status de cada uma. Para trocar a produtora que você
+          está gerenciando, use o seletor no topo do menu ao lado.
         </p>
         <button
           type="button"
@@ -410,7 +411,7 @@ function OrganizationsContent() {
 
 export default function OrganizationsPage() {
   return (
-    <GuardedPanelShell title="Suas organizações">
+    <GuardedPanelShell title="Minhas produtoras">
       <OrganizationsContent />
     </GuardedPanelShell>
   );
