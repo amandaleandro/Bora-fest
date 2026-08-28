@@ -336,7 +336,12 @@ export class OrdersService {
       // remarketing de carrinho abandonado — aqui já temos e-mail e telefone,
       // então a correspondência fica alta.
       await tx.outboxEvent.create({
-        data: { eventType: "order.created", payload: { orderId: created.id } },
+        data: {
+          aggregateType: "order",
+          aggregateId: created.id,
+          eventType: "order.created",
+          payload: { orderId: created.id },
+        },
       });
 
       return created;
