@@ -26,7 +26,13 @@ export class RateLimitGuard implements CanActivate {
       this.reflector.get<RateLimitOptions>(RATE_LIMIT_KEY, context.getHandler()) ?? DEFAULT_LIMIT;
 
     const request = context.switchToHttp().getRequest();
-    const ip = request.headers["x-forwarded-for"]?.split(",")[0]?.trim() || request.ip || "unknown";
+    // BURLA DO RATE LIMIT (auditoria 2026-08-29): ler o X-Forwarded-For CRU
+    // deixava qualquer cliente forjar o IP e rotacionar a chave a cada request
+    // — brute-force de senha, OTP, cupom e teste de cartao passavam sem 429
+    // (provado: 20/20 sem bloqueio). `request.ip` respeita o trustProxy do
+    // Fastify: so aceita o XFF do proxy confiavel (Caddy), nao do cliente.
+    // Exige TRUST_PROXY apontando para o IP do proxy, nao "true" solto.
+    const ip = request.ip || "unknown";
 
     let keyPart = ip;
     if (options.by?.startsWith("body:")) {

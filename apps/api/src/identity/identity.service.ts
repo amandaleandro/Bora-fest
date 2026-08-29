@@ -115,7 +115,9 @@ export class IdentityService {
 
     const token = await createSessionToken({ sub: user.id });
 
-    return { token, user };
+    // NAO devolver a User row crua (auditoria 2026-08-29): ela carrega
+    // passwordHash, cpf, telefone e platformRole. So o publico do cliente.
+    return { token, user: { id: user.id, name: user.name, email: user.email } };
   }
   /**
    * Link mágico do e-mail de "seu ingresso está pronto": clicar É a prova de
@@ -143,34 +145,43 @@ export class IdentityService {
       });
     }
     const session = await createSessionToken({ sub: user.id });
-    return { token: session, user, orderToken: claims.orderToken ?? null };
+    // idem verifyOtp: nada de User row crua (passwordHash/cpf/platformRole)
+    return {
+      token: session,
+      user: { id: user.id, name: user.name, email: user.email },
+      orderToken: claims.orderToken ?? null,
+    };
   }
 
   // --- auth por senha (painel do produtor) ---------------------------------
 
   async registerWithPassword(input: RegisterInput) {
     const existing = await prisma.user.findUnique({ where: { email: input.email } });
-    if (existing?.passwordHash) {
-      throw new ConflictException("Já existe uma conta com este e-mail — faça login");
+    // TAKEOVER DE CONTA (auditoria de seguranca 2026-08-29): o codigo antigo so
+    // barrava quem JA tinha senha. Toda conta SEM senha — e todo comprador do
+    // checkout tem uma, criada pelo e-mail — caia no ramo de update: quem
+    // soubesse o e-mail definia a senha e recebia um token de sessao da conta
+    // da vitima (ingressos, pedidos, vinculos de organizacao). Provado ao vivo.
+    //
+    // Registro NUNCA reivindica uma conta que ja existe. Quem comprou e quer
+    // senha usa "entrar" -> "esqueci a senha": o link vai para o e-mail DELE,
+    // que e a unica prova de posse aceitavel.
+    if (existing) {
+      throw new ConflictException(
+        existing.passwordHash
+          ? "Já existe uma conta com este e-mail — faça login"
+          : "Já existe uma conta com este e-mail (criada em uma compra). Clique em \"Entrar\" e depois em \"Esqueci minha senha\" para definir a sua.",
+      );
     }
 
-    const user = existing
-      ? await prisma.user.update({
-          where: { id: existing.id },
-          data: {
-            name: existing.name ?? input.name,
-            passwordHash: hashPassword(input.password),
-            termsAcceptedAt: new Date(),
-          },
-        })
-      : await prisma.user.create({
-          data: {
-            name: input.name,
-            email: input.email,
-            passwordHash: hashPassword(input.password),
-            termsAcceptedAt: new Date(),
-          },
-        });
+    const user = await prisma.user.create({
+      data: {
+        name: input.name,
+        email: input.email,
+        passwordHash: hashPassword(input.password),
+        termsAcceptedAt: new Date(),
+      },
+    });
 
     await this.activateInvitedMemberships(user.id);
     log.info({ userId: user.id }, "conta de produtor criada (senha)");
