@@ -110,17 +110,38 @@ export interface Organization {
   document?: string;
 }
 
+/**
+ * Os ganhos REAIS da produtora — só dinheiro que entrou de verdade.
+ * As parcelas somam `totalCents`: recebido + a caminho + disponível
+ * + a liberar − em aberto.
+ */
+export interface OrgEarnings {
+  /** tudo que virou dinheiro do produtor, desde sempre */
+  totalCents: number;
+  /** já caiu na conta dele */
+  receivedCents: number;
+  /** saque pedido, ainda a caminho */
+  inTransitCents: number;
+  /** pode sacar agora */
+  availableCents: number;
+  /** vendas de evento que ainda não liberou */
+  pendingReleaseCents: number;
+  /** saldo devedor: sacou e depois houve estorno/cancelamento */
+  debtCents: number;
+}
+
 export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
 
-  /** Resumo da produtora numa requisição (receita, ingressos e eventos). */
+  /** Resumo da produtora numa requisição (ganhos, ingressos e eventos). */
   getSummary: (token: string, organizationId: string) =>
     request<{
       organizationId: string;
-      revenueCents: number;
+      /** null para quem não enxerga financeiro (vendedor) */
+      earnings: OrgEarnings | null;
       ticketsSold: number;
       ticketsCapacity: number;
-      events: EventSummary[];
+      events: Array<EventSummary & { netCents: number | null }>;
     }>(`/v1/organizations/${organizationId}/summary`, { token }),
   /** Promoter v3: convida uma PESSOA por e-mail (conta simples criada na hora). */
   invitePromoter: (
@@ -411,7 +432,10 @@ export interface Dashboard {
     pixelSettings?: PixelSettings | null;
     venue?: EventVenue | null;
   };
+  /** bruto pago pelo comprador (taxa da plataforma dentro) */
   revenueCents: number;
+  /** o que sobra pra casa neste evento; null sem permissão de financeiro */
+  netCents: number | null;
   orders: { total: number; byStatus: Record<string, number> };
   tickets: { total: number; byStatus: Record<string, number> };
   lots: Array<{
@@ -711,7 +735,37 @@ export interface UpdateEventInput {
   venue?: EventVenue;
 }
 
+export interface CancelPreview {
+  eventId: string;
+  alreadyCanceled: boolean;
+  /** quantos pedidos ainda têm dinheiro a devolver */
+  orders: number;
+  refundTotalCents: number;
+  /** taxa da plataforma que volta pro produtor */
+  feeBackCents: number;
+  balanceCents: number;
+  balanceAfterCents: number;
+}
+
+export interface CancelResult {
+  canceled: boolean;
+  refundedNow: number;
+  refundedCents: number;
+  feeBackCents: number;
+  remaining: number;
+  errors: Array<{ orderId: string; message: string }>;
+}
+
 export const eventControls = {
+  cancelPreview: (eventId: string, token: string) =>
+    request<CancelPreview>(`/v1/events/${eventId}/cancel-preview`, { token }),
+  /** Repetir enquanto `remaining` > 0: cada chamada devolve um lote. */
+  cancel: (
+    eventId: string,
+    body: { reason: string; batchSize?: number; skipOrderIds?: string[] },
+    token: string,
+  ) =>
+    request<CancelResult>(`/v1/events/${eventId}/cancel`, { method: "POST", body, token }),
   unpublish: (eventId: string, token: string) =>
     request(`/v1/events/${eventId}/unpublish`, { method: "POST", token }),
   republish: (eventId: string, token: string) =>

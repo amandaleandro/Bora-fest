@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useEventShell } from "@/lib/eventContext";
 import { EVENT_CATEGORIES, eventControls, type EventCategory } from "@/lib/api";
+import { CancelarEvento } from "@/components/CancelarEvento";
 
 const labelClass = "mb-1.5 block text-[12px] font-bold text-muted";
 const inputClass =
@@ -208,6 +209,8 @@ export default function EditarEventoPage({ params }: { params: { eventId: string
       >
         {saving ? "Salvando…" : "Salvar alterações"}
       </button>
+
+      <CancelarEvento eventId={params.eventId} jaCancelado={event.status === "CANCELED"} />
     </main>
   );
 }

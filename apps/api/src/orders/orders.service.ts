@@ -1,6 +1,6 @@
 import { createSessionToken } from "@borafest/auth";
 import { addBusinessDays } from "@borafest/payments";
-import { assertRefundWithinCap } from "../common/refund-cap";
+import { executarReembolso } from "../common/refund-order";
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   confirmSaleInventory,
@@ -670,117 +670,12 @@ export class OrdersService {
   async refundOrder(orderId: string, actorUserId: string, input: RefundOrderInput): Promise<any> {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { event: { select: { organizationId: true } }, payments: { orderBy: { createdAt: "desc" } } },
+      select: { id: true, event: { select: { organizationId: true } } },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     await this.orgAccess.assertPermission(order.event.organizationId, actorUserId, PERMISSIONS.ORDER_REFUND);
 
-    const payment = order.payments.find((p) => p.status === "PAID");
-
-    if (payment && payment.externalId) {
-      await assertRefundWithinCap(payment, input.amountCents);
-
-      const marked = await prisma.payment.updateMany({
-        where: { id: payment.id, status: "PAID" },
-        data: { status: "REFUND_PENDING" },
-      });
-      if (marked.count === 0) {
-        throw new BadRequestException("Estorno já em andamento para este pagamento");
-      }
-
-      const gateway = getGateway(payment.provider);
-      let result;
-      try {
-        result = await gateway.refund({
-          externalId: payment.externalId,
-          amountCents: input.amountCents,
-          idempotencyKey: `producer-refund:${payment.id}:${input.amountCents ?? "full"}`,
-        });
-      } catch (error) {
-        await prisma.payment.updateMany({ where: { id: payment.id, status: "REFUND_PENDING" }, data: { status: "PAID" } });
-        throw error;
-      }
-
-      if (result.status === "FAILED") {
-        await prisma.payment.updateMany({ where: { id: payment.id, status: "REFUND_PENDING" }, data: { status: "PAID" } });
-        throw new BadRequestException("Gateway recusou o estorno");
-      }
-
-      // estorno assíncrono aceito (Asaas "PENDING"): aplica a contabilidade
-      // agora, com o valor exato — mesma correção do execute-refund.ts
-      // (auditoria 2026-08-12), senão o pagamento ficava preso em REFUND_PENDING
-      const statusContabil = result.status === "PENDING" ? "REFUNDED" : result.status;
-      await applyGatewayStatus(payment.id, statusContabil, undefined, { refundAmountCents: input.amountCents });
-    } else {
-      // venda do PDV (dinheiro) — sem gateway: estorno manual no ledger
-      if (!["PAID", "PARTIALLY_REFUNDED"].includes(order.status)) {
-        throw new BadRequestException("Pedido não está pago para estornar");
-      }
-      const amountCents = input.amountCents ?? order.totalCents;
-      if (amountCents <= 0) {
-        throw new BadRequestException("Valor do estorno inválido");
-      }
-      // TETO ACUMULADO (auditoria 2026-08-12): sem gateway não passava pelo
-      // refund-cap. A checagem antiga só olhava o estorno ATUAL contra o total,
-      // então dois parciais de R$60 num pedido de R$100 devolviam R$120 e
-      // jogavam o caixa da casa no negativo. Soma o que já foi devolvido.
-      const jaDevolvido = await prisma.ledgerEntry.aggregate({
-        where: { referenceType: "order", referenceId: order.id, type: "REFUND_DEBIT" },
-        _sum: { amountCents: true },
-      });
-      const devolvidoAntes = Math.abs(jaDevolvido._sum.amountCents ?? 0);
-      if (devolvidoAntes + amountCents > order.totalCents) {
-        const restante = ((order.totalCents - devolvidoAntes) / 100)
-          .toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-        throw new BadRequestException(
-          `Estorno excede o saldo do pedido — disponível para estorno: ${restante}`,
-        );
-      }
-      const isFull = devolvidoAntes + amountCents >= order.totalCents;
-
-      await prisma.$transaction(async (tx) => {
-        const ledgerAccount = await tx.ledgerAccount.upsert({
-          where: { organizationId: order.event.organizationId },
-          update: {},
-          create: { organizationId: order.event.organizationId },
-        });
-        await tx.ledgerEntry.create({
-          data: {
-            ledgerAccountId: ledgerAccount.id,
-            type: "REFUND_DEBIT",
-            amountCents: -amountCents,
-            referenceType: "order",
-            referenceId: order.id,
-          },
-        });
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: isFull ? "REFUNDED" : "PARTIALLY_REFUNDED" },
-        });
-        if (isFull) {
-          const items = await tx.orderItem.findMany({ where: { orderId: order.id } });
-          for (const item of items) {
-            await returnSaleInventory(tx, item.ticketLotId, item.quantity);
-          }
-          await tx.ticket.updateMany({
-            where: { orderId: order.id, status: { in: ["ISSUED", "ACTIVE"] } },
-            data: { status: "CANCELED", canceledAt: new Date() },
-          });
-        }
-      });
-    }
-
-    await prisma.auditLog.create({
-      data: {
-        actorUserId,
-        organizationId: order.event.organizationId,
-        action: "order.producer_refund",
-        entityType: "order",
-        entityId: order.id,
-        metadata: { amountCents: input.amountCents, reason: input.reason },
-      },
-    });
-
+    await executarReembolso(order.id, actorUserId, input);
     return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { payments: true } });
   }
 

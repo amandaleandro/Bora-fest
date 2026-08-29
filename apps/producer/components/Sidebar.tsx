@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { EventSwitcher } from "@/components/EventSwitcher";
 import { CHECKOUT_URL } from "@/lib/config";
 
 const ICON_PROPS = {
@@ -100,14 +101,6 @@ export interface SidebarEventInfo {
   status: string;
 }
 
-const EVENT_STATUS_LABEL: Record<string, string> = {
-  DRAFT: "Rascunho",
-  PUBLISHED: "Publicado",
-  SALES_PAUSED: "Vendas pausadas",
-  UNPUBLISHED: "Despublicado",
-  CANCELLED: "Cancelado",
-};
-
 interface NavLink {
   href: string;
   icon: React.ReactNode;
@@ -155,6 +148,21 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
  * (financeiro, reembolsos, equipe), volta do que ficou guardado — assim o
  * bloco do evento nao some quando o produtor abre o financeiro.
  */
+function useProdutoraEmFoco(organizationId?: string): string | undefined {
+  const [guardada, setGuardada] = useState<string | undefined>(undefined);
+  const pathname = usePathname() ?? "";
+
+  useEffect(() => {
+    if (organizationId) {
+      setGuardada(organizationId);
+      return;
+    }
+    setGuardada(localStorage.getItem("bf.activeOrg") ?? undefined);
+  }, [organizationId, pathname]);
+
+  return organizationId ?? guardada;
+}
+
 function useEventoEmFoco(event?: SidebarEventInfo): SidebarEventInfo | undefined {
   const [guardado, setGuardado] = useState<SidebarEventInfo | undefined>(undefined);
   const pathname = usePathname() ?? "";
@@ -216,7 +224,11 @@ function useLogout() {
 export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; organizationId?: string }) {
   const pathname = usePathname() ?? "";
   const emFoco = useEventoEmFoco(event);
-  const { eventsHref, daProdutora, doEvento } = useSidebarLinks(emFoco, organizationId);
+  // Telas de nível 1 (Resumo) não passam a produtora por prop, e sem ela o menu
+  // perdia Financeiro, Reembolsos e Equipe — os itens sumiam justamente na home
+  // do painel. Fora do contexto de organização, vem do que ficou guardado.
+  const orgEmFoco = useProdutoraEmFoco(organizationId);
+  const { eventsHref, daProdutora, doEvento } = useSidebarLinks(emFoco, orgEmFoco);
   const signOut = useLogout();
 
   return (
@@ -229,7 +241,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
 
       {/* NIVEL 1 — a produtora. Trocar de casa acontece aqui e só aqui. */}
       <div className="px-2 pb-2">
-        <OrgSwitcher organizationId={organizationId} dark />
+        <OrgSwitcher organizationId={orgEmFoco} dark />
       </div>
       {daProdutora.map((link) => (
         <Item key={link.label} {...link} active={pathname === link.href} />
@@ -243,18 +255,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
           <p className="px-3 pb-1 pt-5 text-[10px] font-bold uppercase tracking-[.08em] text-white/35">
             Evento em foco
           </p>
-          <Link
-            href={`/eventos/${emFoco.id}/dashboard`}
-            className="mx-2 mb-1 flex items-center gap-2.5 rounded-xl bg-white/[.06] px-3 py-[11px] hover:bg-white/10"
-          >
-            <span className="h-[30px] w-[30px] shrink-0 rounded-lg bg-brand-gradient" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12px] font-bold leading-[1.1] text-white">{emFoco.title}</span>
-              <span className="mt-[3px] block text-[10px] font-medium text-white/45">
-                {EVENT_STATUS_LABEL[emFoco.status] ?? emFoco.status}
-              </span>
-            </span>
-          </Link>
+          <EventSwitcher event={emFoco} organizationId={orgEmFoco} />
           {doEvento.map((link) => (
             <Item key={link.label} {...link} active={pathname === link.href} />
           ))}

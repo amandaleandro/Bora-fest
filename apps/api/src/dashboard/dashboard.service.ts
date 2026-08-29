@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
+import { getEventNetCents } from "../common/ledger";
 
 const PAID_ORDER_STATUSES = ["PAID", "FULFILLED"] as const;
 
@@ -30,8 +31,19 @@ export class DashboardService {
     return event;
   }
 
+  /** Sem lançar: dinheiro é só de quem tem finance:view. */
+  private async podeVerDinheiro(organizationId: string, actorUserId: string): Promise<boolean> {
+    try {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async getDashboard(eventId: string, actorUserId: string) {
     const event = await this.assertEventAccess(eventId, actorUserId);
+    const comDinheiro = await this.podeVerDinheiro(event.organizationId, actorUserId);
     // bannerUrl e local no payload — sem eles a prévia do banner "sumia" no
     // F5 do painel e não havia como exibir o local (feedback 2026-08-03)
     const venue = event.venueId
@@ -82,6 +94,12 @@ export class DashboardService {
       .filter((o) => (PAID_ORDER_STATUSES as readonly string[]).includes(o.status))
       .reduce((sum, o) => sum + (o._sum.totalCents ?? 0), 0);
 
+    // O que sobra para a casa neste evento (2026-08-29): `revenueCents` é o
+    // bruto que o comprador pagou — taxa da plataforma dentro e reembolso
+    // parcial derrubando o pedido inteiro. `netCents` vem do ledger e é o
+    // dinheiro do produtor. Só para quem enxerga financeiro.
+    const netCents = comDinheiro ? await getEventNetCents(eventId) : null;
+
     return {
       event: {
         id: event.id,
@@ -99,6 +117,7 @@ export class DashboardService {
         venue,
       },
       revenueCents,
+      netCents,
       orders: {
         total: ordersByStatus.reduce((sum, o) => sum + o._count._all, 0),
         byStatus: Object.fromEntries(ordersByStatus.map((o) => [o.status, o._count._all])),

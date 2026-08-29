@@ -4,6 +4,7 @@ import { prisma, Prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
+import { getEarningsByEventCents, getOrganizationEarnings } from "../common/ledger";
 
 function slugify(name: string): string {
   return name
@@ -24,18 +25,27 @@ export class OrganizationsService {
    * tela com 1 + N requisições — listava os eventos e depois pedia o dashboard
    * COMPLETO de cada um só para somar receita e ingressos. Com 8 eventos eram
    * 10 idas à API em 3 rodadas encadeadas, e trocar de produtora demorava.
-   * Aqui são 3 consultas agregadas em paralelo, numa requisição só.
+   * Aqui são 4 consultas agregadas em paralelo, numa requisição só.
+   *
+   * 2026-08-29: a receita saía de `order.totalCents` — o BRUTO, com a taxa
+   * da plataforma dentro, e sumindo por inteiro no primeiro reembolso
+   * parcial. Agora o dinheiro vem do ledger (`getOrganizationEarnings`),
+   * que é o que de fato é do produtor.
    */
   async getSummary(organizationId: string, actorUserId: string) {
     // mesma régua do dashboard do evento: financeiro vê; vendedor também
-    // (ele já via o dashboard de cada evento separadamente)
+    // (ele já via o dashboard de cada evento separadamente). DINHEIRO, porém,
+    // é só de quem tem finance:view — o vendedor continua vendo os eventos e a
+    // contagem de ingressos, e recebe `earnings: null` em vez do saldo da casa.
+    let podeVerDinheiro = true;
     try {
       await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
     } catch {
       await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+      podeVerDinheiro = false;
     }
 
-    const [events, ordersByStatus, lots] = await Promise.all([
+    const [events, lots, earnings, porEvento] = await Promise.all([
       prisma.event.findMany({
         where: { organizationId },
         orderBy: { startsAt: "asc" },
@@ -44,27 +54,25 @@ export class OrganizationsService {
           startsAt: true, endsAt: true, bannerUrl: true, organizationId: true,
         },
       }),
-      prisma.order.groupBy({
-        by: ["status"],
-        where: { event: { organizationId } },
-        _sum: { totalCents: true },
-      }),
       prisma.ticketLot.aggregate({
         where: { ticketType: { event: { organizationId } } },
         _sum: { capacity: true, soldCount: true },
       }),
+      podeVerDinheiro ? getOrganizationEarnings(organizationId) : Promise.resolve(null),
+      podeVerDinheiro
+        ? getEarningsByEventCents(organizationId)
+        : Promise.resolve(new Map<string, number>()),
     ]);
-
-    const revenueCents = ordersByStatus
-      .filter((o) => o.status === "PAID" || o.status === "FULFILLED")
-      .reduce((sum, o) => sum + (o._sum.totalCents ?? 0), 0);
 
     return {
       organizationId,
-      revenueCents,
+      earnings,
       ticketsSold: lots._sum.soldCount ?? 0,
       ticketsCapacity: lots._sum.capacity ?? 0,
-      events,
+      events: events.map((e) => ({
+        ...e,
+        netCents: podeVerDinheiro ? porEvento.get(e.id) ?? 0 : null,
+      })),
     };
   }
 

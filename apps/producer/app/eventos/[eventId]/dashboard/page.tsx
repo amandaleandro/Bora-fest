@@ -115,8 +115,13 @@ function DashboardContent({ eventId }: { eventId: string }) {
   const paid = dashboard.orders.byStatus["PAID"] ?? 0;
   const hasSales = dashboard.orders.total > 0;
 
+  // O dinheiro do evento é o LÍQUIDO da casa (2026-08-29) — o bruto pago pelo
+  // comprador tem a taxa da plataforma dentro e não é o que o produtor recebe.
+  // Quem não enxerga financeiro (vendedor) segue vendo o valor vendido.
   const kpis = [
-    { label: "Valor vendido", value: brlCompact(dashboard.revenueCents) },
+    dashboard.netCents !== null
+      ? { label: "Seu ganho", value: brlCompact(dashboard.netCents) }
+      : { label: "Valor vendido", value: brlCompact(dashboard.revenueCents) },
     { label: "Ingressos emitidos", value: String(dashboard.tickets.total) },
     { label: "Vendas aprovadas", value: String(approved + paid), delta: approved + paid > 0 ? `+${approved + paid}` : undefined },
     { label: "Pedidos no total", value: String(dashboard.orders.total) },

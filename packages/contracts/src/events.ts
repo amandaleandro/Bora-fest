@@ -67,3 +67,12 @@ export const updateEventSchema = createEventSchema.partial().extend({
   metaCapiToken: z.string().trim().max(2000).nullable().optional(),
 });
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
+
+/** Cancelar o evento: o motivo vai no aviso ao comprador, então é obrigatório. */
+export const cancelEventSchema = z.object({
+  reason: z.string().trim().min(3, "Diga o motivo do cancelamento").max(300),
+  batchSize: z.number().int().min(1).max(25).optional(),
+  /** pedidos que já falharam nesta sessão — pular para a fila não travar neles */
+  skipOrderIds: z.array(z.string().uuid()).max(500).optional(),
+});
+export type CancelEventInput = z.infer<typeof cancelEventSchema>;

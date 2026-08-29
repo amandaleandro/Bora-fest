@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
+import { agruparExtrato } from "../common/extrato";
 import { createAutoPayoutsQueue } from "@borafest/queues";
 import { OrgAccessService } from "../common/org-access.service";
 import { computeAnticipationFeeCents, getPayoutAvailability } from "../common/ledger";
@@ -31,17 +32,35 @@ export class FinanceService {
     return { organizationId, ...availability };
   }
 
+  /**
+   * Extrato do produtor — uma linha por venda, JÁ LÍQUIDA (2026-08-29).
+   *
+   * O ledger guarda a venda em duas linhas (crédito do bruto + débito da taxa)
+   * porque é assim que a contabilidade fecha. Mas o produtor não tem por que
+   * ver a taxa da plataforma no extrato dele: ele quer saber o que entrou pra
+   * ele. Aqui as duas viram uma só, com a soma — o lançamento no banco não
+   * muda, só a leitura. O extrato continua batendo com o saldo, porque somar
+   * as linhas agrupadas dá exatamente o mesmo total.
+   *
+   * Estorno, saque e comissão de promoter seguem em linhas próprias: são
+   * movimentos que o produtor precisa enxergar um a um.
+   */
   async listEntries(organizationId: string, actorUserId: string, limit = 50) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
 
     const ledgerAccount = await prisma.ledgerAccount.findUnique({ where: { organizationId } });
     if (!ledgerAccount) return [];
 
-    return prisma.ledgerEntry.findMany({
+    const teto = Math.min(limit, 200);
+    // busca com folga: cada venda ocupa 2 linhas no banco e vira 1 na leitura,
+    // senão a primeira página voltaria pela metade
+    const brutas = await prisma.ledgerEntry.findMany({
       where: { ledgerAccountId: ledgerAccount.id },
       orderBy: { createdAt: "desc" },
-      take: Math.min(limit, 200),
+      take: teto * 2 + 20,
     });
+
+    return agruparExtrato(brutas).slice(0, teto);
   }
 
   /** Somente leitura: criação/marcação de repasse continua exclusiva do backoffice (admin). */

@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { createEventSchema, updateEventSchema } from "@borafest/contracts";
+import { cancelEventSchema, createEventSchema, updateEventSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -68,5 +68,21 @@ export class EventsController {
   @Post("v1/events/:id/republish")
   republish(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.eventsService.republish(id, userId);
+  }
+
+  /** O que acontece se cancelar — a tela mostra antes de o produtor confirmar. */
+  @Get("v1/events/:id/cancel-preview")
+  cancelPreview(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.eventsService.previewCancel(id, userId);
+  }
+
+  /** Cancela e devolve o dinheiro em lotes; repetir enquanto `remaining` > 0. */
+  @Post("v1/events/:id/cancel")
+  cancel(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(cancelEventSchema)) body: unknown,
+  ) {
+    return this.eventsService.cancel(id, userId, body as any);
   }
 }

@@ -168,3 +168,143 @@ export async function getAvailableForPayoutCents(organizationId: string): Promis
   const { availableForPayoutCents } = await getPayoutAvailability(organizationId);
   return availableForPayoutCents;
 }
+
+export interface OrganizationEarnings {
+  /** tudo que já virou dinheiro do produtor, desde sempre */
+  totalCents: number;
+  /** o que já caiu na conta dele (repasses efetivamente pagos) */
+  receivedCents: number;
+  /** repasse já pedido, ainda a caminho */
+  inTransitCents: number;
+  /** pode pedir saque agora */
+  availableCents: number;
+  /** vendas de evento que ainda não liberou */
+  pendingReleaseCents: number;
+  /** saldo devedor: já sacou e depois houve estorno. Zero na esmagadora maioria. */
+  debtCents: number;
+}
+
+/**
+ * Os ganhos REAIS da produtora (2026-08-29).
+ *
+ * A tela de Resumo somava `order.totalCents` dos pedidos pagos — o BRUTO, que
+ * inclui a taxa da plataforma que o comprador pagou — e ainda perdia o pedido
+ * inteiro quando ele tinha reembolso parcial (o status sai de PAID e o filtro
+ * derrubava a linha toda). O produtor via um número que não era dele e que
+ * mentia depois de qualquer estorno.
+ *
+ * Aqui a fonte é o ledger, que é a contabilidade de verdade: ele já credita a
+ * venda, debita a taxa, debita o reembolso (total ou parcial), debita a
+ * comissão do promoter e debita o saque. Somar o ledger é, por definição, "o
+ * que é do produtor" — nada é estimado e nada é inventado.
+ *
+ * As parcelas somam o total por construção:
+ *   total = recebido + a caminho + disponível + a liberar − em aberto
+ * `pendingRelease` sai por diferença justamente para essa conta nunca abrir,
+ * inclusive no modo INSTANT (onde não há parcela retida) e quando o saque
+ * reservado passa do saldo maduro.
+ *
+ * `debtCents` existe porque a diferença PODE dar negativo (revisão adversarial
+ * 2026-08-29): quem já sacou tudo e depois sofre estorno — ou cancela um evento
+ * com o dinheiro na mão — fica com saldo devedor. Prender isso num `Math.max`
+ * em zero fazia as parcelas somarem MAIS que o total, e o produtor via um
+ * "já recebido" que não existia mais. Agora a dívida aparece com esse nome.
+ */
+export async function getOrganizationEarnings(organizationId: string): Promise<OrganizationEarnings> {
+  const [availability, pagos, inTransitCents] = await Promise.all([
+    getPayoutAvailability(organizationId),
+    prisma.payout.aggregate({
+      where: { organizationId, status: "PAID" },
+      _sum: { amountCents: true },
+    }),
+    getReservedPayoutCents(organizationId),
+  ]);
+
+  const receivedCents = pagos._sum.amountCents ?? 0;
+  const availableCents = availability.availableForPayoutCents;
+  const porLiberar = availability.balanceCents - inTransitCents - availableCents;
+
+  return {
+    totalCents: availability.balanceCents + receivedCents,
+    receivedCents,
+    inTransitCents,
+    availableCents,
+    pendingReleaseCents: Math.max(porLiberar, 0),
+    debtCents: Math.max(-porLiberar, 0),
+  };
+}
+
+/**
+ * Quanto cada evento da produtora rendeu LÍQUIDO para ela.
+ *
+ * Um lançamento chega ao evento por dois caminhos, porque foi assim que o
+ * ledger cresceu: venda, taxa e estorno de PDV apontam para o pedido
+ * (`reference_type = 'order'`), enquanto estorno de gateway e comissão de
+ * promoter apontam para o pagamento (`reference_type = 'payment'`). Os dois
+ * são resolvidos aqui — ignorar o segundo faria um evento com reembolso
+ * aparecer rendendo mais do que rendeu.
+ *
+ * Saque e taxa de antecipação apontam para `payout` e ficam de fora de
+ * propósito: retirar dinheiro não é um evento render menos.
+ *
+ * O CTE é MATERIALIZED para o filtro de tipo rodar ANTES do cast de uuid —
+ * sem isso o planner pode tentar converter um `reference_id` de outro tipo e
+ * derrubar a consulta.
+ */
+export async function getEarningsByEventCents(organizationId: string): Promise<Map<string, number>> {
+  const ledgerAccount = await prisma.ledgerAccount.findUnique({ where: { organizationId } });
+  if (!ledgerAccount) return new Map();
+
+  const linhas = await prisma.$queryRaw<Array<{ eventId: string; netCents: bigint }>>`
+    WITH entradas AS MATERIALIZED (
+      SELECT reference_type, reference_id::uuid AS ref, amount_cents
+      FROM ledger_entries
+      WHERE ledger_account_id = ${ledgerAccount.id}::uuid
+        AND reference_type IN ('order', 'payment')
+    )
+    SELECT o.event_id AS "eventId", SUM(en.amount_cents)::bigint AS "netCents"
+    FROM entradas en
+    LEFT JOIN payments p ON en.reference_type = 'payment' AND p.id = en.ref
+    JOIN orders o ON o.id = CASE WHEN en.reference_type = 'order' THEN en.ref ELSE p.order_id END
+    GROUP BY o.event_id
+  `;
+
+  return new Map(linhas.map((l) => [l.eventId, Number(l.netCents)]));
+}
+
+/**
+ * Líquido de um evento só — mesma resolução de `getEarningsByEventCents`
+ * (pedido e pagamento), usada no painel do próprio evento.
+ */
+export async function getEventNetCents(eventId: string): Promise<number> {
+  // SÓ a conta da casa dona do evento (revisão adversarial 2026-08-29): sem
+  // este filtro a consulta somava TODAS as contas do ledger, e a comissão do
+  // promoter — débito na casa, crédito na carteira DELE, ambos com o mesmo
+  // referenceId — se anulava. O painel do evento anunciava um "Seu ganho"
+  // maior que o dinheiro que o produtor tem, e brigava com o Resumo (que
+  // sempre filtrou) na mesma sessão.
+  const evento = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { organizationId: true },
+  });
+  if (!evento) return 0;
+  const ledgerAccount = await prisma.ledgerAccount.findUnique({
+    where: { organizationId: evento.organizationId },
+  });
+  if (!ledgerAccount) return 0;
+
+  const linhas = await prisma.$queryRaw<Array<{ netCents: bigint | null }>>`
+    WITH entradas AS MATERIALIZED (
+      SELECT reference_type, reference_id::uuid AS ref, amount_cents
+      FROM ledger_entries
+      WHERE ledger_account_id = ${ledgerAccount.id}::uuid
+        AND reference_type IN ('order', 'payment')
+    )
+    SELECT SUM(en.amount_cents)::bigint AS "netCents"
+    FROM entradas en
+    LEFT JOIN payments p ON en.reference_type = 'payment' AND p.id = en.ref
+    JOIN orders o ON o.id = CASE WHEN en.reference_type = 'order' THEN en.ref ELSE p.order_id END
+    WHERE o.event_id = ${eventId}::uuid
+  `;
+  return Number(linhas[0]?.netCents ?? 0);
+}
