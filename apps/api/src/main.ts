@@ -52,11 +52,40 @@ function assertPaymentSecrets(): void {
  * (auditoria de segurança 2026-08-29): MockGateway aprova qualquer cartão na
  * hora e WHATSAPP_PROVIDER=devlog grava o código OTP no log.
  */
-function assertProductionProviders(): void {
+export function assertProductionProviders(): void {
   if (process.env.NODE_ENV !== "production") return;
   const proibidos: string[] = [];
-  if ((process.env.PAYMENTS_PROVIDER ?? "mock") === "mock") proibidos.push("PAYMENTS_PROVIDER=mock (aprova qualquer pagamento)");
-  if (process.env.WHATSAPP_PROVIDER === "devlog") proibidos.push("WHATSAPP_PROVIDER=devlog (grava OTP/telefone no log)");
+
+  // pagamento de mentira — inclui o roteamento POR MÉTODO (auditoria 2026-08-30):
+  // PAYMENTS_PROVIDER podia ser real mas PIX/CARD/FALLBACK apontarem para mock
+  const envsDePagamento = [
+    "PAYMENTS_PROVIDER",
+    "PAYMENTS_PROVIDER_PIX",
+    "PAYMENTS_PROVIDER_CARD",
+    "PAYMENTS_FALLBACK_PIX",
+    "PAYMENTS_FALLBACK_CARD",
+  ];
+  if ((process.env.PAYMENTS_PROVIDER ?? "mock") === "mock") {
+    proibidos.push("PAYMENTS_PROVIDER=mock (aprova qualquer pagamento)");
+  }
+  for (const nome of envsDePagamento.slice(1)) {
+    if (process.env[nome] === "mock") proibidos.push(`${nome}=mock (aprova qualquer pagamento)`);
+  }
+
+  // CANAIS QUE LOGAM SEGREDO EM CLARO (auditoria 2026-08-30): o fix anterior só
+  // cobriu WhatsApp e esqueceu o E-MAIL — que é o canal PRIMÁRIO de login. Com
+  // devlog, o código OTP, o link de reset de senha e o magic-link vão em texto
+  // claro pro log; quem lê o log entra na conta. Cobre e-mail, push e whatsapp.
+  if ((process.env.EMAIL_PROVIDER ?? "devlog") === "devlog") {
+    proibidos.push("EMAIL_PROVIDER=devlog (grava OTP, link de reset e magic-link no log)");
+  }
+  if (process.env.WHATSAPP_PROVIDER === "devlog") {
+    proibidos.push("WHATSAPP_PROVIDER=devlog (grava OTP/telefone no log)");
+  }
+  if (process.env.PUSH_PROVIDER === "devlog") {
+    proibidos.push("PUSH_PROVIDER=devlog");
+  }
+
   if (proibidos.length > 0) {
     throw new Error(`Configuração insegura para produção: ${proibidos.join("; ")}`);
   }
@@ -66,11 +95,16 @@ function assertProductionProviders(): void {
  * TRUST_PROXY: número de saltos de proxy à frente da API (1 = só o Caddy).
  * Devolver o IP real do cliente exige contar os hops, não confiar em todos.
  */
-function resolveTrustProxy(): number | boolean {
+function resolveTrustProxy(): number | boolean | string {
   const raw = process.env.TRUST_PROXY?.trim();
   if (!raw) return false;
-  if (/^\d+$/.test(raw)) return Number(raw);
-  if (raw === "true") return 1; // legado: 1 salto, seguro
+  if (/^\d+$/.test(raw)) return Number(raw);       // nº de saltos
+  if (raw === "true") return 1;                     // legado: 1 salto, seguro
+  if (raw === "false") return false;
+  // IP, CIDR ou lista separada por vírgula (auditoria 2026-08-30): o Fastify
+  // aceita o endereço/faixa do proxy confiável direto — assim TRUST_PROXY=IP-do-Caddy
+  // (como a doc de deploy sugeria) também funciona, em vez de virar false.
+  if (/^[0-9a-fA-F:.\/, ]+$/.test(raw)) return raw;
   return false;
 }
 

@@ -189,7 +189,11 @@ export class DashboardService {
 
   /** Ranking de vendas por vendedor/atlética — quem vendeu, quantos pedidos deram certo (pagos) e quantos falharam. */
   async listSalesBySeller(eventId: string, actorUserId: string) {
-    await this.assertEventAccess(eventId, actorUserId);
+    const event = await this.assertEventAccess(eventId, actorUserId);
+    // e-mail e faturamento de OUTROS vendedores são financeiro (auditoria
+    // 2026-08-30): um vendedor via a lista inteira. Sem finance:view, o e-mail
+    // sai mascarado.
+    const comDinheiro = await this.podeVerDinheiro(event.organizationId, actorUserId);
 
     const orders = await prisma.order.findMany({
       where: { eventId, soldByUserId: { not: null } },
@@ -229,7 +233,7 @@ export class DashboardService {
       const entry = bySeller.get(key) ?? {
         sellerId,
         sellerName: order.soldByUser?.name ?? null,
-        sellerEmail: order.soldByUser?.email ?? null,
+        sellerEmail: comDinheiro ? (order.soldByUser?.email ?? null) : null,
         partnerId: order.salesPartner?.id ?? null,
         partnerName: order.salesPartner?.name ?? null,
         ordersOk: 0,

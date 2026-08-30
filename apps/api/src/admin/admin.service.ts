@@ -420,7 +420,12 @@ export class AdminService {
 
     return prisma.order.findUniqueOrThrow({
       where: { id: order.id },
-      include: { payments: true },
+      include: {
+        payments: {
+          orderBy: { createdAt: "desc" },
+          select: { id: true, provider: true, method: true, status: true, amountCents: true, createdAt: true, paidAt: true },
+        },
+      },
     });
   }
 

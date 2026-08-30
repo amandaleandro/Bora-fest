@@ -684,7 +684,17 @@ export class OrdersService {
     await this.orgAccess.assertPermission(order.event.organizationId, actorUserId, PERMISSIONS.ORDER_REFUND);
 
     await executarReembolso(order.id, actorUserId, input);
-    return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { payments: true } });
+    // não devolver o Payment cru (auditoria 2026-08-30): traz CPF do pagador em
+    // metadata, pixQrCodeText e ids do gateway. Só o resumo que a tela usa.
+    return prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: {
+        payments: {
+          orderBy: { createdAt: "desc" },
+          select: { id: true, provider: true, method: true, status: true, amountCents: true, createdAt: true, paidAt: true },
+        },
+      },
+    });
   }
 
   /**

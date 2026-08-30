@@ -41,7 +41,9 @@ export type UpdateMeInput = z.infer<typeof updateMeSchema>;
 
 export const registerSchema = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  // e-mail normalizado (auditoria 2026-08-30): sem isto, "A@x.com" e "a@x.com"
+  // viravam contas distintas — divergindo do OTP/checkout que já normalizam.
+  email: z.string().email().transform((e) => e.trim().toLowerCase()),
   password: z.string().min(8),
   /** aceite explícito de Termos + Privacidade (LGPD) */
   acceptTerms: z.literal(true),
@@ -49,13 +51,13 @@ export const registerSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const passwordLoginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform((e) => e.trim().toLowerCase()),
   password: z.string().min(1),
 });
 export type PasswordLoginInput = z.infer<typeof passwordLoginSchema>;
 
 export const recoverPasswordSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform((e) => e.trim().toLowerCase()),
 });
 export type RecoverPasswordInput = z.infer<typeof recoverPasswordSchema>;
 

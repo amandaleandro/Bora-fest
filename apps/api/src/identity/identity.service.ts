@@ -173,7 +173,9 @@ export class IdentityService {
   // --- auth por senha (painel do produtor) ---------------------------------
 
   async registerWithPassword(input: RegisterInput) {
-    const existing = await prisma.user.findUnique({ where: { email: input.email } });
+    const existing = await prisma.user.findFirst({
+      where: { email: { equals: input.email, mode: "insensitive" } },
+    });
     // TAKEOVER DE CONTA (auditoria de seguranca 2026-08-29): o codigo antigo so
     // barrava quem JA tinha senha. Toda conta SEM senha — e todo comprador do
     // checkout tem uma, criada pelo e-mail — caia no ramo de update: quem
@@ -207,7 +209,12 @@ export class IdentityService {
   }
 
   async loginWithPassword(input: PasswordLoginInput) {
-    const user = await prisma.user.findUnique({ where: { email: input.email } });
+    // busca insensível a caixa (auditoria 2026-08-30): o schema já normaliza o
+    // input, mas contas antigas podem ter sido gravadas com maiúscula — sem CI,
+    // o login delas quebraria.
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: input.email, mode: "insensitive" } },
+    });
     // Timing constante (auditoria 2026-08-29): antes, e-mail inexistente pulava
     // o scrypt e respondia mais rápido — dava pra enumerar contas pelo tempo.
     // Agora sempre gastamos o mesmo custo, comparando contra um hash-isca quando
@@ -224,7 +231,9 @@ export class IdentityService {
 
   /** Sempre responde {sent:true} — sem enumeração de contas. */
   async recoverPassword(input: RecoverPasswordInput) {
-    const user = await prisma.user.findUnique({ where: { email: input.email } });
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: input.email, mode: "insensitive" } },
+    });
     if (user) {
       const { token, tokenHash } = generateResetToken();
       const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);

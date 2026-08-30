@@ -44,7 +44,24 @@ import { sendAbandonedCartReminders } from "./abandoned-cart";
 
 const log = withContext({ module: "worker" });
 
+/**
+ * Mesmo guard da API (auditoria 2026-08-30): o WORKER é quem entrega OTP/reset/
+ * magic-link, então é ele que grava em claro com devlog. Sem este guard, a API
+ * podia estar segura e o worker vazando no log.
+ */
+function assertProductionProviders(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const proibidos: string[] = [];
+  if ((process.env.EMAIL_PROVIDER ?? "devlog") === "devlog") proibidos.push("EMAIL_PROVIDER=devlog");
+  if (process.env.WHATSAPP_PROVIDER === "devlog") proibidos.push("WHATSAPP_PROVIDER=devlog");
+  if (process.env.PUSH_PROVIDER === "devlog") proibidos.push("PUSH_PROVIDER=devlog");
+  if (proibidos.length > 0) {
+    throw new Error(`Worker: configuração insegura para produção: ${proibidos.join("; ")}`);
+  }
+}
+
 async function main() {
+  assertProductionProviders();
   startMetricsServer(Number(process.env.WORKER_METRICS_PORT ?? 9464));
 
   // --- reservas: expiração pontual + reconciliação -------------------------

@@ -75,9 +75,20 @@ export class EventsService {
     const slug = await gerarSlugUnico(input.title);
 
     // local inline: reaproveita o mesmo (nome+cidade) da organização ou cria
-    const venueId = input.venue
+    let venueId = input.venue
       ? (await this.upsertVenue(organizationId, input.venue)).id
       : input.venueId;
+    // venue do corpo tem que ser DESTA organização (auditoria 2026-08-30): o
+    // update() já checava isto, mas o create() aceitava um venueId de outra
+    // casa — o evento apontava para o local alheio e o dashboard vazava o
+    // endereço/mapa por id (IDOR cross-tenant).
+    if (!input.venue && input.venueId) {
+      const venue = await prisma.venue.findUnique({ where: { id: input.venueId } });
+      if (!venue || venue.organizationId !== organizationId) {
+        throw new BadRequestException("Local inválido para esta organização");
+      }
+      venueId = input.venueId;
+    }
 
     return prisma.event.create({
       data: {

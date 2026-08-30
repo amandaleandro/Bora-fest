@@ -141,6 +141,9 @@ export class MeService {
           phone: null,
           cpf: null,
           passwordHash: null,
+          // derruba as sessões vivas (auditoria 2026-08-30): sem o bump, o token
+          // da conta apagada continuava valendo até expirar
+          sessionVersion: { increment: 1 },
         },
       }),
       prisma.auditLog.create({
