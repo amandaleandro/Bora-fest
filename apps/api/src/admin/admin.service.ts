@@ -116,6 +116,9 @@ export class AdminService {
    * conferência de cadastro/KYC que destrava o repasse.
    */
   async approveOrganization(organizationId: string, userId: string) {
+    // staff PRIMEIRO (auditoria 2026-08-29): antes consultava e respondia sobre
+    // a organização antes de checar quem pergunta
+    await this.platformAccess.assertStaff(userId);
     const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
     if (!organization) throw new NotFoundException("Organização não encontrada");
     if (organization.status === "BLOCKED") {
@@ -505,10 +508,18 @@ export class AdminService {
   ): Promise<any> {
     await this.platformAccess.assertStaff(userId);
 
+    // defesa em profundidade (auditoria 2026-08-29): o rawBody pode conter PII
+    // do pagamento; os headers já entram sanitizados pelo worker. A lista do
+    // backoffice mostra o resumo, não o corpo cru.
     return prisma.webhookDelivery.findMany({
       where: {
         provider: filters.provider,
         status: filters.status as never,
+      },
+      select: {
+        id: true, provider: true, eventType: true, externalEventId: true,
+        signatureValid: true, status: true, error: true,
+        receivedAt: true, processedAt: true,
       },
       orderBy: { receivedAt: "desc" },
       take: Math.min(limit, 200),

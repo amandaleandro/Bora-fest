@@ -29,17 +29,23 @@ export class WebhooksService {
       throw error;
     }
 
-    await this.processingQueue.add("process", { provider, headers: this.sanitizeHeaders(headers), rawBody });
+    await this.processingQueue.add("process", { provider, headers: this.forwardHeaders(headers), rawBody });
 
     log.info({ provider }, "webhook de pagamento recebido e enfileirado");
     return { received: true, queued: true };
   }
 
-  /** Nunca persistir credenciais dos headers. */
-  private sanitizeHeaders(headers: WebhookHeaders): PaymentWebhookProcessingJobData["headers"] {
+  /**
+   * Repassa os cabeçalhos ao worker para ele VERIFICAR a assinatura — inclusive
+   * o Authorization (Pagar.me usa Basic aí; removê-lo aqui, como antes, fazia
+   * NENHUM pagamento do Pagar.me confirmar). Só o Cookie sai, que nunca faz
+   * parte de webhook. Quem garante que o segredo não é PERSISTIDO é o worker,
+   * que sanitiza antes de gravar em webhook_deliveries.
+   */
+  private forwardHeaders(headers: WebhookHeaders): PaymentWebhookProcessingJobData["headers"] {
     const out: Record<string, string> = {};
     for (const [key, value] of Object.entries(headers)) {
-      if (key.toLowerCase() === "authorization" || key.toLowerCase() === "cookie") continue;
+      if (key.toLowerCase() === "cookie") continue;
       out[key] = Array.isArray(value) ? value.join(",") : (value ?? "");
     }
     return out;

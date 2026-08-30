@@ -26,6 +26,12 @@ import type {
 
 const log = withContext({ module: "identity" });
 
+/**
+ * Hash-isca para o login gastar o MESMO custo quando a conta não existe —
+ * sem isso, o tempo de resposta denunciava se um e-mail tinha conta.
+ */
+const IDENTITY_DUMMY_HASH = hashPassword("borafest-timing-equalizer");
+
 @Injectable()
 export class IdentityService {
   private async activateInvitedMemberships(userId: string) {
@@ -80,17 +86,28 @@ export class IdentityService {
       orderBy: { createdAt: "desc" },
     });
 
-    if (!challenge || challenge.attempts >= OTP_MAX_ATTEMPTS) {
+    if (!challenge) {
+      throw new UnauthorizedException("Código inválido ou expirado");
+    }
+
+    // TOCTOU (auditoria 2026-08-29): antes lia `attempts`, checava e só
+    // incrementava DEPOIS — duas requisições paralelas liam o mesmo valor e o
+    // teto de 5 tentativas virava ilimitado, permitindo força-bruta do código
+    // de 6 dígitos. Agora a tentativa é RESERVADA atomicamente no banco antes
+    // de comparar o código: o `attempts < MAX` no WHERE é avaliado sob trava de
+    // linha, então N requisições concorrentes nunca passam do teto.
+    const claim = await prisma.otpChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: null, attempts: { lt: OTP_MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claim.count === 0) {
       throw new UnauthorizedException("Código inválido ou expirado");
     }
 
     const isValid = verifyOtpCode(input.code, input.destination, challenge.codeHash);
 
     if (!isValid) {
-      await prisma.otpChallenge.update({
-        where: { id: challenge.id },
-        data: { attempts: { increment: 1 } },
-      });
+      // a tentativa já foi contada no claim acima
       throw new UnauthorizedException("Código inválido ou expirado");
     }
 
@@ -113,7 +130,7 @@ export class IdentityService {
       data: { userId: user.id },
     });
 
-    const token = await createSessionToken({ sub: user.id });
+    const token = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
 
     // NAO devolver a User row crua (auditoria 2026-08-29): ela carrega
     // passwordHash, cpf, telefone e platformRole. So o publico do cliente.
@@ -144,7 +161,7 @@ export class IdentityService {
         data: { userId: user.id },
       });
     }
-    const session = await createSessionToken({ sub: user.id });
+    const session = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
     // idem verifyOtp: nada de User row crua (passwordHash/cpf/platformRole)
     return {
       token: session,
@@ -185,17 +202,23 @@ export class IdentityService {
 
     await this.activateInvitedMemberships(user.id);
     log.info({ userId: user.id }, "conta de produtor criada (senha)");
-    const token = await createSessionToken({ sub: user.id });
+    const token = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
     return { token, user: { id: user.id, name: user.name, email: user.email } };
   }
 
   async loginWithPassword(input: PasswordLoginInput) {
     const user = await prisma.user.findUnique({ where: { email: input.email } });
-    if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
+    // Timing constante (auditoria 2026-08-29): antes, e-mail inexistente pulava
+    // o scrypt e respondia mais rápido — dava pra enumerar contas pelo tempo.
+    // Agora sempre gastamos o mesmo custo, comparando contra um hash-isca quando
+    // a conta não existe ou não tem senha.
+    const hashParaConferir = user?.passwordHash ?? IDENTITY_DUMMY_HASH;
+    const senhaConfere = verifyPassword(input.password, hashParaConferir);
+    if (!user?.passwordHash || !senhaConfere) {
       throw new UnauthorizedException("E-mail ou senha inválidos");
     }
     await this.activateInvitedMemberships(user.id);
-    const token = await createSessionToken({ sub: user.id });
+    const token = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
     return { token, user: { id: user.id, name: user.name, email: user.email } };
   }
 
@@ -207,6 +230,12 @@ export class IdentityService {
       const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
       const baseUrl = process.env.PRODUCER_BASE_URL ?? "http://localhost:3001";
       await prisma.$transaction([
+        // um pedido novo invalida os anteriores (auditoria 2026-08-29): antes
+        // todos os links emitidos continuavam valendo em paralelo
+        prisma.passwordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: new Date() },
+        }),
         prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash, expiresAt } }),
         prisma.notification.create({
           data: {
@@ -236,15 +265,18 @@ export class IdentityService {
     const [user] = await prisma.$transaction([
       prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash: hashPassword(input.password) },
+        // trocar a senha invalida as sessões antigas (ver session.guard):
+        // sem bump do sessionVersion, um token roubado sobrevivia à troca
+        data: { passwordHash: hashPassword(input.password), sessionVersion: { increment: 1 } },
       }),
-      prisma.passwordResetToken.update({
-        where: { id: record.id },
+      // todos os links de reset pendentes deste usuário morrem aqui, não só o usado
+      prisma.passwordResetToken.updateMany({
+        where: { userId: record.userId, usedAt: null },
         data: { usedAt: new Date() },
       }),
     ]);
 
-    const token = await createSessionToken({ sub: user.id });
+    const token = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
     return { token, user: { id: user.id, name: user.name, email: user.email } };
   }
 

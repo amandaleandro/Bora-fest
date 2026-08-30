@@ -18,4 +18,4 @@ android/
 ios/
 
 .claude/
-.pnpm-store/
+.pnpm-store/apps/api/src/**/*.js

@@ -23,8 +23,10 @@ export class PublicCatalogController {
   ) {
     reply.header("Cache-Control", PUBLIC_CACHE_HEADER);
     return this.catalogService.listPublicEvents({
-      page: page ? Number(page) : 1,
-      pageSize: pageSize ? Math.min(Number(pageSize), 50) : 20,
+      // inteiros positivos (auditoria 2026-08-29): NaN/negativo iam direto pro
+      // skip/take do Prisma
+      page: Math.max(1, Math.floor(Number(page)) || 1),
+      pageSize: Math.min(Math.max(1, Math.floor(Number(pageSize)) || 20), 50),
       city: city?.trim() || undefined,
       category: category?.trim() || undefined,
     });

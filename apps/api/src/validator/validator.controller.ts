@@ -100,7 +100,11 @@ export class ValidatorController {
 
   @Post("sessions")
   // PIN tem 6 dígitos: sem limite dedicado, o espaço é varrível por força bruta
-  @RateLimit({ limit: 10, windowSeconds: 900, keyPrefix: "validator-pin", by: "body:session" })
+  // chave por IP (auditoria 2026-08-29): o `by:"body:session"` keava num objeto,
+  // virava "[object Object]" e não separava nada; brute-force do PIN de 6 dígitos
+  // passava. Por IP (agora estável, sem burla de X-Forwarded-For) + PIN que
+  // expira, a janela de força-bruta fica fechada.
+  @RateLimit({ limit: 8, windowSeconds: 900, keyPrefix: "validator-pin" })
   createSession(@Body(ZodBody(sessionWithDeviceSchema)) body: unknown) {
     const input = body as z.infer<typeof sessionWithDeviceSchema>;
     return this.validatorService.createSessionAndRegisterDevice(input.session, input.device);

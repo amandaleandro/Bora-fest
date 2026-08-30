@@ -29,6 +29,8 @@ export interface ApplyStatusResult {
   paymentChanged: boolean;
   orderPaid: boolean;
   orphaned: boolean;
+  /** pagamento não cobre o total do pedido — não faturado */
+  amountMismatch?: boolean;
 }
 
 const PAYABLE_ORDER_STATUSES = ["CREATED", "PAYMENT_PENDING"] as const;
@@ -118,6 +120,19 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
     result.paymentChanged = updatedPayment.count > 0;
     if (!result.paymentChanged) {
       // já estava PAID (webhook duplicado) ou em estado monetário — no-op
+      return result;
+    }
+
+    // CONFERE O VALOR (auditoria 2026-08-29): não faturar um pedido cujo
+    // pagamento não cobre o total. `payment.amountCents` é gravado por nós a
+    // partir do total na criação, então uma divergência aqui é sinal de
+    // adulteração/erro — registramos e NÃO marcamos o pedido como pago.
+    const pedido = await tx.order.findUnique({
+      where: { id: payment.orderId },
+      select: { totalCents: true },
+    });
+    if (pedido && payment.amountCents < pedido.totalCents) {
+      result.amountMismatch = true;
       return result;
     }
 

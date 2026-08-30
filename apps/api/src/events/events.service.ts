@@ -121,10 +121,14 @@ export class EventsService {
       await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
     }
 
-    return prisma.event.findMany({
+    // NUNCA devolver o metaCapiToken (auditoria 2026-08-29): ele é o segredo do
+    // envio server-side pra Meta e vazava aqui para papéis de portaria/vendedor.
+    // Mesmo padrão do catálogo público — remove o campo de cada evento.
+    const eventos = await prisma.event.findMany({
       where: { organizationId },
       orderBy: { createdAt: "desc" },
     });
+    return eventos.map(({ metaCapiToken: _segredo, ...evento }) => evento);
   }
 
   async update(eventId: string, actorUserId: string, input: UpdateEventInput) {
@@ -133,9 +137,18 @@ export class EventsService {
 
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
 
-    const venueId = input.venue
+    let venueId = input.venue
       ? (await this.upsertVenue(event.organizationId, input.venue)).id
       : input.venueId;
+    // venue do corpo tem que ser da MESMA produtora (auditoria 2026-08-29):
+    // senão um evento apontava para o local de outra casa
+    if (!input.venue && input.venueId) {
+      const venue = await prisma.venue.findUnique({ where: { id: input.venueId } });
+      if (!venue || venue.organizationId !== event.organizationId) {
+        throw new BadRequestException("Local inválido para esta organização");
+      }
+      venueId = input.venueId;
+    }
 
     // merge parcial: enviar só um pixel (ex. metaPixelId) não deve apagar os outros já salvos
     let pixelSettings: Record<string, string> | undefined;
@@ -289,10 +302,15 @@ export class EventsService {
     const name = `evento-${eventId}-${Date.now()}-${randomBytes(4).toString("hex")}.${ext}`;
     await writeFile(join(UPLOADS_DIR, name), content);
 
-    // remove o banner anterior deste evento para não acumular arquivo órfão
+    // remove o banner anterior — SÓ se o nome for de arquivo deste evento
+    // (auditoria 2026-08-29): o bannerUrl é editável via PATCH, então apontá-lo
+    // para o arquivo de outra produtora fazia este unlink apagar arte alheia.
+    // Todo upload nomeia `evento-<id>-...`, então exigimos esse prefixo.
     if (event.bannerUrl) {
       const previousName = basename(event.bannerUrl);
-      await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
+      if (previousName.startsWith(`evento-${eventId}-`)) {
+        await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
+      }
     }
 
     const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";

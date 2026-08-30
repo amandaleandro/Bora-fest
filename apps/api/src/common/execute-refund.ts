@@ -38,6 +38,9 @@ export async function executeOrderRefund(
     const gateway = getGateway(preso.provider);
     const statusNoGateway = await gateway.getStatus(preso.externalId!);
     if (statusNoGateway === "REFUNDED" || statusNoGateway === "CHARGEBACK") {
+      // teto acumulado também na reconciliação (auditoria 2026-08-29): antes
+      // estes ramos debitavam o valor DIGITADO agora, sem passar pelo cap
+      await assertRefundWithinCap(preso, input.amountCents);
       await applyGatewayStatus(preso.id, statusNoGateway, undefined, {
         refundAmountCents: input.amountCents,
       });
@@ -62,6 +65,7 @@ export async function executeOrderRefund(
     const gatewayCheck = getGateway(payment.provider);
     const statusNoGateway = await gatewayCheck.getStatus(payment.externalId).catch(() => null);
     if (statusNoGateway === "REFUNDED" || statusNoGateway === "CHARGEBACK") {
+      await assertRefundWithinCap(payment, input.amountCents);
       await applyGatewayStatus(payment.id, statusNoGateway, undefined, {
         refundAmountCents: input.amountCents,
       });

@@ -116,7 +116,9 @@ export class DashboardService {
         metaCapiConfigured: Boolean(event.metaCapiToken),
         venue,
       },
-      revenueCents,
+      // bruto também só para quem vê financeiro (auditoria 2026-08-29):
+      // vendedor vê contagem de ingressos, não faturamento
+      revenueCents: comDinheiro ? revenueCents : null,
       netCents,
       orders: {
         total: ordersByStatus.reduce((sum, o) => sum + o._count._all, 0),

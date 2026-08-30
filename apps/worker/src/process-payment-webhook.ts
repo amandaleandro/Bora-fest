@@ -2,6 +2,7 @@ import { prisma, Prisma } from "@borafest/database";
 import {
   applyGatewayStatus,
   getGateway,
+  stripSecretHeaders,
   WebhookVerificationError,
   type WebhookHeaders,
 } from "@borafest/payments";
@@ -24,8 +25,11 @@ export async function processPaymentWebhookJob(data: PaymentWebhookProcessingJob
   const headers = data.headers as WebhookHeaders;
   const gateway = getGateway(provider);
 
+  // grava a auditoria SEM os cabeçalhos secretos — a verificação abaixo ainda
+  // usa os crus (`headers`), mas o token/assinatura nunca chega ao banco nem à
+  // rota /v1/admin/webhooks (auditoria de segurança 2026-08-29)
   const delivery = await prisma.webhookDelivery.create({
-    data: { provider, signatureValid: false, rawBody, headers },
+    data: { provider, signatureValid: false, rawBody, headers: stripSecretHeaders(headers) },
   });
 
   let event;

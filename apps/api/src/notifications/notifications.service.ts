@@ -152,7 +152,11 @@ export class NotificationsService {
       throw new ConflictException("Pedido ainda não tem ingressos para enviar");
     }
 
-    const rawPhone = input?.phone ?? order.contactPhone;
+    // RELAY PAGO (auditoria 2026-08-29): antes o telefone do corpo vencia, então
+    // com um publicToken dava pra disparar WhatsApp pago para qualquer número e
+    // vazar o QR. Agora o número do PRÓPRIO pedido manda; um avulso só é aceito
+    // quando o pedido ainda não tem telefone (e aí fica gravado como o oficial).
+    const rawPhone = order.contactPhone ?? input?.phone;
     if (!rawPhone) {
       throw new BadRequestException("Informe um número de WhatsApp com DDD");
     }

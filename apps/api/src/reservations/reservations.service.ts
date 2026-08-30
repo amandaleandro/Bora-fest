@@ -40,7 +40,21 @@ export class ReservationsService {
       if (item.halfPrice && !lot.halfPriceEnabled) {
         throw new BadRequestException("Este lote não oferece meia-entrada");
       }
-      if (item.quantity > lot.maxPerOrder) {
+      if (item.quantity < 1) {
+        throw new BadRequestException("Quantidade inválida");
+      }
+    }
+
+    // TETO POR LOTE agregando itens repetidos (auditoria 2026-08-29): antes o
+    // limite era por item, então mandar N itens do MESMO lote, cada um sob o
+    // teto, somava muito acima e dava pra travar o estoque inteiro num request.
+    const totalPorLote = new Map<string, number>();
+    for (const item of input.items) {
+      totalPorLote.set(item.ticketLotId, (totalPorLote.get(item.ticketLotId) ?? 0) + item.quantity);
+    }
+    for (const [lotId, total] of totalPorLote) {
+      const lot = lots.find((l) => l.id === lotId)!;
+      if (total > lot.maxPerOrder) {
         throw new BadRequestException(`Quantidade acima do limite por pedido para o lote ${lot.name}`);
       }
     }

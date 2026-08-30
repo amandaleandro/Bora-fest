@@ -41,6 +41,9 @@ model User {
   /// preferências de marketing (transacional é sempre enviado)
   notifyWhatsapp  Boolean   @default(true) @map("notify_whatsapp")
   notifyEmailOffers Boolean @default(false) @map("notify_email_offers")
+  /// invalida sessões antigas: a troca de senha incrementa isto e o guard
+  /// recusa tokens com versão menor (revogação — auditoria 2026-08-29)
+  sessionVersion  Int      @default(0) @map("session_version")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { createCouponSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
+import { RateLimit } from "../common/rate-limit.decorator";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { CouponsService } from "./coupons.service";
 
@@ -35,7 +36,11 @@ export class CouponsController {
 
   // --- público (preview no checkout) ---------------------------------------
 
+  // força-bruta de cupom (auditoria 2026-08-29): sem limite próprio, dava pra
+  // varrer códigos. Por IP, e keado pelo slug+código para não travar preços
+  // legítimos de eventos diferentes.
   @Get("public/events/:slug/coupons/:code")
+  @RateLimit({ limit: 20, windowSeconds: 300, keyPrefix: "coupon-check" })
   check(@Param("slug") slug: string, @Param("code") code: string) {
     return this.couponsService.check(slug, code);
   }

@@ -391,7 +391,15 @@ export class OrdersService {
       include: {
         event: { select: { id: true, title: true, organizationId: true } },
         items: { include: { ticketLot: { include: { ticketType: true } } } },
-        payments: { orderBy: { createdAt: "desc" } },
+        // só o que a tela de Vendas usa (auditoria 2026-08-29): o Payment cru
+        // trazia CPF do pagador em metadata, pixQrCodeText e ids do gateway
+        payments: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true, provider: true, method: true, status: true,
+            amountCents: true, createdAt: true, paidAt: true,
+          },
+        },
         tickets: { select: { id: true, code: true, status: true, attendeeName: true } },
       },
     });

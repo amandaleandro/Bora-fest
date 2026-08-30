@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Patch, Post, UseGuards } from "@nestjs/common";
-import { updateMeSchema } from "@borafest/contracts";
+import { pushSubscriptionSchema, removePushSubscriptionSchema, updateMeSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -25,14 +25,17 @@ export class MeController {
   @Post("push-subscriptions")
   savePushSubscription(
     @CurrentUserId() userId: string,
-    @Body() body: { endpoint?: string; keys?: { p256dh?: string; auth?: string }; userAgent?: string },
+    @Body(ZodBody(pushSubscriptionSchema)) body: unknown,
   ) {
-    return this.meService.savePushSubscription(userId, body);
+    return this.meService.savePushSubscription(userId, body as any);
   }
 
   @Delete("push-subscriptions")
-  removePushSubscription(@CurrentUserId() userId: string, @Body() body: { endpoint?: string }) {
-    return this.meService.removePushSubscription(userId, body?.endpoint ?? "");
+  removePushSubscription(
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(removePushSubscriptionSchema)) body: unknown,
+  ) {
+    return this.meService.removePushSubscription(userId, (body as any).endpoint);
   }
 
   @Get("orders")

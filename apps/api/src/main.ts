@@ -47,7 +47,23 @@ function assertPaymentSecrets(): void {
   }
 }
 
+/**
+ * Em produção não pode subir com gateway de mentira nem log de OTP em claro
+ * (auditoria de segurança 2026-08-29): MockGateway aprova qualquer cartão na
+ * hora e WHATSAPP_PROVIDER=devlog grava o código OTP no log.
+ */
+function assertProductionProviders(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const proibidos: string[] = [];
+  if ((process.env.PAYMENTS_PROVIDER ?? "mock") === "mock") proibidos.push("PAYMENTS_PROVIDER=mock (aprova qualquer pagamento)");
+  if (process.env.WHATSAPP_PROVIDER === "devlog") proibidos.push("WHATSAPP_PROVIDER=devlog (grava OTP/telefone no log)");
+  if (proibidos.length > 0) {
+    throw new Error(`Configuração insegura para produção: ${proibidos.join("; ")}`);
+  }
+}
+
 async function bootstrap() {
+  assertProductionProviders();
   assertPaymentSecrets();
 
   const app = await NestFactory.create<NestFastifyApplication>(

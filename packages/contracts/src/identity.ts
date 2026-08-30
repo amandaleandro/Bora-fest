@@ -1,9 +1,21 @@
 import { z } from "zod";
 
-export const requestOtpSchema = z.object({
-  destination: z.string().min(3),
-  channel: z.enum(["EMAIL", "SMS", "WHATSAPP"]),
-});
+export const requestOtpSchema = z
+  .object({
+    // destino validado por canal (auditoria 2026-08-29): sem formato, `destination`
+    // cru virava chave de rate limit e dava pra bombardear e-mail de terceiro
+    // com variações. E-mail é normalizado em minúsculas; telefone só dígitos.
+    destination: z.string().min(3).max(160).trim(),
+    channel: z.enum(["EMAIL", "SMS", "WHATSAPP"]),
+  })
+  .transform((v) => ({ ...v, destination: v.destination.toLowerCase() }))
+  .refine(
+    (v) =>
+      v.channel === "EMAIL"
+        ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.destination)
+        : /^\+?\d{10,15}$/.test(v.destination.replace(/\D/g, "")),
+    { message: "Destino inválido para o canal escolhido", path: ["destination"] },
+  );
 export type RequestOtpInput = z.infer<typeof requestOtpSchema>;
 
 export const verifyOtpSchema = z.object({

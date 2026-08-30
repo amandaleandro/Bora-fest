@@ -38,7 +38,12 @@ export class RateLimitGuard implements CanActivate {
     if (options.by?.startsWith("body:")) {
       const field = options.by.slice("body:".length);
       const value = request.body?.[field];
-      if (value) keyPart = `${ip}:${value}`;
+      // nunca deixar um objeto virar "[object Object]" na chave (auditoria
+      // 2026-08-29): serializa valores não-primitivos
+      if (value !== undefined && value !== null) {
+        const v = typeof value === "object" ? JSON.stringify(value) : String(value);
+        keyPart = `${ip}:${v}`;
+      }
     }
 
     const redisKey = `ratelimit:${options.keyPrefix}:${keyPart}`;

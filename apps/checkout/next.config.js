@@ -13,7 +13,10 @@ const nextConfig = {
    */
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "**" },
+      // fechado (auditoria 2026-08-29): "**" fazia o otimizador buscar imagem de
+      // QUALQUER host — proxy de saída. Só domínios da BoraFest e o local.
+      { protocol: "https", hostname: "borafest.com.br" },
+      { protocol: "https", hostname: "**.borafest.com.br" },
       { protocol: "http", hostname: "localhost" },
       { protocol: "http", hostname: "127.0.0.1" },
     ],

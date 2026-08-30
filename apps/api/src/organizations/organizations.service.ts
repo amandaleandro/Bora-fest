@@ -230,9 +230,14 @@ export class OrganizationsService {
       create: { email: input.email },
     });
 
+    // partnerId só vale para vendedor E precisa ser DESTA organização
+    // (auditoria 2026-08-29): antes era validado só no if, mas gravado sempre no
+    // upsert final — um id de parceiro de outra casa entrava como FK cross-tenant.
+    let partnerIdParaGravar: string | null = null;
     if (input.roleKey === "seller" && input.partnerId) {
       const partner = await prisma.salesPartner.findFirst({ where: { id: input.partnerId, organizationId } });
       if (!partner) throw new NotFoundException("Parceiro de vendas não encontrado");
+      partnerIdParaGravar = input.partnerId;
     }
 
     // NUNCA rebaixar quem já é membro (incidente 2026-08-10: convidar um
@@ -247,10 +252,10 @@ export class OrganizationsService {
       if (existing.role.key === input.roleKey) {
         // idempotente: mesmo papel — no máximo anexa o parceiro
         const membership =
-          input.partnerId && existing.salesPartnerId !== input.partnerId
+          partnerIdParaGravar && existing.salesPartnerId !== partnerIdParaGravar
             ? await prisma.organizationMember.update({
                 where: { id: existing.id },
-                data: { salesPartnerId: input.partnerId },
+                data: { salesPartnerId: partnerIdParaGravar },
               })
             : existing;
         if (input.roleKey === "seller" && input.partnerId) {
@@ -270,13 +275,13 @@ export class OrganizationsService {
 
     const membership = await prisma.organizationMember.upsert({
       where: { organizationId_userId: { organizationId, userId: invitedUser.id } },
-      update: { roleId: role.id, status: "INVITED", salesPartnerId: input.partnerId ?? null },
+      update: { roleId: role.id, status: "INVITED", salesPartnerId: partnerIdParaGravar },
       create: {
         organizationId,
         userId: invitedUser.id,
         roleId: role.id,
         status: "INVITED",
-        salesPartnerId: input.partnerId,
+        salesPartnerId: partnerIdParaGravar,
       },
     });
 
@@ -774,7 +779,9 @@ export class OrganizationsService {
   }
 
   async listBankAccounts(organizationId: string, userId: string) {
-    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
+    // dado bancário completo (documento do titular, agência, conta, chave Pix)
+    // exige gestão da organização, não só ver o financeiro (auditoria 2026-08-29)
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     return prisma.bankAccount.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" } });
   }
 

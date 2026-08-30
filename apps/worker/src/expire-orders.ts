@@ -46,6 +46,18 @@ async function expireOrder(orderId: string): Promise<void> {
       where: { orderId, status: { in: ["PENDING", "AUTHORIZED"] } },
       data: { status: "EXPIRED" },
     });
+
+    // DEVOLVE O CUPOM (auditoria 2026-08-29): o resgate era contado na CRIAÇÃO
+    // do pedido e nunca voltava na expiração — anônimo esgotava a campanha sem
+    // pagar nada. Ao expirar, o slot volta para a próxima pessoa.
+    const redemption = await tx.couponRedemption.findFirst({ where: { orderId } });
+    if (redemption) {
+      await tx.coupon.update({
+        where: { id: redemption.couponId },
+        data: { redeemedCount: { decrement: 1 } },
+      });
+      await tx.couponRedemption.delete({ where: { id: redemption.id } });
+    }
   });
 
   log.info({ orderId }, "pedido expirado e estoque liberado");
