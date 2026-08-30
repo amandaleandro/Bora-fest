@@ -365,6 +365,13 @@ async function applyPartialRefund(
           where: { orderId: payment.orderId, status: { in: ["ISSUED", "ACTIVE"] } },
           data: { status: "REFUNDED", canceledAt: new Date() },
         });
+        // o ingresso foi 100% devolvido: o PAGAMENTO também é terminal
+        // (auditoria 2026-08-30) — sem isto ele ficava PAID e um segundo estorno
+        // ainda via saldo "reembolsável" (o prêmio), podendo devolver o prêmio.
+        await tx.payment.updateMany({
+          where: { id: payment.id, status: { in: ["PAID", "REFUND_PENDING"] } },
+          data: { status: "REFUNDED" },
+        });
       }
     }
 
@@ -433,22 +440,34 @@ async function reverseOrganizationLedgerAndStock(
     const premio = order.protectionFeeCents ?? 0;
     if (premio > 0) {
       const ingressoCents = payment.amountCents - premio;
-      const premioVoltou = refundAmountCents === undefined || refundAmountCents > ingressoCents;
-      if (premioVoltou) {
+      // quanto do PRÊMIO de fato voltou ao comprador (auditoria 2026-08-30):
+      //  - reversão total (undefined) / cancelamento / chargeback: o prêmio todo
+      //  - reembolso explícito ACIMA do ingresso: só a parte acima do ingresso
+      //    (antes revertia os 150 inteiros e realocava o resíduo pra plataforma)
+      //  - reembolso <= ingresso (self-service): nada — o prêmio é lucro do produtor
+      const premioQueVoltou =
+        refundAmountCents === undefined
+          ? premio
+          : Math.max(0, refundAmountCents - ingressoCents);
+      if (premioQueVoltou > 0) {
         const atual = await tx.ledgerEntry.aggregate({
           where: { referenceType: "payment", referenceId: payment.id, type: "PROTECTION_CREDIT" },
           _sum: { amountCents: true },
         });
         const saldoPremio = atual._sum.amountCents ?? 0;
-        if (saldoPremio > 0) {
+        // idempotente e proporcional: nunca reverte mais do que voltou nem do
+        // que ainda resta de prêmio no ledger
+        const jaRevertido = premio - saldoPremio;
+        const aReverter = Math.min(saldoPremio, Math.max(0, premioQueVoltou - jaRevertido));
+        if (aReverter > 0) {
           await tx.ledgerEntry.create({
             data: {
               ledgerAccountId: ledgerAccount.id,
               type: "PROTECTION_CREDIT",
-              amountCents: -saldoPremio,
+              amountCents: -aReverter,
               referenceType: "payment",
               referenceId: payment.id,
-              description: "Estorno do prêmio da proteção — reembolso integral ao comprador",
+              description: "Estorno do prêmio da proteção — parte devolvida ao comprador",
             },
           });
         }
@@ -462,6 +481,44 @@ async function reverseOrganizationLedgerAndStock(
   const items = await tx.orderItem.findMany({ where: { orderId: payment.orderId } });
   for (const item of items) {
     await returnSaleInventory(tx, item.ticketLotId, item.quantity);
+  }
+}
+
+/**
+ * Reverte qualquer saldo de PROTECTION_CREDIT ainda pendurado num pagamento —
+ * usado quando um CHARGEBACK chega sobre um pagamento JÁ reembolsado (o fluxo
+ * normal de reversão não roda porque pagamento/pedido já são terminais, então o
+ * prêmio ficaria como crédito FANTASMA). Idempotente pelo saldo do prêmio.
+ */
+async function reverseProtectionPremiumOnly(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string },
+): Promise<void> {
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: { protectionFeeCents: true, event: { select: { organizationId: true } } },
+  });
+  if (!order || (order.protectionFeeCents ?? 0) <= 0) return;
+  const ledgerAccount = await tx.ledgerAccount.findUnique({
+    where: { organizationId: order.event.organizationId },
+  });
+  if (!ledgerAccount) return;
+  const atual = await tx.ledgerEntry.aggregate({
+    where: { referenceType: "payment", referenceId: payment.id, type: "PROTECTION_CREDIT" },
+    _sum: { amountCents: true },
+  });
+  const saldoPremio = atual._sum.amountCents ?? 0;
+  if (saldoPremio > 0) {
+    await tx.ledgerEntry.create({
+      data: {
+        ledgerAccountId: ledgerAccount.id,
+        type: "PROTECTION_CREDIT",
+        amountCents: -saldoPremio,
+        referenceType: "payment",
+        referenceId: payment.id,
+        description: "Estorno do prêmio da proteção — chargeback após reembolso",
+      },
+    });
   }
 }
 
@@ -482,7 +539,15 @@ async function applyReversal(
       data: { status },
     });
     result.paymentChanged = updatedPayment.count > 0;
-    if (!result.paymentChanged) return result;
+    if (!result.paymentChanged) {
+      // CHARGEBACK sobre pagamento JÁ terminal (comprador usou o self-service e
+      // DEPOIS abriu chargeback): o banco reverte tudo, inclusive o prêmio, mas o
+      // fluxo abaixo não roda. Reverte o prêmio à parte, idempotente pelo saldo.
+      if (status === "CHARGEBACK") {
+        await reverseProtectionPremiumOnly(tx, payment);
+      }
+      return result;
+    }
 
     const updatedOrder = await tx.order.updateMany({
       where: {

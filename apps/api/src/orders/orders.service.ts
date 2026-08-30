@@ -731,7 +731,7 @@ export class OrdersService {
    * ainda está retido nesse momento: o produtor devolve do que está parado,
    * NUNCA do bolso, e fica com o prêmio de lucro. O ingresso volta ao estoque.
    */
-  async requestProtectionRefund(publicToken: string) {
+  async requestProtectionRefund(publicToken: string, actorUserId: string) {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
@@ -740,6 +740,12 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
+    // dono do pedido (auditoria 2026-08-30): a rota exige sessão e aqui
+    // confirmamos que quem pede é o comprador — a posse do link do pedido não
+    // basta para uma ação irreversível de dinheiro (cancelar ingresso alheio).
+    if (!order.userId || order.userId !== actorUserId) {
+      throw new ForbiddenException("Só o titular do pedido pode pedir o reembolso protegido");
+    }
     if (!order.protectionPurchased || order.protectionFeeCents <= 0) {
       throw new BadRequestException("Este pedido não tem proteção de reembolso");
     }

@@ -328,10 +328,10 @@ export const api = {
   getOrderStatus: (publicToken: string) => request<Order>(`/v1/orders/${publicToken}/status`),
 
   /** reembolso protegido (self-service): devolve o ingresso, mantém a proteção. */
-  requestProtectionRefund: (publicToken: string) =>
+  requestProtectionRefund: (publicToken: string, token?: string) =>
     request<{ refunded: boolean; refundedCents: number; protectionKeptCents: number }>(
       `/v1/orders/${publicToken}/protection-refund`,
-      { method: "POST", body: {} },
+      { method: "POST", body: {}, token },
     ),
 
   createPixPayment: (orderId: string, input: { payerDocument?: string; payerPhone?: string }) =>

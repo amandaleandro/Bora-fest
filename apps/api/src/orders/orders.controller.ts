@@ -31,14 +31,17 @@ export class OrdersController {
 
   /**
    * Reembolso protegido (self-service do comprador): quem comprou a proteção
-   * pede o reembolso do ingresso até o início do evento — o prêmio fica. A
-   * posse do publicToken é a prova de que é o dono do pedido. Rate limit por
-   * pedido para não virar alavanca de ataque.
+   * pede o reembolso do ingresso até o início do evento — o prêmio fica.
+   * Exige SESSÃO do comprador, não só a posse do link (auditoria 2026-08-30): o
+   * token de leitura do pedido não pode disparar uma ação IRREVERSÍVEL de
+   * dinheiro — senão qualquer um com o link cancelaria o ingresso alheio. Rate
+   * limit por pedido para não virar alavanca de ataque.
    */
   @Post(":publicToken/protection-refund")
+  @UseGuards(SessionGuard)
   @RateLimit({ limit: 4, windowSeconds: 3600, keyPrefix: "protection-refund", by: "params:publicToken" })
-  protectionRefund(@Param("publicToken") publicToken: string) {
-    return this.ordersService.requestProtectionRefund(publicToken);
+  protectionRefund(@Param("publicToken") publicToken: string, @CurrentUserId() userId: string) {
+    return this.ordersService.requestProtectionRefund(publicToken, userId);
   }
 
   @Get(":orderId/detail")

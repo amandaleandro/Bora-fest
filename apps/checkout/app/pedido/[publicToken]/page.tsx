@@ -102,6 +102,10 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   const [protectConfirm, setProtectConfirm] = useState(false);
   const [protectState, setProtectState] = useState<"idle" | "sending" | "done">("idle");
   const [protectError, setProtectError] = useState<string | null>(null);
+  // reembolso é ação de dinheiro IRREVERSÍVEL: exige sessão do comprador, não só
+  // a posse do link (auditoria 2026-08-30). Sem token local, pede um código OTP
+  // inline antes de reembolsar — o mesmo portão da carteira/transferência.
+  const [protectNeedsAuth, setProtectNeedsAuth] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -140,11 +144,23 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   }, [order, load]);
 
   async function pedirReembolsoProtegido() {
+    const token = typeof window !== "undefined" ? localStorage.getItem("bf.token") : null;
+    if (!token) {
+      // sem sessão local: confirma a posse do e-mail por OTP antes de reembolsar
+      setProtectError(null);
+      setProtectNeedsAuth(true);
+      return;
+    }
+    await executarReembolsoComToken(token);
+  }
+
+  async function executarReembolsoComToken(token: string) {
     setProtectState("sending");
     setProtectError(null);
     try {
-      await api.requestProtectionRefund(publicToken);
+      await api.requestProtectionRefund(publicToken, token);
       setProtectState("done");
+      setProtectNeedsAuth(false);
       const o = await api.getOrderStatus(publicToken);
       setOrder(o);
     } catch (e) {
@@ -450,7 +466,21 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
             evento. A taxa da proteção não é devolvida.
           </p>
           {protectError && <p className="mt-2 text-[12.5px] font-bold text-danger">{protectError}</p>}
-          {!protectConfirm ? (
+          {protectNeedsAuth ? (
+            <div className="mt-3">
+              <p className="mb-2 text-[12.5px] font-semibold text-muted">
+                Confirme que é você: enviamos um código para o e-mail do pedido.
+              </p>
+              <VerificationGate
+                publicToken={publicToken}
+                contactEmail={ticketsData?.contactEmail ?? order?.contactEmail ?? ""}
+                onVerified={() => {
+                  const t = typeof window !== "undefined" ? localStorage.getItem("bf.token") : null;
+                  if (t) executarReembolsoComToken(t);
+                }}
+              />
+            </div>
+          ) : !protectConfirm ? (
             <button
               onClick={() => setProtectConfirm(true)}
               className="mt-3 h-11 rounded-xl border-[1.5px] border-primary px-5 text-[13px] font-extrabold text-primary"

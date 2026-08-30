@@ -12,17 +12,13 @@ import { prisma } from "@borafest/database";
 export async function assertRefundWithinCap(
   payment: { id: string; amountCents: number },
   amountCents: number | undefined,
-  /** valor pago que NUNCA é reembolsável (ex.: prêmio da proteção) */
-  nonRefundableCents = 0,
 ): Promise<void> {
   const debitos = await prisma.ledgerEntry.aggregate({
     where: { referenceType: "payment", referenceId: payment.id, type: "REFUND_DEBIT" },
     _sum: { amountCents: true },
   });
   const jaDevolvido = Math.abs(debitos._sum.amountCents ?? 0);
-  // o teto exclui o prêmio da proteção (auditoria 2026-08-30): ele é lucro do
-  // produtor e não volta pro comprador em nenhum estorno
-  const restante = payment.amountCents - nonRefundableCents - jaDevolvido;
+  const restante = payment.amountCents - jaDevolvido;
 
   if (restante <= 0) {
     throw new BadRequestException("Este pagamento já foi totalmente estornado");
