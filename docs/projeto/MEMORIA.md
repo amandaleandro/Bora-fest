@@ -224,6 +224,22 @@ KYC do produtor ser aprovado.
 
 ## Fluxo de trabalho combinado
 
+### REGRA INEGOCIÁVEL: confirmar que o banco segue intacto (Arthur, 2026-08-30)
+
+Nascida do incidente de 30/08 (API em crash-loop fez o site parecer zerado com
+o banco 100% saudável — 8h de pânico por diagnóstico errado):
+
+1. **Toda sessão que toca produção** (deploy, migração, mudança de env/infra)
+   termina rodando a checagem e colando o resultado:
+   `pnpm --filter @borafest/database run banco-intacto`
+   (em produção: console do container api → `cd packages/database && npx tsx src/banco-intacto.ts`).
+2. **Tela vazia NUNCA é prova de dado perdido.** Diagnóstico de "sumiu tudo"
+   começa separando API-morta de dado-perdido: primeiro `GET /health`, depois a
+   checagem acima. Só se a CHECAGEM acusar zero é que se investiga o banco.
+3. **Nunca** rodar comando destrutivo (drop, reset, migrate reset, apagar
+   volume) durante um incidente sem a checagem ANTES provando o estado real.
+
+
 - Trabalho colaborativo: Amanda e Arthur, cada um com Claude, no mesmo repositório
   (`amandaleandro/Bora-fest`, branch `main`). A sincronização é via commits.
 - **Sempre** `git pull` antes de começar e ler o `REGISTRO.md`.
