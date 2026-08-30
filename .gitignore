@@ -18,4 +18,5 @@ android/
 ios/
 
 .claude/
-.pnpm-store/apps/api/src/**/*.js
+.pnpm-store/
+apps/api/src/**/*.js

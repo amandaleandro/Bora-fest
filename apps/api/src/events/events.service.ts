@@ -164,7 +164,7 @@ export class EventsService {
       pixelSettings = merged as Record<string, string>;
     }
 
-    return prisma.event.update({
+    const atualizado = await prisma.event.update({
       where: { id: eventId },
       data: {
         title: input.title,
@@ -190,6 +190,10 @@ export class EventsService {
         timezone: input.timezone,
       },
     });
+    // NUNCA devolver o metaCapiToken na resposta (auditoria 2026-08-30): o
+    // painel só precisa saber se está configurado. Mesmo padrão do dashboard.
+    const { metaCapiToken: _segredo, ...publico } = atualizado;
+    return publico;
   }
 
   async publish(eventId: string, actorUserId: string) {

@@ -62,6 +62,18 @@ function assertProductionProviders(): void {
   }
 }
 
+/**
+ * TRUST_PROXY: número de saltos de proxy à frente da API (1 = só o Caddy).
+ * Devolver o IP real do cliente exige contar os hops, não confiar em todos.
+ */
+function resolveTrustProxy(): number | boolean {
+  const raw = process.env.TRUST_PROXY?.trim();
+  if (!raw) return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  if (raw === "true") return 1; // legado: 1 salto, seguro
+  return false;
+}
+
 async function bootstrap() {
   assertProductionProviders();
   assertPaymentSecrets();
@@ -70,9 +82,13 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({
       logger: false,
-      // só confia no X-Forwarded-For quando há proxy conhecido na frente
-      // (Caddy) — sem isso o rate limit por IP é burlável com um header
-      trustProxy: process.env.TRUST_PROXY === "true",
+      // NÚMERO DE SALTOS de proxy, não booleano (auditoria 2026-08-30): com
+      // `trustProxy: true` o Fastify confia em QUALQUER proxy e devolve o
+      // X-Forwarded-For MAIS À ESQUERDA — que é o que o cliente forja. Aí o
+      // rate limit por IP continuava burlável. Com um número (n saltos), o
+      // request.ip é o IP real que o proxy confiável (Caddy) viu. Legado
+      // "true" passa a valer 1 salto (seguro). Setar TRUST_PROXY=1 no servidor.
+      trustProxy: resolveTrustProxy(),
     }),
     // rawBody: necessário para verificar assinatura de webhooks de pagamento
     { rawBody: true },

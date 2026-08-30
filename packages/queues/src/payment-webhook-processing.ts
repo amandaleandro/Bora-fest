@@ -29,8 +29,12 @@ export function createPaymentWebhookProcessingQueue() {
     defaultJobOptions: {
       attempts: 6,
       backoff: { type: "exponential", delay: 3000 },
-      removeOnComplete: 1000,
-      removeOnFail: false,
+      // NÃO reter o job após processar (auditoria 2026-08-30): o payload carrega
+      // os cabeçalhos com o segredo do webhook para a verificação no worker;
+      // removê-lo na conclusão tira o segredo do Redis em segundos, em vez de
+      // deixá-lo nos últimos 1000 jobs. Falhas expiram em 1h (retry cabe nisso).
+      removeOnComplete: true,
+      removeOnFail: { age: 3600 },
     },
   });
 }

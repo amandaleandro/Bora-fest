@@ -18,10 +18,15 @@ export const requestOtpSchema = z
   );
 export type RequestOtpInput = z.infer<typeof requestOtpSchema>;
 
-export const verifyOtpSchema = z.object({
-  destination: z.string().min(3),
-  code: z.string().length(6),
-});
+export const verifyOtpSchema = z
+  .object({
+    // MESMA normalização do requestOtp (auditoria 2026-08-30): sem isto, quem
+    // pedia o código com e-mail em maiúscula nunca casava o desafio (guardado
+    // em minúsculas) e o login por OTP quebrava.
+    destination: z.string().min(3).max(160).trim(),
+    code: z.string().length(6),
+  })
+  .transform((v) => ({ ...v, destination: v.destination.toLowerCase() }));
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 
 /** PATCH /v1/me — verificação/edição da conta (decisão 2026-08-15: conta

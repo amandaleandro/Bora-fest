@@ -11,7 +11,7 @@ export interface RateLimitOptions {
   /** "ip" (padrão) conta por IP; "body:<campo>" combina IP + um campo do corpo
    * (ex.: "body:destination" no OTP, pra não deixar spammar UM destinatário
    * de IPs diferentes). */
-  by?: "ip" | `body:${string}`;
+  by?: "ip" | `body:${string}` | `params:${string}`;
 }
 
 /** Limite de requisições por janela de tempo, contado no Redis (§15 da arquitetura). */

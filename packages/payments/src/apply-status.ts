@@ -29,8 +29,6 @@ export interface ApplyStatusResult {
   paymentChanged: boolean;
   orderPaid: boolean;
   orphaned: boolean;
-  /** pagamento não cobre o total do pedido — não faturado */
-  amountMismatch?: boolean;
 }
 
 const PAYABLE_ORDER_STATUSES = ["CREATED", "PAYMENT_PENDING"] as const;
@@ -123,19 +121,11 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
       return result;
     }
 
-    // CONFERE O VALOR (auditoria 2026-08-29): não faturar um pedido cujo
-    // pagamento não cobre o total. `payment.amountCents` é gravado por nós a
-    // partir do total na criação, então uma divergência aqui é sinal de
-    // adulteração/erro — registramos e NÃO marcamos o pedido como pago.
-    const pedido = await tx.order.findUnique({
-      where: { id: payment.orderId },
-      select: { totalCents: true },
-    });
-    if (pedido && payment.amountCents < pedido.totalCents) {
-      result.amountMismatch = true;
-      return result;
-    }
-
+    // NOTA (auditoria 2026-08-30): uma conferência payment.amountCents vs
+    // order.totalCents seria INERTE — os dois nascem iguais por construção — e
+    // ainda arriscava deixar o pagamento em limbo (PAID sem faturar). A
+    // verificação de valor de verdade exige o montante REAL do gateway, que os
+    // adapters ainda não expõem; fica como follow-up, sem controle de fachada.
     const updatedOrder = await tx.order.updateMany({
       where: { id: payment.orderId, status: { in: [...PAYABLE_ORDER_STATUSES] } },
       data: { status: "PAID", paidAt },

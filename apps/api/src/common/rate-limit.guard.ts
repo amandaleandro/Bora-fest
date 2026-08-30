@@ -35,9 +35,9 @@ export class RateLimitGuard implements CanActivate {
     const ip = request.ip || "unknown";
 
     let keyPart = ip;
-    if (options.by?.startsWith("body:")) {
-      const field = options.by.slice("body:".length);
-      const value = request.body?.[field];
+    if (options.by?.startsWith("body:") || options.by?.startsWith("params:")) {
+      const [fonte, field] = options.by.split(":");
+      const value = (fonte === "params" ? request.params : request.body)?.[field];
       // nunca deixar um objeto virar "[object Object]" na chave (auditoria
       // 2026-08-29): serializa valores não-primitivos
       if (value !== undefined && value !== null) {

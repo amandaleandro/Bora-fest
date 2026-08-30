@@ -152,11 +152,11 @@ export class NotificationsService {
       throw new ConflictException("Pedido ainda não tem ingressos para enviar");
     }
 
-    // RELAY PAGO (auditoria 2026-08-29): antes o telefone do corpo vencia, então
-    // com um publicToken dava pra disparar WhatsApp pago para qualquer número e
-    // vazar o QR. Agora o número do PRÓPRIO pedido manda; um avulso só é aceito
-    // quando o pedido ainda não tem telefone (e aí fica gravado como o oficial).
-    const rawPhone = order.contactPhone ?? input?.phone;
+    // Enviar para outro número segue permitido (comprar para um amigo é caso
+    // real) — o que fecha o relay em massa é o rate limit por pedido/IP na rota
+    // (auditoria 2026-08-30, revertendo o bloqueio anterior que matava o caso
+    // legítimo). O número do corpo vence, com o do pedido como padrão.
+    const rawPhone = input?.phone ?? order.contactPhone;
     if (!rawPhone) {
       throw new BadRequestException("Informe um número de WhatsApp com DDD");
     }
