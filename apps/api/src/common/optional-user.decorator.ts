@@ -1,17 +1,12 @@
 import { createParamDecorator, ExecutionContext } from "@nestjs/common";
-import { verifySessionToken } from "@borafest/auth";
+import { resolveSessionUserId } from "./session-resolver";
 
 export const OptionalUserId = createParamDecorator(
   async (_: unknown, ctx: ExecutionContext): Promise<string | undefined> => {
     const request = ctx.switchToHttp().getRequest();
-    const authHeader: string | undefined = request.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) return undefined;
-
-    try {
-      const claims = await verifySessionToken(authHeader.slice("Bearer ".length));
-      return claims.sub;
-    } catch {
-      return undefined;
-    }
+    // MESMAS regras do SessionGuard (auditoria 2026-08-30): rejeita token de
+    // propósito e sessão revogada, em vez de só verificar a assinatura.
+    const userId = await resolveSessionUserId(request.headers.authorization);
+    return userId ?? undefined;
   },
 );

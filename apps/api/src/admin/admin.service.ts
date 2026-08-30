@@ -183,11 +183,20 @@ export class AdminService {
       where: { destination, consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
     });
-    if (!challenge || challenge.attempts >= 5) {
+    if (!challenge) {
+      throw new BadRequestException("Código expirado — gere um novo");
+    }
+    // reivindica a tentativa atomicamente (auditoria 2026-08-30): mesmo TOCTOU
+    // do login — sem isto, verificações paralelas furam o teto de 5. Exclusão
+    // de organização é destrutiva; força-bruta do código aqui é inaceitável.
+    const claim = await prisma.otpChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: null, attempts: { lt: 5 } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claim.count === 0) {
       throw new BadRequestException("Código expirado — gere um novo");
     }
     if (!verifyOtpCode(input.code, destination, challenge.codeHash)) {
-      await prisma.otpChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
       throw new BadRequestException("Código incorreto");
     }
     await prisma.otpChallenge.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } });
