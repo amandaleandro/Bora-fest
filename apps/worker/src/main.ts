@@ -40,7 +40,7 @@ import { deliverPendingNotifications } from "./deliver-notifications";
 import { executeAutoTransfers } from "./auto-payouts";
 import { processPaymentWebhookJob } from "./process-payment-webhook";
 import { sweepWaitingRooms } from "./sweep-waiting-room";
-import { sendAbandonedCartReminders } from "./abandoned-cart";
+import { sendAbandonedCartReminders, sendExpiredRescueEmails } from "./abandoned-cart";
 
 const log = withContext({ module: "worker" });
 
@@ -125,6 +125,7 @@ async function main() {
   // --- carrinho abandonado: lembrete de pedido pendente não pago -----------
   const abandonedCartWorker = createAbandonedCartWorker(async () => {
     await sendAbandonedCartReminders();
+    await sendExpiredRescueEmails();
   });
   await createAbandonedCartQueue().upsertJobScheduler(
     ABANDONED_CART_JOB_ID,

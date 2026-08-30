@@ -22,7 +22,9 @@ import { OrgAccessService } from "../common/org-access.service";
  * `reserved_count` até o pagamento aprovar (aí vira `sold_count`) ou a janela
  * expirar (aí é liberado pelo worker de expiração de pedidos).
  */
-const ORDER_PAYMENT_WINDOW_MINUTES = 15;
+// 30 min (decisão do Arthur 2026-08-30): mais gente termina o Pix sem precisar
+// de lembrete; o QR herda esta janela (payments.service deriva de expiresAt).
+const ORDER_PAYMENT_WINDOW_MINUTES = 30;
 
 @Injectable()
 export class OrdersService {
