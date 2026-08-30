@@ -9,6 +9,8 @@ import { prisma } from "@borafest/database";
 import { registerGateway, applyGatewayStatus } from "@borafest/payments";
 import { OrdersService } from "../src/orders/orders.service";
 import { getOrganizationBalanceCents } from "../src/common/ledger";
+import { executarReembolso } from "../src/common/refund-order";
+import { applyGatewayStatus as aplicarStatus } from "@borafest/payments";
 
 registerGateway({
   provider: "labprot",
@@ -138,6 +140,60 @@ async function main() {
   eq("ingresso caro: produtor fica só com o prêmio (150)", s4.total, 150);
   ok("saldo não-negativo mesmo em ingresso de R$200", s4.total >= 0);
 
+  console.log("\n7) Reembolso INTEGRAL (cancelamento/produtor): prêmio VOLTA e NÃO vira fantasma");
+  const f5 = await novoPedidoProtegido({ protegido: true, startsAt: futuro, ticket: 5000, fee: 500 });
+  // reembolso do TOTAL (ingresso + prêmio) — como no cancelamento de evento
+  await executarReembolso(f5.order.id, null, { amountCents: f5.total, reason: "evento cancelado" });
+  const s5 = await saldos(f5.org.id);
+  eq("produtor fica com ZERO (prêmio revertido, sem fantasma)", s5.total, 0);
+  eq("PROTECTION_CREDIT líquido = 0 (creditado e revertido)", s5.protection, 0);
+  ok("saldo não-negativo", (await getOrganizationBalanceCents(f5.org.id)) >= 0);
+
+  console.log("\n8) Reembolso total do PRODUTOR sem valor (undefined): idem, prêmio volta");
+  const f6 = await novoPedidoProtegido({ protegido: true, startsAt: futuro, ticket: 5000, fee: 500 });
+  await executarReembolso(f6.order.id, null, { reason: "reembolso total" });
+  const s6 = await saldos(f6.org.id);
+  eq("produtor ZERO no reembolso total", s6.total, 0);
+  eq("prêmio não sobra como fantasma", s6.protection, 0);
+
+  console.log("\n9) CHARGEBACK: banco reverte tudo, prêmio volta (produtor ZERO)");
+  const f7 = await novoPedidoProtegido({ protegido: true, startsAt: futuro, ticket: 5000, fee: 500 });
+  await aplicarStatus(f7.pay.id, "CHARGEBACK");
+  const s7 = await saldos(f7.org.id);
+  eq("chargeback zera o produtor (prêmio revertido)", s7.total, 0);
+  eq("PROTECTION_CREDIT líquido = 0 no chargeback", s7.protection, 0);
+
+  console.log("\n10) Self-service (só ingresso) SEGUE mantendo o prêmio (regressão)");
+  const f8 = await novoPedidoProtegido({ protegido: true, startsAt: futuro, ticket: 5000, fee: 500 });
+  await svc.requestProtectionRefund(f8.order.publicToken);
+  const s8 = await saldos(f8.org.id);
+  eq("self-service: produtor fica com o prêmio (150)", s8.total, 150);
+  eq("PROTECTION_CREDIT intacto no self-service (150)", s8.protection, 150);
+
+  console.log("\n11) Parciais que SOMAM o ingresso: revoga o ticket e fecha o pedido (protegido)");
+  const f9 = await novoPedidoProtegido({ protegido: true, startsAt: futuro, ticket: 5000, fee: 500 });
+  await executarReembolso(f9.order.id, null, { amountCents: 2750, reason: "parcial 1" });
+  let mid = await prisma.order.findUniqueOrThrow({ where: { id: f9.order.id } });
+  ok("após 1º parcial: ainda NÃO reembolsado", mid.status !== "REFUNDED", `status ${mid.status}`);
+  await executarReembolso(f9.order.id, null, { amountCents: 2750, reason: "parcial 2" });
+  mid = await prisma.order.findUniqueOrThrow({ where: { id: f9.order.id } });
+  ok("após somar o ingresso: pedido REFUNDED", mid.status === "REFUNDED", `status ${mid.status}`);
+  const tk9 = await prisma.ticket.findFirst({ where: { orderId: f9.order.id } });
+  ok("ticket revogado (não entra na festa)", tk9?.status === "REFUNDED" || tk9?.status === "CANCELED", `ticket ${tk9?.status}`);
+  const s9 = await saldos(f9.org.id);
+  eq("produtor fica com o prêmio (150) — parciais só do ingresso", s9.total, 150);
+
+  console.log("\n12) Self-service DEPOIS de um parcial: pede só o RESTANTE do ingresso");
+  const f10 = await novoPedidoProtegido({ protegido: true, startsAt: futuro, ticket: 5000, fee: 500 });
+  await executarReembolso(f10.order.id, null, { amountCents: 2000, reason: "parcial produtor" });
+  await svc.requestProtectionRefund(f10.order.publicToken); // deve pedir só 3000
+  const s10 = await saldos(f10.org.id);
+  eq("ingresso 100% devolvido via parcial+self-service, produtor com o prêmio", s10.total, 150);
+  const rd = await prisma.ledgerEntry.aggregate({ where: { ledgerAccount: { organizationId: f10.org.id }, type: "REFUND_DEBIT" }, _sum: { amountCents: true } });
+  eq("total devolvido ao comprador = ingresso (5500), nunca mais", Math.abs(rd._sum.amountCents ?? 0), 5500);
+
+  for (const f of [f9, f10]) await limpa(f);
+  for (const f of [f5, f6, f7, f8]) await limpa(f);
   for (const f of [f1, f2, f3, f4]) await limpa(f);
   console.log(`\n${pass} PASS, ${fail} FAIL\n`);
   await prisma.$disconnect();

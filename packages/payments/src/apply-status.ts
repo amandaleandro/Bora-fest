@@ -97,7 +97,7 @@ export async function applyGatewayStatus(
           return applyPartialRefund(paymentId, options.refundAmountCents);
         }
       }
-      return applyReversal(paymentId, "REFUNDED");
+      return applyReversal(paymentId, "REFUNDED", options?.refundAmountCents);
     }
     case "CHARGEBACK":
       return applyReversal(paymentId, status);
@@ -297,7 +297,7 @@ async function applyPartialRefund(
 
     const order = await tx.order.findUnique({
       where: { id: payment.orderId },
-      select: { event: { select: { organizationId: true } } },
+      select: { protectionFeeCents: true, event: { select: { organizationId: true } } },
     });
     if (order) {
       const ledgerAccount = await tx.ledgerAccount.upsert({
@@ -323,14 +323,40 @@ async function applyPartialRefund(
         _sum: { amountCents: true },
       });
       const devolvido = Math.abs(debitos._sum.amountCents ?? 0);
+      // o "cheio" do ingresso desconta o prêmio da proteção (auditoria
+      // 2026-08-30): senão parciais que somam o ingresso inteiro num pedido
+      // protegido nunca revogavam os tickets nem fechavam o pedido
+      const limiteIngresso = payment.amountCents - (order.protectionFeeCents ?? 0);
 
       // A comissão volta na MESMA proporção do que foi devolvido ao comprador.
       // Antes só voltava no estorno de 100% — num reembolso grande a casa
       // devolvia o bruto e continuava pagando a comissão inteira, ficando
       // negativa (revisão adversarial 2026-08-11).
-      await clawbackPromoterCommission(tx, payment, devolvido / payment.amountCents);
+      await clawbackPromoterCommission(tx, payment, Math.min(1, devolvido / Math.max(1, limiteIngresso)));
 
-      if (devolvido >= payment.amountCents) {
+      if (devolvido >= limiteIngresso) {
+        // ingresso 100% devolvido via PARCIAIS: estorna a TAXA da plataforma
+        // (auditoria 2026-08-30) — o applyPartialRefund só debita o valor do
+        // ingresso, sem reverter a taxa; sem isto o produtor termina devendo a
+        // taxa (líquido negativo). Idempotente: só reverte enquanto houver taxa
+        // cobrada em aberto. Vale para pedido protegido E comum.
+        const taxa = await tx.ledgerEntry.aggregate({
+          where: { referenceType: "payment", referenceId: payment.id, type: "PLATFORM_FEE" },
+          _sum: { amountCents: true },
+        });
+        const taxaSaldo = taxa._sum.amountCents ?? 0; // negativo = cobrada
+        if (taxaSaldo < 0) {
+          await tx.ledgerEntry.create({
+            data: {
+              ledgerAccountId: ledgerAccount.id,
+              type: "PLATFORM_FEE",
+              amountCents: -taxaSaldo,
+              referenceType: "payment",
+              referenceId: payment.id,
+              description: "Estorno da taxa — ingresso 100% reembolsado em parciais",
+            },
+          });
+        }
         await tx.order.updateMany({
           where: { id: payment.orderId },
           data: { status: "REFUNDED" },
@@ -350,10 +376,12 @@ async function applyPartialRefund(
 async function reverseOrganizationLedgerAndStock(
   tx: Prisma.TransactionClient,
   payment: { id: string; orderId: string; amountCents: number },
+  /** quanto foi devolvido ao comprador no gateway; undefined = reembolso TOTAL */
+  refundAmountCents?: number,
 ): Promise<void> {
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
-    select: { event: { select: { organizationId: true, endsAt: true } } },
+    select: { protectionFeeCents: true, event: { select: { organizationId: true, endsAt: true } } },
   });
   if (!order) return;
 
@@ -393,6 +421,39 @@ async function reverseOrganizationLedgerAndStock(
         },
       });
     }
+
+    // PRÊMIO DA PROTEÇÃO (auditoria 2026-08-30): o prêmio é lucro do produtor
+    // e o PROTECTION_CREDIT fica no ledger. MAS quando o comprador recebe o
+    // prêmio de volta — reembolso INTEGRAL do produtor, cancelamento de evento
+    // ou chargeback (o banco reverte tudo) — o crédito precisa ser revertido,
+    // senão vira crédito FANTASMA (a plataforma pagaria o prêmio duas vezes).
+    // No self-service o comprador recebe só o INGRESSO (premio fica), então o
+    // crédito NÃO é revertido. O sinal é o valor devolvido: > ingresso => o
+    // prêmio voltou. É idempotente pelo saldo atual do PROTECTION_CREDIT.
+    const premio = order.protectionFeeCents ?? 0;
+    if (premio > 0) {
+      const ingressoCents = payment.amountCents - premio;
+      const premioVoltou = refundAmountCents === undefined || refundAmountCents > ingressoCents;
+      if (premioVoltou) {
+        const atual = await tx.ledgerEntry.aggregate({
+          where: { referenceType: "payment", referenceId: payment.id, type: "PROTECTION_CREDIT" },
+          _sum: { amountCents: true },
+        });
+        const saldoPremio = atual._sum.amountCents ?? 0;
+        if (saldoPremio > 0) {
+          await tx.ledgerEntry.create({
+            data: {
+              ledgerAccountId: ledgerAccount.id,
+              type: "PROTECTION_CREDIT",
+              amountCents: -saldoPremio,
+              referenceType: "payment",
+              referenceId: payment.id,
+              description: "Estorno do prêmio da proteção — reembolso integral ao comprador",
+            },
+          });
+        }
+      }
+    }
   }
 
   // comissão de promoter volta junto (idempotente)
@@ -407,6 +468,8 @@ async function reverseOrganizationLedgerAndStock(
 async function applyReversal(
   paymentId: string,
   status: Extract<GatewayPaymentStatus, "REFUNDED" | "CHARGEBACK">,
+  /** valor devolvido no gateway; undefined = total (inclui o prêmio) */
+  refundAmountCents?: number,
 ): Promise<ApplyStatusResult> {
   return prisma.$transaction(async (tx) => {
     const result: ApplyStatusResult = { paymentChanged: false, orderPaid: false, orphaned: false };
@@ -431,7 +494,7 @@ async function applyReversal(
     });
 
     if (updatedOrder.count > 0) {
-      await reverseOrganizationLedgerAndStock(tx, payment);
+      await reverseOrganizationLedgerAndStock(tx, payment, refundAmountCents);
 
       await tx.outboxEvent.create({
         data: {

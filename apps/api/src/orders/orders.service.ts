@@ -734,7 +734,10 @@ export class OrdersService {
   async requestProtectionRefund(publicToken: string) {
     const order = await prisma.order.findUnique({
       where: { publicToken },
-      include: { event: { select: { startsAt: true } } },
+      include: {
+        event: { select: { startsAt: true } },
+        payments: { select: { id: true } },
+      },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     if (!order.protectionPurchased || order.protectionFeeCents <= 0) {
@@ -752,9 +755,24 @@ export class OrdersService {
       );
     }
 
+    // ingresso = total − prêmio, MENOS o que já foi estornado (auditoria
+    // 2026-08-30): sem descontar parciais anteriores, o self-service pediria o
+    // ingresso cheio de novo e o teto de estorno recusaria.
     const ingressoCents = order.totalCents - order.protectionFeeCents;
+    const idsPagamento = order.payments.map((pg) => pg.id);
+    const deb = idsPagamento.length
+      ? await prisma.ledgerEntry.aggregate({
+          where: { referenceType: "payment", referenceId: { in: idsPagamento }, type: "REFUND_DEBIT" },
+          _sum: { amountCents: true },
+        })
+      : { _sum: { amountCents: 0 } };
+    const jaDevolvido = Math.abs(deb._sum.amountCents ?? 0);
+    const restanteCents = ingressoCents - jaDevolvido;
+    if (restanteCents <= 0) {
+      throw new BadRequestException("O ingresso deste pedido já foi reembolsado");
+    }
     const { refundedCents } = await executarReembolso(order.id, order.userId ?? null, {
-      amountCents: ingressoCents,
+      amountCents: restanteCents,
       reason: "Reembolso protegido solicitado pelo comprador",
     });
 
