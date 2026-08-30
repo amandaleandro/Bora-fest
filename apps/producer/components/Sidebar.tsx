@@ -160,6 +160,15 @@ function useProdutoraEmFoco(organizationId?: string): string | undefined {
     setGuardada(localStorage.getItem("bf.activeOrg") ?? undefined);
   }, [organizationId, pathname]);
 
+  // a troca de produtora atualiza o nome NA HORA (bug 2026-08-30): se o
+  // usuário já estava no /resumo, o push pra mesma rota não re-executa o
+  // efeito acima e o topo ficava mostrando a produtora anterior.
+  useEffect(() => {
+    const trocar = (e: Event) => setGuardada((e as CustomEvent<string>).detail);
+    window.addEventListener("bf.orgchange", trocar);
+    return () => window.removeEventListener("bf.orgchange", trocar);
+  }, []);
+
   return organizationId ?? guardada;
 }
 
@@ -180,6 +189,15 @@ function useEventoEmFoco(event?: SidebarEventInfo): SidebarEventInfo | undefined
       setGuardado(undefined);
     }
   }, [event, pathname]);
+
+  // troca de produtora derruba o evento em foco NA HORA (bug 2026-08-30): sem
+  // isto, quem estava numa tela sem prop de evento continuava vendo o bloco do
+  // evento da produtora anterior até navegar.
+  useEffect(() => {
+    const limpar = () => setGuardado(undefined);
+    window.addEventListener("bf.orgchange", limpar);
+    return () => window.removeEventListener("bf.orgchange", limpar);
+  }, []);
 
   return event ?? guardado;
 }

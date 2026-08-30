@@ -48,8 +48,11 @@ export function OrgSwitcher({ organizationId, dark }: { organizationId?: string;
     }
     localStorage.setItem("bf.activeOrg", id);
     // evento ativo pertence à casa antiga — some, senão as abas Vendas/Portaria
-    // levariam pra um evento de outra produtora
+    // levariam pra um evento de outra produtora. As DUAS chaves (bug 2026-08-30:
+    // só a primeira era limpa e o bloco "EVENTO EM FOCO" ressuscitava o evento
+    // da produtora anterior via bf.activeEventInfo).
     localStorage.removeItem("bf.activeEvent");
+    localStorage.removeItem("bf.activeEventInfo");
     setAberto(false);
     // AVISO da troca: se o usuário já está no /resumo, o push abaixo não
     // remonta nada (mesma rota) e a tela ficava com os números da produtora

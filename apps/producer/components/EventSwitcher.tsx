@@ -39,10 +39,16 @@ export function EventSwitcher({
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement | null>(null);
 
+  // busca a lista a CADA abertura e refaz quando a produtora muda (bug
+  // 2026-08-30: o cache por eventos.length nunca refazia a busca, e depois de
+  // trocar de produtora o dropdown ainda listava os eventos da anterior).
   useEffect(() => {
-    if (!token || !organizationId || !aberto || eventos.length > 0) return;
+    if (!token || !organizationId || !aberto) return;
     eventsApi.list(token, organizationId).then(setEventos).catch(() => setEventos([]));
-  }, [token, organizationId, aberto, eventos.length]);
+  }, [token, organizationId, aberto]);
+  useEffect(() => {
+    setEventos([]);
+  }, [organizationId]);
 
   useEffect(() => {
     if (!aberto) return;
