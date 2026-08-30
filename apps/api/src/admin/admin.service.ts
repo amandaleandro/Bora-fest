@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { prisma } from "@borafest/database";
 import { applyGatewayStatus, getGateway } from "@borafest/payments";
 import { executeOrderRefund } from "../common/execute-refund";
+import { semSegredoDoEvento } from "../common/event-public";
 import {
   createNotificationDeliveryQueue,
   createOrderExpirationQueue,
@@ -346,7 +347,7 @@ export class AdminService {
       },
     });
 
-    return updated;
+    return semSegredoDoEvento(updated);
   }
 
   async searchOrders(

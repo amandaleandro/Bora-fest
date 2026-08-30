@@ -255,7 +255,13 @@ export class DashboardService {
       bySeller.set(key, entry);
     }
 
-    return Array.from(bySeller.values()).sort((a, b) => b.revenueCents - a.revenueCents);
+    // faturamento e comissão de OUTROS vendedores são financeiro (auditoria
+    // 2026-08-30): o fix anterior só mascarou o e-mail. Sem finance:view, os
+    // valores saem zerados — o vendedor vê a contagem, não o dinheiro alheio.
+    const ordenado = Array.from(bySeller.values()).sort((a, b) => b.revenueCents - a.revenueCents);
+    return comDinheiro
+      ? ordenado
+      : ordenado.map((e) => ({ ...e, revenueCents: 0, commissionCents: 0 }));
   }
 
   /**
@@ -263,7 +269,8 @@ export class DashboardService {
    * vinculados a cada SalesPartner, ordenado por nº de ingressos vendidos (critério da disputa).
    */
   async listSalesByPartner(eventId: string, actorUserId: string) {
-    await this.assertEventAccess(eventId, actorUserId);
+    const eventoP = await this.assertEventAccess(eventId, actorUserId);
+    const comDinheiroP = await this.podeVerDinheiro(eventoP.organizationId, actorUserId);
 
     const orders = await prisma.order.findMany({
       where: { eventId, salesPartnerId: { not: null } },
@@ -319,7 +326,10 @@ export class DashboardService {
       byPartner.set(partnerId, entry);
     }
 
-    return Array.from(byPartner.values()).sort((a, b) => b.ticketsSold - a.ticketsSold);
+    const ordenadoP = Array.from(byPartner.values()).sort((a, b) => b.ticketsSold - a.ticketsSold);
+    return comDinheiroP
+      ? ordenadoP
+      : ordenadoP.map((e) => ({ ...e, revenueCents: 0, commissionCents: 0 }));
   }
 
   /** Mesma checagem de acesso do ranking, exposta pra stream SSE poder validar antes de abrir a conexão. */

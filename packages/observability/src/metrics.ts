@@ -44,7 +44,10 @@ export const jobDuration = new client.Histogram({
 /** Sobe um servidor HTTP só para expor /metrics — usado por processos sem servidor HTTP próprio (worker). */
 export function startMetricsServer(port: number) {
   const server = createServer(async (req, res) => {
-    if (req.url !== "/metrics") {
+    // exige token (auditoria 2026-08-30): mesma protecao da API — sem
+    // METRICS_TOKEN a rota some (404), senao qualquer um le a telemetria
+    const token = process.env.METRICS_TOKEN;
+    if (req.url !== "/metrics" || !token || req.headers.authorization !== `Bearer ${token}`) {
       res.writeHead(404).end();
       return;
     }

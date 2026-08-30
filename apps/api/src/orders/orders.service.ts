@@ -39,6 +39,12 @@ export class OrdersService {
     });
 
     if (!reservation) throw new NotFoundException("Reserva não encontrada");
+    // dono da reserva (auditoria 2026-08-30): se a reserva foi criada por um
+    // usuario logado, so ele a converte. Reserva anonima (userId null) segue
+    // sendo do portador do reservationId — checkout de convidado.
+    if (reservation.userId && userId && reservation.userId !== userId) {
+      throw new ForbiddenException("Esta reserva pertence a outra conta");
+    }
     if (reservation.status !== "ACTIVE") {
       throw new BadRequestException("Reserva não está mais ativa");
     }

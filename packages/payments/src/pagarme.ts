@@ -335,8 +335,15 @@ export function mapChargeStatus(status: string): GatewayPaymentStatus {
   switch (status) {
     case "paid":
     case "overpaid":
-    case "underpaid":
+      // overpaid: pagou a mais; creditamos o total do pedido (o excedente é
+      // tratado à parte). paid/overpaid faturam.
       return "PAID";
+    case "underpaid":
+      // PAGOU MENOS que o cobrado (auditoria 2026-08-30): antes virava PAID e
+      // creditava o valor CHEIO — a plataforma absorvia a diferença. Não fatura;
+      // fica pendente para conciliação manual (Pix/boleto da BoraFest tem valor
+      // travado, então isto é anômalo por natureza).
+      return "PENDING";
     case "authorized":
       return "AUTHORIZED";
     case "pending":

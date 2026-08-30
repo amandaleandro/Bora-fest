@@ -747,14 +747,15 @@ export class OrganizationsService {
   /** Cascata: o PROMOTER vê quanto cada vendedor dele vendeu. */
   async listSellersOfPromoter(promoterLinkId: string, actorUserId: string) {
     const link = await prisma.promoterLink.findUniqueOrThrow({ where: { id: promoterLinkId } });
-    const isHost = await prisma.organizationMember
-      .findFirst({
-        where: { organizationId: link.organizationId, userId: actorUserId, status: "ACTIVE" },
-        select: { id: true },
-      })
-      .then(Boolean);
-    if (link.promoterUserId !== actorUserId && !isHost) {
-      throw new ForbiddenException("Sem acesso a este promoter");
+    // o proprio promoter ve a downline dele; do lado da casa, exige GESTAO
+    // (auditoria 2026-08-30): antes QUALQUER membro ativo — ate um vendedor de
+    // baixo privilegio — via a downline e o faturamento de qualquer promoter.
+    if (link.promoterUserId !== actorUserId) {
+      await this.orgAccess.assertPermission(
+        link.organizationId,
+        actorUserId,
+        PERMISSIONS.FINANCE_VIEW,
+      );
     }
     const sellers = await prisma.promoterSeller.findMany({
       where: { promoterLinkId, status: { in: ["INVITED", "ACTIVE"] } },

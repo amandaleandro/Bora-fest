@@ -7,6 +7,7 @@ import { PERMISSIONS } from "@borafest/auth";
 import { getEmailSender } from "@borafest/notifications";
 import type { CreateEventInput, UpdateEventInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
+import { semSegredoDoEvento } from "../common/event-public";
 import { estornarTaxaDaPlataforma, executarReembolso } from "../common/refund-order";
 import { getOrganizationBalanceCents } from "../common/ledger";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
@@ -214,7 +215,7 @@ export class EventsService {
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_PUBLISH);
 
     if (event.status !== "DRAFT") {
-      return event;
+      return semSegredoDoEvento(event);
     }
 
     const published = await prisma.event.update({
@@ -225,7 +226,7 @@ export class EventsService {
     // melhor esforço — não bloqueia a publicação se o envio falhar
     this.notifyFollowers(published).catch(() => undefined);
 
-    return published;
+    return semSegredoDoEvento(published);
   }
 
   private async notifyFollowers(event: { id: string; organizationId: string; title: string; slug: string }) {
@@ -262,13 +263,14 @@ export class EventsService {
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_PUBLISH);
 
     if (event.status !== "PUBLISHED") {
-      return event;
+      return semSegredoDoEvento(event);
     }
 
-    return prisma.event.update({
+    const pausado = await prisma.event.update({
       where: { id: eventId },
       data: { status: "SALES_PAUSED" },
     });
+    return semSegredoDoEvento(pausado);
   }
 
   /** Republicar depois de pausar (SALES_PAUSED → PUBLISHED). */
@@ -279,13 +281,14 @@ export class EventsService {
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.EVENT_PUBLISH);
 
     if (event.status !== "SALES_PAUSED") {
-      return event;
+      return semSegredoDoEvento(event);
     }
 
-    return prisma.event.update({
+    const republicado = await prisma.event.update({
       where: { id: eventId },
       data: { status: "PUBLISHED" },
     });
+    return semSegredoDoEvento(republicado);
   }
 
   /**
