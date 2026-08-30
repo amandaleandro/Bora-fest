@@ -19,7 +19,7 @@ export interface ReembolsoInput {
  */
 export async function executarReembolso(
   orderId: string,
-  actorUserId: string,
+  actorUserId: string | null,
   input: ReembolsoInput,
 ): Promise<{ organizationId: string; refundedCents: number }> {
   const order = await prisma.order.findUnique({
@@ -29,6 +29,10 @@ export async function executarReembolso(
       payments: { orderBy: { createdAt: "desc" } },
     },
   });
+  // prêmio da proteção nunca é reembolsável — o "total do ingresso" é o total
+  // menos o prêmio (auditoria 2026-08-30)
+  const premioCents = order?.protectionFeeCents ?? 0;
+  const totalIngressoCents = (order?.totalCents ?? 0) - premioCents;
   if (!order) throw new NotFoundException("Pedido não encontrado");
 
   /*

@@ -171,6 +171,8 @@ export interface Order {
     expiresAt: string | null;
   }>;
   tickets?: Array<{ id: string; code: string; status: string }>;
+  /** proteção de reembolso (upsell) */
+  protection?: { purchased: boolean; feeCents: number; canRefund: boolean };
 }
 
 export interface PixPayment {
@@ -317,12 +319,20 @@ export const api = {
       contactCpf?: string;
       addOns?: Array<{ addOnId: string; quantity: number }>;
       attendees?: OrderAttendeeInput[];
+      purchaseProtection?: boolean;
       consent?: ConsentInput;
     },
     token?: string,
   ) => request<Order>("/v1/orders", { method: "POST", body: input, token }),
 
   getOrderStatus: (publicToken: string) => request<Order>(`/v1/orders/${publicToken}/status`),
+
+  /** reembolso protegido (self-service): devolve o ingresso, mantém a proteção. */
+  requestProtectionRefund: (publicToken: string) =>
+    request<{ refunded: boolean; refundedCents: number; protectionKeptCents: number }>(
+      `/v1/orders/${publicToken}/protection-refund`,
+      { method: "POST", body: {} },
+    ),
 
   createPixPayment: (orderId: string, input: { payerDocument?: string; payerPhone?: string }) =>
     request<PixPayment>(`/v1/orders/${orderId}/payments/pix`, { method: "POST", body: input }),

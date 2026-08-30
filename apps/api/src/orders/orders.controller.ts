@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { createOrderSchema, pdvOrderSchema, refundOrderSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { OptionalUserId } from "../common/optional-user.decorator";
+import { RateLimit } from "../common/rate-limit.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { OrdersService } from "./orders.service";
@@ -26,6 +27,18 @@ export class OrdersController {
   @Get(":publicToken/status")
   status(@Param("publicToken") publicToken: string) {
     return this.ordersService.findByPublicToken(publicToken);
+  }
+
+  /**
+   * Reembolso protegido (self-service do comprador): quem comprou a proteção
+   * pede o reembolso do ingresso até o início do evento — o prêmio fica. A
+   * posse do publicToken é a prova de que é o dono do pedido. Rate limit por
+   * pedido para não virar alavanca de ataque.
+   */
+  @Post(":publicToken/protection-refund")
+  @RateLimit({ limit: 4, windowSeconds: 3600, keyPrefix: "protection-refund", by: "params:publicToken" })
+  protectionRefund(@Param("publicToken") publicToken: string) {
+    return this.ordersService.requestProtectionRefund(publicToken);
   }
 
   @Get(":orderId/detail")

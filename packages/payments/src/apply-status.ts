@@ -82,7 +82,18 @@ export async function applyGatewayStatus(
     case "REFUNDED": {
       if (options?.refundAmountCents !== undefined) {
         const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
-        if (payment && options.refundAmountCents < payment.amountCents) {
+        // o prêmio da proteção não faz parte do ingresso (auditoria 2026-08-30):
+        // reembolsar o INGRESSO INTEIRO (paga − prêmio) é reversão TOTAL — reverte
+        // crédito + taxa (líquido zero) e mantém o PROTECTION_CREDIT como lucro.
+        // Sem isto, o full-ticket caía no parcial e a taxa ficava pendurada.
+        const pedido = payment
+          ? await prisma.order.findUnique({
+              where: { id: payment.orderId },
+              select: { protectionFeeCents: true },
+            })
+          : null;
+        const ingressoCents = (payment?.amountCents ?? 0) - (pedido?.protectionFeeCents ?? 0);
+        if (payment && options.refundAmountCents < ingressoCents) {
           return applyPartialRefund(paymentId, options.refundAmountCents);
         }
       }
@@ -175,7 +186,7 @@ async function creditOrganizationLedger(
 ): Promise<void> {
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
-    select: { event: { select: { organizationId: true, endsAt: true } } },
+    select: { protectionFeeCents: true, event: { select: { organizationId: true, endsAt: true } } },
   });
   if (!order) return;
 
@@ -208,29 +219,48 @@ async function creditOrganizationLedger(
     Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
   );
 
-  await tx.ledgerEntry.createMany({
-    data: [
-      {
-        ledgerAccountId: ledgerAccount.id,
-        type: "SALE_CREDIT",
-        amountCents: payment.amountCents,
-        referenceType: "payment",
-        referenceId: payment.id,
-        availableAt,
-      },
-      {
-        ledgerAccountId: ledgerAccount.id,
-        type: "PLATFORM_FEE",
-        amountCents: -feeCents,
-        referenceType: "payment",
-        referenceId: payment.id,
-        // MESMA data do crédito (correção 2026-08-19): a taxa nascia madura
-        // enquanto o crédito esperava o evento — o painel mostrava o BRUTO
-        // "a liberar" e a taxa comia saldo maduro de outros eventos.
-        availableAt,
-      },
-    ],
-  });
+  // PROTEÇÃO DE REEMBOLSO (upsell 2026-08-30): o prêmio NÃO entra no SALE_CREDIT
+  // do ingresso — vira um crédito PROTECTION_CREDIT separado, que o produtor
+  // embolsa e que NUNCA é reembolsado. Assim, quando o comprador pede o
+  // reembolso protegido, revertemos só o ingresso (crédito + taxa, líquido
+  // zero) e o prêmio fica como lucro. Sem isto, um reembolso parcial deixaria a
+  // taxa da plataforma pendurada e o produtor no negativo.
+  const protectionFeeCents = order.protectionFeeCents ?? 0;
+  const ingressoCents = payment.amountCents - protectionFeeCents;
+
+  const linhas: Prisma.LedgerEntryCreateManyInput[] = [
+    {
+      ledgerAccountId: ledgerAccount.id,
+      type: "SALE_CREDIT",
+      amountCents: ingressoCents,
+      referenceType: "payment",
+      referenceId: payment.id,
+      availableAt,
+    },
+    {
+      ledgerAccountId: ledgerAccount.id,
+      type: "PLATFORM_FEE",
+      amountCents: -feeCents,
+      referenceType: "payment",
+      referenceId: payment.id,
+      // MESMA data do crédito (correção 2026-08-19): a taxa nascia madura
+      // enquanto o crédito esperava o evento — o painel mostrava o BRUTO
+      // "a liberar" e a taxa comia saldo maduro de outros eventos.
+      availableAt,
+    },
+  ];
+  if (protectionFeeCents > 0) {
+    linhas.push({
+      ledgerAccountId: ledgerAccount.id,
+      type: "PROTECTION_CREDIT",
+      amountCents: protectionFeeCents,
+      referenceType: "payment",
+      referenceId: payment.id,
+      availableAt,
+    });
+  }
+
+  await tx.ledgerEntry.createMany({ data: linhas });
 }
 
 /**

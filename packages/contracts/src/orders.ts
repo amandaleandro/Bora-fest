@@ -1,8 +1,13 @@
 import { z } from "zod";
 import { orderAddOnSelectionSchema } from "./add-ons";
 
+/** Proteção de reembolso (upsell): prêmio fixo, não reembolsável, por compra. */
+export const PROTECTION_FEE_CENTS = 150;
+
 export const createOrderSchema = z.object({
   reservationId: z.string().uuid(),
+  /** proteção de reembolso: +R$1,50, permite reembolso do ingresso até o início do evento */
+  purchaseProtection: z.boolean().optional(),
   contactEmail: z.string().email(),
   contactName: z.string().min(2).optional(),
   /** celular com DDD — habilita entrega do ingresso por WhatsApp */

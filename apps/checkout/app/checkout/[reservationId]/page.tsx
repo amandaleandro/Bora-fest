@@ -13,6 +13,9 @@ import {
   type Reservation,
 } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
+
+/** Proteção de reembolso (upsell): mesmo valor do backend. */
+const PROTECTION_FEE_CENTS = 150;
 import { getAttributedPartnerSlug, getAttributedPromoterSlug, getAttributedSellerSlug } from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
@@ -130,6 +133,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
   // itens adicionais (upsell)
   const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
+  const [protection, setProtection] = useState(false);
 
   // resumo compacto no celular: o comprador vê O QUE está comprando enquanto
   // preenche — no desktop o aside sticky já resolve
@@ -260,9 +264,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     (sum, addOn) => sum + addOn.priceCents * (addOnQty[addOn.id] ?? 0),
     0,
   );
+  const protectionCents = protection ? PROTECTION_FEE_CENTS : 0;
   const totalCents = order
     ? order.totalCents
-    : Math.max(0, subtotalCents + feeTotalCents - discountCents + addOnsTotalCents);
+    : Math.max(0, subtotalCents + feeTotalCents - discountCents + addOnsTotalCents + protectionCents);
 
   // um formulário por ingresso nominal
   const nominalSlots = useMemo(() => {
@@ -390,6 +395,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                 .map(([addOnId, quantity]) => ({ addOnId, quantity }))
             : undefined,
           attendees: attendeesPayload.length ? attendeesPayload : undefined,
+          purchaseProtection: protection || undefined,
           consent: { version: CONSENT_VERSION, terms: true, privacy: true },
         },
         token,
@@ -723,6 +729,34 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     );
                   })}
                 </div>
+              </section>
+            )}
+
+            {/* UPSELL: proteção de reembolso — reembolso do ingresso mesmo após o
+                prazo, até o início do evento. O prêmio não volta. */}
+            {step === "ident" && (
+              <section className={`${cardClass} mb-4`}>
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={protection}
+                    onChange={(e) => setProtection(e.target.checked)}
+                    className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-[14px] font-extrabold">Proteção de reembolso</span>
+                      <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-[12px] font-extrabold text-primary">
+                        + {formatCents(PROTECTION_FEE_CENTS)}
+                      </span>
+                    </span>
+                    <span className="mt-1 block text-[12.5px] font-medium text-muted">
+                      Mudou de ideia ou não vai poder ir? Peça o reembolso do ingresso
+                      até o início do evento — sem depender de aprovação. A taxa da
+                      proteção não é reembolsável.
+                    </span>
+                  </span>
+                </label>
               </section>
             )}
 

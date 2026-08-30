@@ -99,6 +99,9 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   const [whatsState, setWhatsState] = useState<"idle" | "sending" | "ok" | "error">("idle");
   const [whatsError, setWhatsError] = useState<string | null>(null);
   const [pixelSettings, setPixelSettings] = useState<PixelSettings | null>(null);
+  const [protectConfirm, setProtectConfirm] = useState(false);
+  const [protectState, setProtectState] = useState<"idle" | "sending" | "done">("idle");
+  const [protectError, setProtectError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -135,6 +138,20 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     const id = setInterval(load, 3000);
     return () => clearInterval(id);
   }, [order, load]);
+
+  async function pedirReembolsoProtegido() {
+    setProtectState("sending");
+    setProtectError(null);
+    try {
+      await api.requestProtectionRefund(publicToken);
+      setProtectState("done");
+      const o = await api.getOrderStatus(publicToken);
+      setOrder(o);
+    } catch (e) {
+      setProtectState("idle");
+      setProtectError(e instanceof ApiError ? e.message : "Não foi possível reembolsar agora");
+    }
+  }
 
   async function resend() {
     setResendMessage(null);
@@ -425,6 +442,50 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
           Ingressos deste pedido
         </button>
       </div>
+      {order?.protection?.canRefund && (
+        <div className="mt-4 w-full rounded-2xl border-[1.5px] border-line bg-surface p-4 text-left">
+          <p className="text-[13.5px] font-extrabold">Proteção de reembolso ativa</p>
+          <p className="mt-1 text-[12.5px] font-medium text-muted">
+            Não vai poder ir? Você pode pedir o reembolso do ingresso até o início do
+            evento. A taxa da proteção não é devolvida.
+          </p>
+          {protectError && <p className="mt-2 text-[12.5px] font-bold text-danger">{protectError}</p>}
+          {!protectConfirm ? (
+            <button
+              onClick={() => setProtectConfirm(true)}
+              className="mt-3 h-11 rounded-xl border-[1.5px] border-primary px-5 text-[13px] font-extrabold text-primary"
+            >
+              Pedir reembolso do ingresso
+            </button>
+          ) : (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <button
+                onClick={pedirReembolsoProtegido}
+                disabled={protectState === "sending"}
+                className="h-11 flex-1 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta disabled:opacity-60"
+              >
+                {protectState === "sending" ? "Processando…" : "Confirmar reembolso"}
+              </button>
+              <button
+                onClick={() => setProtectConfirm(false)}
+                disabled={protectState === "sending"}
+                className="h-11 rounded-xl border-[1.5px] border-line-input px-5 text-[13px] font-extrabold"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {order?.status === "REFUNDED" && protectState === "done" && (
+        <div className="mt-4 w-full rounded-2xl border-[1.5px] border-success/40 bg-success/[.06] p-4 text-left">
+          <p className="text-[13.5px] font-extrabold text-success">Reembolso confirmado</p>
+          <p className="mt-1 text-[12.5px] font-medium text-muted">
+            O valor do ingresso está voltando pelo mesmo meio de pagamento.
+          </p>
+        </div>
+      )}
+
       <Link href="/" className="mt-4 text-[13px] font-bold text-primary">Explorar mais eventos</Link>
 
       <InstallAppCard />

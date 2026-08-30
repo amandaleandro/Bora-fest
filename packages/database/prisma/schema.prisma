@@ -785,6 +785,11 @@ model Order {
   contactPhone  String?     @map("contact_phone")
   status        OrderStatus @default(CREATED)
   totalCents    Int         @map("total_cents")
+  /// proteção de reembolso (upsell): comprador pode pedir reembolso do
+  /// ingresso mesmo após o prazo, até o início do evento. O prêmio é lucro
+  /// do produtor e NUNCA é reembolsado.
+  protectionPurchased Boolean @default(false) @map("protection_purchased")
+  protectionFeeCents  Int     @default(0)     @map("protection_fee_cents")
   discountCents Int         @default(0) @map("discount_cents")
   expiresAt     DateTime?   @map("expires_at")
   paidAt        DateTime?   @map("paid_at")
@@ -1223,6 +1228,9 @@ enum LedgerEntryType {
   /// comissão de promoter: débito na org do evento, crédito na org do promoter
   COMMISSION_DEBIT
   COMMISSION_CREDIT
+  /// prêmio da proteção de reembolso (upsell): crédito do produtor, nunca
+  /// reembolsado — some da conta de "a devolver" e fica como lucro
+  PROTECTION_CREDIT
   /// taxa de antecipação cobrada de org INSTANT sobre a parcela do saque que
   /// ainda estaria na janela de reembolso no modo STANDARD
   ANTICIPATION_FEE

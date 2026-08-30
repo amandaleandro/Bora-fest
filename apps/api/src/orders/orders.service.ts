@@ -13,6 +13,7 @@ import { createReservationExpirationQueue } from "@borafest/queues";
 import { applyGatewayStatus, computePlatformFeeCents, getGateway } from "@borafest/payments";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrderInput, PdvOrderInput, RefundOrderInput } from "@borafest/contracts";
+import { PROTECTION_FEE_CENTS } from "@borafest/contracts";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 
@@ -106,7 +107,9 @@ export class OrdersService {
       0,
     );
 
-    const totalCents = ticketTotalCents + addOnsTotalCents;
+    // proteção de reembolso (upsell): prêmio fixo somado ao que o comprador paga
+    const protectionFeeCents = input.purchaseProtection ? PROTECTION_FEE_CENTS : 0;
+    const totalCents = ticketTotalCents + addOnsTotalCents + protectionFeeCents;
 
     // atribuição de PROMOTER/VENDEDOR (Promoter v3). Link de vendedor (?vd=)
     // implica o promoter dele; link de promoter (?pr=) atribui só o promoter.
@@ -263,6 +266,8 @@ export class OrdersService {
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
           status: "PAYMENT_PENDING",
           totalCents,
+          protectionPurchased: protectionFeeCents > 0,
+          protectionFeeCents,
           discountCents,
           expiresAt,
           salesPartnerId,
@@ -380,14 +385,30 @@ export class OrdersService {
         },
         tickets: { select: { id: true, code: true, status: true } },
         user: { select: { emailVerifiedAt: true } },
+        event: { select: { startsAt: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     // portão do 1º ingresso: sem verificar, o /status não entrega nem os ids
     // dos ingressos (eram a porta de entrada para o PNG do QR)
     const locked = Boolean(order.user && !order.user.emailVerifiedAt);
-    const { user: _user, ...rest } = order;
-    return { ...rest, tickets: locked ? [] : order.tickets, requiresVerification: locked };
+    // proteção de reembolso: pode pedir enquanto pago e ANTES do evento começar
+    const podePedirProtegido =
+      order.protectionPurchased &&
+      order.status !== "REFUNDED" &&
+      ["PAID", "FULFILLED", "PARTIALLY_REFUNDED"].includes(order.status) &&
+      order.event.startsAt.getTime() > Date.now();
+    const { user: _user, event: _event, ...rest } = order;
+    return {
+      ...rest,
+      tickets: locked ? [] : order.tickets,
+      requiresVerification: locked,
+      protection: {
+        purchased: order.protectionPurchased,
+        feeCents: order.protectionFeeCents,
+        canRefund: podePedirProtegido,
+      },
+    };
   }
 
   /** Detalhe de um pedido para o painel do produtor (tela Vendas). */
@@ -701,6 +722,43 @@ export class OrdersService {
         },
       },
     });
+  }
+
+  /**
+   * Reembolso PROTEGIDO (self-service do comprador). Quem comprou a proteção
+   * (+R$1,50) pede o reembolso do INGRESSO — nunca do prêmio — até o início do
+   * evento. Como a venda só libera pra saque D+2 depois do evento, o dinheiro
+   * ainda está retido nesse momento: o produtor devolve do que está parado,
+   * NUNCA do bolso, e fica com o prêmio de lucro. O ingresso volta ao estoque.
+   */
+  async requestProtectionRefund(publicToken: string) {
+    const order = await prisma.order.findUnique({
+      where: { publicToken },
+      include: { event: { select: { startsAt: true } } },
+    });
+    if (!order) throw new NotFoundException("Pedido não encontrado");
+    if (!order.protectionPurchased || order.protectionFeeCents <= 0) {
+      throw new BadRequestException("Este pedido não tem proteção de reembolso");
+    }
+    if (order.status === "REFUNDED") {
+      throw new BadRequestException("Este pedido já foi reembolsado");
+    }
+    if (!["PAID", "FULFILLED", "PARTIALLY_REFUNDED"].includes(order.status)) {
+      throw new BadRequestException("Pedido não está pago");
+    }
+    if (order.event.startsAt.getTime() <= Date.now()) {
+      throw new BadRequestException(
+        "A janela do reembolso protegido fechou — ela vai até o início do evento",
+      );
+    }
+
+    const ingressoCents = order.totalCents - order.protectionFeeCents;
+    const { refundedCents } = await executarReembolso(order.id, order.userId ?? null, {
+      amountCents: ingressoCents,
+      reason: "Reembolso protegido solicitado pelo comprador",
+    });
+
+    return { refunded: true, refundedCents, protectionKeptCents: order.protectionFeeCents };
   }
 
   /**
