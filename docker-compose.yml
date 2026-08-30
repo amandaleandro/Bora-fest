@@ -87,7 +87,7 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-devlog}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-BoraFest <ingressos@borafest.com.br>}
-      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-devlog}
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-off}
       WHATSAPP_CLOUD_TOKEN: ${WHATSAPP_CLOUD_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.borafest.com.br}
@@ -147,7 +147,7 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-devlog}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-BoraFest <ingressos@borafest.com.br>}
-      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-devlog}
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-off}
       WHATSAPP_CLOUD_TOKEN: ${WHATSAPP_CLOUD_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-https://api.borafest.com.br}
