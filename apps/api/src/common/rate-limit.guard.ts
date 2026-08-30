@@ -41,7 +41,13 @@ export class RateLimitGuard implements CanActivate {
       // nunca deixar um objeto virar "[object Object]" na chave (auditoria
       // 2026-08-29): serializa valores não-primitivos
       if (value !== undefined && value !== null) {
-        const v = typeof value === "object" ? JSON.stringify(value) : String(value);
+        // normaliza a chave (auditoria 2026-08-30): sem minúsculas+trim, o
+        // destino do OTP em "User@x.com" e "user@x.com" caía em baldes
+        // diferentes — dava pra bombardear o e-mail de um terceiro variando a
+        // caixa. Chave de rate limit é insensível a caixa por construção.
+        const v = (typeof value === "object" ? JSON.stringify(value) : String(value))
+          .trim()
+          .toLowerCase();
         keyPart = `${ip}:${v}`;
       }
     }
