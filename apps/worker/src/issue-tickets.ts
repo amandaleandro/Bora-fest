@@ -20,7 +20,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       items: true,
       attendees: true,
       event: { include: { signingKey: true } },
-      user: { select: { id: true, emailVerifiedAt: true, name: true, cpf: true } },
+      user: { select: { id: true, emailVerifiedAt: true, name: true, cpf: true, sessionVersion: true } },
     },
   });
 
@@ -111,7 +111,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
     // verifica a conta e abre o ingresso. Verificado = entrega normal.
     if (order.user && !order.user.emailVerifiedAt) {
       const claimToken = await createSessionToken(
-        { sub: order.user.id, purpose: "email-verify", orderToken: order.publicToken },
+        { sub: order.user.id, purpose: "email-verify", sv: order.user.sessionVersion, orderToken: order.publicToken },
         "7d",
       );
       const base = process.env.WEB_BASE_URL ?? "https://borafest.com.br";

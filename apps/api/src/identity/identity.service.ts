@@ -141,7 +141,7 @@ export class IdentityService {
    * posse do e-mail — verifica a conta, loga e devolve o pedido de destino.
    */
   async verifyMagicLink(token: string) {
-    let claims: { sub?: string; purpose?: string; orderToken?: string };
+    let claims: { sub?: string; purpose?: string; orderToken?: string; sv?: number };
     try {
       claims = (await verifySessionToken(token)) as typeof claims;
     } catch {
@@ -149,6 +149,17 @@ export class IdentityService {
     }
     if (claims.purpose !== "email-verify" || !claims.sub) {
       throw new UnauthorizedException("Link inválido ou expirado — peça um código no site");
+    }
+    // amarra o link ao session_version (auditoria 2026-08-30): trocar a senha
+    // (ou apagar a conta) incrementa o sv e invalida os links de e-mail antigos,
+    // como já acontece com as sessões. Link de conta sem senha nasce com sv=0.
+    const alvo = await prisma.user.findUnique({
+      where: { id: claims.sub },
+      select: { sessionVersion: true },
+    });
+    const svToken = typeof claims.sv === "number" ? claims.sv : 0;
+    if (!alvo || alvo.sessionVersion !== svToken) {
+      throw new UnauthorizedException("Link expirado — peça um novo (a conta mudou desde o envio)");
     }
     const user = await prisma.user.update({
       where: { id: claims.sub },

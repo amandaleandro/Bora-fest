@@ -72,7 +72,7 @@ test("conta invisível: compra cria conta com CPF, tranca o 1º ingresso e verif
     // link mágico: verifica, loga e destrava
     const identity = new IdentityService();
     const magic = await createSessionToken(
-      { sub: user.id, purpose: "email-verify", orderToken: pedido.publicToken },
+      { sub: user.id, purpose: "email-verify", sv: user.sessionVersion, orderToken: pedido.publicToken },
       "7d",
     );
     const sessao = await identity.verifyMagicLink(magic);

@@ -715,7 +715,7 @@ export class OrdersService {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
-        user: { select: { id: true, emailVerifiedAt: true, passwordHash: true } },
+        user: { select: { id: true, emailVerifiedAt: true, passwordHash: true, sessionVersion: true } },
         event: { select: { title: true } },
       },
     });
@@ -746,7 +746,7 @@ export class OrdersService {
 
     // reenvia o aviso com link mágico para o e-mail corrigido
     const claimToken = await createSessionToken(
-      { sub: order.user.id, purpose: "email-verify", orderToken: order.publicToken },
+      { sub: order.user.id, purpose: "email-verify", sv: order.user.sessionVersion, orderToken: order.publicToken },
       "7d",
     );
     const base = process.env.WEB_BASE_URL ?? "https://borafest.com.br";

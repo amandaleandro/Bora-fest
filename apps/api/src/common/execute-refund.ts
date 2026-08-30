@@ -41,6 +41,22 @@ export async function executeOrderRefund(
       // teto acumulado também na reconciliação (auditoria 2026-08-29): antes
       // estes ramos debitavam o valor DIGITADO agora, sem passar pelo cap
       await assertRefundWithinCap(preso, input.amountCents);
+      // LOCK ATÔMICO (auditoria 2026-08-30): sem isto, dois cliques simultâneos
+      // reconciliavam o MESMO estorno do gateway e debitavam em dobro. A saída
+      // de REFUND_PENDING acontece uma vez só — quem perde a corrida vê o estado
+      // atual e não re-debita. O applyGatewayStatus abaixo faz a contabilidade.
+      const venceu = await prisma.payment.updateMany({
+        where: { id: preso.id, status: "REFUND_PENDING" },
+        data: { status: "PAID" },
+      });
+      if (venceu.count === 0) {
+        const atual = await prisma.payment.findUnique({ where: { id: preso.id } });
+        return {
+          order: { id: order.id },
+          payment: { id: preso.id },
+          gatewayStatus: atual?.status ?? statusNoGateway,
+        };
+      }
       await applyGatewayStatus(preso.id, statusNoGateway, undefined, {
         refundAmountCents: input.amountCents,
       });
@@ -66,6 +82,15 @@ export async function executeOrderRefund(
     const statusNoGateway = await gatewayCheck.getStatus(payment.externalId).catch(() => null);
     if (statusNoGateway === "REFUNDED" || statusNoGateway === "CHARGEBACK") {
       await assertRefundWithinCap(payment, input.amountCents);
+      // mesmo lock atômico do ramo acima (auditoria 2026-08-30): PAID->REFUND_PENDING
+      // acontece uma vez; o perdedor da corrida não re-debita.
+      const venceu = await prisma.payment.updateMany({
+        where: { id: payment.id, status: "PAID" },
+        data: { status: "REFUND_PENDING" },
+      });
+      if (venceu.count === 0) {
+        throw new BadRequestException("Estorno já em andamento para este pagamento");
+      }
       await applyGatewayStatus(payment.id, statusNoGateway, undefined, {
         refundAmountCents: input.amountCents,
       });
