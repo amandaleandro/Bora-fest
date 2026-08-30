@@ -355,6 +355,19 @@ o banco 100% saudável — 8h de pânico por diagnóstico errado):
   (`PLATFORM_PIX_FEE_BPS`/`_FLOOR_CENTS`/`PLATFORM_CARD_FEE_BPS` — default
   499/249/699, a decisão de 2026-07-23).
 
+## Backup e restauração do banco (automático desde 2026-08-30)
+
+- O serviço `pg-backup` do docker-compose faz **dump diário comprimido**
+  (um imediato ao subir + um a cada 24h) no volume `borafest_pg_backups`,
+  mantendo 14 dias. Nenhuma ação manual é necessária.
+- A checagem `banco-intacto` roda **automaticamente em todo boot da API** e
+  aparece no log do deploy (contagens das tabelas-núcleo + alerta se zerado).
+- **Restaurar** (último caso, com perda comprovada pela checagem — NUNCA por
+  tela vazia): no host, `docker run --rm -v borafest_pg_backups:/backups alpine ls /backups`
+  para listar; depois, com a api/worker parados,
+  `gunzip -c /backups/borafest-<data>.sql.gz | docker exec -i <container-postgres> psql -U borafest -d borafest`.
+  Sempre conferir o resultado com a checagem banco-intacto após restaurar.
+
 ## Pendências e cuidados conhecidos
 
 - `.env` local a partir de `.env.example` (`SESSION_JWT_SECRET` precisa ser definido;

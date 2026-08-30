@@ -52,6 +52,35 @@ services:
       timeout: 5s
       retries: 12
 
+  # BACKUP AUTOMÁTICO do banco (incidente 2026-08-30 — não existia backup!).
+  # Dump comprimido no volume borafest_pg_backups: um IMEDIATO ao subir e um a
+  # cada 24h, mantendo 14 dias. Restaurar (só em último caso, com o banco
+  # comprovadamente perdido): ver "Backup e restauração" no docs/projeto/MEMORIA.md.
+  pg-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - borafest_pg_backups:/backups
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S)
+          if pg_dump -h postgres -U borafest -d borafest | gzip > "/backups/borafest-$${ts}.sql.gz"; then
+            echo "[pg-backup] ok: borafest-$${ts}.sql.gz ($$(du -h /backups/borafest-$${ts}.sql.gz | cut -f1))"
+          else
+            echo "[pg-backup] DUMP FALHOU ($${ts}) — investigar!" >&2
+            rm -f "/backups/borafest-$${ts}.sql.gz"
+          fi
+          find /backups -name 'borafest-*.sql.gz' -mtime +14 -delete
+          sleep 86400
+        done
+
   # migrações + seed rodam no boot da API (CMD do Dockerfile.api do easypanel)
   api:
     build:
@@ -214,6 +243,7 @@ services:
 
 volumes:
   borafest_pg:
+  borafest_pg_backups:
   borafest_redis:
   borafest_uploads:
   borafest_prometheus:

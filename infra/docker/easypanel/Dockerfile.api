@@ -40,4 +40,7 @@ WORKDIR /repo
 COPY --from=builder /repo .
 EXPOSE 3333
 # sem serviço "migrate" no EasyPanel: migrações + seed (idempotentes) rodam no boot
-CMD ["sh", "-c", "cd packages/database && npx prisma migrate deploy && npx tsx src/seed.ts && cd ../.. && exec node apps/api/dist/main.js"]
+# checagem "banco intacto" roda em TODO boot e fica no log do deploy (regra do
+# Arthur, incidente 2026-08-30). Informativa: alerta alto se zerado, nunca
+# bloqueia o boot (senão uma instalação nova entraria em crash-loop).
+CMD ["sh", "-c", "cd packages/database && npx prisma migrate deploy && npx tsx src/seed.ts && (npx tsx src/banco-intacto.ts || true) && cd ../.. && exec node apps/api/dist/main.js"]
