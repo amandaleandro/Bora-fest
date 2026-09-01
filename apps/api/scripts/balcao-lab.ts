@@ -91,6 +91,21 @@ async function main() {
   const lote = await prisma.ticketLot.findUniqueOrThrow({ where: { id: cortesia.id } });
   eq("soldCount = 3", lote.soldCount, 3);
 
+  console.log("\n6b) CONTA INVISÍVEL: e-mail novo cria conta e o pedido nasce com dono");
+  const novato1 = await prisma.user.findUnique({ where: { email: `novato1-${suf}@lab.test` } });
+  ok("conta criada pro e-mail novo do novato", !!novato1);
+  const pedidoNovato = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactEmail: `novato1-${suf}@lab.test` } });
+  ok("pedido conectado à conta nova", pedidoNovato.userId === novato1?.id);
+  ok("conta nasce NÃO verificada (portão do 1º ingresso vale)", novato1?.emailVerifiedAt === null);
+
+  console.log("\n6c) SEGURANÇA: e-mail JÁ EXISTENTE não anexa o pedido (reivindica no OTP)");
+  const veterano = await prisma.user.create({ data: { email: `veterano-${suf}@lab.test`, emailVerifiedAt: new Date() } });
+  const lotePagoDisp = await prisma.ticketLot.findUniqueOrThrow({ where: { id: pago.id } });
+  void lotePagoDisp;
+  await orders.createManualSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Veterano", buyerEmail: `veterano-${suf}@lab.test` } as never);
+  const pedidoVet = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactEmail: `veterano-${suf}@lab.test` } });
+  ok("pedido do e-mail existente nasce SEM dono (anti-sequestro)", pedidoVet.userId === null);
+
   console.log("\n7) PIX de R$0 recusado com mensagem clara");
   let pixRecusado = false;
   try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "X" } as never); }
@@ -117,7 +132,7 @@ async function main() {
   await prisma.salesPartner.deleteMany({ where: { organizationId: org.id } });
   await prisma.ledgerAccount.delete({ where: { id: conta.id } });
   await prisma.organization.delete({ where: { id: org.id } });
-  await prisma.user.deleteMany({ where: { id: { in: [dono.id, promoter.id] } } });
+  await prisma.user.deleteMany({ where: { email: { endsWith: `-${suf}@lab.test` } } });
 
   console.log(`\n${pass} PASS, ${fail} FAIL\n`);
   await prisma.$disconnect();

@@ -444,6 +444,38 @@ export class OrdersService {
    * worker emita os ingressos exatamente como numa compra online (mesmo
    * caminho de cortesias, mas com valor real).
    */
+  /**
+   * Conta invisível na venda de BALCÃO (2026-08-31, pedido do Arthur): mesma
+   * regra do checkout online — e-mail NOVO cria a conta na hora (o comprador
+   * recebe o ingresso e já entra pelo celular após confirmar o e-mail);
+   * e-mail JÁ EXISTENTE deixa o pedido SEM dono (anexar sem prova de posse
+   * era o sequestro de conta do incidente 2026-08-10 — o verifyOtp reivindica
+   * quando a pessoa provar o e-mail). Sem termsAcceptedAt: no balcão ninguém
+   * clicou nos termos — consentimento não se fabrica.
+   */
+  private async contaInvisivelDoBalcao(
+    email: string | undefined,
+    nome: string | undefined,
+    cpf: string | undefined,
+  ): Promise<string | undefined> {
+    if (!email || email.endsWith("@borafest.local")) return undefined;
+    const normalizado = email.trim().toLowerCase();
+    const existente = await prisma.user.findUnique({ where: { email: normalizado } });
+    if (existente) return undefined; // reivindicação via OTP, nunca anexo direto
+    const cpfDigits = cpf?.replace(/\D/g, "") || undefined;
+    const cpfLivre = cpfDigits
+      ? await prisma.user.findUnique({ where: { cpf: cpfDigits } }).then((u) => !u)
+      : false;
+    const created = await prisma.user.create({
+      data: {
+        email: normalizado,
+        name: nome ?? undefined,
+        ...(cpfDigits && cpfLivre ? { cpf: cpfDigits } : {}),
+      },
+    });
+    return created.id;
+  }
+
   /** Lotes vendáveis no balcão — inclui os pdvOnly que o site esconde. */
   async listPdvLots(eventId: string, actorUserId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
@@ -506,6 +538,7 @@ export class OrdersService {
     // tabela do Pix (menor custo) por não haver taxa de adquirente envolvida
     const feeCents = computePlatformFeeCents("PIX", totalCents, organization);
     const buyerEmail = input.buyerEmail ?? `pdv-${Date.now()}@borafest.local`;
+    const donoId = await this.contaInvisivelDoBalcao(input.buyerEmail, input.buyerName, input.buyerDocument);
 
     const order = await prisma
       .$transaction(async (tx) => {
@@ -532,6 +565,7 @@ export class OrdersService {
             partnerCommissionCents,
             contactEmail: buyerEmail,
             contactName: input.buyerName,
+            userId: donoId,
             status: "PAID",
             paidAt: new Date(),
             totalCents,
@@ -668,6 +702,7 @@ export class OrdersService {
       : null;
     const partnerCommissionCents = partner ? Math.floor((totalCents * partner.commissionBps) / 10_000) : 0;
     const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
+    const donoId = await this.contaInvisivelDoBalcao(input.buyerEmail, input.buyerName, input.buyerDocument);
 
     const order = await prisma
       .$transaction(async (tx) => {
@@ -694,6 +729,7 @@ export class OrdersService {
             partnerCommissionCents,
             contactEmail: input.buyerEmail ?? `pdv-${Date.now()}@borafest.local`,
             contactName: input.buyerName,
+            userId: donoId,
             status: "PAYMENT_PENDING",
             expiresAt,
             totalCents,
