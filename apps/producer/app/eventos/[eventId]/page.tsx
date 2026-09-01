@@ -123,6 +123,7 @@ function EventContent({ eventId }: { eventId: string }) {
   const [lotFeeMode, setLotFeeMode] = useState<FeeMode>("BUYER");
   const [lotNominal, setLotNominal] = useState(false);
   const [lotHalf, setLotHalf] = useState(false);
+  const [lotPdvOnly, setLotPdvOnly] = useState(false);
   const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
 
 
@@ -386,6 +387,7 @@ function EventContent({ eventId }: { eventId: string }) {
     setLotNominal(false);
     setLotRequiresCpf(false);
     setLotHalf(false);
+    setLotPdvOnly(false);
   }
 
   function openNewTicket() {
@@ -429,6 +431,7 @@ function EventContent({ eventId }: { eventId: string }) {
         // CPF só faz sentido em lote nominal (o backend também amarra os dois)
         requiresCpf: lotNominal && lotRequiresCpf,
         halfPriceEnabled: lotHalf,
+        pdvOnly: lotPdvOnly,
       });
       await catalogApi.activateLot(token, lot.id);
       setTicketForm(null);
@@ -572,6 +575,21 @@ function EventContent({ eventId }: { eventId: string }) {
               Oferecer meia-entrada (50% do preço)
               <span className="block text-[11.5px] font-medium text-muted">
                 Opcional — o comprador escolhe meia no checkout e o documento é conferido na portaria.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-center gap-2 text-[13px] font-semibold">
+            <input
+              type="checkbox"
+              checked={lotPdvOnly}
+              onChange={(e) => setLotPdvOnly(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+            />
+            <span>
+              Só balcão — não aparece no site
+              <span className="block text-[11.5px] font-medium text-muted">
+                Sua equipe (promoters com permissão de venda) emite pela portaria. Com preço R$ 0, vira lote de cortesia
+                controlado por capacidade — ideal pra novatos.
               </span>
             </span>
           </label>

@@ -444,6 +444,30 @@ export class OrdersService {
    * worker emita os ingressos exatamente como numa compra online (mesmo
    * caminho de cortesias, mas com valor real).
    */
+  /** Lotes vendáveis no balcão — inclui os pdvOnly que o site esconde. */
+  async listPdvLots(eventId: string, actorUserId: string) {
+    const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+
+    const lots = await prisma.ticketLot.findMany({
+      where: { status: "ACTIVE", ticketType: { eventId } },
+      orderBy: { createdAt: "asc" },
+      include: { ticketType: { select: { id: true, name: true } } },
+    });
+    return lots.map((lot) => ({
+      ticketTypeId: lot.ticketType.id,
+      ticketTypeName: lot.ticketType.name,
+      lotId: lot.id,
+      lotName: lot.name,
+      priceCents: lot.priceCents,
+      feeCents: lot.feeCents,
+      halfPriceEnabled: lot.halfPriceEnabled,
+      pdvOnly: lot.pdvOnly,
+      available: Math.max(lot.capacity - lot.soldCount - lot.reservedCount, 0),
+    }));
+  }
+
   async createManualSale(eventId: string, actorUserId: string, input: PdvOrderInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
@@ -634,6 +658,11 @@ export class OrdersService {
 
     const unitCents = lot.priceCents + lot.feeCents;
     const totalCents = unitCents * input.quantity;
+    if (totalCents === 0) {
+      throw new BadRequestException(
+        "Lote gratuito não gera Pix — use o botão de cortesia (emite na hora)",
+      );
+    }
     const partner = partnerId
       ? await prisma.salesPartner.findUnique({ where: { id: partnerId }, select: { commissionBps: true } })
       : null;

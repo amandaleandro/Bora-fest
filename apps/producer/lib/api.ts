@@ -393,6 +393,7 @@ export interface CreateLotInput {
   requiresCpf?: boolean;
   /** oferece meia-entrada (50%) — opt-in do produtor */
   halfPriceEnabled?: boolean;
+  pdvOnly?: boolean;
 }
 
 export const catalogApi = {

@@ -103,6 +103,10 @@ export const portariaApi = {
       deviceId: string;
       deviceToken: string;
       credentialLabel: string;
+      // permissões da sessão por conta (2026-08-12): controlam as abas Validar
+      // e Vender na porta
+      canValidate: boolean;
+      canSell: boolean;
       event: { id: string; title: string; slug: string; startsAt: string; endsAt: string };
       checkinPoints: Array<{ id: string; name: string }>;
     }>("/v1/validator/sessions/account", {

@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PortariaVenda from "../../components/PortariaVenda";
 import { ApiError } from "../../lib/api";
 import { isAuthError, portariaApi } from "../../lib/portaria/api";
 import * as db from "../../lib/portaria/db";
@@ -51,7 +52,7 @@ type Screen =
   | "summary"
   | "blocked";
 
-type Tab = "scanner" | "code" | "doc";
+type Tab = "scanner" | "code" | "doc" | "venda";
 
 const SESSION_KEY = "bf.portaria.session";
 const GATE_KEY = "bf.portaria.portao";
@@ -221,6 +222,19 @@ const TABS: Array<{ id: Tab; label: string; icon: JSX.Element }> = [
   },
 ];
 
+// aba de venda na porta (só aparece com canSell) — ícone de maquininha/POS
+const VENDA_TAB: { id: Tab; label: string; icon: JSX.Element } = {
+  id: "venda",
+  label: "Vender",
+  icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="5" y="3" width="14" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="8" y="6" width="8" height="4" rx="1" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01M16 17.5h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ),
+};
+
 export default function PortariaPage() {
   const [screen, setScreen] = useState<Screen>("pin");
   const [tab, setTab] = useState<Tab>("scanner");
@@ -301,6 +315,9 @@ export default function PortariaPage() {
     async (target?: Session | null) => {
       const active = target ?? sessionRef.current;
       if (!active) return;
+      // vendedor puro (só canSell) não tem manifesto para sincronizar — e a
+      // rota de manifesto não vale para ele. Evita ruído e um falso "bloqueado".
+      if (active.canValidate === false) return;
       setSyncing(true);
       try {
         applyIndex(await syncManifest(active));
@@ -684,6 +701,24 @@ export default function PortariaPage() {
   const eventoSelecionado = events.find((e) => e.id === eventId);
   const codigoPronto = CORPO_COMPLETO.test(codeBody);
 
+  // Permissões da sessão (2026-08-12). PIN não devolve os campos: valida
+  // (undefined ≠ false) mas não vende. Só a sessão por CONTA traz canSell.
+  const canValidate = session?.canValidate !== false;
+  const canSell = session?.canSell === true;
+  const visibleTabs = useMemo(() => {
+    const list: Array<{ id: Tab; label: string; icon: JSX.Element }> = [];
+    if (canValidate) list.push(...TABS);
+    if (canSell) list.push(VENDA_TAB);
+    return list;
+  }, [canValidate, canSell]);
+
+  // a aba ativa precisa existir para esta sessão (ex.: vendedor puro cai em
+  // "venda"; sessão sem venda nunca fica presa na aba venda)
+  useEffect(() => {
+    if (screen !== "validate" || visibleTabs.length === 0) return;
+    if (!visibleTabs.some((t) => t.id === tab)) setTab(visibleTabs[0].id);
+  }, [screen, visibleTabs, tab]);
+
   const docHint = !manifest.ready
     ? "Lista local não sincronizada"
     : docMode === "cpf"
@@ -693,6 +728,12 @@ export default function PortariaPage() {
         : "Digite ao menos 2 letras ou o CPF completo";
 
   function iniciarValidacao() {
+    // vendedor puro (sem canValidate): abre direto na aba de venda, sem câmera
+    if (!canValidate && canSell) {
+      setTab("venda");
+      setScreen("validate");
+      return;
+    }
     const granted = typeof localStorage !== "undefined" && localStorage.getItem(CAM_KEY) === "1";
     setTab("scanner");
     setScreen(granted ? "validate" : "camera");
@@ -1035,7 +1076,9 @@ export default function PortariaPage() {
             </div>
           </div>
           <p className="mb-5 mt-1 text-[14px] font-medium text-muted">
-            Confira o evento e escolha o portão onde você vai validar.
+            {canValidate
+              ? "Confira o evento e escolha o portão onde você vai validar."
+              : "Confira o evento e escolha o portão onde você vai vender."}
           </p>
 
           <h2 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-2">Evento ativo</h2>
@@ -1044,11 +1087,13 @@ export default function PortariaPage() {
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-extrabold leading-tight text-ink">{session.event.title}</p>
               <p className="mt-1 text-[12px] font-medium text-muted-2">
-                {manifest.ready
-                  ? `${manifest.tickets} ingressos na lista local · v ${versaoCurta(manifest.version)}`
-                  : syncing
-                    ? "Baixando lista de ingressos..."
-                    : "Lista local ainda não sincronizada"}
+                {!canValidate
+                  ? "Venda na porta com check-in automático"
+                  : manifest.ready
+                    ? `${manifest.tickets} ingressos na lista local · v ${versaoCurta(manifest.version)}`
+                    : syncing
+                      ? "Baixando lista de ingressos..."
+                      : "Lista local ainda não sincronizada"}
               </p>
               <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
@@ -1065,7 +1110,7 @@ export default function PortariaPage() {
             </span>
           </div>
 
-          {!manifest.ready && (
+          {canValidate && !manifest.ready && (
             <button
               onClick={() => syncNow()}
               className="mb-6 w-full rounded-2xl border border-warning/25 bg-warning/[.08] px-4 py-3 text-left"
@@ -1117,22 +1162,24 @@ export default function PortariaPage() {
             onClick={iniciarValidacao}
             className="h-[54px] w-full rounded-2xl bg-primary text-[16px] font-extrabold text-white shadow-cta"
           >
-            Iniciar validação
+            {!canValidate && canSell ? "Abrir venda na porta" : "Iniciar validação"}
           </button>
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={() => setScreen("summary")}
-              className="h-11 flex-1 rounded-xl border border-line bg-white text-[13px] font-bold text-ink"
-            >
-              Resumo da portaria
-            </button>
-            <button
-              onClick={() => setScreen("offline")}
-              className="h-11 flex-1 rounded-xl border border-line bg-white text-[13px] font-bold text-ink"
-            >
-              Fila ({pendentes.length})
-            </button>
-          </div>
+          {canValidate && (
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => setScreen("summary")}
+                className="h-11 flex-1 rounded-xl border border-line bg-white text-[13px] font-bold text-ink"
+              >
+                Resumo da portaria
+              </button>
+              <button
+                onClick={() => setScreen("offline")}
+                className="h-11 flex-1 rounded-xl border border-line bg-white text-[13px] font-bold text-ink"
+              >
+                Fila ({pendentes.length})
+              </button>
+            </div>
+          )}
         </main>
       )}
 
@@ -1412,8 +1459,23 @@ export default function PortariaPage() {
             </div>
           )}
 
+          {/* ---- aba Vender na porta ---- */}
+          {tab === "venda" && (
+            <PortariaVenda
+              eventId={session.event.id}
+              slug={session.event.slug}
+              accountToken={accountToken}
+              session={session}
+              gateId={gate.id}
+              gateName={gate.name}
+              online={online}
+              onCheckedIn={() => contar(1)}
+            />
+          )}
+
           {/* rodapé: fila/manifesto · resumo · abas */}
           <div className="relative z-10 flex-none">
+            {canValidate && (
             <div className="mx-4 mb-2 flex gap-2">
               <button
                 onClick={() => setScreen("offline")}
@@ -1440,19 +1502,25 @@ export default function PortariaPage() {
                 Resumo
               </button>
             </div>
+            )}
             <div className="flex items-stretch gap-1 border-t border-white/10 bg-[#120e1a]/95 px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 backdrop-blur">
-              {TABS.map((item) => {
+              {visibleTabs.map((item) => {
                 const active = tab === item.id;
+                // venda na porta exige internet: offline, a aba fica desabilitada
+                const disabled = item.id === "venda" && !online;
                 return (
                   <button
                     key={item.id}
+                    disabled={disabled}
+                    title={disabled ? "Venda na porta precisa de internet" : undefined}
                     onClick={() => {
+                      if (disabled) return;
                       vibrar(10);
                       setTab(item.id);
                     }}
                     className={`flex flex-1 flex-col items-center gap-1 rounded-2xl py-2.5 text-[11px] font-bold transition ${
                       active ? "bg-primary/20 text-[#c4b5fd]" : "text-white/45 active:bg-white/[.06]"
-                    }`}
+                    } ${disabled ? "opacity-35" : ""}`}
                   >
                     {item.icon}
                     {item.label}

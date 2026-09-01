@@ -6,6 +6,14 @@ export interface Session {
   credentialLabel?: string;
   event: { id: string; title: string; slug?: string; startsAt?: string; endsAt?: string };
   checkinPoints: Array<{ id: string; name: string }>;
+  /**
+   * Permissões da SESSÃO (2026-08-12). Só a sessão por CONTA as devolve; a
+   * sessão por PIN não traz nenhuma (undefined) e, por padrão, valida mas não
+   * vende. A portaria mostra a aba "Validar" só com canValidate e a aba
+   * "Vender na porta" só com canSell.
+   */
+  canValidate?: boolean;
+  canSell?: boolean;
 }
 
 /** Ingresso como vem no manifesto — sem CPF cru (minimização LGPD, ver validator.service). */

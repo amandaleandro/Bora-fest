@@ -20,7 +20,7 @@ const showcaseSelect = {
   ticketTypes: {
     select: {
       lots: {
-        where: { status: "ACTIVE" as const },
+        where: { status: "ACTIVE" as const, pdvOnly: false },
         select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
       },
     },
@@ -144,6 +144,7 @@ export class CatalogService {
         feeMode: input.feeMode ?? "BUYER",
         nominal: input.nominal ?? false,
         halfPriceEnabled: input.halfPriceEnabled ?? false,
+        pdvOnly: input.pdvOnly ?? false,
         requiresCpf: input.requiresCpf ?? false,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
@@ -369,7 +370,8 @@ export class CatalogService {
           orderBy: { position: "asc" },
           include: {
             lots: {
-              where: { status: "ACTIVE" },
+              // só-balcão fica invisível pro público (cortesia via promoter)
+              where: { status: "ACTIVE", pdvOnly: false },
               orderBy: { createdAt: "asc" },
             },
           },

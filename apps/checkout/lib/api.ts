@@ -346,6 +346,10 @@ export const api = {
    * emitidos na hora. `token` é a sessão da conta (mesmo bf.token do login por
    * conta na portaria); exige a permissão SALES_PERFORM no backend.
    */
+  /** lotes vendáveis no balcão (inclui os só-balcão que o site esconde) */
+  getPdvLots: (eventId: string, token: string) =>
+    request<Array<AvailabilityItem & { pdvOnly: boolean }>>(`/v1/events/${eventId}/pdv-orders/lots`, { token }),
+
   createPdvCashSale: (eventId: string, input: PdvSaleInput, token: string) =>
     request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders`, { method: "POST", body: input, token }),
 

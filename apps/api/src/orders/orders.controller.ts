@@ -66,6 +66,16 @@ export class OrdersController {
 export class PdvController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  /**
+   * Lotes que o BALCÃO pode vender (2026-08-31): inclui os "só balcão"
+   * (cortesia de novatos), que a availability pública esconde de propósito.
+   * Exige SALES_PERFORM — mesmo portão da venda.
+   */
+  @Get("lots")
+  listLots(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
+    return this.ordersService.listPdvLots(eventId, userId);
+  }
+
   @Post(":publicToken/correct-email")
   correctEmail(@Param("publicToken") publicToken: string, @Body() body: { email?: string }) {
     return this.ordersService.correctEmail(publicToken, body?.email ?? "");

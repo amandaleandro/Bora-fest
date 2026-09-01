@@ -36,6 +36,11 @@ export class ReservationsService {
       if (!lot || lot.ticketType.eventId !== input.eventId) {
         throw new BadRequestException(`Lote ${item.ticketLotId} não pertence a este evento`);
       }
+      // só-balcão nunca entra pelo site (2026-08-31) — mesmo que alguém
+      // descubra o id do lote, a reserva pública é recusada
+      if (lot.pdvOnly) {
+        throw new BadRequestException(`O lote ${lot.name} é vendido apenas no balcão do evento`);
+      }
       // meia-entrada é opt-in do produtor — sem a flag, ninguém compra meia
       if (item.halfPrice && !lot.halfPriceEnabled) {
         throw new BadRequestException("Este lote não oferece meia-entrada");

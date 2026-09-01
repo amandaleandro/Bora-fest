@@ -680,6 +680,10 @@ model TicketLot {
   requiresCpf      Boolean   @default(false) @map("requires_cpf")
   /// meia-entrada é OPT-IN do produtor (decisão 2026-08-13): só oferece 50% se ele marcar
   halfPriceEnabled Boolean   @default(false) @map("half_price_enabled")
+  /// só balcão (2026-08-31): invisível no site e bloqueado na reserva pública;
+  /// só a venda presencial da portaria (promoter com SALES_PERFORM) emite —
+  /// caso de uso: lote cortesia de novatos entregue pessoalmente
+  pdvOnly          Boolean   @default(false) @map("pdv_only")
   status           LotStatus @default(DRAFT)
   startsAt         DateTime? @map("starts_at")
   endsAt           DateTime? @map("ends_at")

@@ -27,6 +27,9 @@ export function computePlatformFeeCents(
   amountCents: number,
   org: OrganizationFeeOverrides,
 ): number {
+  // venda de R$0 (cortesia no balcão) não paga piso — sem isto cada cortesia
+  // debitava R$1,00 do produtor no ledger (2026-08-31)
+  if (amountCents <= 0) return 0;
   if (method === "PIX") {
     const bps = org.pixFeeBps ?? DEFAULT_PIX_FEE_BPS;
     const floorCents = org.pixFeeFloorCents ?? DEFAULT_PIX_FEE_FLOOR_CENTS;
