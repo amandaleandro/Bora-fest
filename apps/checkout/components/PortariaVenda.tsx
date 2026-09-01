@@ -40,6 +40,8 @@ interface Props {
 
 interface SaleResult {
   gratis?: boolean;
+  /** false = venda de rua: ingresso enviado por e-mail, entrada no dia */
+  imediata?: boolean;
   paidVia: Mode;
   buyerName: string;
   lotLabel: string;
@@ -73,6 +75,19 @@ export default function PortariaVenda({
   const [buyerDocument, setBuyerDocument] = useState("");
   const [buyerEmail, setBuyerEmail] = useState("");
   const [mode, setMode] = useState<Mode>("dinheiro");
+  // VENDA DE RUA (2026-08-31, pegada do Arthur): o check-in automático só faz
+  // sentido NA PORTA — vender na faculdade dias antes QUEIMARIA o ingresso na
+  // hora (o comprador chegaria à festa com QR já usado). Fora do dia do
+  // evento, o padrão vira "enviar por e-mail" e o e-mail passa a ser
+  // OBRIGATÓRIO (é o único canal de entrega). O promoter pode alternar.
+  const diaDoEvento = (() => {
+    const ini = session.event.startsAt ? new Date(session.event.startsAt).getTime() : null;
+    const fim = session.event.endsAt ? new Date(session.event.endsAt).getTime() : null;
+    if (ini === null) return true; // sessão por PIN (sem datas) é operação de porta
+    const agora = Date.now();
+    return agora >= ini - 12 * 3600_000 && agora <= (fim ?? ini) + 6 * 3600_000;
+  })();
+  const [entradaImediata, setEntradaImediata] = useState(diaDoEvento);
 
   const [phase, setPhase] = useState<Phase>("form");
   const [submitting, setSubmitting] = useState(false);
@@ -118,6 +133,7 @@ export default function PortariaVenda({
   }, [gratis]);
 
   const emailInvalido = buyerEmail.trim().length > 0 && !EMAIL_RE.test(buyerEmail.trim());
+  const emailFaltando = !entradaImediata && !EMAIL_RE.test(buyerEmail.trim());
   const podeVender =
     online &&
     !!accountToken &&
@@ -125,6 +141,7 @@ export default function PortariaVenda({
     buyerName.trim().length >= 2 &&
     quantity >= 1 &&
     !emailInvalido &&
+    !emailFaltando &&
     !submitting;
 
   function montarPayload() {
@@ -146,7 +163,7 @@ export default function PortariaVenda({
 
   /** Check-in automático: mesma chamada da validação, com o deviceToken. */
   const checkinPedido = useCallback(
-    async (publicToken: string, paidVia: Mode, buyer: string, lotLabel: string, gratis = false) => {
+    async (publicToken: string, paidVia: Mode, buyer: string, lotLabel: string, gratis = false, imediata = true) => {
       setCheckingIn(true);
       let tickets: OrderTicket[] = [];
       try {
@@ -154,6 +171,17 @@ export default function PortariaVenda({
         tickets = res.tickets ?? [];
       } catch {
         /* pago mesmo assim: mostra o resultado sem a lista de ingressos */
+      }
+
+      // venda de RUA: nada de check-in — o ingresso vai por e-mail e a pessoa
+      // entra no dia pelo QR na portaria (check-in agora queimaria o ingresso)
+      if (!imediata) {
+        if (stoppedRef.current) return;
+        setResult({ gratis, imediata: false, paidVia, buyerName: buyer, lotLabel, tickets, entered: 0 });
+        setCheckingIn(false);
+        setSubmitting(false);
+        setPhase("done");
+        return;
       }
 
       let entered = 0;
@@ -177,7 +205,7 @@ export default function PortariaVenda({
       }
 
       if (stoppedRef.current) return;
-      setResult({ gratis, paidVia, buyerName: buyer, lotLabel, tickets, entered });
+      setResult({ gratis, imediata: true, paidVia, buyerName: buyer, lotLabel, tickets, entered });
       setCheckingIn(false);
       setSubmitting(false);
       setPhase("done");
@@ -193,7 +221,7 @@ export default function PortariaVenda({
     setError(null);
     try {
       const sale = await api.createPdvCashSale(eventId, montarPayload(), accountToken!);
-      await checkinPedido(sale.publicToken, "dinheiro", buyer, lotLabel, totalCents === 0);
+      await checkinPedido(sale.publicToken, "dinheiro", buyer, lotLabel, totalCents === 0, entradaImediata);
     } catch (e) {
       setError(mensagemErro(e));
       setSubmitting(false);
@@ -244,7 +272,7 @@ export default function PortariaVenda({
         const st = await api.getOrderStatus(order.publicToken);
         if (["PAID", "FULFILLED"].includes(st.status)) {
           clearInterval(id);
-          await checkinPedido(order.publicToken, "pix", buyer, lotLabel);
+          await checkinPedido(order.publicToken, "pix", buyer, lotLabel, false, entradaImediata);
         } else if (["CANCELED", "EXPIRED", "REFUNDED"].includes(st.status)) {
           clearInterval(id);
           setPixExpired(true);
@@ -314,12 +342,15 @@ export default function PortariaVenda({
           </svg>
         </div>
         <h1 className="text-center text-[24px] font-extrabold leading-tight">
-          {result.gratis ? "Cortesia emitida" : result.paidVia === "dinheiro" ? "Pago em dinheiro" : "Pago"} · Pode entrar ✅
+          {result.gratis ? "Cortesia emitida" : result.paidVia === "dinheiro" ? "Pago em dinheiro" : "Pago"}
+          {result.imediata === false ? " · Enviado ✉️" : " · Pode entrar ✅"}
         </h1>
         <p className="mx-auto mt-1.5 max-w-[300px] text-center text-[13px] font-medium text-white/55">
-          {result.entered > 0
-            ? `${result.entered} ${result.entered === 1 ? "ingresso liberado" : "ingressos liberados"} na portaria ${gateName}.`
-            : "Pagamento confirmado. Confira o check-in no resumo."}
+          {result.imediata === false
+            ? "O ingresso foi para o e-mail informado. No dia, é só apresentar o QR na portaria."
+            : result.entered > 0
+              ? `${result.entered} ${result.entered === 1 ? "ingresso liberado" : "ingressos liberados"} na portaria ${gateName}.`
+              : "Pagamento confirmado. Confira o check-in no resumo."}
         </p>
 
         <div className="mt-6 space-y-2.5 rounded-2xl bg-white/[.06] px-4 py-4">
@@ -558,7 +589,7 @@ export default function PortariaVenda({
       <input
         value={buyerEmail}
         onChange={(e) => setBuyerEmail(e.target.value)}
-        placeholder="E-mail para enviar o ingresso (opcional)"
+        placeholder={entradaImediata ? "E-mail para enviar o ingresso (opcional)" : "E-mail do comprador (obrigatório na venda antecipada)"}
         inputMode="email"
         autoCapitalize="off"
         autoCorrect="off"
@@ -569,6 +600,42 @@ export default function PortariaVenda({
       {emailInvalido && (
         <p className="mt-1.5 text-[12px] font-semibold text-[#fb7185]">E-mail inválido — corrija ou deixe em branco.</p>
       )}
+      {emailFaltando && buyerName.trim().length >= 2 && (
+        <p className="mt-1.5 text-[12px] font-semibold text-[#fbbf24]">
+          Venda antecipada precisa do e-mail — é por ele que o ingresso chega.
+        </p>
+      )}
+
+      {/* entrega: na porta (check-in agora) ou venda de rua (por e-mail) */}
+      <label className="mb-1.5 mt-4 block text-[12px] font-bold uppercase tracking-wider text-white/40">
+        Entrega
+      </label>
+      <div className="mb-1 grid grid-cols-2 gap-2.5">
+        {([true, false] as const).map((imediata) => {
+          const active = entradaImediata === imediata;
+          return (
+            <button
+              key={String(imediata)}
+              onClick={() => setEntradaImediata(imediata)}
+              className={`flex h-[52px] flex-col items-center justify-center rounded-2xl border-[1.5px] text-[13px] font-extrabold leading-tight ${
+                active ? "border-primary bg-primary/15 text-white" : "border-white/12 bg-white/[.05] text-white/60"
+              }`}
+            >
+              {imediata ? "Entra agora" : "Enviar por e-mail"}
+              <span className="mt-0.5 text-[10px] font-semibold opacity-60">
+                {imediata ? "check-in na hora" : "entra no dia do evento"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mb-3 text-[11px] font-medium leading-relaxed text-white/40">
+        {entradaImediata
+          ? diaDoEvento
+            ? "Venda na porta: o ingresso é usado agora."
+            : "⚠ Atenção: o evento ainda não é hoje — 'Entra agora' QUEIMA o ingresso neste momento. Pra venda antecipada, use 'Enviar por e-mail'."
+          : "Venda antecipada: o ingresso vai por e-mail e continua válido pra entrar no dia."}
+      </p>
 
       {/* modo de pagamento — cortesia (R$0) não tem pagamento */}
       {gratis ? (
