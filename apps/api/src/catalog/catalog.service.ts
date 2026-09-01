@@ -68,6 +68,30 @@ function toShowcaseCard(event: ShowcaseRow) {
 
 @Injectable()
 export class CatalogService {
+  /**
+   * Micro-cache em memória (perf 2026-08-30): as rotas públicas já declaram
+   * frescor de 5s no Cache-Control, mas o SERVIDOR recomputava tudo em cada
+   * request (home/sections: 200 eventos + 2 groupBy = ~2s). Mesmo TTL que o
+   * produto já prometeu ao cliente — zero mudança de semântica. Instância
+   * única hoje; com réplicas cada uma tem o seu (aceitável p/ TTLs curtos).
+   */
+  private readonly microCache = new Map<string, { ate: number; valor: unknown }>();
+
+  private async lembrado<T>(chave: string, ttlMs: number, calcula: () => Promise<T>): Promise<T> {
+    // testes exercitam frescor de propósito (cria → lê → edita → relê em ms);
+    // cache ali só produz flakiness — produção segue com o TTL normal
+    if (process.env.NODE_ENV === "test") return calcula();
+    const agora = Date.now();
+    const hit = this.microCache.get(chave);
+    if (hit && hit.ate > agora) return hit.valor as T;
+    const valor = await calcula();
+    this.microCache.set(chave, { ate: agora + ttlMs, valor });
+    if (this.microCache.size > 500) {
+      for (const [k, v] of this.microCache) if (v.ate <= agora) this.microCache.delete(k);
+    }
+    return valor;
+  }
+
   constructor(
     private readonly orgAccess: OrgAccessService,
     private readonly inventory: InventoryService,
@@ -210,6 +234,11 @@ export class CatalogService {
 
   /** Descoberta de eventos (Fase 12): lista eventos publicados, futuros primeiro. */
   async listPublicEvents(options: { page: number; pageSize: number; city?: string; category?: string }) {
+    const chave = `evlist:${options.page}:${options.pageSize}:${options.city ?? ""}:${options.category ?? ""}`;
+    return this.lembrado(chave, 5_000, () => this.listPublicEventsFresco(options));
+  }
+
+  private async listPublicEventsFresco(options: { page: number; pageSize: number; city?: string; category?: string }) {
     const where = {
       status: "PUBLISHED" as const,
       endsAt: { gt: new Date() },
@@ -247,6 +276,10 @@ export class CatalogService {
    * prateleira rala devolve os eventos para "Próximos".
    */
   async getHomeSections(city?: string) {
+    return this.lembrado(`home:sections:${city ?? "all"}`, 60_000, () => this.getHomeSectionsFresco(city));
+  }
+
+  private async getHomeSectionsFresco(city?: string) {
     const where = {
       status: "PUBLISHED" as const,
       endsAt: { gt: new Date() },
@@ -323,6 +356,10 @@ export class CatalogService {
   }
 
   async getPublicEvent(slug: string) {
+    return this.lembrado(`ev:${slug}`, 5_000, () => this.getPublicEventFresco(slug));
+  }
+
+  private async getPublicEventFresco(slug: string) {
     const event = await prisma.event.findFirst({
       where: { slug, status: "PUBLISHED" },
       include: {
@@ -359,22 +396,20 @@ export class CatalogService {
   async getPublicAvailability(slug: string) {
     const event = await this.getPublicEvent(slug);
 
-    return Promise.all(
-      event.ticketTypes.flatMap((type) =>
-        type.lots.map(async (lot) => {
-          const availability = await this.inventory.getAvailability(lot.id);
-          return {
-            ticketTypeId: type.id,
-            ticketTypeName: type.name,
-            lotId: lot.id,
-            lotName: lot.name,
-            priceCents: lot.priceCents,
-            feeCents: lot.feeCents,
-            halfPriceEnabled: lot.halfPriceEnabled,
-            available: availability?.available ?? 0,
-          };
-        }),
-      ),
+    // perf 2026-08-30: era 1 findUnique POR LOTE (N+1) rebuscando linhas que o
+    // getPublicEvent JÁ trouxe — capacity/soldCount/reservedCount estão nos
+    // próprios lotes retornados. Mesma conta do InventoryService, zero query extra.
+    return event.ticketTypes.flatMap((type) =>
+      type.lots.map((lot) => ({
+        ticketTypeId: type.id,
+        ticketTypeName: type.name,
+        lotId: lot.id,
+        lotName: lot.name,
+        priceCents: lot.priceCents,
+        feeCents: lot.feeCents,
+        halfPriceEnabled: lot.halfPriceEnabled,
+        available: Math.max(lot.capacity - lot.soldCount - lot.reservedCount, 0),
+      })),
     );
   }
 }

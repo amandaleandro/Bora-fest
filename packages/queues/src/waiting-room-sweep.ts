@@ -1,5 +1,5 @@
 import { Queue, Worker, type Processor } from "bullmq";
-import { getRedisConnection } from "./connection";
+import { getRedisConnection , LIMPEZA_PADRAO } from "./connection";
 
 /**
  * Varredura da sala de espera: promove gente da fila (`wr:queue:{eventId}`)
@@ -11,7 +11,7 @@ export const WAITING_ROOM_SWEEP_QUEUE = "waiting-room-sweep";
 export const WAITING_ROOM_SWEEP_JOB_ID = "sweep-waiting-rooms";
 
 export function createWaitingRoomSweepQueue() {
-  return new Queue(WAITING_ROOM_SWEEP_QUEUE, { connection: getRedisConnection() });
+  return new Queue(WAITING_ROOM_SWEEP_QUEUE, { connection: getRedisConnection(), defaultJobOptions: LIMPEZA_PADRAO });
 }
 
 export function createWaitingRoomSweepWorker(processor: Processor) {

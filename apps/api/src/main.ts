@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { mkdirSync } from "node:fs";
+import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -143,6 +144,11 @@ async function bootstrap() {
     httpRequestDuration.observe(labels, reply.elapsedTime / 1000);
     done();
   });
+
+  // compressão (perf 2026-08-30): nenhuma resposta saía comprimida — JSON de
+  // dashboard/listas encolhe 70-80% com brotli/gzip. Threshold de 1KB poupa
+  // CPU nos payloads minúsculos.
+  await app.register(compress as any, { global: true, threshold: 1024, encodings: ["br", "gzip"] });
 
   // uploads (banner de evento): multipart limitado + serviço estático dos
   // arquivos gravados em UPLOADS_DIR (volume no deploy)

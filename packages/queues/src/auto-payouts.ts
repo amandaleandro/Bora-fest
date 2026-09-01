@@ -1,5 +1,5 @@
 import { Queue, Worker, type Processor } from "bullmq";
-import { getRedisConnection } from "./connection";
+import { getRedisConnection , LIMPEZA_PADRAO } from "./connection";
 
 /**
  * Repasse automático (decisão 2026-07-28): varre organizações com
@@ -11,7 +11,7 @@ export const AUTO_PAYOUTS_QUEUE = "auto-payouts";
 export const AUTO_PAYOUTS_JOB_ID = "sweep-auto-payouts";
 
 export function createAutoPayoutsQueue() {
-  return new Queue(AUTO_PAYOUTS_QUEUE, { connection: getRedisConnection() });
+  return new Queue(AUTO_PAYOUTS_QUEUE, { connection: getRedisConnection(), defaultJobOptions: LIMPEZA_PADRAO });
 }
 
 export function createAutoPayoutsWorker(processor: Processor) {

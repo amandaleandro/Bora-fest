@@ -1,5 +1,5 @@
 import { Queue, Worker, type Processor } from "bullmq";
-import { getRedisConnection } from "./connection";
+import { getRedisConnection , LIMPEZA_PADRAO } from "./connection";
 
 /**
  * Reconciliação periódica com o gateway (arquitetura §11): pagamentos PENDING
@@ -9,7 +9,7 @@ export const PAYMENT_RECONCILIATION_QUEUE = "payment-reconciliation";
 export const PAYMENT_RECONCILIATION_JOB_ID = "reconcile-pending-payments";
 
 export function createPaymentReconciliationQueue() {
-  return new Queue(PAYMENT_RECONCILIATION_QUEUE, { connection: getRedisConnection() });
+  return new Queue(PAYMENT_RECONCILIATION_QUEUE, { connection: getRedisConnection(), defaultJobOptions: LIMPEZA_PADRAO });
 }
 
 export function createPaymentReconciliationWorker(processor: Processor) {

@@ -41,6 +41,7 @@ import { executeAutoTransfers } from "./auto-payouts";
 import { processPaymentWebhookJob } from "./process-payment-webhook";
 import { sweepWaitingRooms } from "./sweep-waiting-room";
 import { sendAbandonedCartReminders, sendExpiredRescueEmails } from "./abandoned-cart";
+import { purgarFilasLegado } from "./purga-filas-legado";
 
 const log = withContext({ module: "worker" });
 
@@ -75,7 +76,7 @@ async function main() {
   await createReservationExpirationQueue().upsertJobScheduler(
     RESERVATION_RECONCILIATION_JOB_ID,
     { every: 60_000 },
-    { name: "reconcile", data: {} as any },
+    { name: "reconcile", data: {} as any, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- outbox: emissão de ingressos, estornos de órfãos, revogações --------
@@ -85,7 +86,7 @@ async function main() {
   await createOutboxDispatchQueue().upsertJobScheduler(
     OUTBOX_DISPATCH_JOB_ID,
     { every: 3_000 },
-    { name: "dispatch", data: {} },
+    { name: "dispatch", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- repasses: executa/concilia transferências dos saques aprovados ------
@@ -99,7 +100,7 @@ async function main() {
     // 5 min por padrão: com transferência automática ligada, "repasse na
     // hora" precisa ser quase na hora mesmo (mínimo por casa segura o volume)
     { every: Number(process.env.AUTO_PAYOUTS_SWEEP_MS ?? 5 * 60_000) },
-    { name: "sweep", data: {} },
+    { name: "sweep", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- pagamentos: reconciliação com o gateway -----------------------------
@@ -109,7 +110,7 @@ async function main() {
   await createPaymentReconciliationQueue().upsertJobScheduler(
     PAYMENT_RECONCILIATION_JOB_ID,
     { every: 60_000 },
-    { name: "reconcile", data: {} },
+    { name: "reconcile", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- pedidos: expiração da janela de pagamento ---------------------------
@@ -119,7 +120,7 @@ async function main() {
   await createOrderExpirationQueue().upsertJobScheduler(
     ORDER_EXPIRATION_JOB_ID,
     { every: 30_000 },
-    { name: "expire", data: {} },
+    { name: "expire", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- carrinho abandonado: lembrete de pedido pendente não pago -----------
@@ -130,7 +131,7 @@ async function main() {
   await createAbandonedCartQueue().upsertJobScheduler(
     ABANDONED_CART_JOB_ID,
     { every: 5 * 60_000 },
-    { name: "remind", data: {} },
+    { name: "remind", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- notificações: entrega de e-mail/WhatsApp ----------------------------
@@ -140,7 +141,7 @@ async function main() {
   await createNotificationDeliveryQueue().upsertJobScheduler(
     NOTIFICATION_DELIVERY_JOB_ID,
     { every: 5_000 },
-    { name: "deliver", data: {} },
+    { name: "deliver", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- webhooks de pagamento: verificação de assinatura + aplicação de status
@@ -154,8 +155,11 @@ async function main() {
   });
   await createWaitingRoomSweepQueue().upsertJobScheduler(
     WAITING_ROOM_SWEEP_JOB_ID,
-    { every: 2_000 },
-    { name: "sweep", data: {} },
+    // 10s (perf 2026-08-30): a cada 2s eram 43.200 jobs/dia rodando VAZIOS na
+    // maior parte do tempo — 45% do vazamento do Redis. O TTL de admissão é de
+    // 12min; entrar da fila com até 10s de espera é imperceptível.
+    { every: Number(process.env.WAITING_ROOM_SWEEP_MS ?? 10_000) },
+    { name: "sweep", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   for (const [name, worker] of [
@@ -183,6 +187,12 @@ async function main() {
 
   log.info(
     "workers iniciados: reservas, outbox, pagamentos, pedidos, notificações, repasses, webhooks de pagamento, sala de espera e carrinho abandonado",
+  );
+
+  // purga one-shot do legado de jobs (2,4M chaves) — em background, sem
+  // atrasar o boot; roda uma vez só (trava NX no Redis) e loga o total
+  void purgarFilasLegado().catch((error) =>
+    log.error({ error: (error as Error).message }, "purga do legado falhou (workers seguem normais)"),
   );
 
   // desligamento educado: sem isso o Docker espera, desiste e o deploy do

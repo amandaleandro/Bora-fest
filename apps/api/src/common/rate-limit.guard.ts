@@ -55,10 +55,17 @@ export class RateLimitGuard implements CanActivate {
     const redisKey = `ratelimit:${options.keyPrefix}:${keyPart}`;
     const redis = getRedisConnection();
 
-    const count = await redis.incr(redisKey);
-    if (count === 1) {
-      await redis.expire(redisKey, options.windowSeconds);
-    }
+    // UM round-trip atômico (perf+correção 2026-08-30): antes eram DOIS awaits
+    // sequenciais em TODA request (o guard é global), e se o processo caísse
+    // entre o incr e o expire a chave ficava SEM TTL — contador eterno
+    // bloqueando o IP pra sempre. EXPIRE NX (Redis >= 7) renova só na criação,
+    // dentro do mesmo pipeline.
+    const respostas = await redis
+      .multi()
+      .incr(redisKey)
+      .expire(redisKey, options.windowSeconds, "NX")
+      .exec();
+    const count = Number(respostas?.[0]?.[1] ?? 0);
 
     if (count > options.limit) {
       throw new HttpException(

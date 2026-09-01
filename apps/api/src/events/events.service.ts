@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { randomBytes } from "node:crypto";
+import sharp from "sharp";
 import { unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { PERMISSIONS } from "@borafest/auth";
@@ -317,8 +318,23 @@ export class EventsService {
       throw new BadRequestException("Formato inválido — use JPG, PNG ou WebP");
     }
 
-    const name = `evento-${eventId}-${Date.now()}-${randomBytes(4).toString("hex")}.${ext}`;
-    await writeFile(join(UPLOADS_DIR, name), content);
+    // perf 2026-08-30: banner saía CRU da câmera (1,27MB medidos, 49s de
+    // download em produção). Normaliza tudo pra WebP <=1600px q80 (~100KB) —
+    // .rotate() aplica o EXIF antes de descartá-lo, senão foto de celular
+    // deita. Se o sharp engasgar (arquivo corrompido), rejeita como inválido.
+    let processado: Buffer;
+    try {
+      processado = await sharp(content)
+        .rotate()
+        .resize({ width: 1600, withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch {
+      throw new BadRequestException("Não consegui ler a imagem — tente outro arquivo");
+    }
+
+    const name = `evento-${eventId}-${Date.now()}-${randomBytes(4).toString("hex")}.webp`;
+    await writeFile(join(UPLOADS_DIR, name), processado);
 
     // remove o banner anterior — SÓ se o nome for de arquivo deste evento
     // (auditoria 2026-08-29): o bannerUrl é editável via PATCH, então apontá-lo

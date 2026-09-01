@@ -1,5 +1,5 @@
 import { Queue, Worker, type Processor } from "bullmq";
-import { getRedisConnection } from "./connection";
+import { getRedisConnection , LIMPEZA_PADRAO } from "./connection";
 
 /**
  * Lembrete de carrinho abandonado: pedidos CREATED/PAYMENT_PENDING antigos o
@@ -10,7 +10,7 @@ export const ABANDONED_CART_QUEUE = "abandoned-cart";
 export const ABANDONED_CART_JOB_ID = "remind-abandoned-carts";
 
 export function createAbandonedCartQueue() {
-  return new Queue(ABANDONED_CART_QUEUE, { connection: getRedisConnection() });
+  return new Queue(ABANDONED_CART_QUEUE, { connection: getRedisConnection(), defaultJobOptions: LIMPEZA_PADRAO });
 }
 
 export function createAbandonedCartWorker(processor: Processor) {

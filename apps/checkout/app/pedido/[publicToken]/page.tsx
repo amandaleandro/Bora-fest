@@ -139,8 +139,20 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   // pendente: polling
   useEffect(() => {
     if (!order || !["CREATED", "PAYMENT_PENDING"].includes(order.status)) return;
-    const id = setInterval(load, 3000);
-    return () => clearInterval(id);
+    // perf 2026-08-30: aba em background não martela a API (o Pix pendente fica
+    // aberto por minutos enquanto a pessoa paga no app do banco). Na volta à
+    // aba, recarrega NA HORA — a confirmação aparece no instante do retorno.
+    const id = setInterval(() => {
+      if (document.visibilityState !== "hidden") load();
+    }, 3000);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
   }, [order, load]);
 
   async function pedirReembolsoProtegido() {

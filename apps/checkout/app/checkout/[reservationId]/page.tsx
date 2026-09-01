@@ -471,6 +471,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     document.addEventListener("visibilitychange", onVisible);
     let tick = 0;
     const id = setInterval(async () => {
+      // aba escondida: não gasta rede — o onVisible acima já sincroniza e o
+      // próximo tick visível confere o status (perf 2026-08-30)
+      if (document.visibilityState === "hidden") return;
       try {
         tick += 1;
         if (tick % 6 === 0) await api.syncPayment(order.id).catch(() => undefined);

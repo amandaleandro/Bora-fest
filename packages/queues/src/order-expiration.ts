@@ -1,5 +1,5 @@
 import { Queue, Worker, type Processor } from "bullmq";
-import { getRedisConnection } from "./connection";
+import { getRedisConnection , LIMPEZA_PADRAO } from "./connection";
 
 /**
  * Expiração da janela de pagamento: pedidos PAYMENT_PENDING cujo `expires_at`
@@ -9,7 +9,7 @@ export const ORDER_EXPIRATION_QUEUE = "order-expiration";
 export const ORDER_EXPIRATION_JOB_ID = "expire-stale-orders";
 
 export function createOrderExpirationQueue() {
-  return new Queue(ORDER_EXPIRATION_QUEUE, { connection: getRedisConnection() });
+  return new Queue(ORDER_EXPIRATION_QUEUE, { connection: getRedisConnection(), defaultJobOptions: LIMPEZA_PADRAO });
 }
 
 export function createOrderExpirationWorker(processor: Processor) {

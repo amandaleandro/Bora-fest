@@ -18,3 +18,15 @@ export async function closeRedisConnection(): Promise<void> {
     connection = undefined;
   }
 }
+
+/**
+ * Limpeza padrão de jobs (incidente de performance 2026-08-30): sem
+ * removeOnComplete/removeOnFail o BullMQ guarda TODO job concluído para
+ * sempre — os sweeps de 2-5s acumularam 2,4 MILHÕES de chaves (3GB) em ~26
+ * dias e empurraram o VPS pro swap. Jobs de varredura não carregam informação:
+ * 1h de completed e 24h de failed (forense) é mais que suficiente.
+ */
+export const LIMPEZA_PADRAO = {
+  removeOnComplete: { age: 3600, count: 100 },
+  removeOnFail: { age: 24 * 3600, count: 1000 },
+} as const;

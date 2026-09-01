@@ -1,5 +1,5 @@
 import { Queue, Worker, type Processor } from "bullmq";
-import { getRedisConnection } from "./connection";
+import { getRedisConnection , LIMPEZA_PADRAO } from "./connection";
 
 export const RESERVATION_EXPIRATION_QUEUE = "reservation-expiration";
 export const RESERVATION_RECONCILIATION_JOB_ID = "reconcile-expired-reservations";
@@ -11,6 +11,7 @@ export interface ReservationExpirationJobData {
 export function createReservationExpirationQueue() {
   return new Queue<ReservationExpirationJobData>(RESERVATION_EXPIRATION_QUEUE, {
     connection: getRedisConnection(),
+    defaultJobOptions: LIMPEZA_PADRAO,
   });
 }
 
