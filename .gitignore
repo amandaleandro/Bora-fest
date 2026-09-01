@@ -20,3 +20,4 @@ ios/
 .claude/
 .pnpm-store/
 apps/api/src/**/*.js
+dump.rdb
