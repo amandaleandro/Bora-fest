@@ -168,14 +168,24 @@ export default function PortariaVenda({
 
   /** Check-in automático: mesma chamada da validação, com o deviceToken. */
   const checkinPedido = useCallback(
-    async (publicToken: string, paidVia: Mode, buyer: string, lotLabel: string, gratis = false, imediata = true) => {
+    async (orderId: string, paidVia: Mode, buyer: string, lotLabel: string, gratis = false, imediata = true) => {
       setCheckingIn(true);
+      // achados 2026-09-01: (a) a rota pública aplica o portão do comprador
+      // (conta nova não-verificada → lista VAZIA) e o check-in nunca rodava;
+      // (b) os ingressos são emitidos pelo worker (outbox, ~3s) — uma leitura
+      // única corria na frente da emissão. Agora: endpoint do VENDEDOR + espera
+      // com tentativas até a emissão (teto ~18s).
       let tickets: OrderTicket[] = [];
-      try {
-        const res = await api.getOrderTickets(publicToken);
-        tickets = res.tickets ?? [];
-      } catch {
-        /* pago mesmo assim: mostra o resultado sem a lista de ingressos */
+      for (let tentativa = 0; tentativa < 12; tentativa++) {
+        if (stoppedRef.current) return;
+        try {
+          const res = await api.getPdvOrderTickets(eventId, orderId, accountToken!);
+          tickets = res.tickets ?? [];
+          if (tickets.length > 0) break;
+        } catch {
+          /* rede oscilou: tenta de novo */
+        }
+        await new Promise((r) => setTimeout(r, 1500));
       }
 
       // venda de RUA: nada de check-in — o ingresso vai por e-mail e a pessoa
@@ -215,7 +225,7 @@ export default function PortariaVenda({
       setSubmitting(false);
       setPhase("done");
     },
-    [gateId, onCheckedIn, session],
+    [eventId, accountToken, gateId, onCheckedIn, session],
   );
 
   async function venderDinheiro() {
@@ -230,7 +240,7 @@ export default function PortariaVenda({
     setError(null);
     try {
       const sale = await api.createPdvCashSale(eventId, montarPayload(), accountToken!);
-      await checkinPedido(sale.publicToken, "dinheiro", buyer, lotLabel, totalCents === 0, entradaImediata);
+      await checkinPedido(sale.orderId, "dinheiro", buyer, lotLabel, totalCents === 0, entradaImediata);
     } catch (e) {
       setError(mensagemErro(e));
       setSubmitting(false);
@@ -286,7 +296,7 @@ export default function PortariaVenda({
         const st = await api.getOrderStatus(order.publicToken);
         if (["PAID", "FULFILLED"].includes(st.status)) {
           clearInterval(id);
-          await checkinPedido(order.publicToken, "pix", buyer, lotLabel, false, entradaImediata);
+          await checkinPedido(order.orderId, "pix", buyer, lotLabel, false, entradaImediata);
         } else if (["CANCELED", "EXPIRED", "REFUNDED"].includes(st.status)) {
           clearInterval(id);
           setPixExpired(true);
@@ -367,7 +377,9 @@ export default function PortariaVenda({
             ? "O ingresso foi para o e-mail informado. No dia, é só apresentar o QR na portaria."
             : result.entered > 0
               ? `${result.entered} ${result.entered === 1 ? "ingresso liberado" : "ingressos liberados"} na portaria ${gateName}.`
-              : "Pagamento confirmado. Confira o check-in no resumo."}
+              : result.tickets.length === 0
+                ? "Pago! A emissão está terminando — confirme a entrada na aba Validar em instantes."
+                : "Pagamento confirmado. Confira o check-in no resumo."}
         </p>
 
         <div className="mt-6 space-y-2.5 rounded-2xl bg-white/[.06] px-4 py-4">

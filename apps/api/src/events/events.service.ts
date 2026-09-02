@@ -324,7 +324,9 @@ export class EventsService {
     // deita. Se o sharp engasgar (arquivo corrompido), rejeita como inválido.
     let processado: Buffer;
     try {
-      processado = await sharp(content)
+      // limitInputPixels (achado 2026-09-01): 5MB de ARQUIVO podem virar 268MP
+      // decodificados (~1GB de RAM) — 30MP cobre qualquer foto real de celular
+      processado = await sharp(content, { limitInputPixels: 30_000_000 })
         .rotate()
         .resize({ width: 1600, withoutEnlargement: true })
         .webp({ quality: 80 })

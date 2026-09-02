@@ -221,6 +221,14 @@ export class TicketsService {
         throw new BadRequestException("CPF inválido — confira os números digitados");
       }
       toUser = await prisma.user.findUnique({ where: { cpf: cpfDigits } });
+      // achado 2026-09-01: conta NÃO verificada com CPF (criada por checkout de
+      // terceiro) podia interceptar transferências — destino por CPF só vale
+      // com posse do e-mail comprovada
+      if (toUser && !toUser.emailVerifiedAt) {
+        throw new BadRequestException(
+          "A conta com este CPF ainda não confirmou o e-mail — peça a confirmação ou transfira por e-mail",
+        );
+      }
       if (!toUser) {
         throw new NotFoundException(
           "Nenhuma conta verificada com este CPF — a pessoa precisa criar a conta BoraFest e informar o CPF em Dados pessoais",

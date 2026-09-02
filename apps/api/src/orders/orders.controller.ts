@@ -76,6 +76,16 @@ export class PdvController {
     return this.ordersService.listPdvLots(eventId, userId);
   }
 
+  /** ingressos de um pedido do balcão, pro check-in automático do vendedor */
+  @Get(":orderId/tickets")
+  orderTickets(
+    @Param("eventId") eventId: string,
+    @Param("orderId") orderId: string,
+    @CurrentUserId() userId: string,
+  ) {
+    return this.ordersService.getPdvOrderTickets(eventId, orderId, userId);
+  }
+
   @Post(":publicToken/correct-email")
   correctEmail(@Param("publicToken") publicToken: string, @Body() body: { email?: string }) {
     return this.ordersService.correctEmail(publicToken, body?.email ?? "");

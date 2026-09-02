@@ -457,21 +457,15 @@ export class OrdersService {
     db: Pick<typeof prisma, "user">,
     email: string | undefined,
     nome: string | undefined,
-    cpf: string | undefined,
   ): Promise<string | undefined> {
     if (!email) return undefined;
     const existente = await db.user.findUnique({ where: { email } });
     if (existente) return undefined; // reivindicação via OTP, nunca anexo direto
-    const cpfDigits = cpf?.replace(/\D/g, "") || undefined;
-    const cpfLivre = cpfDigits
-      ? await db.user.findUnique({ where: { cpf: cpfDigits } }).then((u) => !u)
-      : false;
+    // SEM CPF (achado 2026-09-01, "grilagem"): o CPF digitado pelo promoter é
+    // de terceiro e sem checagem — gravá-lo na conta permitiria interceptar
+    // transferências por CPF. O documento fica no auditLog da venda.
     const created = await db.user.create({
-      data: {
-        email,
-        name: nome ?? undefined,
-        ...(cpfDigits && cpfLivre ? { cpf: cpfDigits } : {}),
-      },
+      data: { email, name: nome ?? undefined },
     });
     return created.id;
   }
@@ -498,6 +492,40 @@ export class OrdersService {
       pdvOnly: lot.pdvOnly,
       available: Math.max(lot.capacity - lot.soldCount - lot.reservedCount, 0),
     }));
+  }
+
+  /**
+   * Ingressos de um pedido do BALCÃO pro VENDEDOR (achado 2026-09-01): a rota
+   * pública de tickets aplica o portão do 1º ingresso (conta não verificada →
+   * lista vazia) — correto pro link do comprador, mas quebrava o check-in
+   * automático da porta. Aqui quem pede é o vendedor autenticado
+   * (SALES_PERFORM) do pedido que ele mesmo criou.
+   */
+  async getPdvOrderTickets(eventId: string, orderId: string, actorUserId: string) {
+    const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, eventId },
+      select: {
+        status: true,
+        tickets: {
+          orderBy: { seq: "asc" },
+          select: {
+            id: true, code: true, qrToken: true, status: true, attendeeName: true,
+            ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+    if (!order) throw new NotFoundException("Pedido não encontrado neste evento");
+    return {
+      orderStatus: order.status,
+      tickets: order.tickets.map((t) => ({
+        id: t.id, code: t.code, qrToken: t.qrToken, status: t.status,
+        attendeeName: t.attendeeName, lotName: t.ticketLot.name, typeName: t.ticketLot.ticketType.name,
+      })),
+    };
   }
 
   async createManualSale(eventId: string, actorUserId: string, input: PdvOrderInput) {
@@ -547,7 +575,7 @@ export class OrdersService {
       .$transaction(async (tx) => {
         // conta invisível DENTRO da transação (achado 2026-09-01): venda que
         // falha (estoque) não pode deixar conta órfã de terceiro pra trás
-        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName, input.buyerDocument);
+        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName);
         await reserveInventory(tx, lot.id, input.quantity);
         await confirmSaleInventory(tx, lot.id, input.quantity);
 
@@ -572,6 +600,10 @@ export class OrdersService {
             contactEmail: buyerEmail,
             contactName: input.buyerName,
             userId: donoId,
+            // conta nasceu DESTE pedido (achado 2026-09-01): sem a flag, o
+            // corrigir-e-mail do balcão recusava sempre — e um typo de e-mail
+            // fazia o ingresso pago cair na conta de um estranho pra sempre
+            accountCreatedByOrder: donoId !== undefined,
             status: "PAID",
             paidAt: new Date(),
             totalCents,
@@ -712,7 +744,7 @@ export class OrdersService {
 
     const order = await prisma
       .$transaction(async (tx) => {
-        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName, input.buyerDocument);
+        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName);
         // RESERVA (sem confirmar): o estoque vira sold_count só quando o Pix aprova
         await reserveInventory(tx, lot.id, input.quantity);
 
@@ -737,6 +769,7 @@ export class OrdersService {
             contactEmail: emailNormalizado ?? `pdv-${Date.now()}@borafest.local`,
             contactName: input.buyerName,
             userId: donoId,
+            accountCreatedByOrder: donoId !== undefined,
             status: "PAYMENT_PENDING",
             expiresAt,
             totalCents,

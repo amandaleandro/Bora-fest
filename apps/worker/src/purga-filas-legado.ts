@@ -24,9 +24,16 @@ const FLAG = "bf:filas:purga-2026-08-30";
  */
 export async function purgarFilasLegado(): Promise<void> {
   const redis = getRedisConnection();
-  const primeira = await redis.set(FLAG, new Date().toISOString(), "NX");
-  if (primeira === null) {
-    log.info({}, "purga do legado já executada antes — nada a fazer");
+  // achado 2026-09-01: a flag era gravada ANTES de rodar — boot interrompido
+  // no meio deixava os 2,4M de chaves lá pra sempre. Agora: LOCK com TTL
+  // (exclusão entre réplicas) e a flag de CONCLUÍDA só grava no final.
+  if (await redis.get(FLAG)) {
+    log.info({}, "purga do legado já concluída antes — nada a fazer");
+    return;
+  }
+  const lock = await redis.set(`${FLAG}:lock`, "1", "EX", 1800, "NX");
+  if (lock === null) {
+    log.info({}, "purga do legado já em andamento noutra réplica");
     return;
   }
 
@@ -60,5 +67,7 @@ export async function purgarFilasLegado(): Promise<void> {
       await fila.close().catch(() => undefined);
     }
   }
+  await redis.set(FLAG, new Date().toISOString());
+  await redis.del(`${FLAG}:lock`).catch(() => undefined);
   log.info({ totalLimpo }, "purga do legado concluída — Redis liberado");
 }

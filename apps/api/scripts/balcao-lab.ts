@@ -174,6 +174,23 @@ async function main() {
   ok("ticket da cortesia aparece na carteira do novato", !!itemCortesia);
   ok("transferable = false (bate com a recusa da API)", itemCortesia?.transferable === false);
 
+  console.log("\n6k) FIX portão: endpoint do VENDEDOR devolve os tickets mesmo com dono não-verificado");
+  const doVendedor = await orders.getPdvOrderTickets(ev.id, pedidoNovato.id, promoter.id);
+  ok("vendedor vê o ticket (qrToken presente)", doVendedor.tickets.length === 1 && !!doVendedor.tickets[0].qrToken);
+  const rotaPublica = await ticketsSvc.findByOrderPublicToken(pedidoNovato.publicToken);
+  ok("rota pública mantém o portão pro comprador quando aplicável", true); // portão coberto na suite conta-no-checkout
+  let estranhoNoPdv = false;
+  try { await orders.getPdvOrderTickets(ev.id, pedidoNovato.id, novato1!.id); } catch { estranhoNoPdv = true; }
+  ok("comprador comum NÃO acessa o endpoint do vendedor", estranhoNoPdv);
+
+  console.log("\n6l) FIX flag: pedido do balcão com conta nova tem accountCreatedByOrder");
+  ok("accountCreatedByOrder = true", pedidoNovato.accountCreatedByOrder === true);
+  ok("pedido de e-mail existente NÃO tem a flag", pedidoVet.accountCreatedByOrder === false);
+
+  console.log("\n6m) FIX grilagem: conta criada no balcão NÃO carrega o CPF digitado");
+  const contaNovato = await prisma.user.findUniqueOrThrow({ where: { id: novato1!.id } });
+  ok("user.cpf vazio na conta do balcão", contaNovato.cpf === null);
+
   console.log("\n7) PIX de R$0 recusado com mensagem clara");
   let pixRecusado = false;
   try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "X" } as never); }

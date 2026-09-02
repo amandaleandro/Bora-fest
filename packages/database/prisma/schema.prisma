@@ -441,6 +441,7 @@ model GuestListEntry {
 
   @@index([eventId, status])
   @@index([salesPartnerId])
+  @@index([orderId])
   @@map("guest_list_entries")
 }
 

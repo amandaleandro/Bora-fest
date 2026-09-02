@@ -75,7 +75,7 @@ export class CatalogService {
    * produto já prometeu ao cliente — zero mudança de semântica. Instância
    * única hoje; com réplicas cada uma tem o seu (aceitável p/ TTLs curtos).
    */
-  private readonly microCache = new Map<string, { ate: number; valor: unknown }>();
+  private readonly microCache = new Map<string, { ate: number; valor: Promise<unknown> }>();
 
   private async lembrado<T>(chave: string, ttlMs: number, calcula: () => Promise<T>): Promise<T> {
     // testes exercitam frescor de propósito (cria → lê → edita → relê em ms);
@@ -83,9 +83,12 @@ export class CatalogService {
     if (process.env.NODE_ENV === "test") return calcula();
     const agora = Date.now();
     const hit = this.microCache.get(chave);
-    if (hit && hit.ate > agora) return hit.valor as T;
-    const valor = await calcula();
+    if (hit && hit.ate > agora) return hit.valor as Promise<T>;
+    // memoiza a PROMISE na hora do miss (achado 2026-09-01): sem isso, todo
+    // request concorrente na expiração recomputava o cálculo pesado em paralelo
+    const valor = calcula();
     this.microCache.set(chave, { ate: agora + ttlMs, valor });
+    valor.catch(() => this.microCache.delete(chave)); // erro não fica cacheado
     if (this.microCache.size > 500) {
       for (const [k, v] of this.microCache) if (v.ate <= agora) this.microCache.delete(k);
     }
@@ -396,7 +399,10 @@ export class CatalogService {
   }
 
   async getPublicAvailability(slug: string) {
-    const event = await this.getPublicEvent(slug);
+    // SEM micro-cache aqui (achado 2026-09-01): esta rota é o estoque em tempo
+    // real do seletor de ingressos — 5s velho perto do esgotamento mostraria
+    // vaga que não existe. O ganho anti-N+1 continua (conta dos lotes abaixo).
+    const event = await this.getPublicEventFresco(slug);
 
     // perf 2026-08-30: era 1 findUnique POR LOTE (N+1) rebuscando linhas que o
     // getPublicEvent JÁ trouxe — capacity/soldCount/reservedCount estão nos
