@@ -137,7 +137,7 @@ export class TicketsService {
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
         event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
-        order: { select: { publicToken: true, userId: true } },
+        order: { select: { publicToken: true, userId: true, totalCents: true } },
       },
     });
 
@@ -154,6 +154,10 @@ export class TicketsService {
         orderPublicToken: isBuyer ? (ticket as any).order.publicToken : null,
         transferable:
           (ticket.status === "ISSUED" || ticket.status === "ACTIVE") &&
+          // cortesia/convidado (pedido R$0) é intransferível — a flag tem que
+          // bater com a recusa do transferTicket (achado 2026-09-01: o perfil
+          // oferecia o botão e a API negava)
+          (ticket as any).order.totalCents > 0 &&
           new Date((ticket as any).event.endsAt).getTime() > now,
       };
     });

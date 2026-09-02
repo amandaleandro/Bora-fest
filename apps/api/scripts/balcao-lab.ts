@@ -149,6 +149,31 @@ async function main() {
   const carteiraVet = await ticketsSvc.findByOrderPublicToken(pedidoVet2.publicToken);
   ok("pedido pago: cortesia = null", (carteiraVet as any).cortesia === null);
 
+  console.log("\n6h) FIX e-mail: caixa mista normaliza e a reivindicação por OTP casa");
+  // conta JÁ EXISTE minúscula; o promoter digita com caixa mista — o pedido
+  // nasce sem dono (anti-sequestro) e a reivindicação por OTP TEM que achar
+  await prisma.user.create({ data: { email: `mixed-${suf}@lab.test`, emailVerifiedAt: new Date() } });
+  await orders.createManualSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Caixa Mista", buyerEmail: `  MiXeD-${suf}@LAB.test ` } as never);
+  const pedidoMisto = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactName: "Caixa Mista" } });
+  ok("contactEmail gravado minúsculo/trim", pedidoMisto.contactEmail === `mixed-${suf}@lab.test`, pedidoMisto.contactEmail);
+  ok("pedido de e-mail existente nasce sem dono", pedidoMisto.userId === null);
+  const reivindicaveis = await prisma.order.count({ where: { userId: null, contactEmail: `mixed-${suf}@lab.test` } });
+  ok("reivindicação por OTP encontra o pedido (WHERE casa)", reivindicaveis >= 1);
+
+  console.log("\n6i) FIX atomicidade: venda que falha (estoque) NÃO deixa conta órfã");
+  let falhou = false;
+  try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Orfao", buyerEmail: `orfao-${suf}@lab.test` } as never); }
+  catch { falhou = true; }
+  ok("venda além da capacidade falhou", falhou);
+  const orfao = await prisma.user.findUnique({ where: { email: `orfao-${suf}@lab.test` } });
+  ok("NENHUMA conta órfã criada (rollback da transação)", orfao === null);
+
+  console.log("\n6j) FIX flag: carteira logada diz transferable=false pra cortesia");
+  const carteiraLogada = await ticketsSvc.findByUser(novato1!.id);
+  const itemCortesia = carteiraLogada.find((t: any) => t.code === `LAB-${suf}`);
+  ok("ticket da cortesia aparece na carteira do novato", !!itemCortesia);
+  ok("transferable = false (bate com a recusa da API)", itemCortesia?.transferable === false);
+
   console.log("\n7) PIX de R$0 recusado com mensagem clara");
   let pixRecusado = false;
   try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "X" } as never); }

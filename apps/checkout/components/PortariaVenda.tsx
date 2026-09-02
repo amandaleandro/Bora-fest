@@ -131,6 +131,11 @@ export default function PortariaVenda({
   useEffect(() => {
     if (gratis) setMode("dinheiro");
   }, [gratis]);
+  // pedido pendente de um Pix que falhou só vale se o formulário não mudou
+  useEffect(() => {
+    if (phase === "form") setOrder(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lotId, quantity, buyerName, buyerEmail, buyerDocument]);
 
   const emailInvalido = buyerEmail.trim().length > 0 && !EMAIL_RE.test(buyerEmail.trim());
   const emailFaltando = !entradaImediata && !EMAIL_RE.test(buyerEmail.trim());
@@ -215,6 +220,10 @@ export default function PortariaVenda({
 
   async function venderDinheiro() {
     if (!podeVender) return;
+    // achado 2026-09-01: novaVenda deixa stoppedRef=true e o guard do
+    // checkinPedido engolia o RESULTADO de toda venda em dinheiro seguinte —
+    // spinner eterno com o dinheiro recebido e o cliente já lá dentro
+    stoppedRef.current = false;
     const buyer = buyerName.trim();
     const lotLabel = `${selectedLot!.ticketTypeName} — ${selectedLot!.lotName}`;
     setSubmitting(true);
@@ -230,11 +239,16 @@ export default function PortariaVenda({
 
   async function venderPix() {
     if (!podeVender) return;
+    stoppedRef.current = false;
     setSubmitting(true);
     setError(null);
     setPixExpired(false);
     try {
-      const sale = await api.createPdvPixSale(eventId, montarPayload(), accountToken!);
+      // achado 2026-09-01: se o createPixPayment falhou, o pedido pendente já
+      // existe segurando estoque — o retry REAPROVEITA em vez de criar outro
+      // (o pedido órfão consumia as últimas vagas do lote). Mudou o formulário?
+      // O useEffect abaixo zera `order` e cria um novo.
+      const sale = order ?? (await api.createPdvPixSale(eventId, montarPayload(), accountToken!));
       setOrder(sale);
       const doc = onlyDigits(buyerDocument);
       const pix = await api.createPixPayment(sale.orderId, {
@@ -303,13 +317,16 @@ export default function PortariaVenda({
     setBuyerDocument("");
     setBuyerEmail("");
     setQuantity(1);
+    // a entrega volta ao padrão do dia (achado 2026-09-01: o "Enviar por
+    // e-mail" de uma venda antecipada vazava pra venda de porta seguinte)
+    setEntradaImediata(diaDoEvento);
     // atualiza a vaga dos lotes para a próxima venda
     carregarLotes();
   }
 
   // -------------------------------------------------------------------------
 
-  if (!online) {
+  if (!online && phase === "form") {
     return (
       <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-8 text-center">
         <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-[22px] bg-warning/[.14] text-[#fbbf24]">

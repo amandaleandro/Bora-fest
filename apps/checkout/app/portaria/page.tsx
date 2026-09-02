@@ -1461,7 +1461,10 @@ export default function PortariaPage() {
           )}
 
           {/* ---- aba Vender na porta ---- */}
-          {tab === "venda" && (
+          {canSell && (
+            // achado 2026-09-01: desmontar no meio de um Pix pendente perdia a
+            // venda, o QR e o check-in automático — a aba agora só ESCONDE
+            <div className={tab === "venda" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             <PortariaVenda
               eventId={session.event.id}
               slug={session.event.slug}
@@ -1472,7 +1475,8 @@ export default function PortariaPage() {
               online={online}
               onCheckedIn={() => contar(1)}
             />
-          )}
+            </div>
+            )}
 
           {/* rodapé: fila/manifesto · resumo · abas */}
           <div className="relative z-10 flex-none">

@@ -65,7 +65,15 @@ export class RateLimitGuard implements CanActivate {
       .incr(redisKey)
       .expire(redisKey, options.windowSeconds, "NX")
       .exec();
-    const count = Number(respostas?.[0]?.[1] ?? 0);
+    // Redis fora do ar: decisão DELIBERADA de falhar ABERTO (achado 2026-09-01)
+    // — antes o incr lançava e TODA rota respondia 500 (indisponibilidade
+    // total); melhor ficar sem rate limit por instantes do que sem site.
+    if (!respostas || respostas[0]?.[0]) {
+      // eslint-disable-next-line no-console
+      console.error("[rate-limit] Redis indisponível — request liberada sem limite", respostas?.[0]?.[0]);
+      return true;
+    }
+    const count = Number(respostas[0][1] ?? 0);
 
     if (count > options.limit) {
       throw new HttpException(

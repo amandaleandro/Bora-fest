@@ -454,21 +454,21 @@ export class OrdersService {
    * clicou nos termos — consentimento não se fabrica.
    */
   private async contaInvisivelDoBalcao(
+    db: Pick<typeof prisma, "user">,
     email: string | undefined,
     nome: string | undefined,
     cpf: string | undefined,
   ): Promise<string | undefined> {
-    if (!email || email.endsWith("@borafest.local")) return undefined;
-    const normalizado = email.trim().toLowerCase();
-    const existente = await prisma.user.findUnique({ where: { email: normalizado } });
+    if (!email) return undefined;
+    const existente = await db.user.findUnique({ where: { email } });
     if (existente) return undefined; // reivindicação via OTP, nunca anexo direto
     const cpfDigits = cpf?.replace(/\D/g, "") || undefined;
     const cpfLivre = cpfDigits
-      ? await prisma.user.findUnique({ where: { cpf: cpfDigits } }).then((u) => !u)
+      ? await db.user.findUnique({ where: { cpf: cpfDigits } }).then((u) => !u)
       : false;
-    const created = await prisma.user.create({
+    const created = await db.user.create({
       data: {
-        email: normalizado,
+        email,
         name: nome ?? undefined,
         ...(cpfDigits && cpfLivre ? { cpf: cpfDigits } : {}),
       },
@@ -537,11 +537,17 @@ export class OrdersService {
     // venda no PDV não passa por gateway; a comissão da plataforma segue a
     // tabela do Pix (menor custo) por não haver taxa de adquirente envolvida
     const feeCents = computePlatformFeeCents("PIX", totalCents, organization);
-    const buyerEmail = input.buyerEmail ?? `pdv-${Date.now()}@borafest.local`;
-    const donoId = await this.contaInvisivelDoBalcao(input.buyerEmail, input.buyerName, input.buyerDocument);
+    // e-mail normalizado UMA vez (achado 2026-09-01): o contactEmail cru com
+    // caixa diferente nunca casava com a reivindicação do OTP — pedido pago
+    // ficava sem dono pra sempre
+    const emailNormalizado = input.buyerEmail?.trim().toLowerCase() || undefined;
+    const buyerEmail = emailNormalizado ?? `pdv-${Date.now()}@borafest.local`;
 
     const order = await prisma
       .$transaction(async (tx) => {
+        // conta invisível DENTRO da transação (achado 2026-09-01): venda que
+        // falha (estoque) não pode deixar conta órfã de terceiro pra trás
+        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName, input.buyerDocument);
         await reserveInventory(tx, lot.id, input.quantity);
         await confirmSaleInventory(tx, lot.id, input.quantity);
 
@@ -702,10 +708,11 @@ export class OrdersService {
       : null;
     const partnerCommissionCents = partner ? Math.floor((totalCents * partner.commissionBps) / 10_000) : 0;
     const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
-    const donoId = await this.contaInvisivelDoBalcao(input.buyerEmail, input.buyerName, input.buyerDocument);
+    const emailNormalizado = input.buyerEmail?.trim().toLowerCase() || undefined;
 
     const order = await prisma
       .$transaction(async (tx) => {
+        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName, input.buyerDocument);
         // RESERVA (sem confirmar): o estoque vira sold_count só quando o Pix aprova
         await reserveInventory(tx, lot.id, input.quantity);
 
@@ -727,7 +734,7 @@ export class OrdersService {
             salesPartnerId: partnerId,
             soldByUserId: actorUserId,
             partnerCommissionCents,
-            contactEmail: input.buyerEmail ?? `pdv-${Date.now()}@borafest.local`,
+            contactEmail: emailNormalizado ?? `pdv-${Date.now()}@borafest.local`,
             contactName: input.buyerName,
             userId: donoId,
             status: "PAYMENT_PENDING",
