@@ -17,5 +17,8 @@ export async function isOrderLockedByVerification(orderId: string): Promise<bool
   return Boolean(order?.user && !order.user.emailVerifiedAt);
 }
 
+// Lidera pela confirmação (a compra ESTÁ garantida) para não assustar o
+// comprador, mantendo a substring literal "Confirme seu e-mail" — os testes de
+// segurança casam /Confirme seu e-mail/ e é o gatilho da ação.
 export const TICKET_GATE_MESSAGE =
-  "Confirme seu e-mail para liberar os ingressos — abra o link que enviamos ou peça um código na página do pedido";
+  "Sua compra está confirmada. Confirme seu e-mail para abrir os ingressos — use o link que enviamos ou peça um código na página do pedido";

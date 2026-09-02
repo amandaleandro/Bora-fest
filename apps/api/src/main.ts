@@ -87,6 +87,17 @@ export function assertProductionProviders(): void {
     proibidos.push("PUSH_PROVIDER=devlog");
   }
 
+  // E-MAIL REAL SEM CREDENCIAL (2026-09-02, queixa "não recebi o e-mail"):
+  // com EMAIL_PROVIDER=resend mas RESEND_API_KEY/EMAIL_FROM vazios o boot subia
+  // "verde" e só falhava no 1º envio — a compra confirma, mas o e-mail nunca
+  // sai e o cliente reclama antes de a gente perceber. Falhar no boot é barato.
+  if ((process.env.EMAIL_PROVIDER ?? "devlog") === "resend") {
+    if (!process.env.RESEND_API_KEY?.trim())
+      proibidos.push("EMAIL_PROVIDER=resend sem RESEND_API_KEY (nenhum e-mail seria enviado)");
+    if (!process.env.EMAIL_FROM?.trim())
+      proibidos.push("EMAIL_PROVIDER=resend sem EMAIL_FROM (o Resend recusa sem remetente)");
+  }
+
   if (proibidos.length > 0) {
     throw new Error(`Configuração insegura para produção: ${proibidos.join("; ")}`);
   }

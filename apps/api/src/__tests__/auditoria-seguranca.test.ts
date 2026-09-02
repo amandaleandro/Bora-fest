@@ -15,6 +15,9 @@ import { TicketsService } from "../tickets/tickets.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { OrganizationsService } from "../organizations/organizations.service";
 import { DashboardService } from "../dashboard/dashboard.service";
+import { AdminService } from "../admin/admin.service";
+import { PlatformAccessService } from "../common/platform-access.service";
+import { FinanceService } from "../finance/finance.service";
 import { issueTicketsForOrder } from "../../../worker/src/issue-tickets";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
@@ -87,8 +90,32 @@ test("PORTÃO DO 1º INGRESSO: QR não vaza por imagem, /status, reenvio nem Wha
     const status = await orders.findByPublicToken(pedido.publicToken);
     assert.equal((status as { tickets: unknown[] }).tickets.length, 0);
     assert.equal((status as { requiresVerification: boolean }).requiresVerification, true);
-    // 3) reenvio por e-mail
-    await assert.rejects(() => notifications.resendTickets(pedido.publicToken), /Confirme seu e-mail/);
+    // 3) reenvio por e-mail: NÃO manda o QR (ticket_delivery) antes de verificar,
+    //    mas reenvia o link mágico (account_claim) — auto-atendimento de quem
+    //    não recebeu o aviso, sem furar o portão (queixa 2026-09-02).
+    const reenvio = await notifications.resendTickets(pedido.publicToken);
+    assert.equal((reenvio as { mode?: string }).mode, "account_claim", "reenvio antes de verificar manda o link, não o QR");
+    const aposReenvio = await prisma.notification.findMany({ where: { orderId: pedido.id } });
+    assert.ok(
+      !aposReenvio.some((n) => n.template === "ticket_delivery"),
+      "QR (ticket_delivery) NÃO vaza por reenvio antes de verificar",
+    );
+    assert.ok(
+      aposReenvio.some((n) => n.template === "account_claim"),
+      "o link mágico de acesso é reenviado",
+    );
+    // 3b) o que torna o link seguro: o destino é SEMPRE o contactEmail do
+    //     pedido (derivado no servidor), nunca escolhido pelo chamador
+    const claim = aposReenvio.find((n) => n.template === "account_claim")!;
+    assert.equal(claim.recipient, pedido.contactEmail, "link só vai para o e-mail do pedido");
+    // 3c) rate-limit também no ramo account_claim: sobra 1 (já há 2 — emissão +
+    //     reenvio acima), o 3º passa e o 4º é barrado
+    await notifications.resendTickets(pedido.publicToken); // 3º
+    await assert.rejects(
+      () => notifications.resendTickets(pedido.publicToken), // 4º
+      /Limite de reenvios/,
+      "teto de reenvio vale para o link mágico, não só para o QR",
+    );
     // 4) WhatsApp para telefone arbitrário
     await assert.rejects(
       () => notifications.sendTicketsToWhatsApp(pedido.publicToken, { phone: "11999998888" } as never),
@@ -102,6 +129,59 @@ test("PORTÃO DO 1º INGRESSO: QR não vaza por imagem, /status, reenvio nem Wha
     });
     const png = await tickets.renderTicketQrPng(pedido.publicToken, ticket.id);
     assert.ok(png.length > 100, "QR liberado após verificar");
+  } finally {
+    await cleanupFixtureEvent(f.organization.id);
+    await prisma.user.deleteMany({ where: { email } });
+  }
+});
+
+test("PORTÃO NO BACKOFFICE: requeue não pode reenviar QR de pedido não verificado", async () => {
+  const f = await createFixtureEvent({ lotCapacity: 5, priceCents: 5000, feeCents: 0 });
+  const email = `requeue-${Math.random().toString(36).slice(2, 8)}@borafest.dev`;
+  const admin = new AdminService(
+    new PlatformAccessService(),
+    new NotificationsService(),
+    new FinanceService(new OrgAccessService()),
+  );
+  try {
+    const staff = await prisma.user.create({
+      data: { email: `staff-${Math.random().toString(36).slice(2, 8)}@borafest.dev`, platformRole: "ADMIN" },
+    });
+    const pedido = await comprarAnonimo(f.event.id, f.lot.id, email);
+    await issueTicketsForOrder(pedido.id);
+
+    // forja uma linha ticket_delivery FAILED (como se a conta já estivesse
+    // verificada quando emitiu) e depois deixa o pedido NÃO verificado: o
+    // requeue tem que recusar mesmo assim — o portão é reavaliado no clique.
+    const qrRow = await prisma.notification.create({
+      data: {
+        channel: "EMAIL", recipient: pedido.contactEmail, template: "ticket_delivery",
+        payload: {}, status: "FAILED", attempts: 5, orderId: pedido.id,
+      },
+    });
+    await assert.rejects(
+      () => admin.requeueNotification(qrRow.id, staff.id),
+      /Confirme seu e-mail/,
+      "requeue de QR de pedido não verificado é barrado pelo portão",
+    );
+    const aindaFailed = await prisma.notification.findUniqueOrThrow({ where: { id: qrRow.id } });
+    assert.equal(aindaFailed.status, "FAILED", "linha do QR não foi reenfileirada");
+
+    // o link mágico (account_claim), esse sim, pode ser reenfileirado
+    const claimRow = await prisma.notification.findFirstOrThrow({
+      where: { orderId: pedido.id, template: "account_claim" },
+    });
+    await prisma.notification.update({ where: { id: claimRow.id }, data: { status: "FAILED" } });
+    const ok = await admin.requeueNotification(claimRow.id, staff.id);
+    assert.equal(ok.requeued, true, "account_claim reenfileirado");
+    const reenfileirada = await prisma.notification.findUniqueOrThrow({ where: { id: claimRow.id } });
+    assert.equal(reenfileirada.status, "PENDING", "voltou para a fila");
+    assert.equal(reenfileirada.attempts, 0, "tentativas zeradas para novo teto");
+
+    // depois de verificar, o QR pode ser reenfileirado normalmente
+    await prisma.user.update({ where: { id: pedido.userId! }, data: { emailVerifiedAt: new Date() } });
+    const okQr = await admin.requeueNotification(qrRow.id, staff.id);
+    assert.equal(okQr.requeued, true, "QR reenfileira após verificação");
   } finally {
     await cleanupFixtureEvent(f.organization.id);
     await prisma.user.deleteMany({ where: { email } });

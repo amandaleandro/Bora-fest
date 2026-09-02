@@ -148,6 +148,24 @@ export class AdminController {
     return this.adminService.listWebhooks(userId, { provider, status });
   }
 
+  /** e-mails/notificações FAILED ou presas na fila de entrega (só leitura) */
+  @Get("notifications")
+  listStuckNotifications(
+    @CurrentUserId() userId: string,
+    @Query("status") status: string | undefined,
+    @Query("template") template: string | undefined,
+    @Query("orderId") orderId: string | undefined,
+  ) {
+    return this.adminService.listStuckNotifications(userId, { status, template, orderId });
+  }
+
+  /** re-enfileira uma notificação (respeita o portão do 1º ingresso) */
+  @Post("notifications/:id/requeue")
+  @HttpCode(202)
+  requeueNotification(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.adminService.requeueNotification(id, userId);
+  }
+
   @Get("queues")
   getQueuesHealth(@CurrentUserId() userId: string) {
     return this.adminService.getQueuesHealth(userId);

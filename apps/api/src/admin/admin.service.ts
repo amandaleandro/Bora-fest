@@ -1,7 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { applyGatewayStatus, getGateway } from "@borafest/payments";
 import { executeOrderRefund } from "../common/execute-refund";
+import { isOrderLockedByVerification, TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { semSegredoDoEvento } from "../common/event-public";
 import {
   createNotificationDeliveryQueue,
@@ -544,19 +550,92 @@ export class AdminService {
   async getQueuesHealth(userId: string) {
     await this.platformAccess.assertStaff(userId);
 
-    const [reservation, outbox, payment, order, notification, outboxRows] = await Promise.all([
-      this.reservationQueue.getJobCounts(),
-      this.outboxQueue.getJobCounts(),
-      this.paymentQueue.getJobCounts(),
-      this.orderQueue.getJobCounts(),
-      this.notificationQueue.getJobCounts(),
-      prisma.outboxEvent.groupBy({ by: ["status"], _count: { _all: true } }),
-    ]);
+    const [reservation, outbox, payment, order, notification, outboxRows, notifRows] =
+      await Promise.all([
+        this.reservationQueue.getJobCounts(),
+        this.outboxQueue.getJobCounts(),
+        this.paymentQueue.getJobCounts(),
+        this.orderQueue.getJobCounts(),
+        this.notificationQueue.getJobCounts(),
+        prisma.outboxEvent.groupBy({ by: ["status"], _count: { _all: true } }),
+        // A tabela `notifications` é a fonte da verdade da entrega (queixa
+        // 2026-09-02): o BullMQ pode estar "saudável" enquanto há e-mails de
+        // compra FAILED/presos. O dashboard tem que enxergar isso.
+        prisma.notification.groupBy({ by: ["status"], _count: { _all: true } }),
+      ]);
 
     return {
       queues: { reservation, outbox, payment, order, notification },
       outboxEvents: Object.fromEntries(outboxRows.map((r) => [r.status, r._count._all])),
+      notifications: Object.fromEntries(notifRows.map((r) => [r.status, r._count._all])),
     };
+  }
+
+  /**
+   * Notificações FAILED ou PENDING presas (>15min) para o backoffice — versão
+   * endpoint do que o script auditoria-emails.ts faz. Só leitura; NUNCA expõe
+   * `payload` (carrega o magic-link/token e PII, mesma defesa do listWebhooks).
+   */
+  async listStuckNotifications(
+    userId: string,
+    filters: { status?: string; template?: string; orderId?: string; sinceMinutes?: number },
+    limit = 100,
+  ): Promise<any> {
+    await this.platformAccess.assertStaff(userId);
+    const presoAntes = new Date(Date.now() - (filters.sinceMinutes ?? 15) * 60 * 1000);
+    return prisma.notification.findMany({
+      where: {
+        template: filters.template,
+        orderId: filters.orderId,
+        // FAILED sempre entra; PENDING só se já está preso há mais que o limite
+        OR: filters.status
+          ? [{ status: filters.status as never }]
+          : [{ status: "FAILED" }, { status: "PENDING", createdAt: { lt: presoAntes } }],
+      },
+      select: {
+        id: true, channel: true, template: true, recipient: true, status: true,
+        attempts: true, error: true, availableAt: true, sentAt: true, createdAt: true, orderId: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(limit, 200),
+    });
+  }
+
+  /**
+   * Re-enfileira uma notificação FAILED/PENDING (volta a PENDING, disponível
+   * agora, zera tentativas). GUARD INEGOCIÁVEL do portão do 1º ingresso: nunca
+   * reenfileirar um ticket_delivery (QR) de pedido com conta não verificada —
+   * senão este endpoint vira a 5ª porta de vazamento do QR.
+   */
+  async requeueNotification(notificationId: string, userId: string) {
+    const actor = await this.platformAccess.assertStaff(userId);
+    const notif = await prisma.notification.findUnique({ where: { id: notificationId } });
+    if (!notif) throw new NotFoundException("Notificação não encontrada");
+
+    if (notif.template === "ticket_delivery" && notif.orderId) {
+      if (await isOrderLockedByVerification(notif.orderId)) {
+        throw new ForbiddenException(TICKET_GATE_MESSAGE);
+      }
+    }
+
+    const requeued = await prisma.notification.updateMany({
+      where: { id: notificationId, status: { in: ["FAILED", "PENDING"] } },
+      data: { status: "PENDING", availableAt: new Date(), attempts: 0, error: null },
+    });
+    if (requeued.count === 0) {
+      throw new BadRequestException("Notificação já enviada ou não pode ser reenfileirada");
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action: "admin.notification.requeue",
+        entityType: "notification",
+        entityId: notificationId,
+        metadata: { template: notif.template, channel: notif.channel, recipient: notif.recipient },
+      },
+    });
+    return { requeued: true };
   }
 
   async blockTicket(ticketId: string, userId: string, input: BlockReasonInput) {

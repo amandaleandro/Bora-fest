@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { createSessionToken } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { getWhatsAppSender } from "@borafest/notifications";
 import type { OrderWhatsAppInput, RegisterPushTokenInput } from "@borafest/contracts";
@@ -31,8 +32,9 @@ export class NotificationsService {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
-        user: { select: { emailVerifiedAt: true } },
+        user: { select: { id: true, emailVerifiedAt: true, sessionVersion: true } },
         event: { select: { title: true, startsAt: true, timezone: true } },
+        guestListEntries: { select: { id: true }, take: 1 },
         tickets: {
           where: { status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] } },
           orderBy: [{ orderItemId: "asc" }, { seq: "asc" }],
@@ -43,9 +45,56 @@ export class NotificationsService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
-    // portão do 1º ingresso: nada de QR por reenvio/WhatsApp antes de verificar
+    // Portão do 1º ingresso: o QR NUNCA sai por reenvio antes de verificar.
+    // Mas quem pagou e não recebeu o aviso precisa de auto-atendimento (queixa
+    // 2026-09-02): em vez de recusar, REENVIAMOS o link mágico (account_claim)
+    // para o MESMO e-mail do pedido — nunca o QR. Clicar verifica e abre tudo.
+    // (Institucionais como @ufu.br fazem greylisting; a 2ª tentativa costuma
+    // passar — por isso o reenvio resolve boa parte dos casos.)
     if (order.user && !order.user.emailVerifiedAt) {
-      throw new ForbiddenException(TICKET_GATE_MESSAGE);
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recent = await prisma.notification.count({
+        where: { orderId: order.id, template: "account_claim", createdAt: { gt: oneHourAgo } },
+      });
+      if (recent >= RESEND_LIMIT_PER_HOUR) {
+        throw new BadRequestException(
+          "Limite de reenvios atingido — tente novamente em alguns minutos",
+        );
+      }
+      const claimToken = await createSessionToken(
+        {
+          sub: order.user.id,
+          purpose: "email-verify",
+          sv: order.user.sessionVersion,
+          orderToken: order.publicToken,
+        },
+        "7d",
+      );
+      const base = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+      const cortesia =
+        order.totalCents === 0
+          ? order.guestListEntries.length > 0
+            ? ("CONVIDADO" as const)
+            : order.soldByUserId
+              ? ("CORTESIA" as const)
+              : null
+          : null;
+      await prisma.notification.create({
+        data: {
+          channel: "EMAIL",
+          recipient: order.contactEmail,
+          template: "account_claim",
+          payload: {
+            contactName: order.contactName,
+            eventTitle: order.event.title,
+            claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+            cortesia,
+          },
+          orderId: order.id,
+        },
+      });
+      // sinaliza pra UI: "reenviamos o link de acesso" (não o QR)
+      return { queued: true, channels: ["EMAIL"], mode: "account_claim" as const };
     }
     if (order.status !== "FULFILLED" || order.tickets.length === 0) {
       throw new BadRequestException("Pedido ainda não tem ingressos emitidos");
