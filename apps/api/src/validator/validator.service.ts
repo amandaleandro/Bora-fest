@@ -333,6 +333,11 @@ export class ValidatorService {
         // aparelho: só o hash sai do servidor (minimização LGPD).
         attendeeName: true,
         attendeeCpf: true,
+        // etiqueta de entrada grátis (2026-08-31): CONVIDADO (lista) vs
+        // CORTESIA (balcão de promoter) — a portaria mostra no VÁLIDO
+        order: {
+          select: { totalCents: true, soldByUserId: true, guestListEntries: { select: { id: true }, take: 1 } },
+        },
       },
     });
 
@@ -350,9 +355,17 @@ export class ValidatorService {
       ticketCount: tickets.length,
       // busca por documento na portaria compara sha256 no aparelho — o CPF cru
       // nunca sai do servidor.
-      tickets: tickets.map(({ attendeeCpf, ...ticket }) => ({
+      tickets: tickets.map(({ attendeeCpf, order, ...ticket }) => ({
         ...ticket,
         cpfHash: hashCpf(attendeeCpf),
+        tipo:
+          order && order.totalCents === 0
+            ? order.guestListEntries.length > 0
+              ? ("CONVIDADO" as const)
+              : order.soldByUserId
+                ? ("CORTESIA" as const)
+                : null
+            : null,
       })),
     };
   }

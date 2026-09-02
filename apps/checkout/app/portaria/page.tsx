@@ -516,6 +516,7 @@ export default function PortariaPage() {
               code: data.ticket?.code,
               name: data.ticket?.attendeeName,
               lotLabel: data.ticket ? `${data.ticket.typeName} — ${data.ticket.lotName}` : null,
+              tipo: data.ticket?.tipo ?? null,
               firstAt: data.firstCheckin?.at ?? null,
               firstGate: data.firstCheckin?.gateName ?? null,
               firstDevice: data.firstCheckin?.deviceName ?? null,
@@ -1925,6 +1926,7 @@ function ResultScreen({
   const rows: Array<[string, string]> = [];
   if (result.kind === "VALID") {
     rows.push(["Portador", result.name ?? "Ingresso não nominal"]);
+    if (result.tipo) rows.push(["Entrada", result.tipo === "CONVIDADO" ? "★ Convidado da produção" : "Cortesia (não pagou)"]);
     if (result.lotLabel) rows.push(["Ingresso", result.lotLabel]);
     if (result.code) rows.push(["Código", result.code]);
     if (result.offline) rows.push(["Sincronização", "Na fila — envia quando a rede voltar"]);

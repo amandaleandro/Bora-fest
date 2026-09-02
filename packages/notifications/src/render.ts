@@ -11,6 +11,8 @@ export interface TicketDeliveryPayload {
   eventStartsAt: string;
   orderUrl: string;
   tickets: Array<{ code: string; typeName: string; lotName: string }>;
+  /** entrada grátis: CONVIDADO (lista, com charme) ou CORTESIA (balcão, sóbria) */
+  cortesia?: "CONVIDADO" | "CORTESIA" | null;
 }
 
 export function renderTicketDeliveryEmail(
@@ -32,7 +34,11 @@ export function renderTicketDeliveryEmail(
   const text = [
     saudacao,
     "",
-    `Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} para ${payload.eventTitle} ${plural ? "estão prontos" : "está pronto"}! 🎉`,
+    payload.cortesia === "CONVIDADO"
+      ? `Você é convidado de ${payload.eventTitle}! ✨ Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} ${plural ? "estão prontos" : "está pronto"}.`
+      : payload.cortesia === "CORTESIA"
+        ? `Sua cortesia para ${payload.eventTitle} ${plural ? "estão prontas" : "está garantida"}! 🎟️`
+        : `Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} para ${payload.eventTitle} ${plural ? "estão prontos" : "está pronto"}! 🎉`,
     "",
     `Data do evento: ${payload.eventStartsAt}`,
     "",
@@ -49,7 +55,13 @@ export function renderTicketDeliveryEmail(
   const html = `
 <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
   <h2>${escapeHtml(saudacao)}</h2>
-  <p>Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} para <strong>${escapeHtml(payload.eventTitle)}</strong> ${plural ? "estão prontos" : "está pronto"}! 🎉</p>
+  <p>${
+    payload.cortesia === "CONVIDADO"
+      ? `Você é convidado de <strong>${escapeHtml(payload.eventTitle)}</strong>! ✨`
+      : payload.cortesia === "CORTESIA"
+        ? `Sua cortesia para <strong>${escapeHtml(payload.eventTitle)}</strong> está garantida! 🎟️`
+        : `Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} para <strong>${escapeHtml(payload.eventTitle)}</strong> ${plural ? "estão prontos" : "está pronto"}! 🎉`
+  }</p>
   <p><strong>Data do evento:</strong> ${escapeHtml(payload.eventStartsAt)}</p>
   <p style="margin:24px 0">
     <a href="${escapeHtml(payload.orderUrl)}" style="background:#D9128F;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Ver meus ingressos</a>
@@ -61,7 +73,12 @@ export function renderTicketDeliveryEmail(
 
   return {
     to,
-    subject: `Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} — ${payload.eventTitle}`,
+    subject:
+      payload.cortesia === "CONVIDADO"
+        ? `Você é convidado — ${payload.eventTitle} ✨`
+        : payload.cortesia === "CORTESIA"
+          ? `Sua cortesia — ${payload.eventTitle}`
+          : `Seu${plural ? "s" : ""} ingresso${plural ? "s" : ""} — ${payload.eventTitle}`,
     html,
     text,
   };
@@ -187,6 +204,8 @@ export interface AccountClaimPayload {
   eventTitle: string;
   /** link mágico: clicar prova a posse do e-mail, loga e abre o ingresso */
   claimUrl: string;
+  /** entrada grátis: muda assunto/abertura (convite tem charme, cortesia é sóbria) */
+  cortesia?: "CONVIDADO" | "CORTESIA" | null;
 }
 
 /**
@@ -196,11 +215,22 @@ export interface AccountClaimPayload {
  */
 export function renderAccountClaimEmail(to: string, payload: AccountClaimPayload) {
   const saudacao = payload.contactName ? `Olá, ${payload.contactName}!` : "Olá!";
-  const subject = `Seu ingresso para ${payload.eventTitle} está pronto 🎟️`;
+  const subject =
+    payload.cortesia === "CONVIDADO"
+      ? `Você é convidado: ${payload.eventTitle} ✨`
+      : payload.cortesia === "CORTESIA"
+        ? `Sua cortesia para ${payload.eventTitle} 🎟️`
+        : `Seu ingresso para ${payload.eventTitle} está pronto 🎟️`;
+  const abertura =
+    payload.cortesia === "CONVIDADO"
+      ? "Você foi convidado! Seu ingresso para"
+      : payload.cortesia === "CORTESIA"
+        ? "Cortesia garantida! Seu ingresso para"
+        : "Pagamento aprovado! Seu ingresso para";
   const html = `
   <div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">
     <p style="font-size:16px;font-weight:700">${escapeHtml(saudacao)}</p>
-    <p style="font-size:14px;line-height:1.6">Pagamento aprovado! Seu ingresso para
+    <p style="font-size:14px;line-height:1.6">${abertura}
       <b>${escapeHtml(payload.eventTitle)}</b> está guardado na sua conta BoraFest —
       criada agora com os dados da compra.</p>
     <p style="font-size:14px;line-height:1.6">Toque no botão para acessar (isso confirma que este
@@ -211,6 +241,6 @@ export function renderAccountClaimEmail(to: string, payload: AccountClaimPayload
     <p style="font-size:12px;color:#6b6577;line-height:1.6">Abrindo em outro aparelho? Na página do
       pedido dá para pedir um código de 6 dígitos para este mesmo e-mail.</p>
   </div>`;
-  const text = `${saudacao}\n\nPagamento aprovado! Seu ingresso para ${payload.eventTitle} está na sua conta BoraFest.\nAcesse: ${payload.claimUrl}`;
+  const text = `${saudacao}\n\n${abertura} ${payload.eventTitle} está na sua conta BoraFest.\nAcesse: ${payload.claimUrl}`;
   return { to, subject, html, text };
 }

@@ -277,6 +277,8 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
   // --- carteira ---
   if (view === "carteira" && ticketsData) {
+    const cortesia = ticketsData.cortesia ?? null;
+    const convidado = cortesia?.kind === "CONVIDADO";
     return (
       <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pt-8">
         <div className="flex items-center gap-3">
@@ -284,7 +286,18 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
             <Icon d={paths.back} />
           </button>
           <div className="min-w-0">
-            <h1 className="text-[22px] font-extrabold lg:text-[24px]">Seus ingressos</h1>
+            <h1 className="flex items-center gap-2 text-[22px] font-extrabold lg:text-[24px]">
+              Seus ingressos
+              {cortesia && (
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold tracking-wider ${
+                    convidado ? "bg-amber-100 text-amber-800" : "bg-line/60 text-muted"
+                  }`}
+                >
+                  {convidado ? "★ CONVIDADO" : "CORTESIA"}
+                </span>
+              )}
+            </h1>
             <p className="mt-0.5 truncate text-[13px] font-medium text-muted">
               {order.contactName ?? order.contactEmail} · {ticketsData.tickets.length} ingresso{ticketsData.tickets.length === 1 ? "" : "s"}
             </p>
@@ -305,11 +318,21 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         <div className="mt-5 space-y-6 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
           {ticketsData.tickets.map((ticket) => (
             <article key={ticket.id} className="overflow-hidden rounded-3xl bg-surface shadow-card">
-              <div className="bg-brand-gradient p-5 text-white">
+              <div className={`${convidado ? "bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500" : "bg-brand-gradient"} p-5 text-white`}>
+                {cortesia && (
+                  <span className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-extrabold tracking-wider">
+                    {convidado ? "★ CONVIDADO" : "CORTESIA"}
+                  </span>
+                )}
                 <p className="text-[16px] font-extrabold leading-tight">{ticketsData.event.title}</p>
                 <p className="mt-1 text-[12px] font-semibold text-white/85">
                   {formatDateTime(ticketsData.event.startsAt)}
                 </p>
+                {cortesia && (
+                  <p className="mt-1 text-[11.5px] font-bold text-white/90">
+                    {convidado ? "Convidado da produção ✨" : `Convidado por ${cortesia.por}`}
+                  </p>
+                )}
               </div>
               <div className="ticket-notch border-t-2 border-dashed border-line px-5 pb-5 pt-6 text-center">
                 <div className="mx-auto w-fit rounded-2xl border border-line bg-white p-3">
@@ -320,6 +343,11 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                 <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary">
                   {ticket.typeName} — {ticket.lotName}
                 </span>
+                {cortesia ? (
+                  <p className="mt-4 rounded-xl bg-bg px-3 py-2.5 text-[11px] font-bold text-muted">
+                    🔒 Intransferível — vale só para {ticket.attendeeName ?? order.contactName ?? "o nome emitido"}
+                  </p>
+                ) : (
                 <div className={`mt-4 grid gap-2 ${WA_ON ? "grid-cols-3" : "grid-cols-2"}`}>
                   <button disabled className="rounded-xl bg-black py-2.5 text-[11px] font-bold text-white opacity-50">Wallet · breve</button>
                   {WA_ON && (<button onClick={resend} className="rounded-xl border-[1.5px] border-line-input py-2.5 text-[11px] font-bold text-ink">WhatsApp</button>)}
@@ -330,6 +358,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                     Transferir
                   </button>
                 </div>
+                )}
               </div>
             </article>
           ))}

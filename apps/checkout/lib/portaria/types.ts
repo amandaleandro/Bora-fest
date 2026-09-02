@@ -31,6 +31,7 @@ export interface ManifestTicket {
    * Opcional para tolerar manifestos guardados antes do campo existir.
    */
   cpfHash?: string | null;
+  tipo?: "CONVIDADO" | "CORTESIA" | null;
 }
 
 export interface ManifestLot {
@@ -92,6 +93,8 @@ export interface ScanResult {
   code?: string;
   name?: string | null;
   lotLabel?: string | null;
+  /** entrada grátis: mostrado no VÁLIDO pro staff saber (CONVIDADO/CORTESIA) */
+  tipo?: "CONVIDADO" | "CORTESIA" | null;
   firstAt?: string | null;
   firstGate?: string | null;
   firstDevice?: string | null;

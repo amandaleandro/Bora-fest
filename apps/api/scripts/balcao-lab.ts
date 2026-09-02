@@ -11,6 +11,7 @@ import { InventoryService } from "../src/inventory/inventory.service";
 import { OrdersService } from "../src/orders/orders.service";
 import { ReservationsService } from "../src/reservations/reservations.service";
 import { OrgAccessService } from "../src/common/org-access.service";
+import { TicketsService } from "../src/tickets/tickets.service";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? (pass++, console.log(`  PASS ${n}`)) : (fail++, console.log(`  FAIL ${n} ${d}`)); };
@@ -106,6 +107,48 @@ async function main() {
   const pedidoVet = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactEmail: `veterano-${suf}@lab.test` } });
   ok("pedido do e-mail existente nasce SEM dono (anti-sequestro)", pedidoVet.userId === null);
 
+  console.log("\n6d) RÓTULO: a carteira do novato diz CORTESIA com o nome da atlética");
+  const ticketsSvc = new TicketsService();
+  const carteiraNovato = await ticketsSvc.findByOrderPublicToken(pedidoNovato.publicToken);
+  ok("kind = CORTESIA", (carteiraNovato as any).cortesia?.kind === "CORTESIA", JSON.stringify((carteiraNovato as any).cortesia));
+  ok("por = Atlética Novatos", (carteiraNovato as any).cortesia?.por === "Atlética Novatos");
+
+  console.log("\n6e) INTRANSFERÍVEL: cortesia não transfere nem pelo dono");
+  await prisma.user.update({ where: { id: novato1!.id }, data: { emailVerifiedAt: new Date() } });
+  // no lab não há worker de emissão — cria o ticket como o outbox criaria
+  const itemNovato = await prisma.orderItem.findFirstOrThrow({ where: { orderId: pedidoNovato.id } });
+  const ticketNovato = await prisma.ticket.create({ data: {
+    event: { connect: { id: ev.id } }, order: { connect: { id: pedidoNovato.id } },
+    orderItem: { connect: { id: itemNovato.id } }, ticketLot: { connect: { id: cortesia.id } },
+    code: `LAB-${suf}`, seq: 1, qrToken: randomUUID(), status: "ISSUED",
+    attendeeName: "Novato Um",
+  } });
+  let travou = false;
+  try {
+    await ticketsSvc.transferTicket(ticketNovato.id, novato1!.id, { toEmail: `veterano-${suf}@lab.test`, toName: "V" } as never);
+  } catch (e) { travou = (e as Error).message.includes("intransferível"); }
+  ok("transferência de cortesia recusada com a mensagem certa", travou);
+
+  console.log("\n6f) CONVIDADO: pedido da lista de convidados ganha o rótulo dourado");
+  const resvConv = await prisma.reservation.create({ data: { event: { connect: { id: ev.id } }, status: "CONVERTED", expiresAt: new Date() } });
+  const pedidoConv = await prisma.order.create({ data: {
+    event: { connect: { id: ev.id } }, reservation: { connect: { id: resvConv.id } },
+    publicToken: randomUUID(), contactEmail: `vip-${suf}@lab.test`, contactName: "Maria VIP",
+    status: "PAID", totalCents: 0, paidAt: new Date(),
+  } });
+  await prisma.guestListEntry.create({ data: {
+    eventId: ev.id, ticketLotId: cortesia.id, addedByUserId: dono.id,
+    orderId: pedidoConv.id, guestName: "Maria VIP",
+  } });
+  const carteiraVip = await ticketsSvc.findByOrderPublicToken(pedidoConv.publicToken);
+  ok("kind = CONVIDADO", (carteiraVip as any).cortesia?.kind === "CONVIDADO", JSON.stringify((carteiraVip as any).cortesia));
+  ok("por = produção", (carteiraVip as any).cortesia?.por === "produção");
+
+  console.log("\n6g) PAGO segue sem rótulo e transferível na regra");
+  const pedidoVet2 = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactEmail: `veterano-${suf}@lab.test` } });
+  const carteiraVet = await ticketsSvc.findByOrderPublicToken(pedidoVet2.publicToken);
+  ok("pedido pago: cortesia = null", (carteiraVet as any).cortesia === null);
+
   console.log("\n7) PIX de R$0 recusado com mensagem clara");
   let pixRecusado = false;
   try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "X" } as never); }
@@ -121,6 +164,7 @@ async function main() {
   ok("reserva do lote pago criada", !!(r as any).id || !!(r as any).reservationId);
 
   // limpeza
+  await prisma.guestListEntry.deleteMany({ where: { eventId: ev.id } });
   await prisma.ticket.deleteMany({ where: { eventId: ev.id } });
   await prisma.order.deleteMany({ where: { eventId: ev.id } });
   await prisma.reservation.deleteMany({ where: { eventId: ev.id } });

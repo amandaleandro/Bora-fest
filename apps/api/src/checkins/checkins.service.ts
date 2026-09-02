@@ -54,6 +54,16 @@ export class CheckinsService {
         attendeeName: ticket.attendeeName,
         lotName: ticket.ticketLot.name,
         typeName: ticket.ticketLot.ticketType.name,
+        // portaria mostra a etiqueta: staff sabe que a entrada é grátis
+        tipo: ticket.order
+          ? ticket.order.totalCents === 0
+            ? (ticket.order.guestListEntries?.length ?? 0) > 0
+              ? ("CONVIDADO" as const)
+              : ticket.order.soldByUserId
+                ? ("CORTESIA" as const)
+                : null
+            : null
+          : null,
       },
       checkinId: outcome.checkinId,
       firstCheckin: outcome.firstCheckin,
@@ -457,6 +467,9 @@ export class CheckinsService {
       },
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+        order: {
+          select: { totalCents: true, soldByUserId: true, guestListEntries: { select: { id: true }, take: 1 } },
+        },
       },
     });
   }

@@ -21,6 +21,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       attendees: true,
       event: { include: { signingKey: true } },
       user: { select: { id: true, emailVerifiedAt: true, name: true, cpf: true, sessionVersion: true } },
+      guestListEntries: { select: { id: true }, take: 1 },
     },
   });
 
@@ -29,6 +30,16 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
     return;
   }
   if (order.status === "FULFILLED") return; // já emitido — reprocessamento é no-op
+
+  // etiqueta de entrada grátis (2026-08-31): muda assunto/abertura dos e-mails
+  const cortesia =
+    order.totalCents === 0
+      ? order.guestListEntries.length > 0
+        ? ("CONVIDADO" as const)
+        : order.soldByUserId
+          ? ("CORTESIA" as const)
+          : null
+      : null;
   if (order.status !== "PAID") {
     log.warn({ orderId, status: order.status }, "pedido não está PAID; emissão ignorada");
     return;
@@ -124,6 +135,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
             contactName: order.contactName,
             eventTitle: order.event.title,
             claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+            cortesia,
           },
           orderId,
         },
@@ -131,7 +143,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       return; // sem QR por e-mail/WhatsApp/push até verificar
     }
 
-    const payload = buildDeliveryPayload(order, tickets);
+    const payload = buildDeliveryPayload(order, tickets, cortesia);
     await tx.notification.create({
       data: {
         channel: "EMAIL",
@@ -186,6 +198,7 @@ export function buildDeliveryPayload(
     code: string;
     ticketLot: { name: string; ticketType: { name: string } };
   }>,
+  cortesia: "CONVIDADO" | "CORTESIA" | null = null,
 ) {
   const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
   return {
@@ -203,6 +216,7 @@ export function buildDeliveryPayload(
       typeName: t.ticketLot.ticketType.name,
       lotName: t.ticketLot.name,
     })),
+    cortesia,
   };
 }
 

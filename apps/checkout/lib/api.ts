@@ -214,6 +214,8 @@ export interface OrderTicketsResponse {
   event: { title: string; slug: string; startsAt: string; endsAt: string };
   /** conta criada no checkout ainda não verificada: QR fica trancado */
   requiresVerification?: boolean;
+  /** entrada grátis: CONVIDADO (lista, dourado) ou CORTESIA (balcão, sóbria) */
+  cortesia?: { kind: "CONVIDADO" | "CORTESIA"; por: string } | null;
   contactEmail?: string;
   tickets: OrderTicket[];
 }

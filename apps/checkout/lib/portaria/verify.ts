@@ -106,6 +106,7 @@ export function verifyLocally(
     code: ticket.code,
     name: ticket.attendeeName,
     lotLabel: lotLabel(index, ticket.ticketLotId),
+    tipo: ticket.tipo ?? null,
   };
 
   if (ticket.status === "CANCELED" || ticket.status === "REFUNDED") {

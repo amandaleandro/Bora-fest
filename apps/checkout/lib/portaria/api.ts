@@ -67,6 +67,7 @@ export interface CheckinResponse {
     attendeeName: string | null;
     lotName: string;
     typeName: string;
+        tipo?: "CONVIDADO" | "CORTESIA" | null;
   };
   checkinId?: string;
   firstCheckin?: { at: string | null; deviceName?: string; gateName?: string | null };

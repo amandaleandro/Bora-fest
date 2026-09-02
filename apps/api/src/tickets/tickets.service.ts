@@ -25,6 +25,24 @@ export class TicketsService {
   }
 
   /** Ingressos de um pedido, acessíveis pelo token público (compra sem conta). */
+  /**
+   * Origem de ingresso GRÁTIS (decisão do Arthur 2026-08-31): pedido de R$0
+   * vindo da Lista de Convidados vira CONVIDADO (charme dourado, "da
+   * produção"); vindo do balcão de promoter vira CORTESIA (sóbrio, com o nome
+   * da atlética). Derivado das relações que já existem — sem coluna nova.
+   */
+  private origemGratis(order: {
+    totalCents: number;
+    soldByUserId: string | null;
+    guestListEntries?: Array<{ id: string }>;
+    salesPartner?: { name: string } | null;
+  }): { kind: "CONVIDADO" | "CORTESIA"; por: string } | null {
+    if (order.totalCents !== 0) return null;
+    if ((order.guestListEntries?.length ?? 0) > 0) return { kind: "CONVIDADO", por: "produção" };
+    if (order.soldByUserId) return { kind: "CORTESIA", por: order.salesPartner?.name ?? "equipe do evento" };
+    return null;
+  }
+
   async findByOrderPublicToken(publicToken: string) {
     const order = await prisma.order.findUnique({
       where: { publicToken },
@@ -37,9 +55,12 @@ export class TicketsService {
         },
         event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
         user: { select: { emailVerifiedAt: true } },
+        guestListEntries: { select: { id: true }, take: 1 },
+        salesPartner: { select: { name: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
+    const cortesia = this.origemGratis(order);
 
     // Portão do 1º ingresso: conta não verificada não vê QR — nem por link
     // encaminhado. Verificou (código ou link mágico), abre.
@@ -50,6 +71,7 @@ export class TicketsService {
         event: order.event,
         requiresVerification: true,
         contactEmail: order.contactEmail,
+        cortesia,
         tickets: [],
       };
     }
@@ -60,6 +82,7 @@ export class TicketsService {
       event: order.event,
       requiresVerification: false,
       contactEmail: order.contactEmail,
+      cortesia,
       // ingresso transferido para outra conta some da visão por token do pedido
       tickets: order.tickets
         .filter((ticket) => this.belongsToOrderBearer(ticket, order))
@@ -149,7 +172,7 @@ export class TicketsService {
     const ticket = await prisma.ticket.findUnique({
       where: { id: ticketId },
       include: {
-        order: { select: { publicToken: true, userId: true, contactEmail: true } },
+        order: { select: { publicToken: true, userId: true, contactEmail: true, totalCents: true } },
         event: { select: { title: true, endsAt: true, signingKey: true } },
         ticketLot: {
           select: { name: true, requiresCpf: true, ticketType: { select: { name: true } } },
@@ -167,6 +190,14 @@ export class TicketsService {
     }
     if (ticket.status !== "ISSUED" && ticket.status !== "ACTIVE") {
       throw new BadRequestException("Este ingresso não pode ser transferido no estado atual");
+    }
+    // cortesia/convidado é INTRANSFERÍVEL (decisão 2026-08-31): transferível,
+    // ingresso grátis vira moeda — o golpe clássico é emitir cortesia em nome
+    // fantasma e vender por fora usando a transferência pra "lavar" o nome.
+    if (ticket.order.totalCents === 0) {
+      throw new BadRequestException(
+        "Ingresso de cortesia/convidado é intransferível — vale só para o nome em que foi emitido",
+      );
     }
     if (new Date(ticket.event.endsAt).getTime() <= Date.now()) {
       throw new BadRequestException("O evento já terminou — ingresso não pode ser transferido");
