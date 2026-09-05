@@ -583,6 +583,17 @@ function VerificationGate({
   const [newEmail, setNewEmail] = useState("");
   const [email, setEmail] = useState(contactEmail);
   const [message, setMessage] = useState<string | null>(null);
+  // e-mail da sessão, se houver: habilita o "este pedido é meu"
+  const [logado, setLogado] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = localStorage.getItem("bf.token");
+    if (!t) return;
+    api
+      .myProfile(t)
+      .then((p) => setLogado(p.email ?? null))
+      .catch(() => setLogado(null));
+  }, []);
 
   async function sendCode() {
     setBusy(true);
@@ -607,6 +618,24 @@ function VerificationGate({
       onVerified();
     } catch (e) {
       setMessage(e instanceof ApiError ? e.message : "Código inválido");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Saída do comprador que digitou o e-mail errado e JÁ está logado na conta
+  // certa (incidente 2026-09-02): o link de acesso foi para um endereço que não
+  // existe, então nem código nem correção salvam — o e-mail certo já tem conta.
+  async function claimOrder() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const token = localStorage.getItem("bf.token");
+      if (!token) throw new ApiError(401, "Entre na sua conta primeiro");
+      await api.claimOrder(publicToken, token);
+      onVerified();
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : "Não foi possível trazer o pedido");
     } finally {
       setBusy(false);
     }
@@ -696,6 +725,23 @@ function VerificationGate({
           Não recebeu? Digitou o e-mail errado? Corrija aqui
         </button>
       )}
+
+      {logado ? (
+        <div className="mt-4 border-t border-line pt-4">
+          <p className="text-[12.5px] font-medium leading-relaxed text-muted">
+            Já está na sua conta <b className="text-ink">{logado}</b> e o ingresso não aparece?
+            O e-mail da compra saiu com erro de digitação.
+          </p>
+          <button
+            type="button"
+            onClick={claimOrder}
+            disabled={busy}
+            className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-primary text-[14px] font-extrabold text-primary disabled:opacity-60"
+          >
+            {busy ? "Trazendo…" : "Este pedido é meu — trazer para minha conta"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

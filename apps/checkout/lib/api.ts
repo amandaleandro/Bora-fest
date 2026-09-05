@@ -457,6 +457,12 @@ export const api = {
       method: "POST",
       body: { email },
     }),
+  /** "este pedido é meu": traz para a conta logada um pedido preso em conta de e-mail errado */
+  claimOrder: (publicToken: string, token: string) =>
+    request<{ ok: boolean; contactEmail: string; jaEra?: boolean }>(
+      `/v1/orders/${publicToken}/claim`,
+      { method: "POST", token },
+    ),
   verifyOtp: (destination: string, code: string) =>
     request<{ token: string; user: { id: string; email: string; name: string | null } }>(
       "/v1/identity/otp/verify",
