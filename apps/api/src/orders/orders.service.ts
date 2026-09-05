@@ -13,7 +13,7 @@ import { createReservationExpirationQueue } from "@borafest/queues";
 import { applyGatewayStatus, computePlatformFeeCents, getGateway } from "@borafest/payments";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrderInput, PdvOrderInput, RefundOrderInput } from "@borafest/contracts";
-import { PROTECTION_FEE_CENTS } from "@borafest/contracts";
+import { PROTECTION_FEE_CENTS, sugerirCorrecaoEmail } from "@borafest/contracts";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 
@@ -962,5 +962,94 @@ export class OrdersService {
       },
     });
     return { ok: true, contactEmail: email };
+  }
+
+  /**
+   * "Este pedido é meu — traz pra minha conta" (incidente 2026-09-02).
+   *
+   * Sai do DEADLOCK de quem digitou o e-mail errado no checkout: o pedido gruda
+   * numa conta-fantasma inalcançável, o `correctEmail` recusa porque o e-mail
+   * certo JÁ tem conta, e a reivindicação por OTP só pega pedido SEM dono. Sem
+   * isto, o comprador pagou e não tem NENHUMA saída sozinho.
+   *
+   * Prova exigida (as duas juntas): sessão autenticada — quem é dono do e-mail
+   * de destino — MAIS a posse do publicToken, que é o link entregue à sessão
+   * que pagou. Só move pedido órfão ou preso em conta-fantasma; conta
+   * verificada ou com senha é identidade real e nunca é tocada.
+   */
+  async claimOrder(publicToken: string, userId: string) {
+    const order = await prisma.order.findUnique({
+      where: { publicToken },
+      include: {
+        user: { select: { id: true, email: true, emailVerifiedAt: true, passwordHash: true } },
+      },
+    });
+    if (!order) throw new NotFoundException("Pedido não encontrado");
+
+    const dono = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+    if (!dono) throw new NotFoundException("Conta não encontrada");
+    if (order.userId === userId) return { ok: true, jaEra: true, contactEmail: order.contactEmail };
+
+    if (order.user) {
+      const fantasma =
+        order.accountCreatedByOrder && !order.user.emailVerifiedAt && !order.user.passwordHash;
+      if (!fantasma) {
+        throw new BadRequestException(
+          "Este pedido já pertence a uma conta confirmada — fale com o suporte",
+        );
+      }
+    }
+
+    // O link do pedido NÃO basta: ele pode ter sido repassado. Além da sessão,
+    // o e-mail da conta tem de CASAR com o do pedido — igual, a correção óbvia
+    // do typo, ou o mesmo nome antes do "@" (é o caso real: "…@gmail.comm" vs
+    // "…@gmail.com"). Sem isso, qualquer um com o link levava o pedido embora.
+    const doPedido = order.contactEmail.trim().toLowerCase();
+    const daConta = dono.email?.trim().toLowerCase();
+    const correcao = sugerirCorrecaoEmail(doPedido)?.sugestao;
+    const casa =
+      !!daConta &&
+      (doPedido === daConta ||
+        correcao === daConta ||
+        doPedido.split("@")[0] === daConta.split("@")[0]);
+    if (!casa) {
+      throw new BadRequestException(
+        "Este pedido não confere com o e-mail da sua conta — entre com o e-mail usado na compra ou fale com o suporte",
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          userId,
+          // conta sem e-mail (login por outro meio) mantém o contato do pedido
+          ...(dono.email ? { contactEmail: dono.email } : {}),
+          // a conta de destino não nasceu deste pedido: sem isso, o
+          // correctEmail passaria a aceitar renomear a conta REAL do comprador
+          accountCreatedByOrder: false,
+        },
+      });
+      if (order.user) {
+        await tx.ticket.updateMany({
+          where: { orderId: order.id, ownerUserId: order.user.id },
+          data: { ownerUserId: userId },
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          actorUserId: userId,
+          action: "order.claimed",
+          entityType: "order",
+          entityId: order.id,
+          metadata: { de: order.user?.email ?? null, para: dono.email ?? null },
+        },
+      });
+    });
+
+    return { ok: true, contactEmail: dono.email ?? order.contactEmail };
   }
 }

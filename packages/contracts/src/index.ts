@@ -3,6 +3,7 @@ export * from "./organizations";
 export * from "./events";
 export * from "./catalog";
 export * from "./reservations";
+export * from "./email-typo";
 export * from "./orders";
 export * from "./payments";
 export * from "./checkin";

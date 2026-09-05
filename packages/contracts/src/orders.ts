@@ -1,5 +1,21 @@
 import { z } from "zod";
 import { orderAddOnSelectionSchema } from "./add-ons";
+import { mensagemTypoEmail, temTypoCerto } from "./email-typo";
+
+/**
+ * E-mail de COMPRA: normaliza (o checkout gravava como digitado, então
+ * "Maycon@Gmail.com " virava conta diferente de "maycon@gmail.com") e recusa
+ * typo certo de TLD/provedor — incidente 2026-09-02, em que "@gmail.comm"
+ * mandou o ingresso pago para uma conta-fantasma inalcançável.
+ */
+const emailDeCompra = z
+  .string()
+  // trim/lowercase ANTES do .email(): teclado de celular manda espaço no fim e
+  // autocorreção manda maiúscula — validar antes de limpar recusava e-mail bom
+  .trim()
+  .toLowerCase()
+  .email()
+  .refine((e) => !temTypoCerto(e), (e) => ({ message: mensagemTypoEmail(e) }));
 
 /** Proteção de reembolso (upsell): prêmio fixo, não reembolsável, por compra. */
 export const PROTECTION_FEE_CENTS = 150;
@@ -8,7 +24,7 @@ export const createOrderSchema = z.object({
   reservationId: z.string().uuid(),
   /** proteção de reembolso: +R$1,50, permite reembolso do ingresso até o início do evento */
   purchaseProtection: z.boolean().optional(),
-  contactEmail: z.string().email(),
+  contactEmail: emailDeCompra,
   contactName: z.string().min(2).optional(),
   /** celular com DDD — habilita entrega do ingresso por WhatsApp */
   contactPhone: z.string().min(10).max(20).optional(),
@@ -58,7 +74,7 @@ export const pdvOrderSchema = z.object({
   quantity: z.number().int().min(1).max(20),
   buyerName: z.string().min(2),
   buyerDocument: z.string().min(5).max(20).optional(),
-  buyerEmail: z.string().email().optional(),
+  buyerEmail: emailDeCompra.optional(),
   salesPartnerId: z.string().uuid().optional(),
 });
 export type PdvOrderInput = z.infer<typeof pdvOrderSchema>;

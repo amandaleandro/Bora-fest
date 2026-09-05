@@ -16,6 +16,18 @@ export class OrdersController {
     return this.ordersService.correctEmail(publicToken, body?.email ?? "");
   }
 
+  /**
+   * "Este pedido é meu": traz para a conta logada um pedido preso em conta-
+   * fantasma (e-mail digitado errado no checkout). Exige SESSÃO — a posse do
+   * link sozinha não pode mover pedido entre contas.
+   */
+  @Post(":publicToken/claim")
+  @UseGuards(SessionGuard)
+  @RateLimit({ limit: 5, windowSeconds: 3600, keyPrefix: "order-claim", by: "params:publicToken" })
+  claim(@Param("publicToken") publicToken: string, @CurrentUserId() userId: string) {
+    return this.ordersService.claimOrder(publicToken, userId);
+  }
+
   @Post()
   create(
     @OptionalUserId() userId: string | undefined,
