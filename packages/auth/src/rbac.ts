@@ -12,6 +12,10 @@ export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   owner: Object.values(PERMISSIONS),
+  // 2026-09-07 (pos-mortem do Hello World): o admin VENDIA na porta mas nao
+  // podia VALIDAR — e a venda na porta faz check-in automatico. O check-in
+  // levava 403 e o erro era engolido: o cliente pagava e nao era liberado.
+  // Quem pode estornar dinheiro e publicar evento pode escanear um ingresso.
   admin: [
     PERMISSIONS.ORG_MANAGE_MEMBERS,
     PERMISSIONS.EVENT_CREATE,
@@ -19,6 +23,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     PERMISSIONS.ORDER_REFUND,
     PERMISSIONS.FINANCE_VIEW,
     PERMISSIONS.SALES_PERFORM,
+    PERMISSIONS.CHECKIN_PERFORM,
   ],
   finance: [PERMISSIONS.FINANCE_VIEW, PERMISSIONS.ORDER_REFUND],
   operator: [PERMISSIONS.CHECKIN_PERFORM],

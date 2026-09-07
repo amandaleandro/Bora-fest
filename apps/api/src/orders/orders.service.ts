@@ -26,6 +26,18 @@ import { OrgAccessService } from "../common/org-access.service";
 // de lembrete; o QR herda esta janela (payments.service deriva de expiresAt).
 const ORDER_PAYMENT_WINDOW_MINUTES = 30;
 
+/** CPF válido (11 dígitos + dígitos verificadores) — pré-requisito do Pix no balcão. */
+function ehCpfValido(raw: string | undefined): boolean {
+  const cpf = (raw ?? "").replace(/\D/g, "");
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const len of [9, 10]) {
+    let soma = 0;
+    for (let i = 0; i < len; i += 1) soma += Number(cpf[i]) * (len + 1 - i);
+    if (((soma * 10) % 11) % 10 !== Number(cpf[len])) return false;
+  }
+  return true;
+}
+
 @Injectable()
 export class OrdersService {
   private readonly expirationQueue = createReservationExpirationQueue();
@@ -733,6 +745,16 @@ export class OrdersService {
     if (totalCents === 0) {
       throw new BadRequestException(
         "Lote gratuito não gera Pix — use o botão de cortesia (emite na hora)",
+      );
+    }
+    // CPF do pagador é pré-requisito do Pix (pós-mortem Hello World,
+    // 2026-09-07): o gateway recusa a cobrança sem ele e a conta invisível do
+    // balcão nasce sem CPF — então o único CPF possível é o digitado aqui.
+    // Falhar agora, com mensagem clara, é melhor que reservar estoque e morrer
+    // no gateway com "não foi possível gerar o Pix".
+    if (!ehCpfValido(input.buyerDocument)) {
+      throw new BadRequestException(
+        "Pix na porta exige o CPF do comprador — sem ele o banco não gera o QR. Peça o CPF ou receba em dinheiro.",
       );
     }
     const partner = partnerId

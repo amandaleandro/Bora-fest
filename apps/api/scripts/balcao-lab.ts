@@ -197,6 +197,18 @@ async function main() {
   catch (e) { pixRecusado = (e as Error).message.includes("cortesia"); }
   ok("PDV Pix R$0 recusado", pixRecusado);
 
+  console.log("\n7b) FIX pos-mortem Hello World: Pix na porta EXIGE CPF do comprador");
+  let semCpf = false;
+  try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Sem Cpf" } as never); }
+  catch (e) { semCpf = (e as Error).message.includes("CPF do comprador"); }
+  ok("Pix sem CPF recusado com mensagem clara (antes: gateway recusava e o QR nunca nascia)", semCpf);
+  let cpfRuim = false;
+  try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Cpf Ruim", buyerDocument: "11111111111" } as never); }
+  catch (e) { cpfRuim = (e as Error).message.includes("CPF do comprador"); }
+  ok("CPF invalido (digito errado) tambem recusado", cpfRuim);
+  const pixOk = await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Cpf Bom", buyerDocument: "52998224725" } as never);
+  ok("com CPF valido a venda Pix nasce normalmente", !!pixOk.orderId);
+
   console.log("\n8) Taxa da plataforma: R$0 => 0 (direto na função)");
   eq("computePlatformFeeCents(PIX, 0) = 0", computePlatformFeeCents("PIX", 0, {} as never), 0);
   eq("R$50 segue com piso/percentual normal", computePlatformFeeCents("PIX", 5000, {} as never), Math.max(Math.round(5000 * 500 / 10000), 100));

@@ -52,6 +52,23 @@ interface SaleResult {
 const onlyDigits = (v: string) => v.replace(/\D+/g, "");
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
+/**
+ * CPF do comprador — o Pix EXIGE (pos-mortem Hello World, 2026-09-07): o
+ * gateway recusa a cobranca Pix sem CPF do pagador, e na venda de balcao a
+ * conta invisivel nasce sem CPF. Sem isto o QR simplesmente nunca nascia e a
+ * tela so dizia "nao foi possivel gerar". Mesma implementacao do perfil.
+ */
+function isValidCpf(raw: string): boolean {
+  const cpf = raw.replace(/\D/g, "");
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const len of [9, 10]) {
+    let sum = 0;
+    for (let i = 0; i < len; i += 1) sum += Number(cpf[i]) * (len + 1 - i);
+    if (((sum * 10) % 11) % 10 !== Number(cpf[len])) return false;
+  }
+  return true;
+}
+
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -139,6 +156,11 @@ export default function PortariaVenda({
 
   const emailInvalido = buyerEmail.trim().length > 0 && !EMAIL_RE.test(buyerEmail.trim());
   const emailFaltando = !entradaImediata && !EMAIL_RE.test(buyerEmail.trim());
+  // Pix exige CPF do pagador (o gateway recusa sem ele). Dinheiro/cortesia nao.
+  const cpfObrigatorio = mode === "pix" && !gratis;
+  const cpfPreenchido = buyerDocument.trim().length > 0;
+  const cpfInvalido = cpfPreenchido && !isValidCpf(buyerDocument);
+  const cpfFaltando = cpfObrigatorio && !isValidCpf(buyerDocument);
   const podeVender =
     online &&
     !!accountToken &&
@@ -147,7 +169,27 @@ export default function PortariaVenda({
     quantity >= 1 &&
     !emailInvalido &&
     !emailFaltando &&
+    !cpfFaltando &&
+    !cpfInvalido &&
     !submitting;
+
+  // POR QUE o botao esta travado — a queixa do 1o evento foi "pouco intuitivo":
+  // o botao ficava cinza sem dizer o motivo. Agora a tela fala.
+  const motivoTravado = !selectedLot
+    ? "Escolha o lote para continuar."
+    : buyerName.trim().length < 2
+      ? "Digite o nome do comprador."
+      : cpfFaltando
+        ? "O Pix exige o CPF do comprador — sem ele o banco não gera o QR."
+        : cpfInvalido
+          ? "Esse CPF não confere. Confira os 11 dígitos."
+          : emailFaltando
+            ? "Venda antecipada precisa de e-mail para enviar o ingresso."
+            : emailInvalido
+              ? "Esse e-mail parece inválido."
+              : !online
+                ? "Sem internet — a venda na porta precisa de conexão."
+                : null;
 
   function montarPayload() {
     const doc = onlyDigits(buyerDocument);
@@ -611,9 +653,11 @@ export default function PortariaVenda({
       <input
         value={buyerDocument}
         onChange={(e) => setBuyerDocument(e.target.value)}
-        placeholder="CPF (opcional)"
+        placeholder={cpfObrigatorio ? "CPF do comprador (obrigatório no Pix)" : "CPF (opcional)"}
         inputMode="numeric"
-        className="mb-2.5 h-12 w-full rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 text-[15px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary"
+        className={`mb-2.5 h-12 w-full rounded-2xl border-[1.5px] bg-white/[.07] px-4 text-[15px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary ${
+          cpfInvalido || cpfFaltando ? "border-red-400/70" : "border-white/15"
+        }`}
       />
       <input
         value={buyerEmail}
@@ -717,13 +761,19 @@ export default function PortariaVenda({
             ? `Confirmar venda${selectedLot ? ` · ${formatCents(totalCents)}` : ""}`
             : `Gerar Pix${selectedLot ? ` · ${formatCents(totalCents)}` : ""}`}
       </button>
-      <p className="mt-3 text-center text-[11.5px] font-medium leading-relaxed text-white/40">
-        {gratis
-          ? "Confira o nome — a cortesia sai no nome da pessoa e conta na sua venda."
-          : mode === "dinheiro"
-            ? "Recebido o dinheiro, confirme: o ingresso é emitido e o cliente entra na hora."
-            : "O cliente paga o Pix na hora; a entrada é liberada assim que o pagamento cair."}
-      </p>
+      {motivoTravado ? (
+        <p className="mt-3 text-center text-[12px] font-bold leading-relaxed text-amber-300">
+          {motivoTravado}
+        </p>
+      ) : (
+        <p className="mt-3 text-center text-[11.5px] font-medium leading-relaxed text-white/40">
+          {gratis
+            ? "Confira o nome — a cortesia sai no nome da pessoa e conta na sua venda."
+            : mode === "dinheiro"
+              ? "Recebido o dinheiro, confirme: o ingresso é emitido e o cliente entra na hora."
+              : "O cliente paga o Pix na hora; a entrada é liberada assim que o pagamento cair."}
+        </p>
+      )}
     </div>
   );
 }
