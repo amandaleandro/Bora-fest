@@ -498,7 +498,16 @@ export class OrdersService {
       orderBy: { createdAt: "asc" },
       include: { ticketType: { select: { id: true, name: true } } },
     });
-    const lots = todos.filter((lot) => lot.priceCents + lot.feeCents > 0);
+    // O balcão só devolve o que dá para vender AGORA (2026-09-07): sem lote
+    // gratuito (cortesia não se gera na porta) e sem lote esgotado. O filtro de
+    // esgotado morava só na tela — regra no cliente é a mesma doença que fez o
+    // Pix "deixar vender" o que o servidor recusava. A lista agora é confiável
+    // por si só, e a tela não precisa saber a regra.
+    const lots = todos.filter(
+      (lot) =>
+        lot.priceCents + lot.feeCents > 0 &&
+        lot.capacity - lot.soldCount - lot.reservedCount > 0,
+    );
     return lots.map((lot) => ({
       ticketTypeId: lot.ticketType.id,
       ticketTypeName: lot.ticketType.name,

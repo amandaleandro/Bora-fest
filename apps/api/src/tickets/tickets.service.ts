@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
+import { origemGratis } from "../common/origem-gratis";
 import { signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
@@ -25,32 +26,6 @@ export class TicketsService {
   }
 
   /** Ingressos de um pedido, acessíveis pelo token público (compra sem conta). */
-  /**
-   * Origem de ingresso GRÁTIS (decisão do Arthur 2026-08-31): pedido de R$0
-   * vindo da Lista de Convidados vira CONVIDADO (charme dourado, "da
-   * produção"); vindo do balcão de promoter vira CORTESIA (sóbrio, com o nome
-   * da atlética). Derivado das relações que já existem — sem coluna nova.
-   */
-  private origemGratis(order: {
-    totalCents: number;
-    soldByUserId: string | null;
-    guestListEntries?: Array<{ id: string }>;
-    salesPartner?: { name: string } | null;
-  }): { kind: "CONVIDADO" | "CORTESIA"; por: string } | null {
-    if (order.totalCents !== 0) return null;
-    // 2026-09-07: cortesia saiu do balcao (nao se gera entrada gratis na porta).
-    // Agora AMBAS nascem da lista de convidados, cadastradas antes do evento —
-    // o que separa as duas e QUEM cadastrou: parceiro/atletica = CORTESIA
-    // (sobrio, com o nome dela); producao = CONVIDADO (charme dourado).
-    if ((order.guestListEntries?.length ?? 0) > 0) {
-      return order.salesPartner
-        ? { kind: "CORTESIA", por: order.salesPartner.name }
-        : { kind: "CONVIDADO", por: "produção" };
-    }
-    if (order.soldByUserId) return { kind: "CORTESIA", por: order.salesPartner?.name ?? "equipe do evento" };
-    return null;
-  }
-
   async findByOrderPublicToken(publicToken: string) {
     const order = await prisma.order.findUnique({
       where: { publicToken },
@@ -68,7 +43,7 @@ export class TicketsService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
-    const cortesia = this.origemGratis(order);
+    const cortesia = origemGratis(order);
 
     // Portão do 1º ingresso: conta não verificada não vê QR — nem por link
     // encaminhado. Verificou (código ou link mágico), abre.

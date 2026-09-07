@@ -10,6 +10,7 @@ import { PERMISSIONS } from "@borafest/auth";
 import type { CreateCheckinInput, SyncCheckinsInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { withContext } from "@borafest/observability";
+import { origemGratis } from "../common/origem-gratis";
 
 const log = withContext({ module: "checkins" });
 
@@ -54,20 +55,10 @@ export class CheckinsService {
         attendeeName: ticket.attendeeName,
         lotName: ticket.ticketLot.name,
         typeName: ticket.ticketLot.ticketType.name,
-        // portaria mostra a etiqueta: staff sabe que a entrada é grátis.
-        // Mesma regra da carteira (2026-09-07): quem cadastrou na lista foi
-        // parceiro/atlética => CORTESIA; foi a produção => CONVIDADO.
-        tipo: ticket.order
-          ? ticket.order.totalCents === 0
-            ? (ticket.order.guestListEntries?.length ?? 0) > 0
-              ? ticket.order.salesPartnerId
-                ? ("CORTESIA" as const)
-                : ("CONVIDADO" as const)
-              : ticket.order.soldByUserId
-                ? ("CORTESIA" as const)
-                : null
-            : null
-          : null,
+        // etiqueta do portão: staff sabe que a entrada é grátis. A REGRA mora
+        // em common/origem-gratis.ts — antes estava copiada aqui e na carteira,
+        // e as duas metades já tinham começado a divergir.
+        tipo: ticket.order ? (origemGratis(ticket.order)?.kind ?? null) : null,
       },
       checkinId: outcome.checkinId,
       firstCheckin: outcome.firstCheckin,

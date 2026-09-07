@@ -68,6 +68,21 @@ async function main() {
   ok("PDV lista só o lote pago", doBalcao.length === 1 && doBalcao[0].lotName === "Pago", JSON.stringify(doBalcao.map((l: any) => l.lotName)));
   ok("lote gratuito não aparece no balcão", !doBalcao.some((l: any) => l.priceCents + l.feeCents === 0));
 
+  console.log("\n4b) REGRA NO SERVIDOR: lote ESGOTADO some do balcão sem depender da tela");
+  const esgotado = await catalog.createLot(tt.id, dono.id, { name: "Esgotado", priceCents: 3000, feeCents: 0, capacity: 2, maxPerOrder: 6 } as never);
+  await prisma.ticketLot.update({ where: { id: esgotado.id }, data: { status: "ACTIVE", soldCount: 2 } });
+  const semVaga = await orders.listPdvLots(ev.id, promoter.id);
+  ok("lote esgotado NÃO vem na lista do balcão", !semVaga.some((l: any) => l.lotId === esgotado.id), JSON.stringify(semVaga.map((l: any) => l.lotName)));
+  await prisma.ticketLot.update({ where: { id: esgotado.id }, data: { soldCount: 1 } });
+  const comVaga = await orders.listPdvLots(ev.id, promoter.id);
+  ok("liberou 1 vaga e o lote volta a aparecer", comVaga.some((l: any) => l.lotId === esgotado.id));
+  await prisma.ticketLot.update({ where: { id: esgotado.id }, data: { status: "CLOSED" } });
+  const fechado = await orders.listPdvLots(ev.id, promoter.id);
+  ok("lote ENCERRADO (CLOSED) também some", !fechado.some((l: any) => l.lotId === esgotado.id));
+  await prisma.ticketLot.update({ where: { id: esgotado.id }, data: { status: "SOLD_OUT" } });
+  const soldOut = await orders.listPdvLots(ev.id, promoter.id);
+  ok("lote marcado SOLD_OUT também some", !soldOut.some((l: any) => l.lotId === esgotado.id));
+
   console.log("\n5) PROMOTER NÃO gera cortesia na porta (evita liberar gente por amizade)");
   let naPorta = false;
   try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Amigo do Promoter" } as never); }
