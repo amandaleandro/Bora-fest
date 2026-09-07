@@ -24,6 +24,16 @@ export class GuestListService {
     if (!event) throw new NotFoundException("Evento não encontrado");
     await this.orgAccess.assertPermission(event.organizationId, userId, PERMISSIONS.SALES_PERFORM);
 
+    // TRANCA NO HORARIO DO EVENTO (decisao do Arthur, pos-mortem Hello World
+    // 2026-09-07): convite se cadastra ANTES. Com a festa rolando, ninguem
+    // mais entra na lista — e a porta so vende ou valida. Fecha o improviso
+    // de "liberar gente por amizade" sem tirar a ferramenta legitima.
+    if (new Date() >= event.startsAt) {
+      throw new BadRequestException(
+        "A lista de convidados fecha quando o evento começa — cadastre o convidado antes.",
+      );
+    }
+
     const lot = await prisma.ticketLot.findFirst({
       where: { id: input.ticketLotId, ticketType: { eventId } },
     });

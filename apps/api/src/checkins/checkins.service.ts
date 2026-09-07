@@ -54,11 +54,15 @@ export class CheckinsService {
         attendeeName: ticket.attendeeName,
         lotName: ticket.ticketLot.name,
         typeName: ticket.ticketLot.ticketType.name,
-        // portaria mostra a etiqueta: staff sabe que a entrada é grátis
+        // portaria mostra a etiqueta: staff sabe que a entrada é grátis.
+        // Mesma regra da carteira (2026-09-07): quem cadastrou na lista foi
+        // parceiro/atlética => CORTESIA; foi a produção => CONVIDADO.
         tipo: ticket.order
           ? ticket.order.totalCents === 0
             ? (ticket.order.guestListEntries?.length ?? 0) > 0
-              ? ("CONVIDADO" as const)
+              ? ticket.order.salesPartnerId
+                ? ("CORTESIA" as const)
+                : ("CONVIDADO" as const)
               : ticket.order.soldByUserId
                 ? ("CORTESIA" as const)
                 : null
@@ -468,7 +472,7 @@ export class CheckinsService {
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
         order: {
-          select: { totalCents: true, soldByUserId: true, guestListEntries: { select: { id: true }, take: 1 } },
+          select: { totalCents: true, soldByUserId: true, salesPartnerId: true, guestListEntries: { select: { id: true }, take: 1 } },
         },
       },
     });

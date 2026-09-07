@@ -171,12 +171,15 @@ export default function PortariaVenda({
     !emailFaltando &&
     !cpfFaltando &&
     !cpfInvalido &&
+    !gratis &&
     !submitting;
 
   // POR QUE o botao esta travado — a queixa do 1o evento foi "pouco intuitivo":
   // o botao ficava cinza sem dizer o motivo. Agora a tela fala.
   const motivoTravado = !selectedLot
     ? "Escolha o lote para continuar."
+    : gratis
+      ? "Cortesia não sai na porta — use a lista de convidados."
     : buyerName.trim().length < 2
       ? "Digite o nome do comprador."
       : cpfFaltando
@@ -712,8 +715,11 @@ export default function PortariaVenda({
 
       {/* modo de pagamento — cortesia (R$0) não tem pagamento */}
       {gratis ? (
-        <p className="mb-5 mt-4 rounded-2xl border border-success/25 bg-success/[.08] px-4 py-3 text-[12.5px] font-semibold text-[#4ade80]">
-          Lote cortesia — sem pagamento. O ingresso é emitido no nome da pessoa e a entrada é liberada na hora.
+        /* Decisao 2026-09-07: cortesia NAO sai na porta (evita liberar gente
+           por amizade). O servidor nem lista lote gratuito no balcao — se um
+           chegar aqui, a tela recusa em vez de emitir. */
+        <p className="mb-5 mt-4 rounded-2xl border border-danger/30 bg-danger/[.10] px-4 py-3 text-[12.5px] font-semibold text-[#fda4af]">
+          Cortesia não sai na porta. Cadastre o convidado na lista de convidados antes do evento.
         </p>
       ) : (
       <>

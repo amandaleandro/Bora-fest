@@ -488,11 +488,17 @@ export class OrdersService {
     if (!event) throw new NotFoundException("Evento não encontrado");
     await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
 
-    const lots = await prisma.ticketLot.findMany({
+    // NADA DE CORTESIA NA PORTA (decisao do Arthur, pos-mortem Hello World
+    // 2026-09-07): quem opera o portao podia cunhar entrada gratis a vontade
+    // ate estourar a capacidade do lote — "liberacao de gente demais por
+    // amizade". Lote gratuito nao aparece no balcao; convite se faz ANTES,
+    // pela lista de convidados, com nome cadastrado.
+    const todos = await prisma.ticketLot.findMany({
       where: { status: "ACTIVE", ticketType: { eventId } },
       orderBy: { createdAt: "asc" },
       include: { ticketType: { select: { id: true, name: true } } },
     });
+    const lots = todos.filter((lot) => lot.priceCents + lot.feeCents > 0);
     return lots.map((lot) => ({
       ticketTypeId: lot.ticketType.id,
       ticketTypeName: lot.ticketType.name,
@@ -570,6 +576,13 @@ export class OrdersService {
     const organization = await prisma.organization.findUniqueOrThrow({ where: { id: event.organizationId } });
     const unitCents = lot.priceCents + lot.feeCents;
     const totalCents = unitCents * input.quantity;
+    // defesa no servidor: a UI nem lista lote gratuito, mas o endpoint tem que
+    // recusar por conta propria — senao basta ter o token para liberar geral.
+    if (totalCents === 0) {
+      throw new BadRequestException(
+        "Cortesia não sai na porta. Cadastre o convidado na lista de convidados antes do evento.",
+      );
+    }
     const partner = partnerId
       ? await prisma.salesPartner.findUnique({ where: { id: partnerId }, select: { commissionBps: true } })
       : null;

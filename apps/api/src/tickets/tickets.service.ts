@@ -38,7 +38,15 @@ export class TicketsService {
     salesPartner?: { name: string } | null;
   }): { kind: "CONVIDADO" | "CORTESIA"; por: string } | null {
     if (order.totalCents !== 0) return null;
-    if ((order.guestListEntries?.length ?? 0) > 0) return { kind: "CONVIDADO", por: "produção" };
+    // 2026-09-07: cortesia saiu do balcao (nao se gera entrada gratis na porta).
+    // Agora AMBAS nascem da lista de convidados, cadastradas antes do evento —
+    // o que separa as duas e QUEM cadastrou: parceiro/atletica = CORTESIA
+    // (sobrio, com o nome dela); producao = CONVIDADO (charme dourado).
+    if ((order.guestListEntries?.length ?? 0) > 0) {
+      return order.salesPartner
+        ? { kind: "CORTESIA", por: order.salesPartner.name }
+        : { kind: "CONVIDADO", por: "produção" };
+    }
     if (order.soldByUserId) return { kind: "CORTESIA", por: order.salesPartner?.name ?? "equipe do evento" };
     return null;
   }

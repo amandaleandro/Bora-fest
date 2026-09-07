@@ -12,6 +12,7 @@ import { OrdersService } from "../src/orders/orders.service";
 import { ReservationsService } from "../src/reservations/reservations.service";
 import { OrgAccessService } from "../src/common/org-access.service";
 import { TicketsService } from "../src/tickets/tickets.service";
+import { GuestListService } from "../src/guest-list/guest-list.service";
 
 let pass = 0, fail = 0;
 const ok = (n: string, c: boolean, d = "") => { c ? (pass++, console.log(`  PASS ${n}`)) : (fail++, console.log(`  FAIL ${n} ${d}`)); };
@@ -62,35 +63,45 @@ async function main() {
   catch (e) { recusou = (e as Error).message.includes("balcão"); }
   ok("reserva do só-balcão recusada", recusou);
 
-  console.log("\n4) BALCÃO vê os dois lotes (endpoint do PDV)");
+  console.log("\n4) BALCÃO só enxerga lote PAGO — cortesia não se gera na porta (2026-09-07)");
   const doBalcao = await orders.listPdvLots(ev.id, promoter.id);
-  ok("PDV lista pago + cortesia", doBalcao.length === 2 && doBalcao.some((l: any) => l.pdvOnly));
+  ok("PDV lista só o lote pago", doBalcao.length === 1 && doBalcao[0].lotName === "Pago", JSON.stringify(doBalcao.map((l: any) => l.lotName)));
+  ok("lote gratuito não aparece no balcão", !doBalcao.some((l: any) => l.priceCents + l.feeCents === 0));
 
-  console.log("\n5) PROMOTER emite a cortesia: ticket sai, produtor NÃO deve nada, placar conta");
-  const venda = await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Novato Um", buyerEmail: `novato1-${suf}@lab.test` } as never);
+  console.log("\n5) PROMOTER NÃO gera cortesia na porta (evita liberar gente por amizade)");
+  let naPorta = false;
+  try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Amigo do Promoter" } as never); }
+  catch (e) { naPorta = (e as Error).message.includes("lista de convidados"); }
+  ok("cortesia na porta recusada, apontando a saída certa", naPorta);
+  let emLote = false;
+  try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 3, buyerName: "Turma" } as never); }
+  catch (e) { emLote = (e as Error).message.includes("lista de convidados"); }
+  ok("nem em lote (qty 3) — bloqueio não é contornável", emLote);
+  eq("nenhuma vaga de cortesia consumida", (await prisma.ticketLot.findUniqueOrThrow({ where: { id: cortesia.id } })).soldCount, 0);
+
+  console.log("\n5b) VENDA PAGA na porta segue normal e cria a conta invisível");
+  const venda = await orders.createManualSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Novato Um", buyerEmail: `novato1-${suf}@lab.test` } as never);
   const pedido = await prisma.order.findUniqueOrThrow({ where: { id: (venda as any).orderId ?? (venda as any).id }, include: { tickets: true } }).catch(async () => {
     const o = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id }, include: { tickets: true }, orderBy: { createdAt: "desc" } });
     return o;
   });
-  eq("pedido total R$0", pedido.totalCents, 0);
+  ok("pedido pago tem valor > 0 (não é cortesia)", pedido.totalCents > 0, pedido.totalCents);
   ok("pedido PAID", pedido.status === "PAID" || pedido.status === "FULFILLED", pedido.status);
   ok("placar: soldByUserId = promoter", pedido.soldByUserId === promoter.id);
   ok("atlética atribuída", pedido.salesPartnerId === atletica.id);
   const conta = await prisma.ledgerAccount.findUniqueOrThrow({ where: { organizationId: org.id } });
   const entradas = await prisma.ledgerEntry.findMany({ where: { ledgerAccountId: conta.id } });
-  const liquido = entradas.reduce((s, e) => s + e.amountCents, 0);
-  eq("ledger do produtor: líquido 0 (nada de piso de R$1)", liquido, 0);
-  ok("nenhuma PLATFORM_FEE negativa lançada", !entradas.some((e) => e.type === "PLATFORM_FEE" && e.amountCents < 0));
+  ok("venda paga lança crédito no ledger do produtor", entradas.some((e) => e.type === "SALE_CREDIT" && e.amountCents > 0));
 
-  console.log("\n6) CAPACIDADE manda: 3 cortesias esgotam, a 4ª é recusada");
-  await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Novato Dois" } as never);
-  await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Novato Três" } as never);
-  let esgotou = false;
-  try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Novato Quatro" } as never); }
-  catch { esgotou = true; }
-  ok("4ª cortesia recusada (capacidade 3)", esgotou);
-  const lote = await prisma.ticketLot.findUniqueOrThrow({ where: { id: cortesia.id } });
-  eq("soldCount = 3", lote.soldCount, 3);
+  console.log("\n6) CORTESIA agora nasce da LISTA, cadastrada ANTES — e é do parceiro");
+  await prisma.eventSalesPartner.upsert({
+    where: { eventId_partnerId: { eventId: ev.id, partnerId: atletica.id } },
+    update: {}, create: { eventId: ev.id, partnerId: atletica.id },
+  });
+  const guestSvc = new GuestListService(orgAccess, inventory);
+  const entradaCortesia = await guestSvc.create(promoter.id, ev.id, { ticketLotId: cortesia.id, guestName: "Novato Um", salesPartnerId: atletica.id } as never);
+  ok("promoter cadastra convidado na lista (antes do evento)", !!entradaCortesia);
+  eq("agora sim a vaga de cortesia foi consumida", (await prisma.ticketLot.findUniqueOrThrow({ where: { id: cortesia.id } })).soldCount, 1);
 
   console.log("\n6b) CONTA INVISÍVEL: e-mail novo cria conta e o pedido nasce com dono");
   const novato1 = await prisma.user.findUnique({ where: { email: `novato1-${suf}@lab.test` } });
@@ -98,6 +109,14 @@ async function main() {
   const pedidoNovato = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactEmail: `novato1-${suf}@lab.test` } });
   ok("pedido conectado à conta nova", pedidoNovato.userId === novato1?.id);
   ok("conta nasce NÃO verificada (portão do 1º ingresso vale)", novato1?.emailVerifiedAt === null);
+
+  // sem worker no lab: cria o ticket do pedido pago como o outbox criaria
+  const itemPago = await prisma.orderItem.findFirstOrThrow({ where: { orderId: pedidoNovato.id } });
+  await prisma.ticket.create({ data: {
+    event: { connect: { id: ev.id } }, order: { connect: { id: pedidoNovato.id } },
+    orderItem: { connect: { id: itemPago.id } }, ticketLot: { connect: { id: pago.id } },
+    code: `PAGO-${suf}`, seq: 1, qrToken: randomUUID(), status: "ISSUED", attendeeName: "Novato Um",
+  } });
 
   console.log("\n6c) SEGURANÇA: e-mail JÁ EXISTENTE não anexa o pedido (reivindica no OTP)");
   const veterano = await prisma.user.create({ data: { email: `veterano-${suf}@lab.test`, emailVerifiedAt: new Date() } });
@@ -107,18 +126,20 @@ async function main() {
   const pedidoVet = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, contactEmail: `veterano-${suf}@lab.test` } });
   ok("pedido do e-mail existente nasce SEM dono (anti-sequestro)", pedidoVet.userId === null);
 
-  console.log("\n6d) RÓTULO: a carteira do novato diz CORTESIA com o nome da atlética");
+  console.log("\n6d) RÓTULO: cortesia do parceiro diz CORTESIA com o nome da atlética");
   const ticketsSvc = new TicketsService();
-  const carteiraNovato = await ticketsSvc.findByOrderPublicToken(pedidoNovato.publicToken);
+  const pedidoCortesia = await prisma.order.findFirstOrThrow({ where: { eventId: ev.id, totalCents: 0, salesPartnerId: atletica.id }, orderBy: { createdAt: "desc" } });
+  await prisma.order.update({ where: { id: pedidoCortesia.id }, data: { userId: novato1!.id } });
+  const carteiraNovato = await ticketsSvc.findByOrderPublicToken(pedidoCortesia.publicToken);
   ok("kind = CORTESIA", (carteiraNovato as any).cortesia?.kind === "CORTESIA", JSON.stringify((carteiraNovato as any).cortesia));
   ok("por = Atlética Novatos", (carteiraNovato as any).cortesia?.por === "Atlética Novatos");
 
   console.log("\n6e) INTRANSFERÍVEL: cortesia não transfere nem pelo dono");
   await prisma.user.update({ where: { id: novato1!.id }, data: { emailVerifiedAt: new Date() } });
   // no lab não há worker de emissão — cria o ticket como o outbox criaria
-  const itemNovato = await prisma.orderItem.findFirstOrThrow({ where: { orderId: pedidoNovato.id } });
+  const itemNovato = await prisma.orderItem.findFirstOrThrow({ where: { orderId: pedidoCortesia.id } });
   const ticketNovato = await prisma.ticket.create({ data: {
-    event: { connect: { id: ev.id } }, order: { connect: { id: pedidoNovato.id } },
+    event: { connect: { id: ev.id } }, order: { connect: { id: pedidoCortesia.id } },
     orderItem: { connect: { id: itemNovato.id } }, ticketLot: { connect: { id: cortesia.id } },
     code: `LAB-${suf}`, seq: 1, qrToken: randomUUID(), status: "ISSUED",
     attendeeName: "Novato Um",
@@ -162,7 +183,9 @@ async function main() {
 
   console.log("\n6i) FIX atomicidade: venda que falha (estoque) NÃO deixa conta órfã");
   let falhou = false;
-  try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: cortesia.id, quantity: 1, buyerName: "Orfao", buyerEmail: `orfao-${suf}@lab.test` } as never); }
+  const loteMagro = await catalog.createLot(tt.id, dono.id, { name: "Magro", priceCents: 1000, feeCents: 0, capacity: 1, maxPerOrder: 6 } as never);
+  await prisma.ticketLot.update({ where: { id: loteMagro.id }, data: { status: "ACTIVE", soldCount: 1 } });
+  try { await orders.createManualSale(ev.id, promoter.id, { ticketLotId: loteMagro.id, quantity: 1, buyerName: "Orfao", buyerEmail: `orfao-${suf}@lab.test` } as never); }
   catch { falhou = true; }
   ok("venda além da capacidade falhou", falhou);
   const orfao = await prisma.user.findUnique({ where: { email: `orfao-${suf}@lab.test` } });
