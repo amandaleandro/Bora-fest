@@ -110,7 +110,9 @@ test("estorno ASSÍNCRONO respeita o teto acumulado (dois parciais não passam d
     // segundo estorno de R$ 70 somaria R$ 140 > R$ 100 — o cap tem que barrar
     await assert.rejects(
       () => executeOrderRefund(order.publicToken, { amountCents: 7000, idempotencyPrefix: "t2" }),
-      /excede|cap|limite|maior/i,
+      // a recusa tem que vir DO TETO (refund-cap/refund-order) e não de outro
+      // motivo (ex.: "estorno já em andamento"), por isso a regex é específica
+      /acima do dispon[ií]vel para estorno|excede o saldo do pedido|totalmente estornado/i,
     );
 
     assert.equal(await refundDebitTotal(payment.id), 7000, "só o primeiro estorno valeu");

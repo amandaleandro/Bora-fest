@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { prisma } from "@borafest/database";
-import { applyGatewayStatus } from "@borafest/payments";
+import { applyGatewayStatus, computePlatformFeeCents } from "@borafest/payments";
 import { closeRedisConnection } from "@borafest/queues";
 import { CatalogService } from "../catalog/catalog.service";
 import { OrgAccessService } from "../common/org-access.service";
@@ -35,16 +35,21 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
 
     const catalog = new CatalogService(new OrgAccessService(), new InventoryService());
 
-    // produtor tenta digitar taxa de R$ 1,00 num ingresso de R$ 4,00 —
-    // o servidor ignora e aplica a taxa da plataforma (piso R$ 2,49)
+    // A tabela de taxa muda (piso já foi 249, hoje é 100 — REGISTRO 2026-08-12).
+    // Então o teste trava a REGRA, não o número: a taxa é a que a plataforma
+    // calcula, e o que o produtor digita é ignorado. Por isso ele digita um
+    // valor ABSURDO — se o servidor obedecesse, a asserção quebraria.
+    const PRECO = 400;
+    const TAXA = computePlatformFeeCents("PIX", PRECO, {} as never);
+    assert.ok(TAXA > 0 && TAXA !== 999, "sanidade: a taxa da plataforma não é a digitada");
     const lot = await catalog.createLot(fixture.ticketType.id, member.id, {
       name: "Lote taxa real",
-      priceCents: 400,
-      feeCents: 100,
+      priceCents: PRECO,
+      feeCents: 999,
       capacity: 5,
       maxPerOrder: 4,
     } as any);
-    assert.equal(lot.feeCents, 249, "taxa vem da plataforma (piso), não do produtor");
+    assert.equal(lot.feeCents, TAXA, "taxa vem da plataforma, não do produtor");
 
     // ingresso grátis não paga piso
     const gratis = await catalog.createLot(fixture.ticketType.id, member.id, {
@@ -58,7 +63,7 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
 
     await catalog.activateLot(lot.id, member.id);
 
-    // compra do lote pago: comprador paga 400+249; ledger lança EXATAMENTE 249
+    // comprador paga PRECO+TAXA; o ledger lança EXATAMENTE a mesma TAXA
     const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
     const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
     const payments = new PaymentsService(new IdempotencyService());
@@ -70,7 +75,7 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
       reservationId: reservation.id,
       contactEmail: "taxa-real@borafest.dev",
     });
-    assert.equal(order.totalCents, 649);
+    assert.equal(order.totalCents, PRECO + TAXA, "pedido cobra preço + taxa da plataforma");
     const payment = await payments.createPix(order.id, {});
     await applyGatewayStatus(payment.id, "PAID");
 
@@ -80,13 +85,13 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
     const feeEntry = await prisma.ledgerEntry.findFirstOrThrow({
       where: { ledgerAccountId: ledgerAccount.id, type: "PLATFORM_FEE" },
     });
-    assert.equal(feeEntry.amountCents, -249, "caixa lança o que foi cobrado do comprador");
+    assert.equal(feeEntry.amountCents, -TAXA, "caixa lança o que foi cobrado do comprador");
     const saleEntry = await prisma.ledgerEntry.findFirstOrThrow({
       where: { ledgerAccountId: ledgerAccount.id, type: "SALE_CREDIT" },
     });
-    assert.equal(saleEntry.amountCents, 649);
-    // líquido do produtor: 649 - 249 = 400 = exatamente o preço do ingresso
-    assert.equal(saleEntry.amountCents + feeEntry.amountCents, 400);
+    assert.equal(saleEntry.amountCents, PRECO + TAXA);
+    // líquido do produtor = exatamente o preço do ingresso (a taxa é do comprador)
+    assert.equal(saleEntry.amountCents + feeEntry.amountCents, PRECO);
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
   }
@@ -127,8 +132,10 @@ test("pagamento abaixo do mínimo do provedor é barrado com mensagem clara", as
       reservationId: reservation.id,
       contactEmail: "minimo@borafest.dev",
     });
-    // 250 + 249 de taxa = 499, um centavo abaixo do mínimo do Asaas
-    assert.equal(order.totalCents, 499);
+    // preço + taxa fica abaixo do mínimo que o provedor aceita cobrar
+    const TAXA_MIN = computePlatformFeeCents("PIX", 250, {} as never);
+    assert.equal(order.totalCents, 250 + TAXA_MIN);
+    assert.ok(order.totalCents < 500, "o cenário só vale se ficar abaixo do mínimo do provedor");
 
     await assert.rejects(
       () => payments.createPix(order.id, {}),
