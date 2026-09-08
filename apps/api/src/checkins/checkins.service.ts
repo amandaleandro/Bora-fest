@@ -463,7 +463,7 @@ export class CheckinsService {
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
         order: {
-          select: { totalCents: true, soldByUserId: true, salesPartnerId: true, guestListEntries: { select: { id: true }, take: 1 } },
+          select: { totalCents: true, soldByUserId: true, salesPartnerId: true, promoterLinkId: true, guestListEntries: { select: { id: true }, take: 1 } },
         },
       },
     });

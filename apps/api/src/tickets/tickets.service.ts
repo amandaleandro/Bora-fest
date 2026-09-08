@@ -40,6 +40,8 @@ export class TicketsService {
         user: { select: { emailVerifiedAt: true } },
         guestListEntries: { select: { id: true }, take: 1 },
         salesPartner: { select: { name: true } },
+        // nome de quem convidou, quando a cortesia veio da cota de um promoter
+        promoterLink: { select: { promoterUser: { select: { name: true } } } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");

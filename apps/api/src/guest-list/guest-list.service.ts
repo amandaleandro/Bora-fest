@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma, returnSaleInventory } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateGuestListEntryInput } from "@borafest/contracts";
@@ -22,7 +22,37 @@ export class GuestListService {
   async create(userId: string, eventId: string, input: CreateGuestListEntryInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    await this.orgAccess.assertPermission(event.organizationId, userId, PERMISSIONS.SALES_PERFORM);
+
+    // QUEM PODE CADASTRAR CONVIDADO (2026-09-08). Dois perfis, regras diferentes
+    // — antes só o primeiro existia, e o promoter (que NÃO é membro da
+    // organização) simplesmente não alcançava a lista.
+    //
+    //  - PRODUÇÃO (membro com SALES_PERFORM): sem teto próprio; o limite é a
+    //    capacidade do lote, como sempre foi.
+    //  - PROMOTER (PromoterLink ACTIVE, sem membership): limitado à COTA que a
+    //    casa concedeu. Sem cota não cadastra — 0 é o padrão.
+    const producao = await this.orgAccess
+      .assertPermission(event.organizationId, userId, PERMISSIONS.SALES_PERFORM)
+      .then(() => true)
+      .catch(() => false);
+
+    let promoterLinkId: string | undefined;
+    let cota = 0;
+    if (!producao) {
+      const vinculo = await prisma.promoterLink.findFirst({
+        where: {
+          organizationId: event.organizationId,
+          promoterUserId: userId,
+          status: "ACTIVE",
+          OR: [{ eventId: null }, { eventId }],
+        },
+      });
+      if (!vinculo) {
+        throw new ForbiddenException("Você não pode cadastrar convidados neste evento");
+      }
+      promoterLinkId = vinculo.id;
+      cota = vinculo.guestQuota;
+    }
 
     // TRANCA NO HORARIO DO EVENTO (decisao do Arthur, pos-mortem Hello World
     // 2026-09-07): convite se cadastra ANTES. Com a festa rolando, ninguem
@@ -32,6 +62,27 @@ export class GuestListService {
       throw new BadRequestException(
         "A lista de convidados fecha quando o evento começa — cadastre o convidado antes.",
       );
+    }
+
+    // A COTA é a ÚLTIMA checagem (achado do lab 2026-09-08): antes ela rodava
+    // antes da tranca de horário, e quem tinha estourado a cota recebia "sua
+    // cota acabou" mesmo depois de a festa ter começado — mensagem errada para
+    // o motivo real. Ordem: pode cadastrar? → a lista ainda está aberta? → tem
+    // cota? Cada recusa diz a verdade que importa primeiro.
+    if (promoterLinkId) {
+      if (cota <= 0) {
+        throw new ForbiddenException(
+          "Você não tem cortesias liberadas — peça para a produção liberar a sua cota.",
+        );
+      }
+      const usadas = await prisma.guestListEntry.count({
+        where: { eventId, addedByUserId: userId, status: { not: "CANCELED" } },
+      });
+      if (usadas >= cota) {
+        throw new BadRequestException(
+          `Sua cota de cortesias acabou (${usadas} de ${cota} neste evento).`,
+        );
+      }
     }
 
     const lot = await prisma.ticketLot.findFirst({
@@ -69,6 +120,9 @@ export class GuestListService {
             contactEmail: `guest-list+${reservation.id}@borafest.app`,
             contactName: input.guestName,
             salesPartnerId: input.salesPartnerId,
+            // marca o promoter no pedido: é o que faz a etiqueta sair CORTESIA
+            // (com o nome de quem convidou) em vez de CONVIDADO ("da produção")
+            promoterLinkId,
             soldByUserId: userId,
             attributionSource: input.salesPartnerId ? "MANUAL" : undefined,
             status: "PAID",

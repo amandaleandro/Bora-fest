@@ -22,6 +22,9 @@ export interface PedidoParaOrigem {
   soldByUserId?: string | null;
   salesPartnerId?: string | null;
   salesPartner?: { name: string } | null;
+  /** promoter pessoa que cadastrou o convidado (cota própria, desde 2026-09-08) */
+  promoterLinkId?: string | null;
+  promoterLink?: { promoterUser?: { name: string | null } | null } | null;
   guestListEntries?: Array<{ id: string }>;
 }
 
@@ -33,6 +36,12 @@ export function origemGratis(order: PedidoParaOrigem): OrigemGratis {
   const daLista = (order.guestListEntries?.length ?? 0) > 0;
 
   if (daLista) {
+    // quem cadastrou define o rótulo. PROMOTER pessoa (cota própria) e
+    // atlética/parceiro saem como CORTESIA, com o nome de quem convidou;
+    // só a produção sai como CONVIDADO ("da produção", charme dourado).
+    const nomePromoter = order.promoterLink?.promoterUser?.name ?? null;
+    const temPromoter = Boolean(order.promoterLinkId ?? order.promoterLink);
+    if (temPromoter) return { kind: "CORTESIA", por: nomePromoter ?? "equipe do evento" };
     return temParceiro
       ? { kind: "CORTESIA", por: nomeParceiro ?? "equipe do evento" }
       : { kind: "CONVIDADO", por: "produção" };

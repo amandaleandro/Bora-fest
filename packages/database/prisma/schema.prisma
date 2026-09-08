@@ -304,6 +304,12 @@ model PromoterLink {
   commissionType       PromoterCommissionType @default(NONE) @map("commission_type")
   commissionBps        Int                    @default(0) @map("commission_bps")
   commissionFixedCents Int                    @default(0) @map("commission_fixed_cents")
+  /// COTA DE CORTESIA (2026-09-08): quantos convidados esta pessoa pode cadastrar
+  /// na lista. 0 = nenhuma. Quem define é a CASA, no convite. Sem isto, o limite
+  /// era a capacidade do lote — compartilhada, então um promoter sozinho podia
+  /// consumir a cota inteira da casa (gap apontado no benchmark: Shotgun e
+  /// Fatsoma têm teto por promoter, nós não tínhamos).
+  guestQuota           Int                    @default(0) @map("guest_quota")
   /// slug global do link rastreável (?pr=slug) — único entre todos os promoters
   slug                 String                 @unique
   /// escopo (decisão 2026-08-15): null = TODOS os eventos da casa; preenchido =

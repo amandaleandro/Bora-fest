@@ -59,6 +59,8 @@ export const invitePromoterSchema = z
     commissionBps: z.number().int().min(0).max(5000).optional(),
     /** FIXED: centavos por ingresso vendido */
     commissionFixedCents: z.number().int().min(0).max(1_000_000).optional(),
+    /** quantas cortesias esta pessoa pode cadastrar na lista de convidados (0 = nenhuma) */
+    guestQuota: z.number().int().min(0).max(1000).optional(),
   })
   .refine((v) => v.commissionType !== "PERCENT" || (v.commissionBps ?? 0) > 0, {
     message: "Comissão percentual precisa de um valor maior que zero",
