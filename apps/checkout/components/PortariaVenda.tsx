@@ -39,6 +39,8 @@ interface Props {
 }
 
 interface SaleResult {
+  /** token público do pedido — vira o QR de retirada que o comprador escaneia */
+  publicToken?: string;
   gratis?: boolean;
   /** false = venda de rua: ingresso enviado por e-mail, entrada no dia */
   imediata?: boolean;
@@ -155,7 +157,10 @@ export default function PortariaVenda({
   }, [lotId, quantity, buyerName, buyerEmail, buyerDocument]);
 
   const emailInvalido = buyerEmail.trim().length > 0 && !EMAIL_RE.test(buyerEmail.trim());
-  const emailFaltando = !entradaImediata && !EMAIL_RE.test(buyerEmail.trim());
+  // 2026-09-08: o e-mail DEIXOU de ser obrigatório na venda antecipada. O canal
+  // de entrega passou a ser o QR de retirada (o comprador escaneia e resolve no
+  // aparelho dele). Digitado pelo promoter, o e-mail só criava typo e conta
+  // fantasma. Continua aceito para quem preferir mandar por e-mail também.
   // Pix exige CPF do pagador (o gateway recusa sem ele). Dinheiro/cortesia nao.
   const cpfObrigatorio = mode === "pix" && !gratis;
   const cpfPreenchido = buyerDocument.trim().length > 0;
@@ -168,7 +173,6 @@ export default function PortariaVenda({
     buyerName.trim().length >= 2 &&
     quantity >= 1 &&
     !emailInvalido &&
-    !emailFaltando &&
     !cpfFaltando &&
     !cpfInvalido &&
     !gratis &&
@@ -186,13 +190,11 @@ export default function PortariaVenda({
         ? "O Pix exige o CPF do comprador — sem ele o banco não gera o QR."
         : cpfInvalido
           ? "Esse CPF não confere. Confira os 11 dígitos."
-          : emailFaltando
-            ? "Venda antecipada precisa de e-mail para enviar o ingresso."
-            : emailInvalido
-              ? "Esse e-mail parece inválido."
-              : !online
-                ? "Sem internet — a venda na porta precisa de conexão."
-                : null;
+          : emailInvalido
+            ? "Esse e-mail parece inválido."
+            : !online
+              ? "Sem internet — a venda na porta precisa de conexão."
+              : null;
 
   function montarPayload() {
     const doc = onlyDigits(buyerDocument);
@@ -213,7 +215,7 @@ export default function PortariaVenda({
 
   /** Check-in automático: mesma chamada da validação, com o deviceToken. */
   const checkinPedido = useCallback(
-    async (orderId: string, paidVia: Mode, buyer: string, lotLabel: string, gratis = false, imediata = true) => {
+    async (orderId: string, publicToken: string, paidVia: Mode, buyer: string, lotLabel: string, gratis = false, imediata = true) => {
       setCheckingIn(true);
       // achados 2026-09-01: (a) a rota pública aplica o portão do comprador
       // (conta nova não-verificada → lista VAZIA) e o check-in nunca rodava;
@@ -237,7 +239,7 @@ export default function PortariaVenda({
       // entra no dia pelo QR na portaria (check-in agora queimaria o ingresso)
       if (!imediata) {
         if (stoppedRef.current) return;
-        setResult({ gratis, imediata: false, paidVia, buyerName: buyer, lotLabel, tickets, entered: 0 });
+        setResult({ publicToken, gratis, imediata: false, paidVia, buyerName: buyer, lotLabel, tickets, entered: 0 });
         setCheckingIn(false);
         setSubmitting(false);
         setPhase("done");
@@ -265,7 +267,7 @@ export default function PortariaVenda({
       }
 
       if (stoppedRef.current) return;
-      setResult({ gratis, imediata: true, paidVia, buyerName: buyer, lotLabel, tickets, entered });
+      setResult({ publicToken, gratis, imediata: true, paidVia, buyerName: buyer, lotLabel, tickets, entered });
       setCheckingIn(false);
       setSubmitting(false);
       setPhase("done");
@@ -285,7 +287,7 @@ export default function PortariaVenda({
     setError(null);
     try {
       const sale = await api.createPdvCashSale(eventId, montarPayload(), accountToken!);
-      await checkinPedido(sale.orderId, "dinheiro", buyer, lotLabel, totalCents === 0, entradaImediata);
+      await checkinPedido(sale.orderId, sale.publicToken, "dinheiro", buyer, lotLabel, totalCents === 0, entradaImediata);
     } catch (e) {
       setError(mensagemErro(e));
       setSubmitting(false);
@@ -341,7 +343,7 @@ export default function PortariaVenda({
         const st = await api.getOrderStatus(order.publicToken);
         if (["PAID", "FULFILLED"].includes(st.status)) {
           clearInterval(id);
-          await checkinPedido(order.orderId, "pix", buyer, lotLabel, false, entradaImediata);
+          await checkinPedido(order.orderId, order.publicToken, "pix", buyer, lotLabel, false, entradaImediata);
         } else if (["CANCELED", "EXPIRED", "REFUNDED"].includes(st.status)) {
           clearInterval(id);
           setPixExpired(true);
@@ -453,6 +455,30 @@ export default function PortariaVenda({
                 </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ENTREGA SEM DIGITAÇÃO (2026-09-08): o comprador escaneia com o
+            PRÓPRIO celular e resolve a identidade dele lá — entra na conta,
+            confirma e-mail/CPF, recebe o ingresso. O promoter não digita nem
+            e-mail nem CPF, e some a classe de bug de "digitou errado". */}
+        {result.publicToken && (
+          <div className="mt-5 rounded-2xl border-[1.5px] border-white/12 bg-white/[.05] px-4 py-4">
+            <p className="text-center text-[13px] font-extrabold">
+              {result.imediata === false
+                ? "Peça para o cliente escanear"
+                : "Quer o ingresso no celular dele?"}
+            </p>
+            <p className="mx-auto mt-1 max-w-[260px] text-center text-[11.5px] font-medium leading-relaxed text-white/50">
+              Ele abre o pedido no aparelho dele, entra na conta e o ingresso fica salvo lá.
+            </p>
+            <div className="mx-auto mt-3 w-[168px] rounded-xl bg-white p-2.5">
+              <QRCode
+                value={`${typeof window !== "undefined" ? window.location.origin : ""}/pedido/${result.publicToken}`}
+                size={148}
+                style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+              />
+            </div>
           </div>
         )}
 
@@ -665,7 +691,7 @@ export default function PortariaVenda({
       <input
         value={buyerEmail}
         onChange={(e) => setBuyerEmail(e.target.value)}
-        placeholder={entradaImediata ? "E-mail para enviar o ingresso (opcional)" : "E-mail do comprador (obrigatório na venda antecipada)"}
+        placeholder="E-mail (opcional — o QR de retirada já entrega)"
         inputMode="email"
         autoCapitalize="off"
         autoCorrect="off"
@@ -675,11 +701,6 @@ export default function PortariaVenda({
       />
       {emailInvalido && (
         <p className="mt-1.5 text-[12px] font-semibold text-[#fb7185]">E-mail inválido — corrija ou deixe em branco.</p>
-      )}
-      {emailFaltando && buyerName.trim().length >= 2 && (
-        <p className="mt-1.5 text-[12px] font-semibold text-[#fbbf24]">
-          Venda antecipada precisa do e-mail — é por ele que o ingresso chega.
-        </p>
       )}
 
       {/* entrega: na porta (check-in agora) ou venda de rua (por e-mail) */}
