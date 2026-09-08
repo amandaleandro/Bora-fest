@@ -176,6 +176,21 @@ export class OrdersService {
         select: { id: true, commissionType: true, commissionBps: true, commissionFixedCents: true },
       });
     }
+    // CÓDIGO PESSOAL (2026-09-08): salvaguarda quando o cookie some — trocou de
+    // aparelho, abriu no navegador do Instagram, limpou o histórico. O comprador
+    // digita "BIA10" no checkout e a comissão vai pro dono do mesmo jeito.
+    // Vem DEPOIS do slug: o link (last-click) continua tendo prioridade.
+    if (!promoterLink && input.promoterCode && eventOrg) {
+      promoterLink = await prisma.promoterLink.findFirst({
+        where: {
+          organizationId: eventOrg.organizationId,
+          code: input.promoterCode.trim().toUpperCase(),
+          status: "ACTIVE",
+          OR: [{ eventId: null }, { eventId: reservation.eventId }],
+        },
+        select: { id: true, commissionType: true, commissionBps: true, commissionFixedCents: true },
+      });
+    }
     if (promoterLink) {
       promoterLinkId = promoterLink.id;
       const totalTickets = reservation.items.reduce((sum, it) => sum + it.quantity, 0);

@@ -495,12 +495,26 @@ export class OrganizationsService {
       commissionBps: input.commissionType === "PERCENT" ? input.commissionBps ?? 0 : 0,
       commissionFixedCents: input.commissionType === "FIXED" ? input.commissionFixedCents ?? 0 : 0,
       eventId: input.eventId ?? null,
+      guestQuota: input.guestQuota ?? 0,
+      // código pessoal sempre em MAIÚSCULAS: o comprador digita como quiser
+      code: input.code ? input.code.trim().toUpperCase() : null,
     };
     const existente = await prisma.promoterLink.findUnique({
       where: { organizationId_promoterUserId: { organizationId, promoterUserId: promoter.id } },
     });
     if (existente && existente.status !== "DECLINED" && existente.status !== "REMOVED") {
       throw new BadRequestException("Esta pessoa já foi convidada");
+    }
+    if (data.code) {
+      const emUso = await prisma.promoterLink.findFirst({
+        where: { code: data.code, ...(existente ? { NOT: { id: existente.id } } : {}) },
+        select: { id: true },
+      });
+      if (emUso) {
+        throw new BadRequestException(
+          `O código ${data.code} já está em uso por outro promoter — escolha outro.`,
+        );
+      }
     }
     const slug = `${input.email.split("@")[0].replace(/[^a-z0-9]/gi, "").slice(0, 12)}-${Math.random().toString(36).slice(2, 6)}`;
     const link = existente
@@ -683,6 +697,8 @@ export class OrganizationsService {
       id: link.id,
       hostName: link.organization.displayName ?? link.organization.name,
       slug: link.slug,
+      code: link.code,
+      guestQuota: link.guestQuota,
       paidOrders: porLink.get(link.id)?._count._all ?? 0,
       soldCents: porLink.get(link.id)?._sum.totalCents ?? 0,
       /** evento do escopo (null = vale para todos os eventos da casa) */

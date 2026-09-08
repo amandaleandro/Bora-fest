@@ -16,6 +16,8 @@ export const createTicketLotSchema = z.object({
   halfPriceEnabled: z.boolean().optional(),
   /// só balcão: some do site; só a portaria (promoter) vende/emite
   pdvOnly: z.boolean().optional(),
+  /** lote exclusivo: só aparece para quem chegou pelo link/código de um promoter */
+  promoterOnly: z.boolean().optional(),
   name: z.string().min(2),
   priceCents: z.number().int().min(0),
   feeCents: z.number().int().min(0).default(0),

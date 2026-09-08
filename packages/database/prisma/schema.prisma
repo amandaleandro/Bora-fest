@@ -312,6 +312,11 @@ model PromoterLink {
   guestQuota           Int                    @default(0) @map("guest_quota")
   /// slug global do link rastreável (?pr=slug) — único entre todos os promoters
   slug                 String                 @unique
+  /// CÓDIGO PESSOAL (2026-09-08), ex.: "BIA10". O link depende de localStorage
+  /// de 7 dias — que se perde ao trocar de aparelho ou abrir em navegador
+  /// in-app. O código é determinístico: o comprador digita no checkout e a
+  /// comissão vai pro dono, mesmo sem cookie. Guardado em MAIÚSCULAS.
+  code                 String?                @unique
   /// escopo (decisão 2026-08-15): null = TODOS os eventos da casa; preenchido =
   /// o link/comissão só valem NESTE evento (em outro, a atribuição é ignorada)
   eventId              String?                @map("event_id") @db.Uuid
@@ -691,6 +696,11 @@ model TicketLot {
   /// só a venda presencial da portaria (promoter com SALES_PERFORM) emite —
   /// caso de uso: lote cortesia de novatos entregue pessoalmente
   pdvOnly          Boolean   @default(false) @map("pdv_only")
+  /// LOTE EXCLUSIVO DO PROMOTER (2026-09-08): só aparece para quem chegou pelo
+  /// link/código de um promoter. Serve para preço especial de quem compra "com
+  /// o fulano" — Shotgun e Fatsoma têm, e é o que dá poder de barganha ao
+  /// comissário sem furar a tabela pública.
+  promoterOnly     Boolean   @default(false) @map("promoter_only")
   status           LotStatus @default(DRAFT)
   startsAt         DateTime? @map("starts_at")
   endsAt           DateTime? @map("ends_at")

@@ -50,9 +50,15 @@ export class PublicCatalogController {
   }
 
   @Get(":slug")
-  getEvent(@Param("slug") slug: string, @Res({ passthrough: true }) reply: FastifyReply) {
-    reply.header("Cache-Control", PUBLIC_CACHE_HEADER);
-    return this.catalogService.getPublicEvent(slug);
+  getEvent(
+    @Param("slug") slug: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @Query("pr") promoterSlug?: string,
+  ) {
+    // com ?pr= a resposta é PESSOAL (pode conter o lote exclusivo daquele
+    // promoter), então não pode ser guardada em cache compartilhado de CDN
+    reply.header("Cache-Control", promoterSlug ? "private, no-store" : PUBLIC_CACHE_HEADER);
+    return this.catalogService.getPublicEvent(slug, promoterSlug?.trim() || undefined);
   }
 
   @Get(":slug/availability")

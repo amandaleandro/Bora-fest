@@ -33,6 +33,8 @@ export const createOrderSchema = z.object({
   partnerSlug: z.string().min(1).max(80).optional(),
   /** link rastreável de PROMOTER (?pr=slug) — se válido, vence o de atlética (sem comissão dupla) */
   promoterSlug: z.string().min(1).max(80).optional(),
+  /** código pessoal do promoter digitado no checkout (ex.: BIA10) — vale mesmo sem cookie */
+  promoterCode: z.string().min(3).max(16).optional(),
   /** link rastreável de VENDEDOR do promoter (?vd=slug) — implica o promoter */
   sellerSlug: z.string().min(1).max(80).optional(),
   /** CPF do comprador — vira o CPF da conta criada no checkout (vínculo do ingresso) */

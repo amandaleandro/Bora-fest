@@ -20,7 +20,7 @@ const showcaseSelect = {
   ticketTypes: {
     select: {
       lots: {
-        where: { status: "ACTIVE" as const, pdvOnly: false },
+        where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false },
         select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
       },
     },
@@ -148,6 +148,7 @@ export class CatalogService {
         nominal: input.nominal ?? false,
         halfPriceEnabled: input.halfPriceEnabled ?? false,
         pdvOnly: input.pdvOnly ?? false,
+        promoterOnly: input.promoterOnly ?? false,
         requiresCpf: input.requiresCpf ?? false,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
@@ -359,11 +360,16 @@ export class CatalogService {
     return { highlights, shelves, upcoming };
   }
 
-  async getPublicEvent(slug: string) {
-    return this.lembrado(`ev:${slug}`, 5_000, () => this.getPublicEventFresco(slug));
+  async getPublicEvent(slug: string, promoterSlug?: string) {
+    // cache por (evento + promoter): quem chega pelo link de um promoter vê uma
+    // lista de lotes diferente, então não pode dividir cache com o público —
+    // senão o lote exclusivo vazaria para quem não tem o link
+    return this.lembrado(`ev:${slug}:${promoterSlug ?? "-"}`, 5_000, () =>
+      this.getPublicEventFresco(slug, promoterSlug),
+    );
   }
 
-  private async getPublicEventFresco(slug: string) {
+  private async getPublicEventFresco(slug: string, promoterSlug?: string) {
     const event = await prisma.event.findFirst({
       where: { slug, status: "PUBLISHED" },
       include: {
@@ -387,6 +393,28 @@ export class CatalogService {
     });
 
     if (!event) throw new NotFoundException("Evento não encontrado");
+
+    // LOTE EXCLUSIVO DO PROMOTER: fica de fora, a menos que o visitante tenha
+    // chegado pelo link de um promoter ATIVO desta casa (e deste evento, se o
+    // vínculo tiver escopo). Slug inválido ou de outra casa não revela nada —
+    // falha fechada.
+    const promoterValido = promoterSlug
+      ? await prisma.promoterLink.findFirst({
+          where: {
+            slug: promoterSlug,
+            status: "ACTIVE",
+            organizationId: event.organizationId,
+            OR: [{ eventId: null }, { eventId: event.id }],
+          },
+          select: { id: true },
+        })
+      : null;
+    if (!promoterValido) {
+      event.ticketTypes = event.ticketTypes.map((tt) => ({
+        ...tt,
+        lots: tt.lots.filter((l) => !l.promoterOnly),
+      }));
+    }
     // público vê o nome comercial; o nome civil/razão social nem trafega
     const { displayName, ...organization } = event.organization;
     // esta consulta usa `include`, então devolve TODOS os campos do evento —
