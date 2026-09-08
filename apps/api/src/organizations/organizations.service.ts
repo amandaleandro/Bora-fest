@@ -642,21 +642,59 @@ export class OrganizationsService {
   async listMyPromoterEngagements(userId: string) {
     const links = await prisma.promoterLink.findMany({
       where: { promoterUserId: userId, status: "ACTIVE" },
-      include: { organization: { select: { name: true, displayName: true } } },
+      include: {
+        organization: { select: { name: true, displayName: true } },
+        // O EVENTO precisa vir junto (2026-09-08): sem ele o link do promoter só
+        // podia apontar para a HOME (/?pr=slug) e o comprador caía na loja para
+        // caçar a festa sozinho — atrito em cima do funil que mais converte.
+        // Agora dá para montar /{eventSlug}?pr={slug}, como o link da atlética
+        // já fazia.
+        event: { select: { id: true, title: true, slug: true, startsAt: true } },
+      },
       orderBy: { invitedAt: "desc" },
     });
     const stats = await prisma.order.groupBy({
       by: ["promoterLinkId"],
       where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] } },
       _count: { _all: true },
-      _sum: { promoterCommissionCents: true },
+      // soldCents: o promoter precisa ver o que VENDEU, não só a comissão —
+      // a casa já via isso (listPromoters), ele não.
+      _sum: { promoterCommissionCents: true, totalCents: true },
     });
     const porLink = new Map(stats.map((s) => [s.promoterLinkId, s]));
+
+    // Vínculo sem evento vale para TODOS os eventos da casa: devolvemos a
+    // agenda publicada dela para a tela montar um link por evento mesmo assim.
+    const semEscopo = links.filter((l) => !l.eventId).map((l) => l.organizationId);
+    const agenda = semEscopo.length
+      ? await prisma.event.findMany({
+          where: {
+            organizationId: { in: semEscopo },
+            status: "PUBLISHED",
+            endsAt: { gte: new Date() },
+          },
+          select: { id: true, title: true, slug: true, startsAt: true, organizationId: true },
+          orderBy: { startsAt: "asc" },
+          take: 50,
+        })
+      : [];
+
     return links.map((link) => ({
       id: link.id,
       hostName: link.organization.displayName ?? link.organization.name,
       slug: link.slug,
       paidOrders: porLink.get(link.id)?._count._all ?? 0,
+      soldCents: porLink.get(link.id)?._sum.totalCents ?? 0,
+      /** evento do escopo (null = vale para todos os eventos da casa) */
+      event: link.event
+        ? { id: link.event.id, title: link.event.title, slug: link.event.slug, startsAt: link.event.startsAt }
+        : null,
+      /** quando o vínculo não tem escopo, a agenda da casa para escolher o evento */
+      events: link.eventId
+        ? []
+        : agenda
+            .filter((e) => e.organizationId === link.organizationId)
+            .map((e) => ({ id: e.id, title: e.title, slug: e.slug, startsAt: e.startsAt })),
       ...(link.commissionType !== "NONE"
         ? { ...this.commissionSummary(link), commissionCents: porLink.get(link.id)?._sum.promoterCommissionCents ?? 0 }
         : {}),

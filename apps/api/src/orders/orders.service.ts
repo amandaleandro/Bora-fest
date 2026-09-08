@@ -655,20 +655,19 @@ export class OrdersService {
 
         await tx.ledgerEntry.createMany({
           data: [
-            {
-              ledgerAccountId: ledgerAccount.id,
-              type: "SALE_CREDIT",
-              amountCents: totalCents,
-              referenceType: "order",
-              referenceId: created.id,
-              // venda no PDV segue a MESMA janela do online (D+N úteis após o
-              // evento) — sem isso o crédito nascia maduro e furava a regra de
-              // saque (revisão adversarial 2026-08-11)
-              availableAt: addBusinessDays(
-                event.endsAt,
-                Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
-              ),
-            },
+            // SEM SALE_CREDIT NA VENDA EM DINHEIRO (2026-09-08).
+            //
+            // Aqui o dinheiro NÃO entra na plataforma: ele vai direto para o
+            // caixa de quem vendeu (não existe Payment neste caminho — compare
+            // com apply-status.ts, onde o crédito nasce porque o gateway pagou).
+            // Creditar saldo sacável significava a plataforma repassar dinheiro
+            // que nunca recebeu, e o produtor ser pago DUAS vezes: uma no caixa
+            // dele, outra no repasse. Com escala, é rombo.
+            //
+            // A TAXA continua sendo devida — ela é da plataforma
+            // independentemente de por onde o dinheiro passou, e é descontada
+            // do saldo das vendas online. O acerto do valor do ingresso é
+            // offline, entre quem vendeu e a produção.
             {
               ledgerAccountId: ledgerAccount.id,
               type: "PLATFORM_FEE",

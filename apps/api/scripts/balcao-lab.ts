@@ -106,7 +106,13 @@ async function main() {
   ok("atlética atribuída", pedido.salesPartnerId === atletica.id);
   const conta = await prisma.ledgerAccount.findUniqueOrThrow({ where: { organizationId: org.id } });
   const entradas = await prisma.ledgerEntry.findMany({ where: { ledgerAccountId: conta.id } });
-  ok("venda paga lança crédito no ledger do produtor", entradas.some((e) => e.type === "SALE_CREDIT" && e.amountCents > 0));
+  // 2026-09-08: DINHEIRO no balcão NÃO credita saldo sacável — o dinheiro foi
+  // para o caixa de quem vendeu, não para a plataforma. Creditar significava
+  // repassar dinheiro que nunca entrou (produtor pago duas vezes).
+  ok("dinheiro NÃO gera SALE_CREDIT (não entrou na plataforma)", !entradas.some((e) => e.type === "SALE_CREDIT"), JSON.stringify(entradas.map((e) => e.type)));
+  ok("mas a TAXA da plataforma continua sendo cobrada", entradas.some((e) => e.type === "PLATFORM_FEE" && e.amountCents < 0));
+  const saldo = entradas.reduce((acc, e) => acc + e.amountCents, 0);
+  ok("saldo da casa por esta venda é só a taxa (negativo), não o valor do ingresso", saldo < 0, saldo);
 
   console.log("\n6) CORTESIA agora nasce da LISTA, cadastrada ANTES — e é do parceiro");
   await prisma.eventSalesPartner.upsert({

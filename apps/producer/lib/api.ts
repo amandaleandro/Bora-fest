@@ -63,11 +63,23 @@ export const identityApi = {
 
 export type ProducerType = "CASA" | "ATLETICA" | "PRODUTORA" | "INDEPENDENTE" | "OUTRO";
 
+export interface PromoterEventoDoLink {
+  id: string;
+  title: string;
+  slug: string;
+  startsAt: string;
+}
+
 export interface PromoterEngagement {
   id: string;
   hostName: string;
   slug: string;
   paidOrders: number;
+  soldCents?: number;
+  /** evento do escopo do vínculo — null quando vale para todos os eventos da casa */
+  event?: PromoterEventoDoLink | null;
+  /** agenda da casa, quando o vínculo não tem escopo de evento */
+  events?: PromoterEventoDoLink[];
   commissionType?: "NONE" | "PERCENT" | "FIXED";
   commissionBps?: number;
   commissionFixedCents?: number;

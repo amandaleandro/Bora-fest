@@ -62,9 +62,20 @@ function PromoterInbox() {
     }
   }
 
-  function copyLink(slug: string, id: string) {
+  /**
+   * Link do promoter (2026-09-08): aponta para O EVENTO, não mais para a home.
+   * Antes era `/?pr=slug` e o comprador caía na loja para caçar a festa — atrito
+   * puro em cima do funil que mais converte. Sem evento no escopo, usa o próximo
+   * da agenda da casa; só cai na home se a casa não tiver evento publicado.
+   */
+  function linkDoPromoter(e: PromoterEngagement): string {
     const base = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "https://borafest.com.br";
-    navigator.clipboard.writeText(`${base}/?pr=${slug}`);
+    const evento = e.event ?? e.events?.[0] ?? null;
+    return evento ? `${base}/${evento.slug}?pr=${e.slug}` : `${base}/?pr=${e.slug}`;
+  }
+
+  function copyLink(e: PromoterEngagement, id: string) {
+    navigator.clipboard.writeText(linkDoPromoter(e));
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   }
@@ -201,12 +212,19 @@ function PromoterInbox() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => copyLink(eng.slug, eng.id)}
+                    onClick={() => copyLink(eng, eng.id)}
                     className="h-10 rounded-xl border border-line px-4 text-[13px] font-bold text-primary"
                   >
                     {copied === eng.id ? "Copiado ✓" : "Copiar meu link"}
                   </button>
                 </div>
+                <p className="mt-2 text-[11.5px] font-semibold text-muted">
+                  {eng.event
+                    ? `Seu link leva direto para ${eng.event.title}.`
+                    : eng.events && eng.events.length > 0
+                      ? `Seu link leva direto para ${eng.events[0].title} (próximo evento da casa).`
+                      : "Esta casa ainda não tem evento publicado — seu link leva para a página inicial."}
+                </p>
               </div>
             ))}
           </div>
