@@ -115,172 +115,195 @@ export class EventDuplicationService {
   constructor(private readonly orgAccess: OrgAccessService) {}
 
   async duplicate(eventId: string, actorUserId: string, input: DuplicateEventInput) {
-    const source = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: {
-        ticketTypes: {
-          orderBy: { position: "asc" },
-          include: { lots: { orderBy: { createdAt: "asc" } } },
-        },
-        addOns: { orderBy: { createdAt: "asc" } },
-        salesPartners: { select: { partnerId: true } },
-        checkinPoints: { select: { name: true, active: true } },
-      },
-    });
-    if (!source) throw new NotFoundException("Evento não encontrado");
-
-    await this.orgAccess.assertPermission(source.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
-
-    const nextStart = input.startsAt
-      ? new Date(input.startsAt)
-      : nextStartFromCadence(source.startsAt, input.cadence);
-    if (!Number.isFinite(nextStart.getTime())) throw new BadRequestException("Data da nova edição inválida");
-    if (nextStart.getTime() <= Date.now()) {
-      throw new BadRequestException("A nova edição precisa começar no futuro");
-    }
-
-    const originalDurationMs = Math.max(source.endsAt.getTime() - source.startsAt.getTime(), 1);
-    const nextEnd = input.endsAt ? new Date(input.endsAt) : new Date(nextStart.getTime() + originalDurationMs);
-    if (!Number.isFinite(nextEnd.getTime()) || nextEnd <= nextStart) {
-      throw new BadRequestException("O término precisa ser depois do início");
-    }
-
-    const title = input.title?.trim() || source.title;
-    const deltaMs = nextStart.getTime() - source.startsAt.getTime();
-    const hasGlobalPromoter =
-      (await prisma.promoterLink.count({
-        where: { organizationId: source.organizationId, status: "ACTIVE", eventId: null },
-      })) > 0;
-    const promoterOnlyNeedsReview =
-      input.copyTickets &&
-      !hasGlobalPromoter &&
-      source.ticketTypes.some((type) => type.lots.some((lot) => lot.promoterOnly));
-
-    return prisma.$transaction(async (tx) => {
-      const slug = await gerarSlugUnico(tx, title);
-      const created = await tx.event.create({
-        data: {
-          organizationId: source.organizationId,
-          venueId: source.venueId,
-          title,
-          slug,
-          description: source.description,
-          lineup: source.lineup,
-          amenities: source.amenities,
-          minAge: source.minAge,
-          bannerUrl: source.bannerUrl,
-          category: source.category,
-          startsAt: nextStart,
-          endsAt: nextEnd,
-          timezone: source.timezone,
-          waitingRoomEnabled: source.waitingRoomEnabled,
-          waitingRoomConcurrency: source.waitingRoomConcurrency,
-          pixelSettings:
-            input.copyMarketing && source.pixelSettings
-              ? (source.pixelSettings as Prisma.InputJsonValue)
-              : undefined,
-          metaCapiToken: input.copyMarketing ? source.metaCapiToken : undefined,
-          // status/publishedAt/canceledAt ficam nos defaults limpos: DRAFT/null/null.
-        },
-      });
-
-      let copiedTicketTypes = 0;
-      let copiedLots = 0;
-      if (input.copyTickets) {
-        for (const type of source.ticketTypes) {
-          const newType = await tx.ticketType.create({
-            data: {
-              eventId: created.id,
-              name: type.name,
-              description: type.description,
-              position: type.position,
+    return prisma.$transaction(
+      async (tx) => {
+        // Fonte, permissão e estado dos promoters pertencem ao MESMO snapshot.
+        // Assim não misturamos um lote de antes com promoters de depois em caso
+        // de edição concorrente enquanto a nova versão está sendo criada.
+        const source = await tx.event.findUnique({
+          where: { id: eventId },
+          include: {
+            ticketTypes: {
+              orderBy: { position: "asc" },
+              include: { lots: { orderBy: { createdAt: "asc" } } },
             },
-          });
-          copiedTicketTypes += 1;
+            addOns: { orderBy: { createdAt: "asc" } },
+            salesPartners: { select: { partnerId: true } },
+            checkinPoints: { select: { name: true, active: true } },
+          },
+        });
+        if (!source) throw new NotFoundException("Evento não encontrado");
 
-          if (type.lots.length > 0) {
-            await tx.ticketLot.createMany({
-              data: type.lots.map((lot) => ({
-                ticketTypeId: newType.id,
-                name: lot.name,
-                priceCents: lot.priceCents,
-                feeCents: lot.feeCents,
-                capacity: lot.capacity,
-                maxPerOrder: lot.maxPerOrder,
-                feeMode: lot.feeMode,
-                nominal: lot.nominal,
-                requiresCpf: lot.requiresCpf,
-                halfPriceEnabled: lot.halfPriceEnabled,
-                pdvOnly: lot.pdvOnly,
-                promoterOnly: lot.promoterOnly,
-                status: freshLotStatus(lot.status, lot.promoterOnly, hasGlobalPromoter),
-                startsAt: shifted(lot.startsAt, deltaMs),
-                endsAt: shifted(lot.endsAt, deltaMs),
-                // soldCount/reservedCount não são enviados: defaults = 0.
-              })),
+        await this.orgAccess.assertPermission(
+          source.organizationId,
+          actorUserId,
+          PERMISSIONS.EVENT_CREATE,
+          tx,
+        );
+
+        // Defesa em profundidade: mesmo que alguém chame o service sem passar
+        // pelo Zod do controller, datas manuais só valem para CUSTOM.
+        const nextStart =
+          input.cadence === "CUSTOM" && input.startsAt
+            ? new Date(input.startsAt)
+            : nextStartFromCadence(source.startsAt, input.cadence);
+        if (!Number.isFinite(nextStart.getTime())) {
+          throw new BadRequestException("Data da nova edição inválida");
+        }
+        if (nextStart.getTime() <= Date.now()) {
+          throw new BadRequestException("A nova edição precisa começar no futuro");
+        }
+
+        const originalDurationMs = Math.max(source.endsAt.getTime() - source.startsAt.getTime(), 1);
+        const nextEnd =
+          input.cadence === "CUSTOM" && input.endsAt
+            ? new Date(input.endsAt)
+            : new Date(nextStart.getTime() + originalDurationMs);
+        if (!Number.isFinite(nextEnd.getTime()) || nextEnd.getTime() <= nextStart.getTime()) {
+          throw new BadRequestException("O término precisa ser depois do início");
+        }
+
+        const title = input.title?.trim() || source.title;
+        const deltaMs = nextStart.getTime() - source.startsAt.getTime();
+        const hasGlobalPromoter =
+          (await tx.promoterLink.count({
+            where: { organizationId: source.organizationId, status: "ACTIVE", eventId: null },
+          })) > 0;
+        const promoterOnlyNeedsReview =
+          input.copyTickets &&
+          !hasGlobalPromoter &&
+          source.ticketTypes.some((type) => type.lots.some((lot) => lot.promoterOnly));
+
+        const slug = await gerarSlugUnico(tx, title);
+        const created = await tx.event.create({
+          data: {
+            organizationId: source.organizationId,
+            venueId: source.venueId,
+            title,
+            slug,
+            description: source.description,
+            lineup: source.lineup,
+            amenities: source.amenities,
+            minAge: source.minAge,
+            bannerUrl: source.bannerUrl,
+            category: source.category,
+            startsAt: nextStart,
+            endsAt: nextEnd,
+            timezone: source.timezone,
+            waitingRoomEnabled: source.waitingRoomEnabled,
+            waitingRoomConcurrency: source.waitingRoomConcurrency,
+            pixelSettings:
+              input.copyMarketing && source.pixelSettings
+                ? (source.pixelSettings as Prisma.InputJsonValue)
+                : undefined,
+            metaCapiToken: input.copyMarketing ? source.metaCapiToken : undefined,
+            // status/publishedAt/canceledAt ficam nos defaults limpos: DRAFT/null/null.
+          },
+        });
+
+        let copiedTicketTypes = 0;
+        let copiedLots = 0;
+        if (input.copyTickets) {
+          for (const type of source.ticketTypes) {
+            const newType = await tx.ticketType.create({
+              data: {
+                eventId: created.id,
+                name: type.name,
+                description: type.description,
+                position: type.position,
+              },
             });
-            copiedLots += type.lots.length;
+            copiedTicketTypes += 1;
+
+            if (type.lots.length > 0) {
+              await tx.ticketLot.createMany({
+                data: type.lots.map((lot) => ({
+                  ticketTypeId: newType.id,
+                  name: lot.name,
+                  priceCents: lot.priceCents,
+                  feeCents: lot.feeCents,
+                  capacity: lot.capacity,
+                  maxPerOrder: lot.maxPerOrder,
+                  feeMode: lot.feeMode,
+                  nominal: lot.nominal,
+                  requiresCpf: lot.requiresCpf,
+                  halfPriceEnabled: lot.halfPriceEnabled,
+                  pdvOnly: lot.pdvOnly,
+                  promoterOnly: lot.promoterOnly,
+                  status: freshLotStatus(lot.status, lot.promoterOnly, hasGlobalPromoter),
+                  startsAt: shifted(lot.startsAt, deltaMs),
+                  endsAt: shifted(lot.endsAt, deltaMs),
+                  // soldCount/reservedCount não são enviados: defaults = 0.
+                })),
+              });
+              copiedLots += type.lots.length;
+            }
           }
         }
-      }
 
-      if (input.copyAddOns && source.addOns.length > 0) {
-        await tx.eventAddOn.createMany({
-          data: source.addOns.map((item) => ({
-            eventId: created.id,
-            name: item.name,
-            description: item.description,
-            priceCents: item.priceCents,
-            active: item.active,
-          })),
-        });
-      }
+        if (input.copyAddOns && source.addOns.length > 0) {
+          await tx.eventAddOn.createMany({
+            data: source.addOns.map((item) => ({
+              eventId: created.id,
+              name: item.name,
+              description: item.description,
+              priceCents: item.priceCents,
+              active: item.active,
+            })),
+          });
+        }
 
-      if (input.copySalesPartners && source.salesPartners.length > 0) {
-        await tx.eventSalesPartner.createMany({
-          data: source.salesPartners.map(({ partnerId }) => ({ eventId: created.id, partnerId })),
-          skipDuplicates: true,
-        });
-      }
+        if (input.copySalesPartners && source.salesPartners.length > 0) {
+          await tx.eventSalesPartner.createMany({
+            data: source.salesPartners.map(({ partnerId }) => ({ eventId: created.id, partnerId })),
+            skipDuplicates: true,
+          });
+        }
 
-      if (input.copyCheckinPoints && source.checkinPoints.length > 0) {
-        await tx.checkinPoint.createMany({
-          data: source.checkinPoints.map((point) => ({
-            eventId: created.id,
-            name: point.name,
-            active: point.active,
-          })),
-          skipDuplicates: true,
-        });
-      }
+        if (input.copyCheckinPoints && source.checkinPoints.length > 0) {
+          await tx.checkinPoint.createMany({
+            data: source.checkinPoints.map((point) => ({
+              eventId: created.id,
+              name: point.name,
+              active: point.active,
+            })),
+            skipDuplicates: true,
+          });
+        }
 
-      return {
-        event: semSegredoDoEvento(created),
-        sourceEventId: source.id,
-        cadence: input.cadence,
-        copied: {
-          ticketTypes: copiedTicketTypes,
-          lots: copiedLots,
-          addOns: input.copyAddOns ? source.addOns.length : 0,
-          salesPartners: input.copySalesPartners ? source.salesPartners.length : 0,
-          checkinPoints: input.copyCheckinPoints ? source.checkinPoints.length : 0,
-          marketing: input.copyMarketing,
-        },
-        warnings: promoterOnlyNeedsReview
-          ? ["Lotes exclusivos de promoter foram mantidos em rascunho: vínculos exclusivos da edição anterior não são copiados."]
-          : [],
-        intentionallyNotCopied: [
-          "orders",
-          "tickets",
-          "reservations",
-          "guestListEntries",
-          "checkins",
-          "validatorCredentials",
-          "validatorDevices",
-          "reviews",
-          "promoterLinks",
-        ],
-      };
-    });
+        return {
+          event: semSegredoDoEvento(created),
+          sourceEventId: source.id,
+          cadence: input.cadence,
+          copied: {
+            ticketTypes: copiedTicketTypes,
+            lots: copiedLots,
+            addOns: input.copyAddOns ? source.addOns.length : 0,
+            salesPartners: input.copySalesPartners ? source.salesPartners.length : 0,
+            checkinPoints: input.copyCheckinPoints ? source.checkinPoints.length : 0,
+            marketing: input.copyMarketing,
+          },
+          warnings: promoterOnlyNeedsReview
+            ? ["Lotes exclusivos de promoter foram mantidos em rascunho: vínculos exclusivos da edição anterior não são copiados."]
+            : [],
+          intentionallyNotCopied: [
+            "orders",
+            "tickets",
+            "reservations",
+            "guestListEntries",
+            "checkins",
+            "validatorCredentials",
+            "validatorDevices",
+            "reviews",
+            "promoterLinks",
+          ],
+        };
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 5_000,
+        timeout: 15_000,
+      },
+    );
   }
 }
