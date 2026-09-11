@@ -138,6 +138,37 @@ describe("N3 — eventos recorrentes", () => {
     assert.equal(copiedTypes, 0);
   });
 
+  it("pula cadências vencidas quando a edição-base é antiga", async () => {
+    const originalStart = fixture.event.startsAt;
+    const originalEnd = fixture.event.endsAt;
+    const oldStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const oldEnd = new Date(oldStart.getTime() + 4 * 60 * 60 * 1000);
+
+    try {
+      await prisma.event.update({
+        where: { id: fixture.event.id },
+        data: { startsAt: oldStart, endsAt: oldEnd },
+      });
+
+      const before = Date.now();
+      const created = await recurrence.nextEdition(fixture.event.id, ownerId, {
+        cadenceDays: 7,
+        copyTicketCatalog: false,
+      });
+      const createdStart = new Date(created.startsAt).getTime();
+      const cadenceMs = 7 * 24 * 60 * 60 * 1000;
+
+      assert.ok(createdStart > before);
+      assert.equal((createdStart - oldStart.getTime()) % cadenceMs, 0);
+      assert.equal(new Date(created.endsAt).getTime() - createdStart, 4 * 60 * 60 * 1000);
+    } finally {
+      await prisma.event.update({
+        where: { id: fixture.event.id },
+        data: { startsAt: originalStart, endsAt: originalEnd },
+      });
+    }
+  });
+
   it("rejeita uma edição cujo fim não seja posterior ao início", async () => {
     const when = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     await assert.rejects(
