@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "./api-base";
+import { API_BASE_URL } from "./config";
 
 export interface DuplicatedEventResult {
   id: string;
