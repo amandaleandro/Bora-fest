@@ -18,28 +18,43 @@ interface DuplicateResponse {
     checkinPoints: number;
     marketing: boolean;
   };
+  warnings: string[];
 }
 
 const CADENCES: Array<{ value: Cadence; label: string; help: string }> = [
-  { value: "WEEKLY", label: "Toda semana", help: "Mesma semana e horário, na próxima ocorrência disponível." },
+  { value: "WEEKLY", label: "Toda semana", help: "Mesmo dia e horário, na próxima ocorrência disponível." },
   { value: "BIWEEKLY", label: "A cada 2 semanas", help: "Mantém o mesmo dia e horário a cada quinzena." },
-  { value: "MONTHLY", label: "Todo mês", help: "Repete no mesmo dia do mês e horário." },
+  { value: "MONTHLY", label: "Todo mês", help: "Repete no mesmo dia; se não existir, usa o último dia do mês." },
   { value: "CUSTOM", label: "Escolher data", help: "Você define manualmente o início da próxima edição." },
 ];
 
-function addCadence(date: Date, cadence: Exclude<Cadence, "CUSTOM">): Date {
+function daysInUtcMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+}
+
+function addCadence(date: Date, cadence: Exclude<Cadence, "CUSTOM">, monthlyAnchorDay: number): Date {
   const next = new Date(date.getTime());
-  if (cadence === "WEEKLY") next.setUTCDate(next.getUTCDate() + 7);
-  else if (cadence === "BIWEEKLY") next.setUTCDate(next.getUTCDate() + 14);
-  else next.setUTCMonth(next.getUTCMonth() + 1);
+  if (cadence === "WEEKLY") {
+    next.setUTCDate(next.getUTCDate() + 7);
+    return next;
+  }
+  if (cadence === "BIWEEKLY") {
+    next.setUTCDate(next.getUTCDate() + 14);
+    return next;
+  }
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  next.setUTCDate(Math.min(monthlyAnchorDay, daysInUtcMonth(next.getUTCFullYear(), next.getUTCMonth())));
   return next;
 }
 
 function firstFutureOccurrence(sourceIso: string, cadence: Exclude<Cadence, "CUSTOM">): Date {
-  let next = addCadence(new Date(sourceIso), cadence);
+  const source = new Date(sourceIso);
+  const anchor = source.getUTCDate();
+  let next = addCadence(source, cadence, anchor);
   let guard = 0;
   while (next.getTime() <= Date.now() && guard < 520) {
-    next = addCadence(next, cadence);
+    next = addCadence(next, cadence, anchor);
     guard += 1;
   }
   return next;
@@ -107,15 +122,13 @@ export default function ProximaEdicaoPage({ params }: { params: { eventId: strin
   const [copyMarketing, setCopyMarketing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<DuplicateResponse | null>(null);
 
   useEffect(() => {
     if (!event) return;
     setTitle((current) => current || event.title);
-    if (!customStart) {
-      const preview = firstFutureOccurrence(event.startsAt, "WEEKLY");
-      setCustomStart(toLocalInput(preview));
-    }
-  }, [event, customStart]);
+    setCustomStart((current) => current || toLocalInput(firstFutureOccurrence(event.startsAt, "WEEKLY")));
+  }, [event]);
 
   const previewDate = useMemo(() => {
     if (!event) return null;
@@ -157,7 +170,7 @@ export default function ProximaEdicaoPage({ params }: { params: { eventId: strin
       }
       if (customEnd) {
         const end = new Date(customEnd);
-        if (!Number.isFinite(end.getTime()) || end <= start) {
+        if (!Number.isFinite(end.getTime()) || end.getTime() <= start.getTime()) {
           setError("O término precisa ser depois do início.");
           return;
         }
@@ -192,8 +205,7 @@ export default function ProximaEdicaoPage({ params }: { params: { eventId: strin
         throw new Error(message || "Não foi possível criar a próxima edição.");
       }
 
-      const result = payload as DuplicateResponse;
-      router.push(`/eventos/${result.event.id}/editar?duplicado=1`);
+      setCreated(payload as DuplicateResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar a próxima edição.");
     } finally {
@@ -203,6 +215,75 @@ export default function ProximaEdicaoPage({ params }: { params: { eventId: strin
 
   if (!event) {
     return <p className="mt-2 text-[13px] font-semibold text-muted">Carregando evento…</p>;
+  }
+
+  if (created) {
+    return (
+      <main className="mx-auto max-w-[820px] lg:mx-0">
+        <section className="rounded-3xl border border-success/25 bg-success/[0.06] p-6 lg:p-7">
+          <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-success">Próxima edição criada</p>
+          <h2 className="mt-1 text-[24px] font-black text-ink">{created.event.title}</h2>
+          <p className="mt-2 text-[14px] font-extrabold text-ink-soft">{formatDate(new Date(created.event.startsAt))}</p>
+          <p className="mt-1 text-[12.5px] font-semibold text-muted">Nasceu como rascunho. Nada foi publicado automaticamente.</p>
+        </section>
+
+        <section className="mt-4 rounded-3xl border border-line bg-surface p-5 lg:p-6">
+          <h3 className="text-[14px] font-extrabold text-ink">Estrutura reaproveitada</h3>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {[
+              [created.copied.ticketTypes, "ingressos"],
+              [created.copied.lots, "lotes"],
+              [created.copied.addOns, "adicionais"],
+              [created.copied.salesPartners, "parceiros"],
+              [created.copied.checkinPoints, "portões"],
+            ].map(([value, label]) => (
+              <div key={String(label)} className="rounded-2xl bg-bg p-3 text-center">
+                <p className="text-[20px] font-black text-ink">{value}</p>
+                <p className="text-[10.5px] font-bold uppercase tracking-[.04em] text-muted">{label}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11.5px] font-semibold text-muted">
+            Marketing: {created.copied.marketing ? "copiado por sua escolha" : "não copiado"}.
+          </p>
+        </section>
+
+        {created.warnings.length > 0 ? (
+          <section className="mt-4 rounded-3xl border border-warning/30 bg-warning/[0.06] p-5">
+            <p className="text-[13px] font-extrabold text-ink">Revise antes de publicar</p>
+            <ul className="mt-2 space-y-1 text-[12px] font-semibold leading-relaxed text-muted">
+              {created.warnings.map((warning) => (
+                <li key={warning}>• {warning}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        <section className="mt-4 rounded-3xl border border-line bg-surface p-5">
+          <p className="text-[12.5px] font-extrabold text-ink">Estado novo, histórico separado</p>
+          <p className="mt-1 text-[12px] font-semibold leading-relaxed text-muted">
+            Vendidos, reservados, pedidos, ingressos, cortesias, check-ins, aparelhos de portaria, avaliações e financeiro ficaram na edição anterior.
+          </p>
+        </section>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/eventos/${created.event.id}/editar?duplicado=1`)}
+            className="h-12 rounded-2xl bg-primary px-6 text-[14px] font-extrabold text-white shadow-cta"
+          >
+            Revisar novo rascunho →
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push(`/eventos/${created.event.id}`)}
+            className="h-12 rounded-2xl border border-line-input bg-surface px-5 text-[13px] font-extrabold text-ink-soft"
+          >
+            Ver ingressos e lotes
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -342,7 +423,7 @@ export default function ProximaEdicaoPage({ params }: { params: { eventId: strin
           onClick={createNextEdition}
           className="h-12 rounded-2xl bg-primary px-6 text-[14px] font-extrabold text-white shadow-cta disabled:opacity-60"
         >
-          {saving ? "Criando próxima edição…" : "Criar rascunho e revisar"}
+          {saving ? "Criando próxima edição…" : "Criar rascunho"}
         </button>
         <button
           type="button"
