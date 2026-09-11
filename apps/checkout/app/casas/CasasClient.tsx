@@ -134,10 +134,12 @@ export function CasasClient({
     return Array.from(byId.values());
   }, [followedIds, houses, matchingFollowed, searching]);
 
-  const extraFollowedMatches = searching
-    ? matchingFollowed.filter((house) => !houses.some((candidate) => candidate.id === house.id)).length
+  // Casa seguida sem próximo evento não participa da vitrine pública, então é
+  // o único tipo de resultado local que precisa ser somado ao total do servidor.
+  const inactiveFollowedMatches = searching
+    ? matchingFollowed.filter((house) => house.nextEvent === null).length
     : 0;
-  const resultCount = searching ? total + extraFollowedMatches : total;
+  const resultCount = searching ? total + inactiveFollowedMatches : total;
   const hasMore = houses.length < total;
 
   return (
