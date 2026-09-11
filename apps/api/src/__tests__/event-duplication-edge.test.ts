@@ -23,8 +23,15 @@ describe("N3 — bordas da recorrência", () => {
     const owner = await createOwner(fixture.organization.id, fixture.ownerRoleId);
 
     try {
-      const sourceStart = new Date("2027-01-31T22:00:00.000Z");
-      const sourceEnd = new Date("2027-02-01T02:00:00.000Z");
+      let year = new Date().getUTCFullYear();
+      let sourceStart = new Date(Date.UTC(year, 0, 31, 22, 0, 0));
+      if (sourceStart.getTime() <= Date.now()) {
+        year += 1;
+        sourceStart = new Date(Date.UTC(year, 0, 31, 22, 0, 0));
+      }
+      const sourceEnd = new Date(sourceStart.getTime() + 4 * 60 * 60_000);
+      const februaryLastDay = new Date(Date.UTC(year, 2, 0)).getUTCDate();
+
       await prisma.event.update({
         where: { id: fixture.event.id },
         data: { startsAt: sourceStart, endsAt: sourceEnd },
@@ -39,9 +46,13 @@ describe("N3 — bordas da recorrência", () => {
         copyMarketing: false,
       });
 
-      assert.equal(result.event.startsAt.getUTCFullYear(), 2027);
+      assert.equal(result.event.startsAt.getUTCFullYear(), year);
       assert.equal(result.event.startsAt.getUTCMonth(), 1, "fevereiro");
-      assert.equal(result.event.startsAt.getUTCDate(), 28, "31/jan vira o último dia de fevereiro, não março");
+      assert.equal(
+        result.event.startsAt.getUTCDate(),
+        februaryLastDay,
+        "31/jan vira o último dia de fevereiro, não março",
+      );
       assert.equal(result.event.startsAt.getUTCHours(), 22);
       assert.equal(result.event.endsAt.getTime() - result.event.startsAt.getTime(), 4 * 60 * 60_000);
     } finally {
