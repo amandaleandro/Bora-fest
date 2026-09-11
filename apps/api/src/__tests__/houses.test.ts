@@ -30,7 +30,6 @@ describe("BoraFest Casa", () => {
       data: { venueId: venue.id, bannerUrl: "https://example.com/banner.jpg" },
     });
 
-    // ACTIVE com endsAt no passado não pode virar o menor preço da vitrine.
     await prisma.ticketLot.create({
       data: {
         ticketTypeId: fixture.ticketType.id,
@@ -102,7 +101,7 @@ describe("BoraFest Casa", () => {
     assert.equal(current?.nextEvent?.id, fixture.event.id);
   });
 
-  it("não mantém Casa na descoberta quando o último evento publicado já terminou", async () => {
+  it("tira evento vencido da descoberta sem perder a Casa seguida", async () => {
     await prisma.event.update({
       where: { id: fixture.event.id },
       data: { endsAt: new Date(Date.now() - 60_000) },
@@ -110,6 +109,12 @@ describe("BoraFest Casa", () => {
 
     const result = await houses.listPublicHouses(1, 100);
     assert.equal(result.houses.some((house) => house.id === fixture.organization.id), false);
+
+    const followed = await houses.listFollowedHouses(followerId!);
+    const current = followed.find((house) => house.id === fixture.organization.id);
+    assert.ok(current);
+    assert.equal(current?.nextEvent, null);
+    assert.equal(current?.upcomingEventsCount, 0);
 
     await prisma.event.update({
       where: { id: fixture.event.id },
