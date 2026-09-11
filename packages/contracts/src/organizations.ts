@@ -43,12 +43,21 @@ export const updateOrganizationSchema = z.object({
 });
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 
+const publicHttpUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .max(300)
+  .refine((value) => /^https?:\/\//i.test(value), {
+    message: "Use uma URL começando com http:// ou https://",
+  });
+
 /** Identidade permanente da Casa no perfil público da BoraFest. */
 export const updateOrganizationPublicProfileSchema = z.object({
   displayName: z.string().trim().min(2).max(80).nullable().optional(),
   bio: z.string().trim().max(500).nullable().optional(),
-  instagramUrl: z.string().trim().url().max(300).nullable().optional(),
-  websiteUrl: z.string().trim().url().max(300).nullable().optional(),
+  instagramUrl: publicHttpUrlSchema.nullable().optional(),
+  websiteUrl: publicHttpUrlSchema.nullable().optional(),
 });
 export type UpdateOrganizationPublicProfileInput = z.infer<typeof updateOrganizationPublicProfileSchema>;
 
@@ -81,7 +90,7 @@ export const invitePromoterSchema = z
   });
 export type InvitePromoterInput = z.infer<typeof invitePromoterSchema>;
 
-/** Convite de vendedor (nível 3): o promoter convida uma pessoa por e-mail. Vendedor nunca recebe pela plataforma. */
+/** Convite de vendedor (nível 3): o promoter convida uma pessoa por e-mail. Vendedor nunca recebe dinheiro pela plataforma. */
 export const inviteSellerSchema = z.object({
   email: z.string().email(),
 });
