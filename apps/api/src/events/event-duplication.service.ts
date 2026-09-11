@@ -45,11 +45,27 @@ async function gerarSlugUnico(tx: Prisma.TransactionClient, title: string): Prom
   return `${base}-${Date.now().toString(36)}`;
 }
 
-function nextStartFromCadence(source: Date, cadence: DuplicateEventCadence): Date {
-  const next = new Date(source.getTime());
+function advanceCadence(date: Date, cadence: Exclude<DuplicateEventCadence, "CUSTOM">): Date {
+  const next = new Date(date.getTime());
   if (cadence === "WEEKLY") next.setUTCDate(next.getUTCDate() + 7);
   else if (cadence === "BIWEEKLY") next.setUTCDate(next.getUTCDate() + 14);
-  else if (cadence === "MONTHLY") next.setUTCMonth(next.getUTCMonth() + 1);
+  else next.setUTCMonth(next.getUTCMonth() + 1);
+  return next;
+}
+
+/**
+ * Uma edição antiga pode ter ficado 2–3 ciclos para trás. Para recorrência,
+ * encontramos a PRIMEIRA ocorrência futura, em vez de criar a semana seguinte
+ * já vencida e obrigar o produtor a fazer conta manual.
+ */
+function nextStartFromCadence(source: Date, cadence: DuplicateEventCadence): Date {
+  if (cadence === "CUSTOM") return new Date(source.getTime());
+  let next = advanceCadence(source, cadence);
+  let guard = 0;
+  while (next.getTime() <= Date.now() && guard < 520) {
+    next = advanceCadence(next, cadence);
+    guard += 1;
+  }
   return next;
 }
 
