@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Res } from "@nestjs/common";
+import { Controller, Get, Param, Query, Res } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import { HousesService } from "./houses.service";
 
@@ -9,9 +9,13 @@ export class HousesController {
   constructor(private readonly housesService: HousesService) {}
 
   @Get()
-  list(@Res({ passthrough: true }) reply: FastifyReply) {
+  list(
+    @Query("page") page: string | undefined,
+    @Query("pageSize") pageSize: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
     reply.header("Cache-Control", "public, max-age=120, stale-while-revalidate=300");
-    return this.housesService.listPublicHouses();
+    return this.housesService.listPublicHouses(Number(page) || 1, Number(pageSize) || 50);
   }
 
   /** Resolução leve usada na página do evento para descobrir a URL permanente. */
