@@ -6,6 +6,7 @@ import { HealthModule } from "./health/health.module";
 import { MetricsModule } from "./observability/metrics.module";
 import { IdentityModule } from "./identity/identity.module";
 import { OrganizationsModule } from "./organizations/organizations.module";
+import { OrganizationProfileModule } from "./organization-profile/organization-profile.module";
 import { EventsModule } from "./events/events.module";
 import { CatalogModule } from "./catalog/catalog.module";
 import { InventoryModule } from "./inventory/inventory.module";
@@ -45,6 +46,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     MetricsModule,
     IdentityModule,
     OrganizationsModule,
+    OrganizationProfileModule,
     EventsModule,
     CatalogModule,
     InventoryModule,
