@@ -12,6 +12,10 @@ interface HouseProfile {
   slug: string;
   name: string;
   producerType: "CASA" | "ATLETICA" | "PRODUTORA" | "INDEPENDENTE" | "OUTRO" | null;
+  bio: string | null;
+  logoUrl: string | null;
+  instagramUrl: string | null;
+  websiteUrl: string | null;
   since: string;
   followersCount: number;
   eventsCount: number;
@@ -42,7 +46,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   if (!house) return { title: "Casa não encontrada | BoraFest" };
 
   const location = house.location ? ` em ${house.location.city}/${house.location.state}` : "";
-  const description = `Veja os próximos eventos de ${house.name}${location}, acompanhe a agenda e compre ingressos pela BoraFest.`;
+  const fallbackDescription = `Veja os próximos eventos de ${house.name}${location}, acompanhe a agenda e compre ingressos pela BoraFest.`;
+  const description = house.bio?.trim() ? house.bio.trim().slice(0, 160) : fallbackDescription;
+  const socialImage = house.heroImageUrl ?? house.logoUrl;
 
   return {
     title: `${house.name} | BoraFest`,
@@ -53,13 +59,13 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       description,
       url: `${SITE_URL}/casa/${house.slug}`,
       type: "website",
-      images: house.heroImageUrl ? [{ url: house.heroImageUrl }] : undefined,
+      images: socialImage ? [{ url: socialImage }] : undefined,
     },
     twitter: {
-      card: house.heroImageUrl ? "summary_large_image" : "summary",
+      card: socialImage ? "summary_large_image" : "summary",
       title: `${house.name} | BoraFest`,
       description,
-      images: house.heroImageUrl ? [house.heroImageUrl] : undefined,
+      images: socialImage ? [socialImage] : undefined,
     },
   };
 }
@@ -86,9 +92,9 @@ export default async function HousePage({ params }: { params: { slug: string } }
                 src={house.heroImageUrl}
                 priority
                 sizes="100vw"
-                className="object-cover opacity-55 blur-[1px]"
+                className="object-cover opacity-70"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-black/10" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-black/10" />
             </>
           ) : null}
         </div>
@@ -96,9 +102,15 @@ export default async function HousePage({ params }: { params: { slug: string } }
         <div className="mx-auto max-w-6xl px-5 sm:px-6">
           <div className="relative -mt-14 flex flex-col gap-4 pb-6 sm:-mt-12 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-end gap-4">
-              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-[28px] border-4 border-surface bg-brand-gradient text-[28px] font-black text-white shadow-card sm:h-28 sm:w-28">
-                {initials || "BF"}
-              </div>
+              {house.logoUrl ? (
+                <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-[28px] border-4 border-surface bg-surface shadow-card sm:h-28 sm:w-28">
+                  <EventImage src={house.logoUrl} priority sizes="112px" className="object-cover" />
+                </div>
+              ) : (
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-[28px] border-4 border-surface bg-brand-gradient text-[28px] font-black text-white shadow-card sm:h-28 sm:w-28">
+                  {initials || "BF"}
+                </div>
+              )}
               <div className="pb-1">
                 <span className="inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-extrabold text-primary">
                   {typeLabel}
@@ -151,9 +163,35 @@ export default async function HousePage({ params }: { params: { slug: string } }
           <aside className="space-y-3">
             <div className="rounded-3xl border border-line bg-surface p-5">
               <p className="text-[12px] font-extrabold uppercase tracking-[.06em] text-muted-2">Sobre</p>
-              <p className="mt-3 text-[14px] font-semibold leading-relaxed text-ink-soft">
-                Página oficial de {house.name} na BoraFest. Acompanhe a agenda e compre pelos canais oficiais da plataforma.
+              <p className="mt-3 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-ink-soft">
+                {house.bio?.trim() || `Página oficial de ${house.name} na BoraFest. Acompanhe a agenda e compre pelos canais oficiais da plataforma.`}
               </p>
+
+              {house.instagramUrl || house.websiteUrl ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {house.instagramUrl ? (
+                    <a
+                      href={house.instagramUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-full border border-line-input px-3 py-1.5 text-[12px] font-extrabold text-primary"
+                    >
+                      Instagram ↗
+                    </a>
+                  ) : null}
+                  {house.websiteUrl ? (
+                    <a
+                      href={house.websiteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-full border border-line-input px-3 py-1.5 text-[12px] font-extrabold text-primary"
+                    >
+                      Site oficial ↗
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+
               <dl className="mt-5 space-y-3 border-t border-line pt-4 text-[13px]">
                 <div className="flex items-center justify-between gap-3">
                   <dt className="font-semibold text-muted">Eventos cadastrados</dt>

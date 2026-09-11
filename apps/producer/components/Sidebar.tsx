@@ -121,6 +121,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
     { href: eventsHref, icon: icons.calendar, label: "Meus eventos" },
     ...(organizationId
       ? [
+          { href: `/organizacoes/${organizationId}/perfil-publico`, icon: icons.globe, label: "Perfil público" },
           { href: `/organizacoes/${organizationId}/financeiro`, icon: icons.card, label: "Financeiro" },
           { href: `/organizacoes/${organizationId}/reembolsos`, icon: icons.card, label: "Reembolsos" },
           { href: `/organizacoes/${organizationId}`, icon: icons.people, label: "Equipe e promoters" },
@@ -246,7 +247,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
   // perdia Financeiro, Reembolsos e Equipe — os itens sumiam justamente na home
   // do painel. Fora do contexto de organização, vem do que ficou guardado.
   const orgEmFoco = useProdutoraEmFoco(organizationId);
-  const { eventsHref, daProdutora, doEvento } = useSidebarLinks(emFoco, orgEmFoco);
+  const { daProdutora, doEvento } = useSidebarLinks(emFoco, orgEmFoco);
   const signOut = useLogout();
 
   return (

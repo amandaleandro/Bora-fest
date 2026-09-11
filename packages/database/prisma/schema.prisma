@@ -173,6 +173,12 @@ model Organization {
   /// nome comercial mostrado ao público (marca/atlética); null = usa `name`.
   /// Criado porque produtor pessoa física aparecia com o nome civil no site.
   displayName                  String?            @map("display_name")
+  /// identidade permanente da Casa na vitrine pública.
+  bio                          String?
+  logoUrl                      String?            @map("logo_url")
+  coverUrl                     String?            @map("cover_url")
+  instagramUrl                 String?            @map("instagram_url")
+  websiteUrl                   String?            @map("website_url")
   status                       OrganizationStatus @default(PENDING_VERIFICATION)
   /// Overrides de taxa (basis points; 499 = 4,99%). null = usa o padrão da plataforma.
   pixFeeBps                    Int?               @map("pix_fee_bps")
@@ -1455,7 +1461,7 @@ model IdempotencyKey {
   responseBody Json?     @map("response_body")
   statusCode   Int?      @map("status_code")
   lockedAt     DateTime? @map("locked_at")
-  completedAt  DateTime? @map("completed_at")
+  completedAt DateTime? @map("completed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   @@index([scope])
