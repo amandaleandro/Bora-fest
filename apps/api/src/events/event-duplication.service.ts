@@ -45,11 +45,30 @@ async function gerarSlugUnico(tx: Prisma.TransactionClient, title: string): Prom
   return `${base}-${Date.now().toString(36)}`;
 }
 
-function advanceCadence(date: Date, cadence: Exclude<DuplicateEventCadence, "CUSTOM">): Date {
+function daysInUtcMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+}
+
+function advanceCadence(
+  date: Date,
+  cadence: Exclude<DuplicateEventCadence, "CUSTOM">,
+  monthlyAnchorDay: number,
+): Date {
   const next = new Date(date.getTime());
-  if (cadence === "WEEKLY") next.setUTCDate(next.getUTCDate() + 7);
-  else if (cadence === "BIWEEKLY") next.setUTCDate(next.getUTCDate() + 14);
-  else next.setUTCMonth(next.getUTCMonth() + 1);
+  if (cadence === "WEEKLY") {
+    next.setUTCDate(next.getUTCDate() + 7);
+    return next;
+  }
+  if (cadence === "BIWEEKLY") {
+    next.setUTCDate(next.getUTCDate() + 14);
+    return next;
+  }
+
+  // Dia 31 não pode virar "3 de março" ao somar um mês. Mantemos o dia da
+  // série quando existe e usamos o último dia do mês quando não existe.
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  next.setUTCDate(Math.min(monthlyAnchorDay, daysInUtcMonth(next.getUTCFullYear(), next.getUTCMonth())));
   return next;
 }
 
@@ -60,10 +79,11 @@ function advanceCadence(date: Date, cadence: Exclude<DuplicateEventCadence, "CUS
  */
 function nextStartFromCadence(source: Date, cadence: DuplicateEventCadence): Date {
   if (cadence === "CUSTOM") return new Date(source.getTime());
-  let next = advanceCadence(source, cadence);
+  const monthlyAnchorDay = source.getUTCDate();
+  let next = advanceCadence(source, cadence, monthlyAnchorDay);
   let guard = 0;
   while (next.getTime() <= Date.now() && guard < 520) {
-    next = advanceCadence(next, cadence);
+    next = advanceCadence(next, cadence, monthlyAnchorDay);
     guard += 1;
   }
   return next;
@@ -77,8 +97,14 @@ function shifted(date: Date | null, deltaMs: number): Date | null {
  * Estado comercial do lote NÃO pode carregar esgotamento/fechamento da edição
  * anterior. Um lote ativo/esgotado volta ativo com estoque zerado; scheduled
  * mantém a janela relativa; draft/closed exigem revisão humana.
+ *
+ * Lote exclusivo de promoter exige pelo menos um promoter GLOBAL ativo na Casa.
+ * Vínculo exclusivo do evento anterior não pode ser duplicado por causa da
+ * unicidade por pessoa+Casa; sem promoter global, mantemos o lote em DRAFT para
+ * nunca expor preço especial nem criar um lote inacessível como se estivesse pronto.
  */
-function freshLotStatus(status: LotStatus): LotStatus {
+function freshLotStatus(status: LotStatus, promoterOnly: boolean, hasGlobalPromoter: boolean): LotStatus {
+  if (promoterOnly && !hasGlobalPromoter) return "DRAFT";
   if (status === "ACTIVE" || status === "SOLD_OUT") return "ACTIVE";
   if (status === "SCHEDULED") return "SCHEDULED";
   return "DRAFT";
@@ -121,6 +147,14 @@ export class EventDuplicationService {
 
     const title = input.title?.trim() || source.title;
     const deltaMs = nextStart.getTime() - source.startsAt.getTime();
+    const hasGlobalPromoter =
+      (await prisma.promoterLink.count({
+        where: { organizationId: source.organizationId, status: "ACTIVE", eventId: null },
+      })) > 0;
+    const promoterOnlyNeedsReview =
+      input.copyTickets &&
+      !hasGlobalPromoter &&
+      source.ticketTypes.some((type) => type.lots.some((lot) => lot.promoterOnly));
 
     return prisma.$transaction(async (tx) => {
       const slug = await gerarSlugUnico(tx, title);
@@ -179,7 +213,7 @@ export class EventDuplicationService {
                 halfPriceEnabled: lot.halfPriceEnabled,
                 pdvOnly: lot.pdvOnly,
                 promoterOnly: lot.promoterOnly,
-                status: freshLotStatus(lot.status),
+                status: freshLotStatus(lot.status, lot.promoterOnly, hasGlobalPromoter),
                 startsAt: shifted(lot.startsAt, deltaMs),
                 endsAt: shifted(lot.endsAt, deltaMs),
                 // soldCount/reservedCount não são enviados: defaults = 0.
@@ -232,6 +266,9 @@ export class EventDuplicationService {
           checkinPoints: input.copyCheckinPoints ? source.checkinPoints.length : 0,
           marketing: input.copyMarketing,
         },
+        warnings: promoterOnlyNeedsReview
+          ? ["Lotes exclusivos de promoter foram mantidos em rascunho: vínculos exclusivos da edição anterior não são copiados."]
+          : [],
         intentionallyNotCopied: [
           "orders",
           "tickets",
