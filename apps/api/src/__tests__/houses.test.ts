@@ -30,6 +30,19 @@ describe("BoraFest Casa", () => {
       data: { venueId: venue.id, bannerUrl: "https://example.com/banner.jpg" },
     });
 
+    // Regressão: ACTIVE com endsAt no passado não pode virar o menor preço da vitrine.
+    await prisma.ticketLot.create({
+      data: {
+        ticketTypeId: fixture.ticketType.id,
+        name: "Lote expirado",
+        priceCents: 100,
+        feeCents: 0,
+        capacity: 10,
+        status: "ACTIVE",
+        endsAt: new Date(Date.now() - 60_000),
+      },
+    });
+
     const follower = await prisma.user.create({
       data: { email: `casa-follow-${Math.random().toString(36).slice(2)}@example.com` },
     });
@@ -65,9 +78,12 @@ describe("BoraFest Casa", () => {
     assert.equal(resolved.name, "Casa Teste BoraFest");
   });
 
-  it("lista a casa quando ela já tem evento publicado", async () => {
-    const list = await houses.listPublicHouses();
-    const current = list.find((house) => house.id === fixture.organization.id);
+  it("lista a casa em resposta paginada quando ela já tem evento publicado", async () => {
+    const result = await houses.listPublicHouses(1, 100);
+    const current = result.houses.find((house) => house.id === fixture.organization.id);
+    assert.ok(result.total >= 1);
+    assert.equal(result.page, 1);
+    assert.equal(result.pageSize, 100);
     assert.ok(current);
     assert.equal(current.name, "Casa Teste BoraFest");
     assert.equal(current.followersCount, 1);
