@@ -33,12 +33,16 @@ function toEventCard(event: {
     lots: Array<{ priceCents: number; feeCents: number; feeMode: string; endsAt: Date | null }>;
   }>;
 }) {
-  const lots = event.ticketTypes.flatMap((type) => type.lots);
-  const totals = lots.map((lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0));
   const now = Date.now();
+  // ACTIVE não basta: um lote pode continuar com esse status após `endsAt`.
+  // O preço público só considera o que ainda é vendável agora.
+  const lots = event.ticketTypes
+    .flatMap((type) => type.lots)
+    .filter((lot) => lot.endsAt === null || lot.endsAt.getTime() > now);
+  const totals = lots.map((lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0));
   const futureLotEnds = lots
     .map((lot) => lot.endsAt)
-    .filter((date): date is Date => date !== null && date.getTime() > now)
+    .filter((date): date is Date => date !== null)
     .sort((a, b) => a.getTime() - b.getTime());
 
   return {
@@ -62,31 +66,44 @@ export class HousesService {
    * Não criamos uma segunda entidade: Organization continua sendo a fonte de
    * verdade e a agenda nasce dos Event já publicados.
    */
-  async listPublicHouses() {
-    const houses = await prisma.organization.findMany({
-      where: {
-        status: { notIn: ["SUSPENDED", "BLOCKED"] },
-        events: { some: { status: "PUBLISHED" } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        displayName: true,
-        producerType: true,
-        _count: { select: { followers: true } },
-      },
-    });
+  async listPublicHouses(page = 1, pageSize = 50) {
+    const safePage = Math.max(1, Math.floor(page));
+    const safePageSize = Math.min(100, Math.max(1, Math.floor(pageSize)));
+    const where = {
+      status: { notIn: ["SUSPENDED", "BLOCKED"] as Array<"SUSPENDED" | "BLOCKED"> },
+      events: { some: { status: "PUBLISHED" as const } },
+    };
 
-    return houses.map((house) => ({
-      id: house.id,
-      slug: house.slug,
-      name: house.displayName ?? house.name,
-      producerType: house.producerType,
-      followersCount: house._count.followers,
-    }));
+    const [total, houses] = await Promise.all([
+      prisma.organization.count({ where }),
+      prisma.organization.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize,
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          displayName: true,
+          producerType: true,
+          _count: { select: { followers: true } },
+        },
+      }),
+    ]);
+
+    return {
+      total,
+      page: safePage,
+      pageSize: safePageSize,
+      houses: houses.map((house) => ({
+        id: house.id,
+        slug: house.slug,
+        name: house.displayName ?? house.name,
+        producerType: house.producerType,
+        followersCount: house._count.followers,
+      })),
+    };
   }
 
   async resolvePublicHouseById(id: string) {
