@@ -9,10 +9,10 @@ import sharp from "sharp";
 import { OrgAccessService } from "../common/org-access.service";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
 
-const MAGIC_BYTES: Array<{ ext: string; signature: number[]; offset?: number }> = [
-  { ext: "jpg", signature: [0xff, 0xd8, 0xff] },
-  { ext: "png", signature: [0x89, 0x50, 0x4e, 0x47] },
-  { ext: "webp", signature: [0x57, 0x45, 0x42, 0x50], offset: 8 },
+const MAGIC_BYTES: Array<{ signature: number[]; offset?: number }> = [
+  { signature: [0xff, 0xd8, 0xff] },
+  { signature: [0x89, 0x50, 0x4e, 0x47] },
+  { signature: [0x57, 0x45, 0x42, 0x50], offset: 8 },
 ];
 
 function isSupportedImage(content: Buffer): boolean {
@@ -63,31 +63,30 @@ export class OrganizationProfileService {
   ) {
     await this.assertCanManage(organizationId, actorUserId);
 
-    const updated = await prisma.organization.update({
-      where: { id: organizationId },
-      data: {
-        displayName: input.displayName === undefined ? undefined : input.displayName,
-        bio: input.bio === undefined ? undefined : input.bio,
-        instagramUrl: input.instagramUrl === undefined ? undefined : input.instagramUrl,
-        websiteUrl: input.websiteUrl === undefined ? undefined : input.websiteUrl,
-      },
-      select: PROFILE_SELECT,
-    }).catch(() => {
-      throw new NotFoundException("Organização não encontrada");
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        actorUserId,
-        organizationId,
-        action: "organization.public_profile.updated",
-        entityType: "organization",
-        entityId: organizationId,
-        metadata: {
-          fields: Object.keys(input).filter((key) => input[key as keyof typeof input] !== undefined),
+    const [updated] = await prisma.$transaction([
+      prisma.organization.update({
+        where: { id: organizationId },
+        data: {
+          displayName: input.displayName === undefined ? undefined : input.displayName,
+          bio: input.bio === undefined ? undefined : input.bio,
+          instagramUrl: input.instagramUrl === undefined ? undefined : input.instagramUrl,
+          websiteUrl: input.websiteUrl === undefined ? undefined : input.websiteUrl,
         },
-      },
-    });
+        select: PROFILE_SELECT,
+      }),
+      prisma.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId,
+          action: "organization.public_profile.updated",
+          entityType: "organization",
+          entityId: organizationId,
+          metadata: {
+            fields: Object.keys(input).filter((key) => input[key as keyof typeof input] !== undefined),
+          },
+        },
+      }),
+    ]);
 
     return updated;
   }
@@ -128,7 +127,34 @@ export class OrganizationProfileService {
 
     const prefix = `organization-${organizationId}-${kind}-`;
     const name = `${prefix}${Date.now()}-${randomBytes(4).toString("hex")}.webp`;
-    await writeFile(join(UPLOADS_DIR, name), processed);
+    const filepath = join(UPLOADS_DIR, name);
+    await writeFile(filepath, processed);
+
+    const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
+    const imageUrl = `${base}/uploads/${name}`;
+
+    let updated: Awaited<ReturnType<typeof prisma.organization.update>>;
+    try {
+      [updated] = await prisma.$transaction([
+        prisma.organization.update({
+          where: { id: organizationId },
+          data: kind === "logo" ? { logoUrl: imageUrl } : { coverUrl: imageUrl },
+          select: PROFILE_SELECT,
+        }),
+        prisma.auditLog.create({
+          data: {
+            actorUserId,
+            organizationId,
+            action: `organization.public_profile.${kind}_uploaded`,
+            entityType: "organization",
+            entityId: organizationId,
+          },
+        }),
+      ]);
+    } catch (error) {
+      await unlink(filepath).catch(() => undefined);
+      throw error;
+    }
 
     const previousUrl = kind === "logo" ? organization.logoUrl : organization.coverUrl;
     if (previousUrl) {
@@ -137,24 +163,6 @@ export class OrganizationProfileService {
         await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
       }
     }
-
-    const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
-    const imageUrl = `${base}/uploads/${name}`;
-    const updated = await prisma.organization.update({
-      where: { id: organizationId },
-      data: kind === "logo" ? { logoUrl: imageUrl } : { coverUrl: imageUrl },
-      select: PROFILE_SELECT,
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        actorUserId,
-        organizationId,
-        action: `organization.public_profile.${kind}_uploaded`,
-        entityType: "organization",
-        entityId: organizationId,
-      },
-    });
 
     return updated;
   }
