@@ -136,22 +136,22 @@ export class OrganizationProfileService {
 
     const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
     const imageUrl = `${base}/uploads/${name}`;
-    const lockKey = `organization-profile:${organizationId}:${kind}`;
 
     try {
       const result = await prisma.$transaction(async (tx) => {
-        // Lock transacional compartilhado pelo PostgreSQL: duas instâncias da API
-        // nunca substituem a mesma logo/capa ao mesmo tempo. Assim, cada troca
-        // conhece exatamente o arquivo que ela tornou obsoleto e pode apagá-lo.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+        // Serializa alterações de identidade da mesma organização inclusive
+        // entre réplicas da API. A linha fica travada até o commit.
+        const locked = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM organizations WHERE id = ${organizationId}::uuid FOR UPDATE
+        `;
+        if (locked.length === 0) throw new NotFoundException("Organização não encontrada");
 
-        const current = await tx.organization.findUnique({
+        const current = await tx.organization.findUniqueOrThrow({
           where: { id: organizationId },
           select: { logoUrl: true, coverUrl: true },
         });
-        if (!current) throw new NotFoundException("Organização não encontrada");
-
         const previousUrl = kind === "logo" ? current.logoUrl : current.coverUrl;
+
         const updated = await tx.organization.update({
           where: { id: organizationId },
           data: kind === "logo" ? { logoUrl: imageUrl } : { coverUrl: imageUrl },
