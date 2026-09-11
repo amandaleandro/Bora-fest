@@ -48,9 +48,9 @@ export const duplicateEventSchema = z
     /** Mantém o mesmo nome por padrão; slug continua único. */
     title: z.string().trim().min(3).max(160).optional(),
     cadence: duplicateEventCadenceSchema.default("WEEKLY"),
-    /** Obrigatório somente quando cadence=CUSTOM. */
+    /** Datas manuais pertencem exclusivamente a cadence=CUSTOM. */
     startsAt: z.string().datetime().optional(),
-    /** Se omitido, preserva a duração da edição original. */
+    /** Se omitido em CUSTOM, preserva a duração da edição original. */
     endsAt: z.string().datetime().optional(),
     copyTickets: z.boolean().default(true),
     copyAddOns: z.boolean().default(true),
@@ -67,11 +67,18 @@ export const duplicateEventSchema = z
         message: "Escolha a data da nova edição",
       });
     }
-    if (value.endsAt && !value.startsAt && value.cadence === "CUSTOM") {
+    if (value.cadence === "CUSTOM" && value.endsAt && !value.startsAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["endsAt"],
         message: "Informe o início antes do fim",
+      });
+    }
+    if (value.cadence !== "CUSTOM" && (value.startsAt || value.endsAt)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: value.startsAt ? ["startsAt"] : ["endsAt"],
+        message: "Datas manuais só podem ser usadas com cadence=CUSTOM",
       });
     }
   });
