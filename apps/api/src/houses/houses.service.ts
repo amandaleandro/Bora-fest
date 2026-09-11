@@ -115,7 +115,7 @@ export class HousesService {
       prisma.organization.count({ where }),
       prisma.organization.findMany({
         where,
-        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        orderBy: [{ followers: { _count: "desc" } }, { createdAt: "desc" }],
         skip: (safePage - 1) * safePageSize,
         take: safePageSize,
         select: {
@@ -149,8 +149,6 @@ export class HousesService {
       }),
     ]);
 
-    // Dentro da página, usa sinais reais: primeiro audiência já conquistada,
-    // depois profundidade da agenda e, por fim, o próximo evento mais cedo.
     const cards = houses.map((house) => toHouseCard(house as DiscoveryHouse));
     cards.sort((a, b) => {
       if (b.followersCount !== a.followersCount) return b.followersCount - a.followersCount;
@@ -163,7 +161,11 @@ export class HousesService {
     return { total, page: safePage, pageSize: safePageSize, houses: cards };
   }
 
-  /** Casas seguidas pelo comprador, já filtradas para agenda futura. */
+  /**
+   * O vínculo "seguir" é permanente: a Casa continua aqui mesmo entre duas
+   * temporadas sem evento. Quando há cidade escolhida, usamos a localização da
+   * Casa ou a agenda futura naquela cidade para decidir se ela pertence ao recorte.
+   */
   async listFollowedHouses(userId: string, city?: string) {
     const now = new Date();
     const eventWhere = {
@@ -175,7 +177,14 @@ export class HousesService {
       where: {
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
         followers: { some: { userId } },
-        events: { some: eventWhere },
+        ...(city
+          ? {
+              OR: [
+                { events: { some: eventWhere } },
+                { venues: { some: { city } } },
+              ],
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -210,13 +219,14 @@ export class HousesService {
     return houses
       .map((house) => toHouseCard(house as DiscoveryHouse))
       .sort((a, b) => {
+        if (a.nextEvent && !b.nextEvent) return -1;
+        if (!a.nextEvent && b.nextEvent) return 1;
         const aDate = a.nextEvent ? new Date(a.nextEvent.startsAt).getTime() : Number.MAX_SAFE_INTEGER;
         const bDate = b.nextEvent ? new Date(b.nextEvent.startsAt).getTime() : Number.MAX_SAFE_INTEGER;
         return aDate - bDate;
       });
   }
 
-  /** Resolução leve usada na página do evento para descobrir a URL permanente. */
   async resolvePublicHouseById(id: string) {
     const house = await prisma.organization.findFirst({
       where: {
