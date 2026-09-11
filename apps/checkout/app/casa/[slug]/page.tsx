@@ -204,7 +204,7 @@ export default async function HousePage({ params }: { params: { slug: string } }
                   <dd className="font-extrabold text-ink">{house.upcomingEventsCount}</dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
-                  <dt className="font-semibold text-muted">Histórico total</dt>
+                  <dt className="font-semibold text-muted">Eventos publicados</dt>
                   <dd className="font-extrabold text-ink">{house.eventsCount}</dd>
                 </div>
                 {house.location ? (
