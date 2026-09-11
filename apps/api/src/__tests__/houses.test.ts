@@ -67,6 +67,7 @@ describe("BoraFest Casa", () => {
     assert.equal(profile.location?.state, "MG");
     assert.equal(profile.heroImageUrl, "https://example.com/banner.jpg");
     assert.equal(profile.events.length, 1);
+    assert.equal(profile.eventsCount, 1);
     assert.equal(profile.upcomingEventsCount, 1);
     assert.equal(profile.events[0]?.id, fixture.event.id);
     assert.equal(profile.events[0]?.fromPriceCents, 5500);
@@ -149,6 +150,43 @@ describe("BoraFest Casa", () => {
     } finally {
       await cleanupFixtureEvent(shallow.organization.id);
       await cleanupFixtureEvent(deep.organization.id);
+    }
+  });
+
+  it("conta toda a agenda futura mesmo retornando no máximo 100 cards", async () => {
+    const many = await createFixtureEvent({ lotCapacity: 10, priceCents: 1500, feeCents: 150 });
+    const base = Date.now() + 3 * 86_400_000;
+
+    try {
+      await prisma.event.createMany({
+        data: [
+          ...Array.from({ length: 100 }, (_, index) => ({
+            organizationId: many.organization.id,
+            title: `Agenda extensa ${index + 1}`,
+            slug: `agenda-extensa-${many.organization.id.slice(0, 8)}-${index + 1}`,
+            status: "PUBLISHED" as const,
+            startsAt: new Date(base + index * 3_600_000),
+            endsAt: new Date(base + index * 3_600_000 + 1_800_000),
+            publishedAt: new Date(),
+          })),
+          {
+            organizationId: many.organization.id,
+            title: "Rascunho fora da contagem pública",
+            slug: `agenda-rascunho-${many.organization.id.slice(0, 8)}`,
+            status: "DRAFT" as const,
+            startsAt: new Date(base),
+            endsAt: new Date(base + 1_800_000),
+            publishedAt: null,
+          },
+        ],
+      });
+
+      const profile = await houses.getPublicHouse(many.organization.slug);
+      assert.equal(profile.events.length, 100);
+      assert.equal(profile.upcomingEventsCount, 101);
+      assert.equal(profile.eventsCount, 101);
+    } finally {
+      await cleanupFixtureEvent(many.organization.id);
     }
   });
 
