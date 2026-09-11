@@ -93,6 +93,51 @@ describe("BoraFest Casa", () => {
     assert.equal(outraCidade.houses.some((house) => house.id === fixture.organization.id), false);
   });
 
+  it("ranqueia globalmente antes de dividir em páginas", async () => {
+    const shallow = await createFixtureEvent({ lotCapacity: 20, priceCents: 2000, feeCents: 200 });
+    const deep = await createFixtureEvent({ lotCapacity: 20, priceCents: 2000, feeCents: 200 });
+    const city = `Ranking-${Math.random().toString(36).slice(2, 8)}`;
+
+    try {
+      const [shallowVenue, deepVenue] = await Promise.all([
+        prisma.venue.create({
+          data: { organizationId: shallow.organization.id, name: "Casa Rasa", city, state: "MG" },
+        }),
+        prisma.venue.create({
+          data: { organizationId: deep.organization.id, name: "Casa Profunda", city, state: "MG" },
+        }),
+      ]);
+      await Promise.all([
+        prisma.event.update({ where: { id: shallow.event.id }, data: { venueId: shallowVenue.id } }),
+        prisma.event.update({ where: { id: deep.event.id }, data: { venueId: deepVenue.id } }),
+      ]);
+
+      await prisma.event.create({
+        data: {
+          organizationId: deep.organization.id,
+          venueId: deepVenue.id,
+          title: "Segundo evento da agenda",
+          slug: `ranking-extra-${Math.random().toString(36).slice(2, 10)}`,
+          status: "PUBLISHED",
+          startsAt: new Date(Date.now() + 7 * 86_400_000),
+          endsAt: new Date(Date.now() + 8 * 86_400_000),
+          publishedAt: new Date(),
+        },
+      });
+
+      const firstPage = await houses.listPublicHouses(1, 1, city);
+      const secondPage = await houses.listPublicHouses(2, 1, city);
+
+      assert.equal(firstPage.total, 2);
+      assert.equal(firstPage.houses[0]?.id, deep.organization.id);
+      assert.equal(firstPage.houses[0]?.upcomingEventsCount, 2);
+      assert.equal(secondPage.houses[0]?.id, shallow.organization.id);
+    } finally {
+      await cleanupFixtureEvent(shallow.organization.id);
+      await cleanupFixtureEvent(deep.organization.id);
+    }
+  });
+
   it("retorna as Casas seguidas com agenda ativa", async () => {
     assert.ok(followerId);
     const result = await houses.listFollowedHouses(followerId!, "Uberlândia");
