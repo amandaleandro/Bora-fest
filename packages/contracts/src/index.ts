@@ -1,6 +1,7 @@
 export * from "./identity";
 export * from "./organizations";
 export * from "./events";
+export * from "./event-recurrence";
 export * from "./catalog";
 export * from "./reservations";
 export * from "./email-typo";
