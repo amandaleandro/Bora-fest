@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { prisma } from "@borafest/database";
+import { updateOrganizationPublicProfileSchema } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { HousesService } from "../houses/houses.service";
 import { OrganizationProfileService } from "../organization-profile/organization-profile.service";
@@ -67,6 +68,21 @@ describe("N1.1 — identidade pública da Casa", () => {
     assert.equal(profile.bio, "Música, encontros e experiências no coração da cidade.");
     assert.equal(profile.instagramUrl, "https://instagram.com/clubehorizonte");
     assert.equal(profile.websiteUrl, "https://clubehorizonte.example.com");
+  });
+
+  it("aceita apenas links públicos http/https", () => {
+    assert.equal(
+      updateOrganizationPublicProfileSchema.safeParse({ websiteUrl: "https://clube.example.com" }).success,
+      true,
+    );
+    assert.equal(
+      updateOrganizationPublicProfileSchema.safeParse({ instagramUrl: "javascript:alert(1)" }).success,
+      false,
+    );
+    assert.equal(
+      updateOrganizationPublicProfileSchema.safeParse({ websiteUrl: "data:text/html;base64,SGVsbG8=" }).success,
+      false,
+    );
   });
 
   it("não deixa usuário de fora editar a identidade", async () => {
