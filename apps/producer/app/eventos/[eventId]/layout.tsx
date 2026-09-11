@@ -12,6 +12,7 @@ import { EventShellProvider, useEventContext } from "@/lib/eventContext";
 const TITLES: Record<string, string> = {
   "": "Ingressos & lotes",
   editar: "Editar evento",
+  "proxima-edicao": "Próxima edição",
   dashboard: "Painel do evento",
   divulgue: "Divulgue",
   vendas: "Vendas",
