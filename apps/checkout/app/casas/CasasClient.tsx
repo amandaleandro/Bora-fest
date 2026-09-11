@@ -6,13 +6,35 @@ import { api } from "../../lib/api";
 import { HouseCard } from "../../components/HouseCard";
 import { housesApi, type HouseListItem } from "../../lib/houses-api";
 
-export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] }) {
+const PAGE_SIZE = 24;
+
+function matchesQuery(house: HouseListItem, query: string) {
+  const q = query.trim().toLocaleLowerCase("pt-BR");
+  if (!q) return true;
+  return [house.name, house.bio, house.location?.name, house.location?.city, house.location?.state, house.nextEvent?.title]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("pt-BR")
+    .includes(q);
+}
+
+export function CasasClient({
+  initialHouses,
+  initialTotal,
+}: {
+  initialHouses: HouseListItem[];
+  initialTotal: number;
+}) {
   const [houses, setHouses] = useState(initialHouses);
+  const [total, setTotal] = useState(initialTotal);
+  const [page, setPage] = useState(1);
   const [followed, setFollowed] = useState<HouseListItem[]>([]);
   const [cities, setCities] = useState<Array<{ city: string; state: string }>>([]);
   const [city, setCity] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     api.listPublicCities().then(setCities).catch(() => setCities([]));
@@ -21,33 +43,52 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
     let active = true;
     setLoading(true);
+    setPage(1);
+
     housesApi
-      .listAll(city ?? undefined)
+      .list(city ?? undefined, PAGE_SIZE, 1, debouncedQuery || undefined)
       .then((result) => {
-        if (active) setHouses(result);
+        if (!active) return;
+        setHouses(result.houses);
+        setTotal(result.total);
       })
       .catch(() => {
-        if (active) setHouses([]);
+        if (!active) return;
+        setHouses([]);
+        setTotal(0);
       })
       .finally(() => {
         if (active) setLoading(false);
       });
 
+    return () => {
+      active = false;
+    };
+  }, [city, debouncedQuery]);
+
+  useEffect(() => {
+    let active = true;
     const token = localStorage.getItem("bf.token");
-    if (token) {
-      housesApi
-        .followed(token, city ?? undefined)
-        .then((result) => {
-          if (active) setFollowed(result);
-        })
-        .catch(() => {
-          if (active) setFollowed([]);
-        });
-    } else {
+    if (!token) {
       setFollowed([]);
+      return;
     }
+
+    housesApi
+      .followed(token, city ?? undefined)
+      .then((result) => {
+        if (active) setFollowed(result);
+      })
+      .catch(() => {
+        if (active) setFollowed([]);
+      });
 
     return () => {
       active = false;
@@ -60,24 +101,44 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
     else localStorage.removeItem("bf.cidade");
   }
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase("pt-BR");
-    if (!q) return houses;
-    const pool = new Map<string, HouseListItem>();
-    for (const house of [...followed, ...houses]) pool.set(house.id, house);
-    return Array.from(pool.values()).filter((house) => {
-      const searchable = [house.name, house.bio, house.location?.city, house.location?.state, house.nextEvent?.title]
-        .filter(Boolean)
-        .join(" ")
-        .toLocaleLowerCase("pt-BR");
-      return searchable.includes(q);
-    });
-  }, [houses, followed, query]);
+  async function loadMore() {
+    if (loadingMore || houses.length >= total) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    try {
+      const result = await housesApi.list(city ?? undefined, PAGE_SIZE, nextPage, debouncedQuery || undefined);
+      setHouses((current) => {
+        const byId = new Map(current.map((house) => [house.id, house]));
+        for (const house of result.houses) byId.set(house.id, house);
+        return Array.from(byId.values());
+      });
+      setTotal(result.total);
+      setPage(nextPage);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
-  const followedIds = new Set(followed.map((house) => house.id));
-  const discover = query.trim()
-    ? filtered
-    : filtered.filter((house) => !followedIds.has(house.id));
+  const searching = debouncedQuery.length > 0;
+  const followedIds = useMemo(() => new Set(followed.map((house) => house.id)), [followed]);
+  const matchingFollowed = useMemo(
+    () => (searching ? followed.filter((house) => matchesQuery(house, debouncedQuery)) : []),
+    [debouncedQuery, followed, searching],
+  );
+
+  const discover = useMemo(() => {
+    if (!searching) return houses.filter((house) => !followedIds.has(house.id));
+    const byId = new Map<string, HouseListItem>();
+    for (const house of matchingFollowed) byId.set(house.id, house);
+    for (const house of houses) byId.set(house.id, house);
+    return Array.from(byId.values());
+  }, [followedIds, houses, matchingFollowed, searching]);
+
+  const extraFollowedMatches = searching
+    ? matchingFollowed.filter((house) => !houses.some((candidate) => candidate.id === house.id)).length
+    : 0;
+  const resultCount = searching ? total + extraFollowedMatches : total;
+  const hasMore = houses.length < total;
 
   return (
     <main className="px-5 pb-10 pt-6 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pt-10">
@@ -118,7 +179,7 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
         </select>
       </div>
 
-      {followed.length > 0 && !query.trim() ? (
+      {followed.length > 0 && !searching ? (
         <section className="mt-8">
           <div className="flex items-end justify-between gap-3">
             <div>
@@ -140,10 +201,10 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
           <div>
             <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Descobrir</p>
             <h2 className="mt-1 text-[19px] font-extrabold text-ink lg:text-[23px]">
-              {query.trim() ? "Resultados" : city ? `Casas em ${city}` : "Casas com agenda ativa"}
+              {searching ? "Resultados" : city ? `Casas em ${city}` : "Casas com agenda ativa"}
             </h2>
           </div>
-          <span className="text-[12px] font-semibold text-muted">{discover.length} encontradas</span>
+          <span className="text-[12px] font-semibold text-muted">{resultCount} encontradas</span>
         </div>
 
         {loading ? (
@@ -154,11 +215,25 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
             <p className="mt-1 text-[12px] font-medium text-muted">Tente outra cidade ou retire a busca.</p>
           </div>
         ) : (
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {discover.map((house) => (
-              <HouseCard key={house.id} house={house} />
-            ))}
-          </div>
+          <>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {discover.map((house) => (
+                <HouseCard key={house.id} house={house} />
+              ))}
+            </div>
+            {hasMore ? (
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="rounded-2xl border border-line-input bg-surface px-5 py-3 text-[13px] font-extrabold text-primary transition hover:border-primary/40 disabled:opacity-60"
+                >
+                  {loadingMore ? "Carregando…" : `Carregar mais (${houses.length} de ${total})`}
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </section>
     </main>
