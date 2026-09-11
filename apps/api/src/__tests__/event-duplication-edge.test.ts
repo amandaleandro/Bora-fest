@@ -92,4 +92,71 @@ describe("N3 — bordas da recorrência", () => {
       await prisma.user.delete({ where: { id: owner.id } }).catch(() => undefined);
     }
   });
+
+  it("mantém lote agendado em rascunho porque não há autoativação por relógio", async () => {
+    const fixture = await createFixtureEvent({ lotCapacity: 30 });
+    const owner = await createOwner(fixture.organization.id, fixture.ownerRoleId);
+
+    try {
+      await prisma.ticketLot.update({
+        where: { id: fixture.lot.id },
+        data: {
+          status: "SCHEDULED",
+          startsAt: new Date(fixture.event.startsAt.getTime() - 2 * 86_400_000),
+          endsAt: new Date(fixture.event.startsAt.getTime() + 2 * 60 * 60_000),
+        },
+      });
+
+      const result = await duplication.duplicate(fixture.event.id, owner.id, {
+        cadence: "WEEKLY",
+        copyTickets: true,
+        copyAddOns: false,
+        copySalesPartners: false,
+        copyCheckinPoints: false,
+        copyMarketing: false,
+      });
+
+      const lot = await prisma.ticketLot.findFirstOrThrow({
+        where: { ticketType: { eventId: result.event.id } },
+      });
+      assert.equal(lot.status, "DRAFT");
+      assert.ok(lot.startsAt && lot.startsAt.getTime() > Date.now(), "a janela deslocada continua disponível para revisão");
+      assert.match(result.warnings.join(" "), /agendados/i);
+    } finally {
+      await cleanupFixtureEvent(fixture.organization.id);
+      await prisma.user.delete({ where: { id: owner.id } }).catch(() => undefined);
+    }
+  });
+
+  it("não reabre lote cuja janela deslocada já terminou", async () => {
+    const fixture = await createFixtureEvent({ lotCapacity: 30 });
+    const owner = await createOwner(fixture.organization.id, fixture.ownerRoleId);
+
+    try {
+      const sourceLotEnd = new Date(fixture.event.startsAt.getTime() - 30 * 86_400_000);
+      await prisma.ticketLot.update({
+        where: { id: fixture.lot.id },
+        data: { status: "ACTIVE", endsAt: sourceLotEnd },
+      });
+
+      const result = await duplication.duplicate(fixture.event.id, owner.id, {
+        cadence: "WEEKLY",
+        copyTickets: true,
+        copyAddOns: false,
+        copySalesPartners: false,
+        copyCheckinPoints: false,
+        copyMarketing: false,
+      });
+
+      const lot = await prisma.ticketLot.findFirstOrThrow({
+        where: { ticketType: { eventId: result.event.id } },
+      });
+      assert.ok(lot.endsAt && lot.endsAt.getTime() <= Date.now(), "a janela continua historicamente vencida");
+      assert.equal(lot.status, "DRAFT", "uma janela vencida nunca volta ativa silenciosamente");
+      assert.match(result.warnings.join(" "), /janelas de lote/i);
+    } finally {
+      await cleanupFixtureEvent(fixture.organization.id);
+      await prisma.user.delete({ where: { id: owner.id } }).catch(() => undefined);
+    }
+  });
 });
