@@ -94,19 +94,25 @@ function shifted(date: Date | null, deltaMs: number): Date | null {
 }
 
 /**
- * Estado comercial do lote NÃO pode carregar esgotamento/fechamento da edição
- * anterior. Um lote ativo/esgotado volta ativo com estoque zerado; scheduled
- * mantém a janela relativa; draft/closed exigem revisão humana.
+ * A próxima edição nunca herda um estado comercial que dependa de automação
+ * inexistente ou de uma janela que já venceu.
  *
- * Lote exclusivo de promoter exige pelo menos um promoter GLOBAL ativo na Casa.
- * Vínculo exclusivo do evento anterior não pode ser duplicado por causa da
- * unicidade por pessoa+Casa; sem promoter global, mantemos o lote em DRAFT para
- * nunca expor preço especial nem criar um lote inacessível como se estivesse pronto.
+ * - ACTIVE/SOLD_OUT podem renascer ACTIVE com estoque zerado se a janela ainda
+ *   é válida.
+ * - SCHEDULED sempre volta DRAFT: hoje o BoraFest não possui autoativação por
+ *   relógio, então manter SCHEDULED daria uma falsa sensação de operação pronta.
+ * - qualquer janela deslocada cujo endsAt já passou volta DRAFT.
+ * - lote promoterOnly sem promoter GLOBAL ativo volta DRAFT.
  */
-function freshLotStatus(status: LotStatus, promoterOnly: boolean, hasGlobalPromoter: boolean): LotStatus {
+function freshLotStatus(
+  status: LotStatus,
+  promoterOnly: boolean,
+  hasGlobalPromoter: boolean,
+  shiftedEndsAt: Date | null,
+): LotStatus {
   if (promoterOnly && !hasGlobalPromoter) return "DRAFT";
+  if (shiftedEndsAt && shiftedEndsAt.getTime() <= Date.now()) return "DRAFT";
   if (status === "ACTIVE" || status === "SOLD_OUT") return "ACTIVE";
-  if (status === "SCHEDULED") return "SCHEDULED";
   return "DRAFT";
 }
 
@@ -169,10 +175,35 @@ export class EventDuplicationService {
           (await tx.promoterLink.count({
             where: { organizationId: source.organizationId, status: "ACTIVE", eventId: null },
           })) > 0;
+
+        const sourceLots = source.ticketTypes.flatMap((type) => type.lots);
         const promoterOnlyNeedsReview =
+          input.copyTickets && !hasGlobalPromoter && sourceLots.some((lot) => lot.promoterOnly);
+        const scheduledLotsNeedReview =
+          input.copyTickets && sourceLots.some((lot) => lot.status === "SCHEDULED");
+        const expiredShiftedWindowNeedsReview =
           input.copyTickets &&
-          !hasGlobalPromoter &&
-          source.ticketTypes.some((type) => type.lots.some((lot) => lot.promoterOnly));
+          sourceLots.some((lot) => {
+            const nextLotEnd = shifted(lot.endsAt, deltaMs);
+            return nextLotEnd !== null && nextLotEnd.getTime() <= Date.now();
+          });
+
+        const warnings: string[] = [];
+        if (promoterOnlyNeedsReview) {
+          warnings.push(
+            "Lotes exclusivos de promoter foram mantidos em rascunho: vínculos exclusivos da edição anterior não são copiados.",
+          );
+        }
+        if (scheduledLotsNeedReview) {
+          warnings.push(
+            "Lotes agendados foram mantidos em rascunho para você revisar as novas janelas de venda antes de ativá-los.",
+          );
+        }
+        if (expiredShiftedWindowNeedsReview) {
+          warnings.push(
+            "Algumas janelas de lote já ficaram para trás na nova data e foram mantidas em rascunho para revisão.",
+          );
+        }
 
         const slug = await gerarSlugUnico(tx, title);
         const created = await tx.event.create({
@@ -217,24 +248,33 @@ export class EventDuplicationService {
 
             if (type.lots.length > 0) {
               await tx.ticketLot.createMany({
-                data: type.lots.map((lot) => ({
-                  ticketTypeId: newType.id,
-                  name: lot.name,
-                  priceCents: lot.priceCents,
-                  feeCents: lot.feeCents,
-                  capacity: lot.capacity,
-                  maxPerOrder: lot.maxPerOrder,
-                  feeMode: lot.feeMode,
-                  nominal: lot.nominal,
-                  requiresCpf: lot.requiresCpf,
-                  halfPriceEnabled: lot.halfPriceEnabled,
-                  pdvOnly: lot.pdvOnly,
-                  promoterOnly: lot.promoterOnly,
-                  status: freshLotStatus(lot.status, lot.promoterOnly, hasGlobalPromoter),
-                  startsAt: shifted(lot.startsAt, deltaMs),
-                  endsAt: shifted(lot.endsAt, deltaMs),
-                  // soldCount/reservedCount não são enviados: defaults = 0.
-                })),
+                data: type.lots.map((lot) => {
+                  const nextLotStart = shifted(lot.startsAt, deltaMs);
+                  const nextLotEnd = shifted(lot.endsAt, deltaMs);
+                  return {
+                    ticketTypeId: newType.id,
+                    name: lot.name,
+                    priceCents: lot.priceCents,
+                    feeCents: lot.feeCents,
+                    capacity: lot.capacity,
+                    maxPerOrder: lot.maxPerOrder,
+                    feeMode: lot.feeMode,
+                    nominal: lot.nominal,
+                    requiresCpf: lot.requiresCpf,
+                    halfPriceEnabled: lot.halfPriceEnabled,
+                    pdvOnly: lot.pdvOnly,
+                    promoterOnly: lot.promoterOnly,
+                    status: freshLotStatus(
+                      lot.status,
+                      lot.promoterOnly,
+                      hasGlobalPromoter,
+                      nextLotEnd,
+                    ),
+                    startsAt: nextLotStart,
+                    endsAt: nextLotEnd,
+                    // soldCount/reservedCount não são enviados: defaults = 0.
+                  };
+                }),
               });
               copiedLots += type.lots.length;
             }
@@ -283,9 +323,7 @@ export class EventDuplicationService {
             checkinPoints: input.copyCheckinPoints ? source.checkinPoints.length : 0,
             marketing: input.copyMarketing,
           },
-          warnings: promoterOnlyNeedsReview
-            ? ["Lotes exclusivos de promoter foram mantidos em rascunho: vínculos exclusivos da edição anterior não são copiados."]
-            : [],
+          warnings,
           intentionallyNotCopied: [
             "orders",
             "tickets",
