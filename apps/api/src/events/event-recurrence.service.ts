@@ -82,9 +82,7 @@ export class EventRecurrenceService {
           timezone: source.timezone,
           waitingRoomEnabled: source.waitingRoomEnabled,
           waitingRoomConcurrency: source.waitingRoomConcurrency,
-          pixelSettings: source.pixelSettings ?? undefined,
-          // metaCapiToken deliberadamente NÃO é copiado: é segredo e deve ser
-          // configurado explicitamente em cada edição se necessário.
+          pixelSettings: source.pixelSettings as any,
         },
       });
 
@@ -114,9 +112,7 @@ export class EventRecurrenceService {
                 halfPriceEnabled: lot.halfPriceEnabled,
                 pdvOnly: lot.pdvOnly,
                 promoterOnly: lot.promoterOnly,
-                // N3: nova edição sempre nasce segura. Nunca herdamos SOLD_OUT,
-                // ACTIVE ou CLOSED, e os contadores defaultam para zero.
-                status: "DRAFT",
+                status: "DRAFT" as const,
                 startsAt: shiftDate(lot.startsAt, deltaMs),
                 endsAt: shiftDate(lot.endsAt, deltaMs),
               })),
@@ -158,12 +154,23 @@ export class EventRecurrenceService {
     });
     if (!source) throw new NotFoundException("Evento não encontrado");
 
-    const deltaMs = input.cadenceDays * 24 * 60 * 60 * 1000;
+    const cadenceMs = input.cadenceDays * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    let nextStartMs = source.startsAt.getTime() + cadenceMs;
+    let nextEndMs = source.endsAt.getTime() + cadenceMs;
+
+    // Se o produtor abriu uma edição antiga, avança pela mesma cadência até a
+    // primeira edição futura em vez de criar mais um evento já vencido.
+    while (nextStartMs <= now) {
+      nextStartMs += cadenceMs;
+      nextEndMs += cadenceMs;
+    }
+
     return this.duplicate(eventId, actorUserId, {
       title: input.title,
       copyTicketCatalog: input.copyTicketCatalog,
-      startsAt: new Date(source.startsAt.getTime() + deltaMs).toISOString(),
-      endsAt: new Date(source.endsAt.getTime() + deltaMs).toISOString(),
+      startsAt: new Date(nextStartMs).toISOString(),
+      endsAt: new Date(nextEndMs).toISOString(),
     });
   }
 }
