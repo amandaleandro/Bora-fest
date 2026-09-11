@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 async function loadHouses(): Promise<HouseListResponse | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/v1/public/casas?pageSize=100`, { next: { revalidate: 60 } });
+    const response = await fetch(`${API_BASE_URL}/v1/public/casas?pageSize=24&page=1`, { next: { revalidate: 60 } });
     if (!response.ok) return null;
     return (await response.json()) as HouseListResponse;
   } catch {
@@ -22,5 +22,10 @@ async function loadHouses(): Promise<HouseListResponse | null> {
 
 export default async function CasasPage() {
   const result = await loadHouses();
-  return <CasasClient initialHouses={result?.houses ?? []} />;
+  return (
+    <CasasClient
+      initialHouses={result?.houses ?? []}
+      initialTotal={result?.total ?? 0}
+    />
+  );
 }
