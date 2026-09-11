@@ -5,6 +5,10 @@ interface EventListItem {
   slug: string;
 }
 
+interface HouseListItem {
+  slug: string;
+}
+
 async function listAllPublicSlugs(): Promise<string[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/v1/public/events?pageSize=50`, { next: { revalidate: 300 } });
@@ -16,15 +20,31 @@ async function listAllPublicSlugs(): Promise<string[]> {
   }
 }
 
+async function listAllPublicHouseSlugs(): Promise<string[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/v1/public/casas`, { next: { revalidate: 300 } });
+    if (!res.ok) return [];
+    const houses = (await res.json()) as HouseListItem[];
+    return houses.map((house) => house.slug);
+  } catch {
+    return [];
+  }
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const slugs = await listAllPublicSlugs();
+  const [eventSlugs, houseSlugs] = await Promise.all([listAllPublicSlugs(), listAllPublicHouseSlugs()]);
 
   return [
     { url: SITE_URL, changeFrequency: "daily", priority: 1 },
-    ...slugs.map((slug) => ({
+    ...eventSlugs.map((slug) => ({
       url: `${SITE_URL}/${slug}`,
       changeFrequency: "hourly" as const,
       priority: 0.8,
+    })),
+    ...houseSlugs.map((slug) => ({
+      url: `${SITE_URL}/casa/${slug}`,
+      changeFrequency: "daily" as const,
+      priority: 0.7,
     })),
   ];
 }
