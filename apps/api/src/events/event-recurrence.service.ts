@@ -82,7 +82,7 @@ export class EventRecurrenceService {
           timezone: source.timezone,
           waitingRoomEnabled: source.waitingRoomEnabled,
           waitingRoomConcurrency: source.waitingRoomConcurrency,
-          pixelSettings: source.pixelSettings as any,
+          ...(source.pixelSettings === null ? {} : { pixelSettings: source.pixelSettings as any }),
         },
       });
 
@@ -159,8 +159,6 @@ export class EventRecurrenceService {
     let nextStartMs = source.startsAt.getTime() + cadenceMs;
     let nextEndMs = source.endsAt.getTime() + cadenceMs;
 
-    // Se o produtor abriu uma edição antiga, avança pela mesma cadência até a
-    // primeira edição futura em vez de criar mais um evento já vencido.
     while (nextStartMs <= now) {
       nextStartMs += cadenceMs;
       nextEndMs += cadenceMs;
