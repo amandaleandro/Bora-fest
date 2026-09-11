@@ -30,7 +30,7 @@ describe("BoraFest Casa", () => {
       data: { venueId: venue.id, bannerUrl: "https://example.com/banner.jpg" },
     });
 
-    // Regressão: ACTIVE com endsAt no passado não pode virar o menor preço da vitrine.
+    // ACTIVE com endsAt no passado não pode virar o menor preço da vitrine.
     await prisma.ticketLot.create({
       data: {
         ticketTypeId: fixture.ticketType.id,
@@ -68,6 +68,7 @@ describe("BoraFest Casa", () => {
     assert.equal(profile.location?.state, "MG");
     assert.equal(profile.heroImageUrl, "https://example.com/banner.jpg");
     assert.equal(profile.events.length, 1);
+    assert.equal(profile.upcomingEventsCount, 1);
     assert.equal(profile.events[0]?.id, fixture.event.id);
     assert.equal(profile.events[0]?.fromPriceCents, 5500);
   });
@@ -78,15 +79,42 @@ describe("BoraFest Casa", () => {
     assert.equal(resolved.name, "Casa Teste BoraFest");
   });
 
-  it("lista a casa em resposta paginada quando ela já tem evento publicado", async () => {
-    const result = await houses.listPublicHouses(1, 100);
+  it("lista Casa com sinais de descoberta e filtra por cidade", async () => {
+    const result = await houses.listPublicHouses(1, 100, "Uberlândia");
     const current = result.houses.find((house) => house.id === fixture.organization.id);
     assert.ok(result.total >= 1);
-    assert.equal(result.page, 1);
-    assert.equal(result.pageSize, 100);
     assert.ok(current);
-    assert.equal(current.name, "Casa Teste BoraFest");
-    assert.equal(current.followersCount, 1);
+    assert.equal(current?.name, "Casa Teste BoraFest");
+    assert.equal(current?.followersCount, 1);
+    assert.equal(current?.upcomingEventsCount, 1);
+    assert.equal(current?.location?.city, "Uberlândia");
+    assert.equal(current?.nextEvent?.id, fixture.event.id);
+
+    const outraCidade = await houses.listPublicHouses(1, 100, "São Paulo");
+    assert.equal(outraCidade.houses.some((house) => house.id === fixture.organization.id), false);
+  });
+
+  it("retorna as Casas seguidas com agenda ativa", async () => {
+    assert.ok(followerId);
+    const result = await houses.listFollowedHouses(followerId!, "Uberlândia");
+    const current = result.find((house) => house.id === fixture.organization.id);
+    assert.ok(current);
+    assert.equal(current?.nextEvent?.id, fixture.event.id);
+  });
+
+  it("não mantém Casa na descoberta quando o último evento publicado já terminou", async () => {
+    await prisma.event.update({
+      where: { id: fixture.event.id },
+      data: { endsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const result = await houses.listPublicHouses(1, 100);
+    assert.equal(result.houses.some((house) => house.id === fixture.organization.id), false);
+
+    await prisma.event.update({
+      where: { id: fixture.event.id },
+      data: { endsAt: fixture.event.endsAt },
+    });
   });
 
   it("não expõe casa bloqueada", async () => {
