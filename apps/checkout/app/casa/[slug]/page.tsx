@@ -29,16 +29,12 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 async function getHouse(slug: string): Promise<HouseProfile | null> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/v1/public/casas/${encodeURIComponent(slug)}`, {
-      next: { revalidate: 30 },
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`Casa HTTP ${response.status}`);
-    return (await response.json()) as HouseProfile;
-  } catch {
-    return null;
-  }
+  const response = await fetch(`${API_BASE_URL}/v1/public/casas/${encodeURIComponent(slug)}`, {
+    next: { revalidate: 30 },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Casa HTTP ${response.status}`);
+  return (await response.json()) as HouseProfile;
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
