@@ -19,6 +19,7 @@ interface HouseProfile {
   since: string;
   followersCount: number;
   eventsCount: number;
+  upcomingEventsCount: number;
   location: { name: string; city: string; state: string } | null;
   heroImageUrl: string | null;
   events: EventListItem[];
@@ -137,7 +138,12 @@ export default async function HousePage({ params }: { params: { slug: string } }
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-[12px] font-extrabold uppercase tracking-[.08em] text-primary">Agenda</p>
-                <h2 className="mt-1 text-[22px] font-black text-ink">Próximos eventos</h2>
+                <h2 className="mt-1 text-[22px] font-black text-ink">
+                  Próximos eventos
+                  {house.upcomingEventsCount > 0 ? (
+                    <span className="ml-2 text-[14px] font-extrabold text-muted">({house.upcomingEventsCount})</span>
+                  ) : null}
+                </h2>
               </div>
               <Link href="/explorar" className="text-[13px] font-extrabold text-primary">
                 Explorar BoraFest →
@@ -194,7 +200,11 @@ export default async function HousePage({ params }: { params: { slug: string } }
 
               <dl className="mt-5 space-y-3 border-t border-line pt-4 text-[13px]">
                 <div className="flex items-center justify-between gap-3">
-                  <dt className="font-semibold text-muted">Eventos cadastrados</dt>
+                  <dt className="font-semibold text-muted">Próximos na agenda</dt>
+                  <dd className="font-extrabold text-ink">{house.upcomingEventsCount}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="font-semibold text-muted">Histórico total</dt>
                   <dd className="font-extrabold text-ink">{house.eventsCount}</dd>
                 </div>
                 {house.location ? (
