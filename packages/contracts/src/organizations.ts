@@ -36,12 +36,21 @@ export const createBankAccountSchema = z.object({
 });
 export type CreateBankAccountInput = z.infer<typeof createBankAccountSchema>;
 
-/** Atualização do perfil público da organização (nome comercial etc.). */
+/** Atualização do nome comercial legado da organização. */
 export const updateOrganizationSchema = z.object({
   /** nome mostrado ao público no lugar do nome civil/razão social */
   displayName: z.string().trim().min(2).max(80).nullable().optional(),
 });
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+
+/** Identidade permanente da Casa no perfil público da BoraFest. */
+export const updateOrganizationPublicProfileSchema = z.object({
+  displayName: z.string().trim().min(2).max(80).nullable().optional(),
+  bio: z.string().trim().max(500).nullable().optional(),
+  instagramUrl: z.string().trim().url().max(300).nullable().optional(),
+  websiteUrl: z.string().trim().url().max(300).nullable().optional(),
+});
+export type UpdateOrganizationPublicProfileInput = z.infer<typeof updateOrganizationPublicProfileSchema>;
 
 /**
  * Convite de promoter (Promoter v3): a CASA convida uma PESSOA por e-mail.
