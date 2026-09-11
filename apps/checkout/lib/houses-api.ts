@@ -44,29 +44,12 @@ async function request<T>(path: string, token?: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function listPage(city?: string, pageSize = 50, page = 1) {
-  const params = new URLSearchParams({ pageSize: String(pageSize), page: String(page) });
-  if (city) params.set("city", city);
-  return request<HouseListResponse>(`/v1/public/casas?${params.toString()}`);
-}
-
 export const housesApi = {
-  list: listPage,
-
-  /**
-   * A busca de Casas é local/instantânea no navegador. Para ela não ficar
-   * limitada às primeiras 100 Casas, percorremos as páginas da API em lotes
-   * de 100 e entregamos a coleção completa ao filtro de texto.
-   */
-  listAll: async (city?: string): Promise<HouseListItem[]> => {
-    const first = await listPage(city, 100, 1);
-    const pages = Math.ceil(first.total / first.pageSize);
-    if (pages <= 1) return first.houses;
-
-    const remaining = await Promise.all(
-      Array.from({ length: pages - 1 }, (_, index) => listPage(city, 100, index + 2)),
-    );
-    return [first, ...remaining].flatMap((result) => result.houses);
+  list: (city?: string, pageSize = 24, page = 1, query?: string) => {
+    const params = new URLSearchParams({ pageSize: String(pageSize), page: String(page) });
+    if (city) params.set("city", city);
+    if (query?.trim()) params.set("q", query.trim());
+    return request<HouseListResponse>(`/v1/public/casas?${params.toString()}`);
   },
 
   followed: (token: string, city?: string) => {
