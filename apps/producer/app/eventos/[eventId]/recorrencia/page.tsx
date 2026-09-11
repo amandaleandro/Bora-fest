@@ -18,6 +18,18 @@ function toLocalInput(iso: string) {
   return local.toISOString().slice(0, 16);
 }
 
+function nextCadenceDates(startsAt: string, endsAt: string, cadenceDays: number) {
+  const cadenceMs = cadenceDays * 86_400_000;
+  const now = Date.now();
+  let start = new Date(startsAt).getTime() + cadenceMs;
+  let end = new Date(endsAt).getTime() + cadenceMs;
+  while (start <= now) {
+    start += cadenceMs;
+    end += cadenceMs;
+  }
+  return { start: new Date(start), end: new Date(end) };
+}
+
 export default function EventRecurrencePage() {
   const { token } = useAuth();
   const { event, organization, loading } = useEventShell();
@@ -33,20 +45,17 @@ export default function EventRecurrencePage() {
 
   const preview = useMemo(() => {
     if (!event) return null;
-    const start = new Date(event.startsAt);
-    const end = new Date(event.endsAt);
     if (mode === "custom" && startsAt && endsAt) {
       return { start: new Date(startsAt), end: new Date(endsAt) };
     }
-    const delta = cadenceDays * 86_400_000;
-    return { start: new Date(start.getTime() + delta), end: new Date(end.getTime() + delta) };
+    return nextCadenceDates(event.startsAt, event.endsAt, cadenceDays);
   }, [cadenceDays, endsAt, event, mode, startsAt]);
 
   function switchToCustom() {
     if (event && !startsAt) {
-      const delta = cadenceDays * 86_400_000;
-      setStartsAt(toLocalInput(new Date(new Date(event.startsAt).getTime() + delta).toISOString()));
-      setEndsAt(toLocalInput(new Date(new Date(event.endsAt).getTime() + delta).toISOString()));
+      const next = nextCadenceDates(event.startsAt, event.endsAt, cadenceDays);
+      setStartsAt(toLocalInput(next.start.toISOString()));
+      setEndsAt(toLocalInput(next.end.toISOString()));
     }
     setMode("custom");
   }
