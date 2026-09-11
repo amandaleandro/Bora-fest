@@ -23,7 +23,6 @@ export function SiteHeader() {
   const pathname = usePathname();
   const [signedIn, setSignedIn] = useState(false);
 
-  // a sessão vive no localStorage: reavalia a cada navegação
   useEffect(() => {
     setSignedIn(Boolean(localStorage.getItem("bf.token")));
   }, [pathname]);
@@ -39,6 +38,16 @@ export function SiteHeader() {
           <span className="text-[20px] font-extrabold italic tracking-tight text-ink">BoraFest</span>
         </Link>
         <nav className="flex items-center gap-3">
+          <Link
+            href="/casas"
+            className={`rounded-xl px-4 py-2 text-[13px] font-bold ${
+              pathname?.startsWith("/casas") || pathname?.startsWith("/casa/")
+                ? "bg-primary/10 text-primary"
+                : "text-ink hover:bg-bg"
+            }`}
+          >
+            Casas
+          </Link>
           <a href={`${PANEL}/cadastro`} className="rounded-xl border-[1.5px] border-line-input px-4 py-2 text-[13px] font-bold text-ink">
             Produza seu evento
           </a>
@@ -80,13 +89,13 @@ export function SiteFooter() {
           <ul className="mt-2 space-y-1.5 font-semibold text-muted">
             <li><a href={`${PANEL}/login`} className="hover:text-primary">Painel do organizador</a></li>
             <li><a href={`${PANEL}/cadastro`} className="hover:text-primary">Criar conta</a></li>
-            {/* o painel abre o Financeiro pela hash — é lá que taxas e repasses são explicados */}
             <li><a href={`${PANEL}/login#financeiro`} className="hover:text-primary">Taxas e repasses</a></li>
           </ul>
         </div>
         <div>
           <p className="font-extrabold">Para você</p>
           <ul className="mt-2 space-y-1.5 font-semibold text-muted">
+            <li><Link href="/casas" className="hover:text-primary">Casas e produtores</Link></li>
             <li><Link href="/perfil" className="hover:text-primary">Minha conta</Link></li>
             <li><Link href="/minhas-compras" className="hover:text-primary">Minhas compras</Link></li>
           </ul>

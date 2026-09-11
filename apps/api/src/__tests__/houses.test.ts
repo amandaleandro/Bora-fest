@@ -30,7 +30,6 @@ describe("BoraFest Casa", () => {
       data: { venueId: venue.id, bannerUrl: "https://example.com/banner.jpg" },
     });
 
-    // Regressão: ACTIVE com endsAt no passado não pode virar o menor preço da vitrine.
     await prisma.ticketLot.create({
       data: {
         ticketTypeId: fixture.ticketType.id,
@@ -68,6 +67,8 @@ describe("BoraFest Casa", () => {
     assert.equal(profile.location?.state, "MG");
     assert.equal(profile.heroImageUrl, "https://example.com/banner.jpg");
     assert.equal(profile.events.length, 1);
+    assert.equal(profile.eventsCount, 1);
+    assert.equal(profile.upcomingEventsCount, 1);
     assert.equal(profile.events[0]?.id, fixture.event.id);
     assert.equal(profile.events[0]?.fromPriceCents, 5500);
   });
@@ -78,15 +79,144 @@ describe("BoraFest Casa", () => {
     assert.equal(resolved.name, "Casa Teste BoraFest");
   });
 
-  it("lista a casa em resposta paginada quando ela já tem evento publicado", async () => {
-    const result = await houses.listPublicHouses(1, 100);
+  it("lista Casa com sinais de descoberta e filtra por cidade", async () => {
+    const result = await houses.listPublicHouses(1, 100, "Uberlândia");
     const current = result.houses.find((house) => house.id === fixture.organization.id);
     assert.ok(result.total >= 1);
-    assert.equal(result.page, 1);
-    assert.equal(result.pageSize, 100);
     assert.ok(current);
-    assert.equal(current.name, "Casa Teste BoraFest");
-    assert.equal(current.followersCount, 1);
+    assert.equal(current?.name, "Casa Teste BoraFest");
+    assert.equal(current?.followersCount, 1);
+    assert.equal(current?.upcomingEventsCount, 1);
+    assert.equal(current?.location?.city, "Uberlândia");
+    assert.equal(current?.nextEvent?.id, fixture.event.id);
+
+    const outraCidade = await houses.listPublicHouses(1, 100, "São Paulo");
+    assert.equal(outraCidade.houses.some((house) => house.id === fixture.organization.id), false);
+  });
+
+  it("busca Casa no servidor por nome, local e próximo evento", async () => {
+    const byName = await houses.listPublicHouses(1, 24, undefined, "Casa Teste BoraFest");
+    assert.equal(byName.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const byVenue = await houses.listPublicHouses(1, 24, undefined, "Clube Teste");
+    assert.equal(byVenue.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const byEvent = await houses.listPublicHouses(1, 24, undefined, fixture.event.title);
+    assert.equal(byEvent.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const missing = await houses.listPublicHouses(1, 24, undefined, "termo-que-nao-existe-xyz");
+    assert.equal(missing.houses.some((house) => house.id === fixture.organization.id), false);
+  });
+
+  it("ranqueia globalmente antes de dividir em páginas", async () => {
+    const shallow = await createFixtureEvent({ lotCapacity: 20, priceCents: 2000, feeCents: 200 });
+    const deep = await createFixtureEvent({ lotCapacity: 20, priceCents: 2000, feeCents: 200 });
+    const city = `Ranking-${Math.random().toString(36).slice(2, 8)}`;
+
+    try {
+      const [shallowVenue, deepVenue] = await Promise.all([
+        prisma.venue.create({
+          data: { organizationId: shallow.organization.id, name: "Casa Rasa", city, state: "MG" },
+        }),
+        prisma.venue.create({
+          data: { organizationId: deep.organization.id, name: "Casa Profunda", city, state: "MG" },
+        }),
+      ]);
+      await Promise.all([
+        prisma.event.update({ where: { id: shallow.event.id }, data: { venueId: shallowVenue.id } }),
+        prisma.event.update({ where: { id: deep.event.id }, data: { venueId: deepVenue.id } }),
+      ]);
+
+      await prisma.event.create({
+        data: {
+          organizationId: deep.organization.id,
+          venueId: deepVenue.id,
+          title: "Segundo evento da agenda",
+          slug: `ranking-extra-${Math.random().toString(36).slice(2, 10)}`,
+          status: "PUBLISHED",
+          startsAt: new Date(Date.now() + 7 * 86_400_000),
+          endsAt: new Date(Date.now() + 8 * 86_400_000),
+          publishedAt: new Date(),
+        },
+      });
+
+      const firstPage = await houses.listPublicHouses(1, 1, city);
+      const secondPage = await houses.listPublicHouses(2, 1, city);
+
+      assert.equal(firstPage.total, 2);
+      assert.equal(firstPage.houses[0]?.id, deep.organization.id);
+      assert.equal(firstPage.houses[0]?.upcomingEventsCount, 2);
+      assert.equal(secondPage.houses[0]?.id, shallow.organization.id);
+    } finally {
+      await cleanupFixtureEvent(shallow.organization.id);
+      await cleanupFixtureEvent(deep.organization.id);
+    }
+  });
+
+  it("conta toda a agenda futura mesmo retornando no máximo 100 cards", async () => {
+    const many = await createFixtureEvent({ lotCapacity: 10, priceCents: 1500, feeCents: 150 });
+    const base = Date.now() + 3 * 86_400_000;
+
+    try {
+      await prisma.event.createMany({
+        data: [
+          ...Array.from({ length: 100 }, (_, index) => ({
+            organizationId: many.organization.id,
+            title: `Agenda extensa ${index + 1}`,
+            slug: `agenda-extensa-${many.organization.id.slice(0, 8)}-${index + 1}`,
+            status: "PUBLISHED" as const,
+            startsAt: new Date(base + index * 3_600_000),
+            endsAt: new Date(base + index * 3_600_000 + 1_800_000),
+            publishedAt: new Date(),
+          })),
+          {
+            organizationId: many.organization.id,
+            title: "Rascunho fora da contagem pública",
+            slug: `agenda-rascunho-${many.organization.id.slice(0, 8)}`,
+            status: "DRAFT" as const,
+            startsAt: new Date(base),
+            endsAt: new Date(base + 1_800_000),
+            publishedAt: null,
+          },
+        ],
+      });
+
+      const profile = await houses.getPublicHouse(many.organization.slug);
+      assert.equal(profile.events.length, 100);
+      assert.equal(profile.upcomingEventsCount, 101);
+      assert.equal(profile.eventsCount, 101);
+    } finally {
+      await cleanupFixtureEvent(many.organization.id);
+    }
+  });
+
+  it("retorna as Casas seguidas com agenda ativa", async () => {
+    assert.ok(followerId);
+    const result = await houses.listFollowedHouses(followerId!, "Uberlândia");
+    const current = result.find((house) => house.id === fixture.organization.id);
+    assert.ok(current);
+    assert.equal(current?.nextEvent?.id, fixture.event.id);
+  });
+
+  it("tira evento vencido da descoberta sem perder a Casa seguida", async () => {
+    await prisma.event.update({
+      where: { id: fixture.event.id },
+      data: { endsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const result = await houses.listPublicHouses(1, 100);
+    assert.equal(result.houses.some((house) => house.id === fixture.organization.id), false);
+
+    const followed = await houses.listFollowedHouses(followerId!);
+    const current = followed.find((house) => house.id === fixture.organization.id);
+    assert.ok(current);
+    assert.equal(current?.nextEvent, null);
+    assert.equal(current?.upcomingEventsCount, 0);
+
+    await prisma.event.update({
+      where: { id: fixture.event.id },
+      data: { endsAt: fixture.event.endsAt },
+    });
   });
 
   it("não expõe casa bloqueada", async () => {
