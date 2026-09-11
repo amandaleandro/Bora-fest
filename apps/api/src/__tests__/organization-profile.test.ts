@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { after, before, describe, it } from "node:test";
 import { prisma } from "@borafest/database";
 import { updateOrganizationPublicProfileSchema } from "@borafest/contracts";
@@ -39,6 +40,7 @@ describe("N1.1 — identidade pública da Casa", () => {
   });
 
   after(async () => {
+    await prisma.auditLog.deleteMany({ where: { organizationId: fixture.organization.id } });
     await cleanupFixtureEvent(fixture.organization.id);
     await prisma.user.delete({ where: { id: actorId } }).catch(() => undefined);
     await prisma.user.delete({ where: { id: outsiderId } }).catch(() => undefined);
@@ -82,6 +84,16 @@ describe("N1.1 — identidade pública da Casa", () => {
     assert.equal(
       updateOrganizationPublicProfileSchema.safeParse({ websiteUrl: "data:text/html;base64,SGVsbG8=" }).success,
       false,
+    );
+  });
+
+  it("rejeita upload truncado pelo limite multipart", async () => {
+    const stream = Readable.from([Buffer.from([0xff, 0xd8, 0xff])]) as Readable & { truncated?: boolean };
+    stream.truncated = true;
+
+    await assert.rejects(
+      () => service.uploadImage(fixture.organization.id, actorId, "logo", { file: stream }),
+      /no máximo 5 MB/,
     );
   });
 
