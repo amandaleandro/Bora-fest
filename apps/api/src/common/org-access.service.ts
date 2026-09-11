@@ -1,11 +1,16 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { prisma, type Prisma } from "@borafest/database";
 import { roleHasPermission, type PermissionKey } from "@borafest/auth";
 
 @Injectable()
 export class OrgAccessService {
-  async assertPermission(organizationId: string, userId: string, permission: PermissionKey) {
-    const membership = await prisma.organizationMember.findUnique({
+  async assertPermission(
+    organizationId: string,
+    userId: string,
+    permission: PermissionKey,
+    client: typeof prisma | Prisma.TransactionClient = prisma,
+  ) {
+    const membership = await client.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId, userId } },
       include: { role: true },
     });
