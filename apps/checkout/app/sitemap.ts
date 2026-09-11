@@ -22,10 +22,29 @@ async function listAllPublicSlugs(): Promise<string[]> {
 
 async function listAllPublicHouseSlugs(): Promise<string[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/public/casas`, { next: { revalidate: 300 } });
-    if (!res.ok) return [];
-    const houses = (await res.json()) as HouseListItem[];
-    return houses.map((house) => house.slug);
+    const pageSize = 100;
+    let page = 1;
+    const slugs: string[] = [];
+
+    while (true) {
+      const res = await fetch(`${API_BASE_URL}/v1/public/casas?page=${page}&pageSize=${pageSize}`, {
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) return [];
+
+      const data = (await res.json()) as {
+        total: number;
+        page: number;
+        pageSize: number;
+        houses: HouseListItem[];
+      };
+      slugs.push(...data.houses.map((house) => house.slug));
+
+      if (page * pageSize >= data.total) break;
+      page += 1;
+    }
+
+    return slugs;
   } catch {
     return [];
   }
