@@ -10,16 +10,25 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { cancelEventSchema, createEventSchema, updateEventSchema } from "@borafest/contracts";
+import {
+  cancelEventSchema,
+  createEventSchema,
+  duplicateEventSchema,
+  updateEventSchema,
+} from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
+import { EventDuplicationService } from "./event-duplication.service";
 import { EventsService } from "./events.service";
 
 @Controller()
 @UseGuards(SessionGuard)
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly eventDuplicationService: EventDuplicationService,
+  ) {}
 
   @Post("v1/organizations/:organizationId/events")
   create(
@@ -33,6 +42,16 @@ export class EventsController {
   @Get("v1/organizations/:organizationId/events")
   list(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
     return this.eventsService.listForOrganization(organizationId, userId);
+  }
+
+  /** N3: cria a próxima edição sem carregar vendas/estoque/check-ins da anterior. */
+  @Post("v1/events/:id/duplicate")
+  duplicate(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(duplicateEventSchema)) body: unknown,
+  ) {
+    return this.eventDuplicationService.duplicate(id, userId, body as any);
   }
 
   @Patch("v1/events/:id")
