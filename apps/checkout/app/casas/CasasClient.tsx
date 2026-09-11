@@ -63,17 +63,21 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("pt-BR");
     if (!q) return houses;
-    return houses.filter((house) => {
+    const pool = new Map<string, HouseListItem>();
+    for (const house of [...followed, ...houses]) pool.set(house.id, house);
+    return Array.from(pool.values()).filter((house) => {
       const searchable = [house.name, house.bio, house.location?.city, house.location?.state, house.nextEvent?.title]
         .filter(Boolean)
         .join(" ")
         .toLocaleLowerCase("pt-BR");
       return searchable.includes(q);
     });
-  }, [houses, query]);
+  }, [houses, followed, query]);
 
   const followedIds = new Set(followed.map((house) => house.id));
-  const discover = filtered.filter((house) => !followedIds.has(house.id));
+  const discover = query.trim()
+    ? filtered
+    : filtered.filter((house) => !followedIds.has(house.id));
 
   return (
     <main className="px-5 pb-10 pt-6 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pt-10">
@@ -121,7 +125,7 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
               <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Sua rede</p>
               <h2 className="mt-1 text-[19px] font-extrabold text-ink lg:text-[23px]">Casas que você segue</h2>
             </div>
-            <span className="text-[12px] font-semibold text-muted">{followed.length} com agenda ativa</span>
+            <span className="text-[12px] font-semibold text-muted">{followed.length} seguindo</span>
           </div>
           <div className="-mx-5 mt-4 flex gap-3 overflow-x-auto px-5 pb-2 lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0">
             {followed.map((house) => (
@@ -136,10 +140,10 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
           <div>
             <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Descobrir</p>
             <h2 className="mt-1 text-[19px] font-extrabold text-ink lg:text-[23px]">
-              {city ? `Casas em ${city}` : "Casas com agenda ativa"}
+              {query.trim() ? "Resultados" : city ? `Casas em ${city}` : "Casas com agenda ativa"}
             </h2>
           </div>
-          <span className="text-[12px] font-semibold text-muted">{filtered.length} encontradas</span>
+          <span className="text-[12px] font-semibold text-muted">{discover.length} encontradas</span>
         </div>
 
         {loading ? (
