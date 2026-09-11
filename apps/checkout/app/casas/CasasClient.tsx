@@ -35,6 +35,7 @@ export function CasasClient({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     api.listPublicCities().then(setCities).catch(() => setCities([]));
@@ -50,6 +51,7 @@ export function CasasClient({
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setLoadError(false);
     setPage(1);
 
     housesApi
@@ -58,11 +60,12 @@ export function CasasClient({
         if (!active) return;
         setHouses(result.houses);
         setTotal(result.total);
+        setLoadError(false);
       })
       .catch(() => {
-        if (!active) return;
-        setHouses([]);
-        setTotal(0);
+        // Preserva o HTML/estado já carregado: uma falha transitória depois da
+        // hidratação não pode transformar uma página SSR válida em lista vazia.
+        if (active) setLoadError(true);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -105,6 +108,7 @@ export function CasasClient({
     if (loadingMore || houses.length >= total) return;
     const nextPage = page + 1;
     setLoadingMore(true);
+    setLoadError(false);
     try {
       const result = await housesApi.list(city ?? undefined, PAGE_SIZE, nextPage, debouncedQuery || undefined);
       setHouses((current) => {
@@ -114,6 +118,8 @@ export function CasasClient({
       });
       setTotal(result.total);
       setPage(nextPage);
+    } catch {
+      setLoadError(true);
     } finally {
       setLoadingMore(false);
     }
@@ -180,6 +186,12 @@ export function CasasClient({
           ))}
         </select>
       </div>
+
+      {loadError ? (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-semibold text-amber-800">
+          Não conseguimos atualizar as Casas agora. Mantivemos os resultados que já estavam carregados.
+        </div>
+      ) : null}
 
       {followed.length > 0 && !searching ? (
         <section className="mt-8">
