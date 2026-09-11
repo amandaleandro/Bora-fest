@@ -40,18 +40,13 @@ const icons = {
   ),
 };
 
-/**
- * Abas fixas do COMPRADOR no mobile (redesenho 2026-08-17, inspiração do Arthur):
- * mesmo padrão de app do painel do produtor. Só aparecem nas telas de "morar"
- * (home, explorar, favoritos, carteira) — nunca no funil de compra, na página
- * do evento (que tem CTA fixo próprio) nem na portaria.
- */
+/** Abas fixas do comprador no mobile. Casas faz parte da área de descoberta. */
 export function BuyerTabs() {
   const pathname = usePathname() ?? "";
 
   const visivel =
     pathname === "/" ||
-    ["/explorar", "/favoritos", "/perfil", "/minhas-compras"].some((p) => pathname.startsWith(p));
+    ["/explorar", "/casas", "/favoritos", "/perfil", "/minhas-compras"].some((p) => pathname.startsWith(p));
   if (!visivel) return null;
 
   const tabs = [
@@ -63,13 +58,12 @@ export function BuyerTabs() {
 
   const active =
     pathname === "/" ? "inicio"
-    : pathname.startsWith("/explorar") ? "explorar"
+    : pathname.startsWith("/explorar") || pathname.startsWith("/casas") ? "explorar"
     : pathname.startsWith("/favoritos") ? "favoritos"
     : "ingressos";
 
   return (
     <>
-      {/* espaçador: o nav é fixed e não reserva altura no fluxo */}
       <div className="h-[72px] lg:hidden" />
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-[430px] items-stretch justify-around">
