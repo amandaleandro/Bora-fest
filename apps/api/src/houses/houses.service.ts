@@ -106,21 +106,51 @@ function compareDiscoveryRank(
 export class HousesService {
   /**
    * Vitrine de Casas: só entra quem tem ao menos um evento publicado que ainda
-   * não terminou. O ranking é calculado GLOBALMENTE antes do recorte de página,
-   * para que a paginação não contradiga seguidores + agenda + proximidade.
+   * não terminou. O ranking é calculado globalmente antes do recorte de página.
+   * `query` filtra no banco, então a busca não precisa baixar todas as Casas.
    */
-  async listPublicHouses(page = 1, pageSize = 50, city?: string) {
+  async listPublicHouses(page = 1, pageSize = 50, city?: string, query?: string) {
     const safePage = Math.max(1, Math.floor(page));
     const safePageSize = Math.min(100, Math.max(1, Math.floor(pageSize)));
     const now = new Date();
+    const normalizedQuery = query?.trim();
     const eventWhere = {
       status: "PUBLISHED" as const,
       endsAt: { gt: now },
       ...(city ? { venue: { city } } : {}),
     };
+    const searchWhere = normalizedQuery
+      ? {
+          OR: [
+            { name: { contains: normalizedQuery, mode: "insensitive" as const } },
+            { displayName: { contains: normalizedQuery, mode: "insensitive" as const } },
+            { bio: { contains: normalizedQuery, mode: "insensitive" as const } },
+            {
+              venues: {
+                some: {
+                  OR: [
+                    { name: { contains: normalizedQuery, mode: "insensitive" as const } },
+                    { city: { contains: normalizedQuery, mode: "insensitive" as const } },
+                    { state: { contains: normalizedQuery, mode: "insensitive" as const } },
+                  ],
+                },
+              },
+            },
+            {
+              events: {
+                some: {
+                  ...eventWhere,
+                  title: { contains: normalizedQuery, mode: "insensitive" as const },
+                },
+              },
+            },
+          ],
+        }
+      : {};
     const where = {
       status: { notIn: ["SUSPENDED", "BLOCKED"] as Array<"SUSPENDED" | "BLOCKED"> },
       events: { some: eventWhere },
+      ...searchWhere,
     };
 
     const houses = await prisma.organization.findMany({
