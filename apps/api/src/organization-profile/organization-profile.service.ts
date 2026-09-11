@@ -133,9 +133,8 @@ export class OrganizationProfileService {
     const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
     const imageUrl = `${base}/uploads/${name}`;
 
-    let updated: Awaited<ReturnType<typeof prisma.organization.update>>;
     try {
-      [updated] = await prisma.$transaction([
+      const [updated] = await prisma.$transaction([
         prisma.organization.update({
           where: { id: organizationId },
           data: kind === "logo" ? { logoUrl: imageUrl } : { coverUrl: imageUrl },
@@ -151,19 +150,19 @@ export class OrganizationProfileService {
           },
         }),
       ]);
+
+      const previousUrl = kind === "logo" ? organization.logoUrl : organization.coverUrl;
+      if (previousUrl) {
+        const previousName = basename(previousUrl);
+        if (previousName.startsWith(prefix)) {
+          await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
+        }
+      }
+
+      return updated;
     } catch (error) {
       await unlink(filepath).catch(() => undefined);
       throw error;
     }
-
-    const previousUrl = kind === "logo" ? organization.logoUrl : organization.coverUrl;
-    if (previousUrl) {
-      const previousName = basename(previousUrl);
-      if (previousName.startsWith(prefix)) {
-        await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
-      }
-    }
-
-    return updated;
   }
 }
