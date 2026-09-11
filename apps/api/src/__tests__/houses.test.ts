@@ -93,6 +93,20 @@ describe("BoraFest Casa", () => {
     assert.equal(outraCidade.houses.some((house) => house.id === fixture.organization.id), false);
   });
 
+  it("busca Casa no servidor por nome, local e próximo evento", async () => {
+    const byName = await houses.listPublicHouses(1, 24, undefined, "Casa Teste BoraFest");
+    assert.equal(byName.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const byVenue = await houses.listPublicHouses(1, 24, undefined, "Clube Teste");
+    assert.equal(byVenue.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const byEvent = await houses.listPublicHouses(1, 24, undefined, fixture.event.title);
+    assert.equal(byEvent.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const missing = await houses.listPublicHouses(1, 24, undefined, "termo-que-nao-existe-xyz");
+    assert.equal(missing.houses.some((house) => house.id === fixture.organization.id), false);
+  });
+
   it("ranqueia globalmente antes de dividir em páginas", async () => {
     const shallow = await createFixtureEvent({ lotCapacity: 20, priceCents: 2000, feeCents: 200 });
     const deep = await createFixtureEvent({ lotCapacity: 20, priceCents: 2000, feeCents: 200 });
