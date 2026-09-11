@@ -10,16 +10,26 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { cancelEventSchema, createEventSchema, updateEventSchema } from "@borafest/contracts";
+import {
+  cancelEventSchema,
+  createEventSchema,
+  duplicateEventSchema,
+  nextEventEditionSchema,
+  updateEventSchema,
+} from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
+import { EventRecurrenceService } from "./event-recurrence.service";
 import { EventsService } from "./events.service";
 
 @Controller()
 @UseGuards(SessionGuard)
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly recurrenceService: EventRecurrenceService,
+  ) {}
 
   @Post("v1/organizations/:organizationId/events")
   create(
@@ -42,6 +52,26 @@ export class EventsController {
     @Body(ZodBody(updateEventSchema)) body: unknown,
   ) {
     return this.eventsService.update(id, userId, body as any);
+  }
+
+  /** N3: cria uma nova edição em rascunho a partir da configuração atual. */
+  @Post("v1/events/:id/duplicate")
+  duplicate(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(duplicateEventSchema)) body: unknown,
+  ) {
+    return this.recurrenceService.duplicate(id, userId, body as any);
+  }
+
+  /** N3: atalho para casas recorrentes (por padrão, próxima semana). */
+  @Post("v1/events/:id/next-edition")
+  nextEdition(
+    @Param("id") id: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(nextEventEditionSchema)) body: unknown,
+  ) {
+    return this.recurrenceService.nextEdition(id, userId, body as any);
   }
 
   @Post("v1/events/:id/banner")
