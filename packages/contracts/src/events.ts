@@ -34,6 +34,49 @@ export const createEventSchema = z.object({
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
+/**
+ * N3 — edição recorrente sem criar um segundo tipo de evento.
+ * A recorrência aqui define COMO calcular a próxima data. Cada edição continua
+ * sendo um Event normal e independente, então venda/check-in/financeiro nunca
+ * vazam de uma sexta para outra.
+ */
+export const duplicateEventCadenceSchema = z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "CUSTOM"]);
+export type DuplicateEventCadence = z.infer<typeof duplicateEventCadenceSchema>;
+
+export const duplicateEventSchema = z
+  .object({
+    /** Mantém o mesmo nome por padrão; slug continua único. */
+    title: z.string().trim().min(3).max(160).optional(),
+    cadence: duplicateEventCadenceSchema.default("WEEKLY"),
+    /** Obrigatório somente quando cadence=CUSTOM. */
+    startsAt: z.string().datetime().optional(),
+    /** Se omitido, preserva a duração da edição original. */
+    endsAt: z.string().datetime().optional(),
+    copyTickets: z.boolean().default(true),
+    copyAddOns: z.boolean().default(true),
+    copySalesPartners: z.boolean().default(true),
+    copyCheckinPoints: z.boolean().default(true),
+    /** Pixels + CAPI ficam desligados por padrão para não replicar tracking sem revisão. */
+    copyMarketing: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    if (value.cadence === "CUSTOM" && !value.startsAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["startsAt"],
+        message: "Escolha a data da nova edição",
+      });
+    }
+    if (value.endsAt && !value.startsAt && value.cadence === "CUSTOM") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endsAt"],
+        message: "Informe o início antes do fim",
+      });
+    }
+  });
+export type DuplicateEventInput = z.infer<typeof duplicateEventSchema>;
+
 /** IDs de pixel de conversão são sempre alfanuméricos (+ "-"/"_") nos provedores suportados; restringir o
  * formato evita que o valor seja usado pra quebrar fora da string JS onde é interpolado no checkout (XSS). */
 const pixelId = z
