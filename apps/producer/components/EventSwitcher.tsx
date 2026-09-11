@@ -39,9 +39,6 @@ export function EventSwitcher({
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement | null>(null);
 
-  // busca a lista a CADA abertura e refaz quando a produtora muda (bug
-  // 2026-08-30: o cache por eventos.length nunca refazia a busca, e depois de
-  // trocar de produtora o dropdown ainda listava os eventos da anterior).
   useEffect(() => {
     if (!token || !organizationId || !aberto) return;
     eventsApi.list(token, organizationId).then(setEventos).catch(() => setEventos([]));
@@ -59,7 +56,6 @@ export function EventSwitcher({
     return () => document.removeEventListener("mousedown", fora);
   }, [aberto]);
 
-  /** A seção aberta agora ("vendas", "portaria", …) para reabrir no outro evento. */
   function secaoAtual(): string {
     const depois = pathname.split(`/eventos/${event.id}`)[1];
     if (depois === undefined) return "/dashboard";
@@ -76,6 +72,11 @@ export function EventSwitcher({
       JSON.stringify({ id: destino.id, title: destino.title, status: destino.status }),
     );
     router.push(`/eventos/${destino.id}${secaoAtual()}`);
+  }
+
+  function criarProximaEdicao() {
+    setAberto(false);
+    router.push(`/eventos/${event.id}/recorrencia`);
   }
 
   return (
@@ -102,7 +103,7 @@ export function EventSwitcher({
       {aberto && (
         <div
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-[320px] overflow-y-auto rounded-xl border border-line bg-surface shadow-card"
+          className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-[360px] overflow-y-auto rounded-xl border border-line bg-surface shadow-card"
         >
           {eventos.length === 0 ? (
             <p className="px-3 py-2.5 text-[12.5px] font-semibold text-muted">Carregando…</p>
@@ -126,6 +127,16 @@ export function EventSwitcher({
               </button>
             ))
           )}
+          <div className="border-t border-line p-2">
+            <button
+              type="button"
+              onClick={criarProximaEdicao}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] font-extrabold text-primary hover:bg-primary/5"
+            >
+              <span aria-hidden>＋</span>
+              Criar próxima edição
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -19,6 +19,7 @@ const TITLES: Record<string, string> = {
   portaria: "Check-in",
   "checkin-ao-vivo": "Check-in ao vivo",
   "lista-convidados": "Lista de convidados",
+  recorrencia: "Próxima edição",
 };
 
 export default function EventLayout({
