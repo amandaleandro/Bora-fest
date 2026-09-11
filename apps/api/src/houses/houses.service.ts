@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { prisma, Prisma } from "@borafest/database";
 
 const publicEventSelect = {
   id: true,
@@ -105,15 +105,18 @@ function compareDiscoveryRank(
 @Injectable()
 export class HousesService {
   /**
-   * Vitrine de Casas: só entra quem tem ao menos um evento publicado que ainda
-   * não terminou. O ranking é calculado globalmente antes do recorte de página.
-   * `query` filtra no banco, então a busca não precisa baixar todas as Casas.
+   * Descoberta pública paginada. O PostgreSQL calcula o ranking completo e só
+   * devolve as IDs da página pedida; depois o Prisma busca os dados ricos apenas
+   * dessas Casas. Assim ranking e paginação continuam consistentes sem carregar
+   * toda a vitrine na memória da API.
    */
   async listPublicHouses(page = 1, pageSize = 50, city?: string, query?: string) {
     const safePage = Math.max(1, Math.floor(page));
     const safePageSize = Math.min(100, Math.max(1, Math.floor(pageSize)));
+    const offset = (safePage - 1) * safePageSize;
     const now = new Date();
     const normalizedQuery = query?.trim();
+    const pattern = normalizedQuery ? `%${normalizedQuery}%` : null;
     const eventWhere = {
       status: "PUBLISHED" as const,
       endsAt: { gt: now },
@@ -153,8 +156,68 @@ export class HousesService {
       ...searchWhere,
     };
 
-    const houses = await prisma.organization.findMany({
-      where,
+    const cityJoin = city
+      ? Prisma.sql`JOIN venues ev ON ev.id = e.venue_id AND ev.city = ${city}`
+      : Prisma.sql``;
+    const eventSearchCityJoin = city
+      ? Prisma.sql`JOIN venues sev ON sev.id = se.venue_id AND sev.city = ${city}`
+      : Prisma.sql``;
+    const searchSql = pattern
+      ? Prisma.sql`
+          AND (
+            o.name ILIKE ${pattern}
+            OR o.display_name ILIKE ${pattern}
+            OR o.bio ILIKE ${pattern}
+            OR EXISTS (
+              SELECT 1
+              FROM venues sv
+              WHERE sv.organization_id = o.id
+                AND (sv.name ILIKE ${pattern} OR sv.city ILIKE ${pattern} OR sv.state ILIKE ${pattern})
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM events se
+              ${eventSearchCityJoin}
+              WHERE se.organization_id = o.id
+                AND se.status = 'PUBLISHED'::"EventStatus"
+                AND se.ends_at > ${now}
+                AND se.title ILIKE ${pattern}
+            )
+          )
+        `
+      : Prisma.sql``;
+
+    const [total, ranked] = await Promise.all([
+      prisma.organization.count({ where }),
+      prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT o.id
+        FROM organizations o
+        JOIN events e
+          ON e.organization_id = o.id
+          AND e.status = 'PUBLISHED'::"EventStatus"
+          AND e.ends_at > ${now}
+        ${cityJoin}
+        LEFT JOIN organization_follows f ON f.organization_id = o.id
+        WHERE o.status NOT IN ('SUSPENDED'::"OrganizationStatus", 'BLOCKED'::"OrganizationStatus")
+        ${searchSql}
+        GROUP BY o.id
+        ORDER BY
+          COUNT(DISTINCT f.id) DESC,
+          COUNT(DISTINCT e.id) DESC,
+          MIN(e.starts_at) ASC,
+          o.id ASC
+        LIMIT ${safePageSize}
+        OFFSET ${offset}
+      `),
+    ]);
+
+    const rankedIds = ranked.map((row) => row.id);
+    if (rankedIds.length === 0) {
+      return { total, page: safePage, pageSize: safePageSize, houses: [] };
+    }
+
+    const details = await prisma.organization.findMany({
+      where: { id: { in: rankedIds } },
       select: {
         id: true,
         slug: true,
@@ -185,17 +248,12 @@ export class HousesService {
       },
     });
 
-    const cards = houses
-      .map((house) => toHouseCard(house as DiscoveryHouse))
-      .sort(compareDiscoveryRank);
-    const total = cards.length;
-    const start = (safePage - 1) * safePageSize;
-
+    const byId = new Map(details.map((house) => [house.id, toHouseCard(house as DiscoveryHouse)]));
     return {
       total,
       page: safePage,
       pageSize: safePageSize,
-      houses: cards.slice(start, start + safePageSize),
+      houses: rankedIds.map((id) => byId.get(id)).filter((house): house is NonNullable<typeof house> => Boolean(house)),
     };
   }
 
@@ -301,7 +359,7 @@ export class HousesService {
         instagramUrl: true,
         websiteUrl: true,
         createdAt: true,
-        _count: { select: { followers: true, events: true } },
+        _count: { select: { followers: true } },
         venues: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -318,6 +376,10 @@ export class HousesService {
 
     if (!house) throw new NotFoundException("Casa não encontrada");
 
+    const [publishedEventsCount, upcomingEventsCount] = await Promise.all([
+      prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED" } }),
+      prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED", endsAt: { gt: now } } }),
+    ]);
     const events = house.events.map(toEventCard);
     const eventLocation = events.find((event) => event.venue)?.venue ?? null;
     const fallbackVenue = house.venues[0] ?? null;
@@ -333,8 +395,8 @@ export class HousesService {
       websiteUrl: house.websiteUrl,
       since: house.createdAt,
       followersCount: house._count.followers,
-      eventsCount: house._count.events,
-      upcomingEventsCount: events.length,
+      eventsCount: publishedEventsCount,
+      upcomingEventsCount,
       location: eventLocation ?? fallbackVenue,
       heroImageUrl: house.coverUrl ?? events.find((event) => event.bannerUrl)?.bannerUrl ?? null,
       events,
