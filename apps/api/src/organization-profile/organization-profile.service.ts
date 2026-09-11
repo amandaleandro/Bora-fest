@@ -95,21 +95,25 @@ export class OrganizationProfileService {
     organizationId: string,
     actorUserId: string,
     kind: string,
-    file: { file: NodeJS.ReadableStream },
+    file: { file: NodeJS.ReadableStream & { truncated?: boolean } },
   ) {
     if (kind !== "logo" && kind !== "cover") {
       throw new BadRequestException("Tipo de imagem inválido — use logo ou cover");
     }
     await this.assertCanManage(organizationId, actorUserId);
 
-    const organization = await prisma.organization.findUnique({
+    const exists = await prisma.organization.findUnique({
       where: { id: organizationId },
-      select: { id: true, logoUrl: true, coverUrl: true },
+      select: { id: true },
     });
-    if (!organization) throw new NotFoundException("Organização não encontrada");
+    if (!exists) throw new NotFoundException("Organização não encontrada");
 
     const chunks: Buffer[] = [];
     for await (const chunk of file.file as AsyncIterable<Buffer>) chunks.push(chunk);
+    if (file.file.truncated) {
+      throw new BadRequestException("A imagem deve ter no máximo 5 MB");
+    }
+
     const content = Buffer.concat(chunks);
     if (!isSupportedImage(content)) {
       throw new BadRequestException("Formato inválido — use JPG, PNG ou WebP");
@@ -132,15 +136,28 @@ export class OrganizationProfileService {
 
     const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
     const imageUrl = `${base}/uploads/${name}`;
+    const lockKey = `organization-profile:${organizationId}:${kind}`;
 
     try {
-      const [updated] = await prisma.$transaction([
-        prisma.organization.update({
+      const result = await prisma.$transaction(async (tx) => {
+        // Lock transacional compartilhado pelo PostgreSQL: duas instâncias da API
+        // nunca substituem a mesma logo/capa ao mesmo tempo. Assim, cada troca
+        // conhece exatamente o arquivo que ela tornou obsoleto e pode apagá-lo.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+
+        const current = await tx.organization.findUnique({
+          where: { id: organizationId },
+          select: { logoUrl: true, coverUrl: true },
+        });
+        if (!current) throw new NotFoundException("Organização não encontrada");
+
+        const previousUrl = kind === "logo" ? current.logoUrl : current.coverUrl;
+        const updated = await tx.organization.update({
           where: { id: organizationId },
           data: kind === "logo" ? { logoUrl: imageUrl } : { coverUrl: imageUrl },
           select: PROFILE_SELECT,
-        }),
-        prisma.auditLog.create({
+        });
+        await tx.auditLog.create({
           data: {
             actorUserId,
             organizationId,
@@ -148,18 +165,19 @@ export class OrganizationProfileService {
             entityType: "organization",
             entityId: organizationId,
           },
-        }),
-      ]);
+        });
 
-      const previousUrl = kind === "logo" ? organization.logoUrl : organization.coverUrl;
-      if (previousUrl) {
-        const previousName = basename(previousUrl);
+        return { updated, previousUrl };
+      });
+
+      if (result.previousUrl) {
+        const previousName = basename(result.previousUrl);
         if (previousName.startsWith(prefix)) {
           await unlink(join(UPLOADS_DIR, previousName)).catch(() => undefined);
         }
       }
 
-      return updated;
+      return result.updated;
     } catch (error) {
       await unlink(filepath).catch(() => undefined);
       throw error;
