@@ -24,9 +24,9 @@ export function CasasClient({ initialHouses }: { initialHouses: HouseListItem[] 
     let active = true;
     setLoading(true);
     housesApi
-      .list(city ?? undefined, 100)
+      .listAll(city ?? undefined)
       .then((result) => {
-        if (active) setHouses(result.houses);
+        if (active) setHouses(result);
       })
       .catch(() => {
         if (active) setHouses([]);
