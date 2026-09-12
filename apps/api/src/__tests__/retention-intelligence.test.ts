@@ -153,6 +153,8 @@ describe("N6 — inteligência de retenção da Casa", () => {
     assert.equal(result.summary.totalCustomers, 2);
     assert.equal(result.summary.repeatCustomers, 1);
     assert.equal(result.summary.repeatRatePct, 50);
+    assert.equal(result.summary.frequentCustomers, 0);
+    assert.equal(result.summary.noShowCustomers, 1);
     assert.equal(result.summary.totalRevenueCents, 30_000);
     assert.equal(result.summary.repeatRevenueCents, 25_000);
     assert.equal(result.summary.repeatRevenueSharePct, 83.33);
