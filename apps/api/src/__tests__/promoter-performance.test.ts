@@ -7,6 +7,7 @@ import { cleanupFixtureEvent, createFixtureEvent } from "./helpers";
 
 let fixture: Awaited<ReturnType<typeof createFixtureEvent>>;
 let ownerId = "";
+let linkBId = "";
 const userIds: string[] = [];
 const performance = new PromoterPerformanceService(new OrgAccessService());
 
@@ -94,6 +95,7 @@ describe("N4 — performance de promoters por evento", () => {
         commissionFixedCents: 500,
       },
     });
+    linkBId = linkB.id;
     await prisma.promoterLink.create({
       data: {
         organizationId: fixture.organization.id,
@@ -168,6 +170,20 @@ describe("N4 — performance de promoters por evento", () => {
     const pending = result.promoters[2];
     assert.equal(pending?.status, "INVITED");
     assert.equal(pending?.rank, null);
+  });
+
+  it("preserva vendas históricas quando o promoter é removido", async () => {
+    await prisma.promoterLink.update({ where: { id: linkBId }, data: { status: "REMOVED" } });
+
+    const result = await performance.forEvent(fixture.organization.id, fixture.event.id, ownerId);
+    assert.equal(result.summary.activePromoters, 1);
+    assert.equal(result.summary.ticketsSold, 6);
+    assert.equal(result.summary.grossCents, 30_000);
+
+    const removed = result.promoters.find((row) => row.id === linkBId);
+    assert.equal(removed?.status, "REMOVED");
+    assert.equal(removed?.ticketsSold, 1);
+    assert.equal(removed?.rank, 2);
   });
 
   it("não deixa consultar evento de outra organização", async () => {
