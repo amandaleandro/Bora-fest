@@ -49,7 +49,7 @@ export default function PromotersPerformancePage() {
         <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N4 · operação de vendas</p>
         <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Promoters</h1>
         <p className="mt-1.5 text-[13px] font-semibold text-muted">
-          Desempenho de promoters em <strong className="text-ink">{event.title}</strong>.
+          Desempenho de promoters em <strong className="text-ink">{event.title}</strong>. O histórico permanece mesmo depois de um vínculo ser removido.
         </p>
       </div>
 
@@ -80,41 +80,54 @@ export default function PromotersPerformancePage() {
               <h2 className="text-[15px] font-black text-ink">Ranking do evento</h2>
               <p className="mt-1 text-[11.5px] font-semibold text-muted">Ingressos vendidos; faturamento desempata.</p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-left text-[12px]">
-                <thead>
-                  <tr className="border-b border-line bg-bg/55 text-[10.5px] font-extrabold uppercase tracking-[.04em] text-muted-2">
-                    <th className="px-5 py-3">#</th>
-                    <th className="px-4 py-3">Promoter</th>
-                    <th className="px-4 py-3 text-right">Ingressos</th>
-                    <th className="px-4 py-3 text-right">Direto</th>
-                    <th className="px-4 py-3 text-right">Equipe</th>
-                    <th className="px-4 py-3 text-right">Pedidos</th>
-                    <th className="px-4 py-3 text-right">Faturamento</th>
-                    <th className="px-5 py-3 text-right">Comissão</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.promoters.map((row) => (
-                    <tr key={row.id} className="border-b border-line-divider last:border-0">
-                      <td className="px-5 py-4 font-black text-primary">{row.rank ?? "—"}</td>
-                      <td className="px-4 py-4">
-                        <p className="font-extrabold text-ink">{row.promoterName}</p>
-                        <p className="mt-1 text-[10.5px] font-bold text-muted">
-                          {row.status === "INVITED" ? "Aguardando aceite" : row.scope === "HOUSE" ? "Toda a Casa" : "Só este evento"}
-                        </p>
-                      </td>
-                      <td className="px-4 py-4 text-right font-black text-ink">{row.ticketsSold}</td>
-                      <td className="px-4 py-4 text-right font-bold text-muted">{row.directTickets}</td>
-                      <td className="px-4 py-4 text-right font-bold text-muted">{row.sellerTickets}</td>
-                      <td className="px-4 py-4 text-right font-bold text-muted">{row.paidOrders}</td>
-                      <td className="px-4 py-4 text-right font-extrabold text-ink">{money(row.grossCents)}</td>
-                      <td className="px-5 py-4 text-right font-bold text-muted">{money(row.commissionCents)}</td>
+            {data.promoters.length === 0 ? (
+              <div className="px-5 py-10 text-center">
+                <p className="text-[14px] font-extrabold text-ink">Nenhum promoter vinculado</p>
+                <p className="mt-1 text-[12px] font-semibold text-muted">Convide a equipe na área da Casa para começar a medir este evento.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-left text-[12px]">
+                  <thead>
+                    <tr className="border-b border-line bg-bg/55 text-[10.5px] font-extrabold uppercase tracking-[.04em] text-muted-2">
+                      <th className="px-5 py-3">#</th>
+                      <th className="px-4 py-3">Promoter</th>
+                      <th className="px-4 py-3 text-right">Ingressos</th>
+                      <th className="px-4 py-3 text-right">Direto</th>
+                      <th className="px-4 py-3 text-right">Equipe</th>
+                      <th className="px-4 py-3 text-right">Pedidos</th>
+                      <th className="px-4 py-3 text-right">Faturamento</th>
+                      <th className="px-5 py-3 text-right">Comissão</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {data.promoters.map((row) => (
+                      <tr key={row.id} className="border-b border-line-divider last:border-0">
+                        <td className="px-5 py-4 font-black text-primary">{row.rank ?? "—"}</td>
+                        <td className="px-4 py-4">
+                          <p className="font-extrabold text-ink">{row.promoterName}</p>
+                          <p className="mt-1 text-[10.5px] font-bold text-muted">
+                            {row.status === "INVITED"
+                              ? "Aguardando aceite"
+                              : row.status === "REMOVED"
+                                ? "Removido · histórico preservado"
+                                : row.scope === "HOUSE"
+                                  ? "Toda a Casa"
+                                  : "Só este evento"}
+                          </p>
+                        </td>
+                        <td className="px-4 py-4 text-right font-black text-ink">{row.ticketsSold}</td>
+                        <td className="px-4 py-4 text-right font-bold text-muted">{row.directTickets}</td>
+                        <td className="px-4 py-4 text-right font-bold text-muted">{row.sellerTickets}</td>
+                        <td className="px-4 py-4 text-right font-bold text-muted">{row.paidOrders}</td>
+                        <td className="px-4 py-4 text-right font-extrabold text-ink">{money(row.grossCents)}</td>
+                        <td className="px-5 py-4 text-right font-bold text-muted">{money(row.commissionCents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         </>
       ) : null}
