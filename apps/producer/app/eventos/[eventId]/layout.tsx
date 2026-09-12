@@ -15,6 +15,7 @@ const TITLES: Record<string, string> = {
   dashboard: "Painel do evento",
   divulgue: "Divulgue",
   vendas: "Vendas",
+  promoters: "Promoters",
   participantes: "Participantes",
   portaria: "Check-in",
   "checkin-ao-vivo": "Check-in ao vivo",

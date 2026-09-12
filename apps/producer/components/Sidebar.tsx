@@ -136,6 +136,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
         { href: `/eventos/${event.id}/editar`, icon: icons.pencil, label: "Editar evento" },
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
         { href: `/eventos/${event.id}/vendas`, icon: icons.cart, label: "Vendas" },
+        { href: `/eventos/${event.id}/promoters`, icon: icons.people, label: "Promoters" },
         { href: `/eventos/${event.id}/participantes`, icon: icons.people, label: "Participantes" },
         { href: `/eventos/${event.id}/portaria`, icon: icons.scan, label: "Check-in" },
       ]
@@ -292,4 +293,3 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
     </aside>
   );
 }
-

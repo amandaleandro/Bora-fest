@@ -18,6 +18,7 @@ export function EventTabs({ eventId }: { eventId: string }) {
     { id: "geral", label: "Geral", href: `${base}/dashboard` },
     { id: "ingressos", label: "Ingressos", href: base },
     { id: "vendas", label: "Vendas", href: `${base}/vendas` },
+    { id: "promoters", label: "Promoters", href: `${base}/promoters` },
     { id: "divulgue", label: "Divulgue", href: `${base}/divulgue` },
     { id: "participantes", label: "Participantes", href: `${base}/participantes` },
     { id: "checkin", label: "Check-in", href: `${base}/portaria` },
@@ -26,7 +27,7 @@ export function EventTabs({ eventId }: { eventId: string }) {
   const segment = pathname.split(base)[1]?.replace(/^\//, "").split("/")[0] ?? "";
   const active =
     segment === "" ? "ingressos"
-    : segment === "dashboard" || segment === "editar" ? "geral"
+    : segment === "dashboard" || segment === "editar" || segment === "recorrencia" ? "geral"
     : segment === "portaria" || segment === "checkin-ao-vivo" || segment === "lista-convidados" ? "checkin"
     : segment;
 
