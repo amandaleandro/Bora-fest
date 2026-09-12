@@ -17,8 +17,17 @@ type AggregateRow = {
 export class PromoterPerformanceService {
   constructor(private readonly orgAccess: OrgAccessService) {}
 
+  private async assertCanView(organizationId: string, actorUserId: string) {
+    try {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+      return;
+    } catch {
+      await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
+    }
+  }
+
   async forEvent(organizationId: string, eventId: string, actorUserId: string) {
-    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+    await this.assertCanView(organizationId, actorUserId);
 
     const event = await prisma.event.findFirst({
       where: { id: eventId, organizationId },
@@ -26,10 +35,12 @@ export class PromoterPerformanceService {
     });
     if (!event) throw new NotFoundException("Evento não encontrado nesta organização");
 
+    // REMOVED continua no relatório quando já vendeu: revogar o vínculo corta
+    // atribuições futuras, mas não pode reescrever o histórico do evento.
     const links = await prisma.promoterLink.findMany({
       where: {
         organizationId,
-        status: { in: ["INVITED", "ACTIVE"] },
+        status: { in: ["INVITED", "ACTIVE", "REMOVED"] },
         OR: [{ eventId: null }, { eventId }],
       },
       include: {
@@ -39,7 +50,7 @@ export class PromoterPerformanceService {
           select: { id: true },
         },
       },
-      orderBy: [{ status: "asc" }, { invitedAt: "asc" }],
+      orderBy: [{ invitedAt: "asc" }],
     });
 
     const linkIds = links.map((link) => link.id);
@@ -113,8 +124,12 @@ export class PromoterPerformanceService {
       };
     });
 
+    // Convites pendentes ficam no final. ACTIVE e REMOVED entram no ranking
+    // quando possuem histórico, para que revogar alguém não altere o passado.
     rows.sort((a, b) => {
-      if (a.status !== b.status) return a.status === "ACTIVE" ? -1 : 1;
+      const aPending = a.status === "INVITED" ? 1 : 0;
+      const bPending = b.status === "INVITED" ? 1 : 0;
+      if (aPending !== bPending) return aPending - bPending;
       if (b.ticketsSold !== a.ticketsSold) return b.ticketsSold - a.ticketsSold;
       if (b.grossCents !== a.grossCents) return b.grossCents - a.grossCents;
       return a.promoterName.localeCompare(b.promoterName, "pt-BR");
@@ -123,19 +138,19 @@ export class PromoterPerformanceService {
     let rank = 0;
     const ranked = rows.map((row) => ({
       ...row,
-      rank: row.status === "ACTIVE" ? ++rank : null,
+      rank: row.status !== "INVITED" && row.ticketsSold > 0 ? ++rank : null,
     }));
 
-    const active = ranked.filter((row) => row.status === "ACTIVE");
+    const measured = ranked.filter((row) => row.status !== "INVITED");
     return {
       event,
       summary: {
-        activePromoters: active.length,
+        activePromoters: ranked.filter((row) => row.status === "ACTIVE").length,
         invitedPromoters: ranked.filter((row) => row.status === "INVITED").length,
-        ticketsSold: active.reduce((sum, row) => sum + row.ticketsSold, 0),
-        paidOrders: active.reduce((sum, row) => sum + row.paidOrders, 0),
-        grossCents: active.reduce((sum, row) => sum + row.grossCents, 0),
-        commissionCents: active.reduce((sum, row) => sum + row.commissionCents, 0),
+        ticketsSold: measured.reduce((sum, row) => sum + row.ticketsSold, 0),
+        paidOrders: measured.reduce((sum, row) => sum + row.paidOrders, 0),
+        grossCents: measured.reduce((sum, row) => sum + row.grossCents, 0),
+        commissionCents: measured.reduce((sum, row) => sum + row.commissionCents, 0),
       },
       promoters: ranked,
     };
