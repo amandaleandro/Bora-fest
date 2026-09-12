@@ -27,9 +27,16 @@ const safePublicUrl = z
     return protocol === "http:" || protocol === "https:";
   }, "Use uma URL http ou https");
 
+const emailSubject = z
+  .string()
+  .trim()
+  .min(3)
+  .max(120)
+  .refine((value) => !/[\r\n]/.test(value), "O assunto deve ficar em uma única linha");
+
 export const crmReactivationSendSchema = z.object({
   segment: crmReactivationSegmentSchema.default("ALL"),
-  subject: z.string().trim().min(3).max(120),
+  subject: emailSubject,
   message: z.string().trim().min(10).max(2500),
   ctaLabel: z.string().trim().min(2).max(50).optional(),
   ctaUrl: safePublicUrl.optional(),
