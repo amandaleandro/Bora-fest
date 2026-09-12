@@ -20,7 +20,7 @@ export interface CrmCustomer {
   spentCents: number;
   firstPurchaseAt: string | null;
   lastPurchaseAt: string;
-  lastEventAt: string;
+  lastEventAt: string | null;
   nextEventAt: string | null;
   ticketsCount: number;
   checkedInTickets: number;
