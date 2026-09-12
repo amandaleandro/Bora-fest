@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import {
@@ -154,12 +155,20 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
   return (
     <GuardedPanelShell title="Clientes" organizationId={params.orgId}>
       <main className="mx-auto max-w-7xl px-5 py-7 lg:px-8 lg:py-9">
-        <div>
-          <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N5 · relacionamento</p>
-          <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Clientes da Casa</h1>
-          <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
-            Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Esta tela não envia campanhas e não presume consentimento de marketing.
-          </p>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N5 · relacionamento</p>
+            <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Clientes da Casa</h1>
+            <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
+              Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Esta tela não envia campanhas e não presume consentimento de marketing.
+            </p>
+          </div>
+          <Link
+            href={`/organizacoes/${params.orgId}/clientes/retencao`}
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-line-input bg-surface px-4 text-[12px] font-extrabold text-primary"
+          >
+            Ver retenção →
+          </Link>
         </div>
 
         {data ? (
