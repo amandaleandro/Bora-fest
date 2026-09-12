@@ -16,24 +16,24 @@ export const CRM_SEGMENTS = [
 export type CrmSegment = (typeof CRM_SEGMENTS)[number];
 
 type CustomerRow = {
-  emailKey: string;
-  email: string;
+  emailKey: string | null;
+  email: string | null;
   name: string | null;
   phone: string | null;
   userId: string | null;
-  paidOrders: number;
-  eventsCount: number;
-  spentCents: bigint;
-  firstPurchaseAt: Date;
-  lastPurchaseAt: Date;
-  lastEventAt: Date;
+  paidOrders: number | null;
+  eventsCount: number | null;
+  spentCents: bigint | null;
+  firstPurchaseAt: Date | null;
+  lastPurchaseAt: Date | null;
+  lastEventAt: Date | null;
   nextEventAt: Date | null;
-  ticketsCount: number;
-  checkedInTickets: number;
-  attendedEvents: number;
-  pastEvents: number;
-  followsHouse: boolean;
-  emailOffersOptIn: boolean;
+  ticketsCount: number | null;
+  checkedInTickets: number | null;
+  attendedEvents: number | null;
+  pastEvents: number | null;
+  followsHouse: boolean | null;
+  emailOffersOptIn: boolean | null;
   lastPromoterName: string | null;
   totalRows: bigint;
   recurringRows: bigint;
@@ -79,7 +79,7 @@ export class CustomerCrmService {
       ? Prisma.sql`AND (
           LOWER(j.email) LIKE ${`%${q}%`}
           OR LOWER(COALESCE(j.name, '')) LIKE ${`%${q}%`}
-          OR COALESCE(j.phone, '') LIKE ${`%${q.replace(/\D/g, "")}%`}
+          OR REGEXP_REPLACE(COALESCE(j.phone, ''), '[^0-9]', '', 'g') LIKE ${`%${q.replace(/\D/g, "")}%`}
         )`
       : Prisma.empty;
 
@@ -177,77 +177,105 @@ export class CustomerCrmService {
         LEFT JOIN promoter_links pl ON pl.id = lo.promoter_link_id
         LEFT JOIN users pu ON pu.id = pl.promoter_user_id
       ),
-      filtered AS (
+      search_filtered AS (
         SELECT * FROM joined j
         WHERE TRUE
         ${searchFilter}
+      ),
+      filtered AS (
+        SELECT * FROM search_filtered j
+        WHERE TRUE
         ${segmentFilter}
+      ),
+      summary AS (
+        SELECT
+          (SELECT COUNT(*)::bigint FROM filtered) AS total_rows,
+          COUNT(*) FILTER (WHERE sf.events_count >= 2)::bigint AS recurring_rows,
+          COUNT(*) FILTER (WHERE sf.events_count >= 3)::bigint AS frequent_rows,
+          COUNT(*) FILTER (WHERE sf.next_event_at IS NULL AND sf.last_event_at < NOW() - INTERVAL '30 days')::bigint AS lapsed30_rows,
+          COUNT(*) FILTER (WHERE sf.past_events > 0 AND sf.attended_events = 0)::bigint AS no_show_rows,
+          COUNT(*) FILTER (WHERE sf.follows_house)::bigint AS followers_rows,
+          COUNT(*) FILTER (WHERE sf.email_offers_opt_in)::bigint AS email_opt_in_rows
+        FROM search_filtered sf
+      ),
+      page_rows AS (
+        SELECT * FROM filtered
+        ORDER BY last_purchase_at DESC, email_key ASC
+        LIMIT ${pageSize}
+        OFFSET ${offset}
       )
       SELECT
-        f.email_key AS "emailKey",
-        f.email,
-        f.name,
-        f.phone,
-        f.user_id AS "userId",
-        f.paid_orders AS "paidOrders",
-        f.events_count AS "eventsCount",
-        f.spent_cents AS "spentCents",
-        f.first_purchase_at AS "firstPurchaseAt",
-        f.last_purchase_at AS "lastPurchaseAt",
-        f.last_event_at AS "lastEventAt",
-        f.next_event_at AS "nextEventAt",
-        f.tickets_count AS "ticketsCount",
-        f.checked_in_tickets AS "checkedInTickets",
-        f.attended_events AS "attendedEvents",
-        f.past_events AS "pastEvents",
-        f.follows_house AS "followsHouse",
-        f.email_offers_opt_in AS "emailOffersOptIn",
-        f.last_promoter_name AS "lastPromoterName",
-        COUNT(*) OVER()::bigint AS "totalRows",
-        COUNT(*) FILTER (WHERE f.events_count >= 2) OVER()::bigint AS "recurringRows",
-        COUNT(*) FILTER (WHERE f.events_count >= 3) OVER()::bigint AS "frequentRows",
-        COUNT(*) FILTER (WHERE f.next_event_at IS NULL AND f.last_event_at < NOW() - INTERVAL '30 days') OVER()::bigint AS "lapsed30Rows",
-        COUNT(*) FILTER (WHERE f.past_events > 0 AND f.attended_events = 0) OVER()::bigint AS "noShowRows",
-        COUNT(*) FILTER (WHERE f.follows_house) OVER()::bigint AS "followersRows",
-        COUNT(*) FILTER (WHERE f.email_offers_opt_in) OVER()::bigint AS "emailOptInRows"
-      FROM filtered f
-      ORDER BY f.last_purchase_at DESC, f.email_key ASC
-      LIMIT ${pageSize}
-      OFFSET ${offset}
+        p.email_key AS "emailKey",
+        p.email,
+        p.name,
+        p.phone,
+        p.user_id AS "userId",
+        p.paid_orders AS "paidOrders",
+        p.events_count AS "eventsCount",
+        p.spent_cents AS "spentCents",
+        p.first_purchase_at AS "firstPurchaseAt",
+        p.last_purchase_at AS "lastPurchaseAt",
+        p.last_event_at AS "lastEventAt",
+        p.next_event_at AS "nextEventAt",
+        p.tickets_count AS "ticketsCount",
+        p.checked_in_tickets AS "checkedInTickets",
+        p.attended_events AS "attendedEvents",
+        p.past_events AS "pastEvents",
+        p.follows_house AS "followsHouse",
+        p.email_offers_opt_in AS "emailOffersOptIn",
+        p.last_promoter_name AS "lastPromoterName",
+        s.total_rows AS "totalRows",
+        s.recurring_rows AS "recurringRows",
+        s.frequent_rows AS "frequentRows",
+        s.lapsed30_rows AS "lapsed30Rows",
+        s.no_show_rows AS "noShowRows",
+        s.followers_rows AS "followersRows",
+        s.email_opt_in_rows AS "emailOptInRows"
+      FROM summary s
+      LEFT JOIN page_rows p ON TRUE
+      ORDER BY p.last_purchase_at DESC NULLS LAST, p.email_key ASC NULLS LAST
     `);
 
+    // summary sempre devolve uma linha, mesmo quando o segmento/página não tem
+    // clientes. Isso mantém os cards corretos e evita transformar "sem resultado"
+    // em "não existem recorrentes na base".
     const first = rows[0];
-    const customers = rows.map((row) => {
-      const tags: string[] = [];
-      if (row.eventsCount === 1) tags.push("FIRST_TIME");
-      if (row.eventsCount >= 2) tags.push("RECURRING");
-      if (row.eventsCount >= 3) tags.push("FREQUENT");
-      if (!row.nextEventAt && row.lastEventAt.getTime() < Date.now() - 30 * 86_400_000) tags.push("LAPSED_30");
-      if (row.pastEvents > 0 && row.attendedEvents === 0) tags.push("NO_SHOW");
-      if (row.followsHouse) tags.push("FOLLOWER");
-      if (row.emailOffersOptIn) tags.push("EMAIL_OPT_IN");
+    const customers = rows
+      .filter((row) => row.emailKey && row.email && row.lastPurchaseAt && row.lastEventAt)
+      .map((row) => {
+        const eventsCount = row.eventsCount ?? 0;
+        const pastEvents = row.pastEvents ?? 0;
+        const attendedEvents = row.attendedEvents ?? 0;
+        const tags: string[] = [];
+        if (eventsCount === 1) tags.push("FIRST_TIME");
+        if (eventsCount >= 2) tags.push("RECURRING");
+        if (eventsCount >= 3) tags.push("FREQUENT");
+        if (!row.nextEventAt && row.lastEventAt!.getTime() < Date.now() - 30 * 86_400_000) tags.push("LAPSED_30");
+        if (pastEvents > 0 && attendedEvents === 0) tags.push("NO_SHOW");
+        if (row.followsHouse) tags.push("FOLLOWER");
+        if (row.emailOffersOptIn) tags.push("EMAIL_OPT_IN");
 
-      return {
-        email: row.email,
-        name: row.name,
-        phone: row.phone,
-        userId: row.userId,
-        paidOrders: row.paidOrders,
-        eventsCount: row.eventsCount,
-        spentCents: Number(row.spentCents),
-        firstPurchaseAt: row.firstPurchaseAt,
-        lastPurchaseAt: row.lastPurchaseAt,
-        lastEventAt: row.lastEventAt,
-        nextEventAt: row.nextEventAt,
-        ticketsCount: row.ticketsCount,
-        checkedInTickets: row.checkedInTickets,
-        attendedEvents: row.attendedEvents,
-        followsHouse: row.followsHouse,
-        emailOffersOptIn: row.emailOffersOptIn,
-        lastPromoterName: row.lastPromoterName,
-        tags,
-      };
-    });
+        return {
+          email: row.email!,
+          name: row.name,
+          phone: row.phone,
+          userId: row.userId,
+          paidOrders: row.paidOrders ?? 0,
+          eventsCount,
+          spentCents: Number(row.spentCents ?? 0n),
+          firstPurchaseAt: row.firstPurchaseAt,
+          lastPurchaseAt: row.lastPurchaseAt!,
+          lastEventAt: row.lastEventAt!,
+          nextEventAt: row.nextEventAt,
+          ticketsCount: row.ticketsCount ?? 0,
+          checkedInTickets: row.checkedInTickets ?? 0,
+          attendedEvents,
+          followsHouse: Boolean(row.followsHouse),
+          emailOffersOptIn: Boolean(row.emailOffersOptIn),
+          lastPromoterName: row.lastPromoterName,
+          tags,
+        };
+      });
 
     return {
       page,
