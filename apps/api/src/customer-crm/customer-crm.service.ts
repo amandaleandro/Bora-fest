@@ -61,8 +61,6 @@ export class CustomerCrmService {
     actorUserId: string,
     options: { q?: string; segment?: string; page?: number; pageSize?: number },
   ) {
-    // CRM expõe PII de compradores. Não basta conseguir criar evento/equipe:
-    // só perfis que já podem ver pedidos/financeiro enxergam esta visão.
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
 
     const segment = (options.segment || "ALL").toUpperCase();
@@ -74,12 +72,16 @@ export class CustomerCrmService {
     const pageSize = safePageSize(options.pageSize);
     const offset = (page - 1) * pageSize;
     const q = options.q?.trim().toLowerCase() || "";
+    const qDigits = q.replace(/\D/g, "");
+    const phoneSearch = qDigits
+      ? Prisma.sql`OR REGEXP_REPLACE(COALESCE(j.phone, ''), '[^0-9]', '', 'g') LIKE ${`%${qDigits}%`}`
+      : Prisma.empty;
 
     const searchFilter = q
       ? Prisma.sql`AND (
           LOWER(j.email) LIKE ${`%${q}%`}
           OR LOWER(COALESCE(j.name, '')) LIKE ${`%${q}%`}
-          OR REGEXP_REPLACE(COALESCE(j.phone, ''), '[^0-9]', '', 'g') LIKE ${`%${q.replace(/\D/g, "")}%`}
+          ${phoneSearch}
         )`
       : Prisma.empty;
 
@@ -120,9 +122,9 @@ export class CustomerCrmService {
           COALESCE(SUM(total_cents), 0)::bigint AS spent_cents,
           MIN(purchase_at) AS first_purchase_at,
           MAX(purchase_at) AS last_purchase_at,
-          MAX(starts_at) AS last_event_at,
+          MAX(starts_at) FILTER (WHERE starts_at <= NOW()) AS last_event_at,
           MIN(starts_at) FILTER (WHERE starts_at > NOW()) AS next_event_at,
-          COUNT(DISTINCT event_id) FILTER (WHERE starts_at < NOW())::int AS past_events
+          COUNT(DISTINCT event_id) FILTER (WHERE starts_at <= NOW())::int AS past_events
         FROM paid_orders
         GROUP BY LOWER(TRIM(contact_email))
       ),
@@ -236,12 +238,9 @@ export class CustomerCrmService {
       ORDER BY p.last_purchase_at DESC NULLS LAST, p.email_key ASC NULLS LAST
     `);
 
-    // summary sempre devolve uma linha, mesmo quando o segmento/página não tem
-    // clientes. Isso mantém os cards corretos e evita transformar "sem resultado"
-    // em "não existem recorrentes na base".
     const first = rows[0];
     const customers = rows
-      .filter((row) => row.emailKey && row.email && row.lastPurchaseAt && row.lastEventAt)
+      .filter((row) => row.emailKey && row.email && row.lastPurchaseAt)
       .map((row) => {
         const eventsCount = row.eventsCount ?? 0;
         const pastEvents = row.pastEvents ?? 0;
@@ -250,7 +249,7 @@ export class CustomerCrmService {
         if (eventsCount === 1) tags.push("FIRST_TIME");
         if (eventsCount >= 2) tags.push("RECURRING");
         if (eventsCount >= 3) tags.push("FREQUENT");
-        if (!row.nextEventAt && row.lastEventAt!.getTime() < Date.now() - 30 * 86_400_000) tags.push("LAPSED_30");
+        if (!row.nextEventAt && row.lastEventAt && row.lastEventAt.getTime() < Date.now() - 30 * 86_400_000) tags.push("LAPSED_30");
         if (pastEvents > 0 && attendedEvents === 0) tags.push("NO_SHOW");
         if (row.followsHouse) tags.push("FOLLOWER");
         if (row.emailOffersOptIn) tags.push("EMAIL_OPT_IN");
@@ -265,7 +264,7 @@ export class CustomerCrmService {
           spentCents: Number(row.spentCents ?? 0n),
           firstPurchaseAt: row.firstPurchaseAt,
           lastPurchaseAt: row.lastPurchaseAt!,
-          lastEventAt: row.lastEventAt!,
+          lastEventAt: row.lastEventAt,
           nextEventAt: row.nextEventAt,
           ticketsCount: row.ticketsCount ?? 0,
           checkedInTickets: row.checkedInTickets ?? 0,
