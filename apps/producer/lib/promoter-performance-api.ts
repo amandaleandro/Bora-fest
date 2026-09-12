@@ -1,3 +1,5 @@
+import { API_BASE_URL } from "./config";
+
 export interface PromoterPerformanceRow {
   id: string;
   status: "INVITED" | "ACTIVE";
@@ -37,4 +39,23 @@ export interface PromoterPerformanceResponse {
     commissionCents: number;
   };
   promoters: PromoterPerformanceRow[];
+}
+
+export async function getPromoterPerformance(token: string, organizationId: string, eventId: string) {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/organizations/${organizationId}/events/${eventId}/promoters/performance`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!response.ok) {
+    let message = "Não foi possível carregar o desempenho dos promoters";
+    try {
+      const payload = (await response.json()) as { message?: string | string[] };
+      if (Array.isArray(payload.message)) message = payload.message.join(" · ");
+      else if (payload.message) message = payload.message;
+    } catch {
+      // mantém fallback
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as PromoterPerformanceResponse;
 }
