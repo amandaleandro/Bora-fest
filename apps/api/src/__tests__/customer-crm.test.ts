@@ -150,8 +150,10 @@ describe("N5 — CRM de clientes da Casa", () => {
     assert.equal(recurring.total, 1);
     assert.equal(recurring.customers[0]?.name, "Ana Cliente");
     assert.equal(recurring.summary.recurring, 1);
-    // Bia continua compondo o resumo da base pesquisada mesmo fora do segmento.
-    assert.equal(recurring.summary.noShow, 1);
+    // Métricas da base pesquisada continuam visíveis mesmo quando o segmento
+    // atual contém apenas o cliente recorrente.
+    assert.equal(recurring.summary.followers, 1);
+    assert.equal(recurring.summary.emailOptIn, 1);
   });
 
   it("busca por nome e isola clientes de outra organização", async () => {
