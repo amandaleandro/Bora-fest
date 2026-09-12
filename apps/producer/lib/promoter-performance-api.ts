@@ -2,7 +2,7 @@ import { API_BASE_URL } from "./config";
 
 export interface PromoterPerformanceRow {
   id: string;
-  status: "INVITED" | "ACTIVE";
+  status: "INVITED" | "ACTIVE" | "REMOVED";
   promoterName: string;
   promoterUserId: string;
   slug: string;
