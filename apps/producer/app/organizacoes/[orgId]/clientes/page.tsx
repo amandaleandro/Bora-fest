@@ -152,7 +152,7 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
   }, [data]);
 
   return (
-    <GuardedPanelShell>
+    <GuardedPanelShell title="Clientes" organizationId={params.orgId}>
       <main className="mx-auto max-w-7xl px-5 py-7 lg:px-8 lg:py-9">
         <div>
           <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N5 · relacionamento</p>
