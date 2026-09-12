@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Prisma, prisma } from "@borafest/database";
 import type {
   CrmAudiencePreviewInput,
@@ -112,7 +112,11 @@ export class CrmReactivationService {
       throw new BadRequestException("Envie um Idempotency-Key válido para disparar a campanha");
     }
 
-    const campaignId = `crm-${organizationId}-${rawKey}`;
+    const campaignDigest = createHash("sha256")
+      .update(`${organizationId}:${rawKey}`)
+      .digest("hex")
+      .slice(0, 32);
+    const campaignId = `crm-${campaignDigest}`;
     const scopedKey = `crm-reactivation:${organizationId}:${rawKey}`;
 
     const alreadySent = await prisma.auditLog.findFirst({
