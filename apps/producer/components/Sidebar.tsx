@@ -122,6 +122,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
     ...(organizationId
       ? [
           { href: `/organizacoes/${organizationId}/perfil-publico`, icon: icons.globe, label: "Perfil público" },
+          { href: `/organizacoes/${organizationId}/clientes`, icon: icons.people, label: "Clientes" },
           { href: `/organizacoes/${organizationId}/financeiro`, icon: icons.card, label: "Financeiro" },
           { href: `/organizacoes/${organizationId}/reembolsos`, icon: icons.card, label: "Reembolsos" },
           { href: `/organizacoes/${organizationId}`, icon: icons.people, label: "Equipe e promoters" },
