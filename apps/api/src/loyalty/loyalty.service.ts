@@ -129,14 +129,14 @@ export class LoyaltyService {
         SELECT
           COUNT(*)::bigint AS "totalRows",
           COALESCE(SUM(points), 0)::bigint AS "totalBalance",
-          COUNT(*) FILTER (WHERE points >= ${program.silverPoints} AND points < ${program.goldPoints})::bigint AS "silverRows",
-          COUNT(*) FILTER (WHERE points >= ${program.goldPoints} AND points < ${program.platinumPoints})::bigint AS "goldRows",
-          COUNT(*) FILTER (WHERE points >= ${program.platinumPoints})::bigint AS "platinumRows"
+          COUNT(*) FILTER (WHERE "lifetimePoints" >= ${program.silverPoints} AND "lifetimePoints" < ${program.goldPoints})::bigint AS "silverRows",
+          COUNT(*) FILTER (WHERE "lifetimePoints" >= ${program.goldPoints} AND "lifetimePoints" < ${program.platinumPoints})::bigint AS "goldRows",
+          COUNT(*) FILTER (WHERE "lifetimePoints" >= ${program.platinumPoints})::bigint AS "platinumRows"
         FROM filtered
       ),
       page_rows AS (
         SELECT * FROM filtered
-        ORDER BY points DESC, "lastActivityAt" DESC NULLS LAST, email ASC
+        ORDER BY "lifetimePoints" DESC, points DESC, "lastActivityAt" DESC NULLS LAST, email ASC
         LIMIT ${pageSize} OFFSET ${offset}
       )
       SELECT
@@ -154,14 +154,14 @@ export class LoyaltyService {
         s."platinumRows"
       FROM summary s
       LEFT JOIN page_rows p ON TRUE
-      ORDER BY p.points DESC NULLS LAST, p."lastActivityAt" DESC NULLS LAST
+      ORDER BY p."lifetimePoints" DESC NULLS LAST, p.points DESC NULLS LAST, p."lastActivityAt" DESC NULLS LAST
     `;
 
     const first = rows[0];
-    const levelFor = (points: number) => {
-      if (points >= program.platinumPoints) return "PLATINUM";
-      if (points >= program.goldPoints) return "GOLD";
-      if (points >= program.silverPoints) return "SILVER";
+    const levelFor = (lifetimePoints: number) => {
+      if (lifetimePoints >= program.platinumPoints) return "PLATINUM";
+      if (lifetimePoints >= program.goldPoints) return "GOLD";
+      if (lifetimePoints >= program.silverPoints) return "SILVER";
       return "BRONZE";
     };
 
@@ -180,14 +180,15 @@ export class LoyaltyService {
         .filter((row) => row.id && row.email)
         .map((row) => {
           const points = Number(row.points ?? 0n);
+          const lifetimePoints = Number(row.lifetimePoints ?? 0n);
           return {
             id: row.id!,
             email: row.email!,
             name: row.name,
             userId: row.userId,
             points,
-            lifetimePoints: Number(row.lifetimePoints ?? 0n),
-            level: levelFor(points),
+            lifetimePoints,
+            level: levelFor(lifetimePoints),
             lastActivityAt: row.lastActivityAt,
           };
         }),
