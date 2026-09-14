@@ -382,7 +382,11 @@ export class VipPaymentsService {
     return Number(rows[0]?.amount ?? 0n);
   }
 
-  private async openPayment(reservationId: string, db: QueryDb = prisma) {
+  // retorno anotado (2026-09-15): a função devolve `rows[0] ?? null`, mas sem
+  // noUncheckedIndexedAccess o TS tipa `rows[0]` como sempre presente, o `?? null`
+  // vira letra morta e o tipo inferido perde o null — o que quebrava o build da
+  // API em `existing = null` (linha 181). O nulo é real: lista vazia devolve null.
+  private async openPayment(reservationId: string, db: QueryDb = prisma): Promise<VipPaymentRow | null> {
     const rows = await db.$queryRaw<VipPaymentRow[]>`
       SELECT
         id, vip_reservation_id AS "vipReservationId", provider, method, status,
