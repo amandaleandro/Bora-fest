@@ -164,6 +164,9 @@ function useProdutoraEmFoco(organizationId?: string): string | undefined {
     setGuardada(localStorage.getItem("bf.activeOrg") ?? undefined);
   }, [organizationId, pathname]);
 
+  // a troca de produtora atualiza o nome NA HORA (bug 2026-08-30): se o
+  // usuário já estava no /resumo, o push pra mesma rota não re-executa o
+  // efeito acima e o topo ficava mostrando a produtora anterior.
   useEffect(() => {
     const trocar = (e: Event) => setGuardada((e as CustomEvent<string>).detail);
     window.addEventListener("bf.orgchange", trocar);
@@ -191,6 +194,9 @@ function useEventoEmFoco(event?: SidebarEventInfo): SidebarEventInfo | undefined
     }
   }, [event, pathname]);
 
+  // troca de produtora derruba o evento em foco NA HORA (bug 2026-08-30): sem
+  // isto, quem estava numa tela sem prop de evento continuava vendo o bloco do
+  // evento da produtora anterior até navegar.
   useEffect(() => {
     const limpar = () => setGuardado(undefined);
     window.addEventListener("bf.orgchange", limpar);
@@ -213,6 +219,7 @@ function Item({ href, icon, label, active }: NavLink & { active: boolean }) {
   );
 }
 
+/** Item que sai do painel (site do comprador) — sempre em nova aba. */
 function ExternalItem({ href, icon, label }: NavLink) {
   return (
     <a href={href} target="_blank" rel="noopener" className={`${itemBase} ${itemOff} my-0.5 w-full text-left`}>
@@ -231,9 +238,17 @@ function useLogout() {
   };
 }
 
+/**
+ * Sidebar dark de 244px (>=1024px). Com `event` mostra as entradas de "Gerenciar
+ * evento"; fora do contexto de evento fica reduzida (Meus eventos, Financeiro,
+ * Ajuda e Sair).
+ */
 export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; organizationId?: string }) {
   const pathname = usePathname() ?? "";
   const emFoco = useEventoEmFoco(event);
+  // Telas de nível 1 (Resumo) não passam a produtora por prop, e sem ela o menu
+  // perdia Financeiro, Reembolsos e Equipe — os itens sumiam justamente na home
+  // do painel. Fora do contexto de organização, vem do que ficou guardado.
   const orgEmFoco = useProdutoraEmFoco(organizationId);
   const { daProdutora, doEvento } = useSidebarLinks(emFoco, orgEmFoco);
   const signOut = useLogout();
@@ -246,6 +261,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
         <span className="mt-1 block text-[10px] font-semibold text-white/45">Painel do organizador</span>
       </Link>
 
+      {/* NIVEL 1 — a produtora. Trocar de casa acontece aqui e só aqui. */}
       <div className="px-2 pb-2">
         <OrgSwitcher organizationId={orgEmFoco} dark />
       </div>
@@ -253,9 +269,14 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
         <Item key={link.label} {...link} active={pathname === link.href} />
       ))}
 
+      {/* NIVEL 2 — o evento. Continua visível mesmo nas telas da produtora
+          (financeiro, reembolsos, equipe): o produtor nunca perde de vista
+          em qual evento estava trabalhando. */}
       {emFoco ? (
         <>
-          <p className="px-3 pb-1 pt-5 text-[10px] font-bold uppercase tracking-[.08em] text-white/35">Evento em foco</p>
+          <p className="px-3 pb-1 pt-5 text-[10px] font-bold uppercase tracking-[.08em] text-white/35">
+            Evento em foco
+          </p>
           <EventSwitcher event={emFoco} organizationId={orgEmFoco} />
           {doEvento.map((link) => (
             <Item key={link.label} {...link} active={pathname === link.href} />
