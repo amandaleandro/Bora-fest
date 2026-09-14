@@ -4,6 +4,7 @@ import { withContext } from "@borafest/observability";
 import { issueTicketsForOrder } from "./issue-tickets";
 import { notifySale } from "./sale-notify";
 import { sendInitiateCheckoutToMeta, sendPurchaseToMeta } from "./meta-capi";
+import { awardLoyaltyForOrder, reverseLoyaltyForOrder } from "./loyalty";
 
 const log = withContext({ module: "outbox" });
 
@@ -56,6 +57,7 @@ async function handleOutboxEvent(eventType: string, payload: Record<string, stri
   switch (eventType) {
     case "order.paid":
       await issueTicketsForOrder(payload.orderId);
+      await awardLoyaltyForOrder(payload.orderId);
       await notifySale(payload.orderId);
       await sendPurchaseToMeta(payload.orderId);
       return;
@@ -73,12 +75,11 @@ async function handleOutboxEvent(eventType: string, payload: Record<string, stri
       return;
 
     case "order.payment_reversed":
+      await reverseLoyaltyForOrder(payload.orderId);
       await revokeOrderTickets(payload.orderId);
       return;
 
     case "vip.payment.paid":
-      // O dinheiro e o ledger já foram atualizados atomicamente. Notificações
-      // específicas de VIP podem ser adicionadas depois sem duplicar efeito financeiro.
       return;
 
     default:

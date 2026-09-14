@@ -19,3 +19,4 @@ export * from "./guest-list";
 export * from "./crm-reactivation";
 export * from "./vip-reservations";
 export * from "./vip-payments";
+export * from "./loyalty";
