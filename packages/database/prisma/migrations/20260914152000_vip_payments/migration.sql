@@ -50,6 +50,10 @@ CREATE INDEX "vip_payments_reservation_status_idx"
   ON "vip_payments"("vip_reservation_id", "status");
 CREATE INDEX "vip_payments_status_expires_at_idx"
   ON "vip_payments"("status", "expires_at");
+-- Defesa de banco contra duas cobranças concorrentes para a mesma reserva.
+CREATE UNIQUE INDEX "vip_payments_one_open_per_reservation_key"
+  ON "vip_payments"("vip_reservation_id")
+  WHERE "status" IN ('PENDING', 'AUTHORIZED');
 CREATE UNIQUE INDEX "vip_payment_events_provider_external_event_id_key"
   ON "vip_payment_events"("provider", "external_event_id");
 CREATE INDEX "vip_payment_events_payment_id_idx"
