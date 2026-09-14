@@ -32,13 +32,11 @@ import { AddOnsModule } from "./add-ons/add-ons.module";
 import { GuestListModule } from "./guest-list/guest-list.module";
 import { HousesModule } from "./houses/houses.module";
 import { VipModule } from "./vip/vip.module";
+import { LoyaltyModule } from "./loyalty/loyalty.module";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
   imports: [
-    // The API runs with `apps/api` as its cwd under pnpm/turbo, while the
-    // workspace-level .env lives at the repository root. Load both locations
-    // so local development and production launches from the repo root work.
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [resolve(process.cwd(), ".env"), resolve(process.cwd(), "../../.env")],
@@ -73,6 +71,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     GuestListModule,
     HousesModule,
     VipModule,
+    LoyaltyModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
