@@ -3,7 +3,12 @@ import { prisma } from "@borafest/database";
 
 async function orderContext(orderId: string) {
   const rows = await prisma.$queryRaw<Array<{
-    organizationId: string; userId: string | null; email: string; name: string | null; totalCents: number; status: string;
+    organizationId: string;
+    userId: string | null;
+    email: string | null;
+    name: string | null;
+    totalCents: number;
+    status: string;
   }>>`
     SELECT e.organization_id AS "organizationId", o.user_id AS "userId",
       o.contact_email AS email, o.contact_name AS name, o.total_cents AS "totalCents", o.status::text AS status
@@ -16,7 +21,7 @@ async function orderContext(orderId: string) {
 export async function awardLoyaltyForOrder(orderId: string) {
   const order = await orderContext(orderId);
   if (!order || !["PAID", "FULFILLED"].includes(order.status)) return;
-  const email = order.email.trim().toLowerCase();
+  const email = order.email?.trim().toLowerCase();
   if (!email) return;
 
   const programs = await prisma.$queryRaw<Array<{ enabled: boolean; pointsPerReal: number }>>`
@@ -24,7 +29,7 @@ export async function awardLoyaltyForOrder(orderId: string) {
     FROM loyalty_programs WHERE organization_id = ${order.organizationId}::uuid LIMIT 1
   `;
   const program = programs[0];
-  if (!program?.enabled) return;
+  if (!program?.enabled || program.pointsPerReal <= 0) return;
   const points = Math.floor(order.totalCents / 100) * program.pointsPerReal;
   if (points <= 0) return;
 
