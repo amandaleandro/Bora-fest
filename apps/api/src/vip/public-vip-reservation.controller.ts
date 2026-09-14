@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Post } from "@nestjs/common";
-import { createPixPaymentSchema } from "@borafest/contracts";
+import { createVipPixPaymentSchema } from "@borafest/contracts";
 import { RateLimit } from "../common/rate-limit.decorator";
 import { ZodBody } from "../common/zod-body.decorator";
 import { PublicVipStatusService } from "./public-vip-status.service";
@@ -23,7 +23,7 @@ export class PublicVipReservationController {
   createPix(
     @Param("publicToken") publicToken: string,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
-    @Body(ZodBody(createPixPaymentSchema)) body: unknown,
+    @Body(ZodBody(createVipPixPaymentSchema)) body: unknown,
   ) {
     return this.payments.createPix(publicToken, body as any, idempotencyKey);
   }
