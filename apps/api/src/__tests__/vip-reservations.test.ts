@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { prisma } from "@borafest/database";
 import { OrgAccessService } from "../common/org-access.service";
+import { PublicVipStatusService } from "../vip/public-vip-status.service";
 import { VipService } from "../vip/vip.service";
 import { cleanupFixtureEvent, createFixtureEvent } from "./helpers";
 
@@ -9,6 +10,7 @@ let fixture: Awaited<ReturnType<typeof createFixtureEvent>>;
 let ownerId = "";
 let inventoryId = "";
 const vip = new VipService(new OrgAccessService());
+const publicStatus = new PublicVipStatusService();
 
 describe("N8 — reservas VIP", () => {
   before(async () => {
@@ -165,5 +167,36 @@ describe("N8 — reservas VIP", () => {
     const inventory = await vip.listInventory(fixture.event.id, ownerId);
     const row = inventory.find((space) => space.id === secondInventory.id);
     assert.equal(row?.availableUnits, stored.status === "CONFIRMED" ? 0 : 1);
+  });
+
+  it("expõe status público sem vazar dados pessoais", async () => {
+    const inventory = await vip.createInventory(fixture.event.id, ownerId, {
+      kind: "LOUNGE",
+      name: "Lounge status",
+      unitPriceCents: 30_000,
+      quantity: 2,
+      capacityPerUnit: 6,
+      maxUnitsPerReservation: 1,
+    });
+    const request = await vip.requestReservation(fixture.event.slug, {
+      inventoryId: inventory.id,
+      contactName: "Cliente Privado",
+      contactEmail: "privado@example.com",
+      contactPhone: "34999990005",
+      partySize: 4,
+      units: 1,
+    });
+
+    const pending = await publicStatus.get(request.publicToken);
+    assert.equal(pending.status, "REQUESTED");
+    assert.equal("contactEmail" in pending, false);
+    assert.equal("contactPhone" in pending, false);
+    assert.equal("contactName" in pending, false);
+
+    await vip.confirmReservation(request.id, ownerId, { note: "Entrada pela fila VIP" });
+    const confirmed = await publicStatus.get(request.publicToken);
+    assert.equal(confirmed.status, "CONFIRMED");
+    assert.equal(confirmed.resolutionNote, "Entrada pela fila VIP");
+    assert.equal(confirmed.inventory.event.slug, fixture.event.slug);
   });
 });
