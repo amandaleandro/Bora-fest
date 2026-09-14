@@ -2,7 +2,7 @@ import type { UpdateOrganizationInput } from "@borafest/contracts";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma, Prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
-import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput } from "@borafest/contracts";
+import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput, InvitePromoterInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { getEarningsByEventCents, getOrganizationEarnings } from "../common/ledger";
 
@@ -86,6 +86,23 @@ export class OrganizationsService {
     if (document.length < 11) {
       throw new BadRequestException("Documento inválido — informe um CPF (11 dígitos) ou CNPJ (14 dígitos).");
     }
+
+    // JÁ É DONO DESSE DOCUMENTO? DEIXA ENTRAR (bug da Marcela, 2026-09-15).
+    //
+    // Quem chegou ao formulário de cadastro já tendo organização — por um
+    // pós-login que não conseguiu listar, um link antigo, um atalho salvo —
+    // digitava o próprio CPF e levava "Já existe uma organização cadastrada com
+    // esse CPF/CNPJ. Use a que já existe ou fale com o suporte". Beco sem saída:
+    // a organização É dela, mas a tela mandava procurar o suporte.
+    //
+    // Só vale para quem JÁ é membro ATIVO: devolver a organização de outra
+    // pessoa a quem chutou um CPF seria entregar acesso de graça. Nesse caso a
+    // mensagem de conflito continua valendo, e continua sem dizer de quem é.
+    const jaMinha = await prisma.organization.findFirst({
+      where: { document, members: { some: { userId, status: "ACTIVE" } } },
+      include: { members: true },
+    });
+    if (jaMinha) return jaMinha;
 
     const criada = await prisma.organization
       .create({
@@ -470,13 +487,9 @@ export class OrganizationsService {
   async invitePromoter(
     organizationId: string,
     actorUserId: string,
-    input: {
-      email: string;
-      eventId?: string;
-      commissionType: "NONE" | "PERCENT" | "FIXED";
-      commissionBps?: number;
-      commissionFixedCents?: number;
-    },
+    // tipo vem do CONTRATO (2026-09-10): a copia manual daqui nao acompanhou
+    // guestQuota/code quando eles nasceram e a API parou de compilar.
+    input: InvitePromoterInput,
   ) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     const promoter = await this.upsertBasicUser(input.email);

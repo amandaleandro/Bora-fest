@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
@@ -36,6 +36,33 @@ function OnboardingContent() {
   const [pixKey, setPixKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [conferindo, setConferindo] = useState(true);
+
+  // QUEBRA-LAÇO (bug da Marcela, 2026-09-15): quem JÁ tem organização não pode
+  // ficar preso neste formulário. Se algo errado trouxe a pessoa até aqui — um
+  // pós-login que não conseguiu listar, um link antigo, um atalho salvo — ela
+  // seguia o que a tela pedia, digitava o próprio CPF e batia em "Já existe uma
+  // organização cadastrada com esse CPF/CNPJ": sem entrar e sem cadastrar.
+  // A tela agora confere antes de se mostrar e sai da frente sozinha.
+  useEffect(() => {
+    if (!token) return;
+    let cancelado = false;
+    organizationsApi
+      .list(token)
+      .then((orgs) => {
+        if (cancelado) return;
+        if (orgs.length > 0) router.replace("/resumo");
+        else setConferindo(false);
+      })
+      // falhou a conferência: mostra o formulário (é o destino que nos trouxe
+      // aqui), mas sem nunca redirecionar para lugar nenhum às cegas
+      .catch(() => {
+        if (!cancelado) setConferindo(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [token, router]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +89,14 @@ function OnboardingContent() {
       setError(err instanceof Error ? err.message : "Não foi possível salvar");
       setBusy(false);
     }
+  }
+
+  if (conferindo) {
+    return (
+      <main className="mx-auto max-w-4xl px-6 py-10">
+        <p className="text-[14px] font-semibold text-muted">Carregando…</p>
+      </main>
+    );
   }
 
   return (
