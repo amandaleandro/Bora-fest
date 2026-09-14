@@ -134,13 +134,15 @@ export class RevenueIntelligenceService {
       prisma.$queryRaw<SummaryRow[]>(Prisma.sql`
         ${base}
         SELECT
-          COALESCE(SUM(amount_cents) FILTER (WHERE type = 'SALE_CREDIT' AND channel = 'TICKET'), 0)::bigint AS "ticketGrossCents",
+          COALESCE(SUM(amount_cents) FILTER (
+            WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND channel = 'TICKET'
+          ), 0)::bigint AS "ticketGrossCents",
           COALESCE(SUM(amount_cents) FILTER (WHERE type = 'SALE_CREDIT' AND channel = 'VIP'), 0)::bigint AS "vipGrossCents",
           COALESCE(SUM(amount_cents) FILTER (
-            WHERE type = 'SALE_CREDIT' AND channel = 'TICKET' AND promoter_link_id IS NOT NULL
+            WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND channel = 'TICKET' AND promoter_link_id IS NOT NULL
           ), 0)::bigint AS "promoterGrossCents",
           COALESCE(SUM(amount_cents) FILTER (
-            WHERE type = 'SALE_CREDIT' AND channel = 'TICKET' AND promoter_link_id IS NULL
+            WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND channel = 'TICKET' AND promoter_link_id IS NULL
           ), 0)::bigint AS "directTicketGrossCents",
           GREATEST(-COALESCE(SUM(amount_cents) FILTER (WHERE type = 'REFUND_DEBIT'), 0), 0)::bigint AS "refundCents",
           GREATEST(-COALESCE(SUM(amount_cents) FILTER (WHERE type = 'PLATFORM_FEE'), 0), 0)::bigint AS "platformFeeCents",
@@ -159,7 +161,9 @@ export class RevenueIntelligenceService {
         ), monthly AS (
           SELECT
             DATE_TRUNC('month', created_at) AS month,
-            COALESCE(SUM(amount_cents) FILTER (WHERE type = 'SALE_CREDIT' AND channel = 'TICKET'), 0)::bigint AS ticket_gross,
+            COALESCE(SUM(amount_cents) FILTER (
+              WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND channel = 'TICKET'
+            ), 0)::bigint AS ticket_gross,
             COALESCE(SUM(amount_cents) FILTER (WHERE type = 'SALE_CREDIT' AND channel = 'VIP'), 0)::bigint AS vip_gross,
             GREATEST(-COALESCE(SUM(amount_cents) FILTER (WHERE type = 'REFUND_DEBIT'), 0), 0)::bigint AS refunds,
             COALESCE(SUM(amount_cents), 0)::bigint AS net
@@ -183,10 +187,12 @@ export class RevenueIntelligenceService {
           e.id AS "eventId",
           e.title,
           e.starts_at AS "startsAt",
-          COALESCE(SUM(s.amount_cents) FILTER (WHERE s.type = 'SALE_CREDIT' AND s.channel = 'TICKET'), 0)::bigint AS "ticketGrossCents",
+          COALESCE(SUM(s.amount_cents) FILTER (
+            WHERE s.type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND s.channel = 'TICKET'
+          ), 0)::bigint AS "ticketGrossCents",
           COALESCE(SUM(s.amount_cents) FILTER (WHERE s.type = 'SALE_CREDIT' AND s.channel = 'VIP'), 0)::bigint AS "vipGrossCents",
           COALESCE(SUM(s.amount_cents) FILTER (
-            WHERE s.type = 'SALE_CREDIT' AND s.channel = 'TICKET' AND s.promoter_link_id IS NOT NULL
+            WHERE s.type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND s.channel = 'TICKET' AND s.promoter_link_id IS NOT NULL
           ), 0)::bigint AS "promoterGrossCents",
           GREATEST(-COALESCE(SUM(s.amount_cents) FILTER (WHERE s.type = 'REFUND_DEBIT'), 0), 0)::bigint AS "refundCents",
           GREATEST(-COALESCE(SUM(s.amount_cents) FILTER (WHERE s.type = 'PLATFORM_FEE'), 0), 0)::bigint AS "platformFeeCents",
