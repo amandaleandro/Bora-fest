@@ -163,9 +163,14 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
               Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Campanhas usam somente clientes com consentimento de marketing.
             </p>
           </div>
-          <Link href={`/organizacoes/${params.orgId}/clientes/reativacao`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">
-            Criar campanha →
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/organizacoes/${params.orgId}/clientes/retencao`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
+              Ver retenção
+            </Link>
+            <Link href={`/organizacoes/${params.orgId}/clientes/reativacao`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">
+              Criar campanha →
+            </Link>
+          </div>
         </div>
 
         {data ? (

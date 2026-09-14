@@ -4,6 +4,8 @@ import { CrmReactivationController } from "../customer-crm/crm-reactivation.cont
 import { CrmReactivationService } from "../customer-crm/crm-reactivation.service";
 import { CustomerCrmController } from "../customer-crm/customer-crm.controller";
 import { CustomerCrmService } from "../customer-crm/customer-crm.service";
+import { RetentionIntelligenceController } from "../customer-crm/retention-intelligence.controller";
+import { RetentionIntelligenceService } from "../customer-crm/retention-intelligence.service";
 import { PromoterPerformanceController } from "../promoter-performance/promoter-performance.controller";
 import { PromoterPerformanceService } from "../promoter-performance/promoter-performance.service";
 import { OrganizationsController } from "./organizations.controller";
@@ -16,12 +18,14 @@ import { OrganizationsService } from "./organizations.service";
     PromoterPerformanceController,
     CustomerCrmController,
     CrmReactivationController,
+    RetentionIntelligenceController,
   ],
   providers: [
     OrganizationsService,
     PromoterPerformanceService,
     CustomerCrmService,
     CrmReactivationService,
+    RetentionIntelligenceService,
   ],
   exports: [OrganizationsService],
 })
