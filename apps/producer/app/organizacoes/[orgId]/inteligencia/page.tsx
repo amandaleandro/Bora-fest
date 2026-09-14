@@ -62,6 +62,7 @@ export default function RevenueIntelligencePage({ params }: { params: { orgId: s
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href={`/organizacoes/${params.orgId}/clientes/segmentos`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">Segmentos</Link>
             <Link href={`/organizacoes/${params.orgId}/clientes/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">LTV clientes</Link>
             <Link href={`/organizacoes/${params.orgId}/clientes`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">Clientes</Link>
             <Link href={`/organizacoes/${params.orgId}/financeiro`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">Financeiro →</Link>

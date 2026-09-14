@@ -8,6 +8,8 @@ import { RetentionIntelligenceController } from "../customer-crm/retention-intel
 import { RetentionIntelligenceService } from "../customer-crm/retention-intelligence.service";
 import { CustomerIntelligenceController } from "../customer-intelligence/customer-intelligence.controller";
 import { CustomerIntelligenceService } from "../customer-intelligence/customer-intelligence.service";
+import { CustomerSegmentsController } from "../customer-segments/customer-segments.controller";
+import { CustomerSegmentsService } from "../customer-segments/customer-segments.service";
 import { PromoterPerformanceController } from "../promoter-performance/promoter-performance.controller";
 import { PromoterPerformanceService } from "../promoter-performance/promoter-performance.service";
 import { RevenueIntelligenceController } from "../revenue-intelligence/revenue-intelligence.controller";
@@ -25,6 +27,7 @@ import { OrganizationsService } from "./organizations.service";
     RetentionIntelligenceController,
     RevenueIntelligenceController,
     CustomerIntelligenceController,
+    CustomerSegmentsController,
   ],
   providers: [
     OrganizationsService,
@@ -34,6 +37,7 @@ import { OrganizationsService } from "./organizations.service";
     RetentionIntelligenceService,
     RevenueIntelligenceService,
     CustomerIntelligenceService,
+    CustomerSegmentsService,
   ],
   exports: [OrganizationsService],
 })
