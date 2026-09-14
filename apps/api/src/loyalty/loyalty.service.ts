@@ -114,7 +114,10 @@ export class LoyaltyService {
           a.display_name AS name,
           a.user_id AS "userId",
           COALESCE(SUM(e.delta_points), 0)::bigint AS points,
-          COALESCE(SUM(e.delta_points) FILTER (WHERE e.delta_points > 0), 0)::bigint AS "lifetimePoints",
+          COALESCE(
+            SUM(e.delta_points) FILTER (WHERE e.source_type <> 'REWARD_REDEEM'),
+            0
+          )::bigint AS "lifetimePoints",
           MAX(e.created_at) AS "lastActivityAt"
         FROM loyalty_accounts a
         LEFT JOIN loyalty_entries e ON e.loyalty_account_id = a.id
