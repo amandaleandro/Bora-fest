@@ -164,6 +164,9 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href={`/organizacoes/${params.orgId}/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
+              Inteligência
+            </Link>
             <Link href={`/organizacoes/${params.orgId}/fidelidade`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
               Fidelidade
             </Link>

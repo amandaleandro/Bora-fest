@@ -237,12 +237,10 @@ export async function getOrganizationEarnings(organizationId: string): Promise<O
 /**
  * Quanto cada evento da produtora rendeu LÍQUIDO para ela.
  *
- * Um lançamento chega ao evento por dois caminhos, porque foi assim que o
- * ledger cresceu: venda, taxa e estorno de PDV apontam para o pedido
- * (`reference_type = 'order'`), enquanto estorno de gateway e comissão de
- * promoter apontam para o pagamento (`reference_type = 'payment'`). Os dois
- * são resolvidos aqui — ignorar o segundo faria um evento com reembolso
- * aparecer rendendo mais do que rendeu.
+ * Um lançamento chega ao evento por três caminhos: pedido (`order`), pagamento
+ * de ingresso (`payment`) ou sinal/pagamento de reserva (`vip_payment`). Todos
+ * são resolvidos para o evento antes da soma, então a visão por evento bate com
+ * o ledger total da Casa também quando existe receita VIP.
  *
  * Saque e taxa de antecipação apontam para `payout` e ficam de fora de
  * propósito: retirar dinheiro não é um evento render menos.
@@ -260,21 +258,40 @@ export async function getEarningsByEventCents(organizationId: string): Promise<M
       SELECT reference_type, reference_id::uuid AS ref, amount_cents
       FROM ledger_entries
       WHERE ledger_account_id = ${ledgerAccount.id}::uuid
-        AND reference_type IN ('order', 'payment')
+        AND reference_type IN ('order', 'payment', 'vip_payment')
+    ), ticket_entries AS (
+      SELECT
+        COALESCE(o.event_id, po.event_id) AS event_id,
+        en.amount_cents
+      FROM entradas en
+      LEFT JOIN orders o ON en.reference_type = 'order' AND o.id = en.ref
+      LEFT JOIN payments p ON en.reference_type = 'payment' AND p.id = en.ref
+      LEFT JOIN orders po ON p.order_id = po.id
+      WHERE en.reference_type IN ('order', 'payment')
+    ), vip_entries AS (
+      SELECT vi.event_id, en.amount_cents
+      FROM entradas en
+      JOIN vip_payments vp ON en.reference_type = 'vip_payment' AND vp.id = en.ref
+      JOIN vip_reservations vr ON vr.id = vp.vip_reservation_id
+      JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id
+      WHERE en.reference_type = 'vip_payment'
+    ), mapped AS (
+      SELECT * FROM ticket_entries
+      UNION ALL
+      SELECT * FROM vip_entries
     )
-    SELECT o.event_id AS "eventId", SUM(en.amount_cents)::bigint AS "netCents"
-    FROM entradas en
-    LEFT JOIN payments p ON en.reference_type = 'payment' AND p.id = en.ref
-    JOIN orders o ON o.id = CASE WHEN en.reference_type = 'order' THEN en.ref ELSE p.order_id END
-    GROUP BY o.event_id
+    SELECT event_id AS "eventId", SUM(amount_cents)::bigint AS "netCents"
+    FROM mapped
+    WHERE event_id IS NOT NULL
+    GROUP BY event_id
   `;
 
   return new Map(linhas.map((l) => [l.eventId, Number(l.netCents)]));
 }
 
 /**
- * Líquido de um evento só — mesma resolução de `getEarningsByEventCents`
- * (pedido e pagamento), usada no painel do próprio evento.
+ * Líquido de um evento só — mesma resolução de `getEarningsByEventCents`,
+ * incluindo ingresso e VIP, usada no painel do próprio evento.
  */
 export async function getEventNetCents(eventId: string): Promise<number> {
   // SÓ a conta da casa dona do evento (revisão adversarial 2026-08-29): sem
@@ -298,13 +315,31 @@ export async function getEventNetCents(eventId: string): Promise<number> {
       SELECT reference_type, reference_id::uuid AS ref, amount_cents
       FROM ledger_entries
       WHERE ledger_account_id = ${ledgerAccount.id}::uuid
-        AND reference_type IN ('order', 'payment')
+        AND reference_type IN ('order', 'payment', 'vip_payment')
+    ), ticket_entries AS (
+      SELECT
+        COALESCE(o.event_id, po.event_id) AS event_id,
+        en.amount_cents
+      FROM entradas en
+      LEFT JOIN orders o ON en.reference_type = 'order' AND o.id = en.ref
+      LEFT JOIN payments p ON en.reference_type = 'payment' AND p.id = en.ref
+      LEFT JOIN orders po ON p.order_id = po.id
+      WHERE en.reference_type IN ('order', 'payment')
+    ), vip_entries AS (
+      SELECT vi.event_id, en.amount_cents
+      FROM entradas en
+      JOIN vip_payments vp ON en.reference_type = 'vip_payment' AND vp.id = en.ref
+      JOIN vip_reservations vr ON vr.id = vp.vip_reservation_id
+      JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id
+      WHERE en.reference_type = 'vip_payment'
+    ), mapped AS (
+      SELECT * FROM ticket_entries
+      UNION ALL
+      SELECT * FROM vip_entries
     )
-    SELECT SUM(en.amount_cents)::bigint AS "netCents"
-    FROM entradas en
-    LEFT JOIN payments p ON en.reference_type = 'payment' AND p.id = en.ref
-    JOIN orders o ON o.id = CASE WHEN en.reference_type = 'order' THEN en.ref ELSE p.order_id END
-    WHERE o.event_id = ${eventId}::uuid
+    SELECT SUM(amount_cents)::bigint AS "netCents"
+    FROM mapped
+    WHERE event_id = ${eventId}::uuid
   `;
   return Number(linhas[0]?.netCents ?? 0);
 }
