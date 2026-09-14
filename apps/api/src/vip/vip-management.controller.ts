@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Patch, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
 import {
   configureVipDepositSchema,
   manageVipReservationSchema,
@@ -37,6 +37,11 @@ export class VipManagementController {
     if (body.action === "CONFIRM") return this.vip.confirmReservation(id, userId, input);
     if (body.action === "REJECT") return this.vip.rejectReservation(id, userId, input);
     return this.vip.cancelReservation(id, userId, input);
+  }
+
+  @Get("reservations/:id/payment")
+  paymentSummary(@Param("id") id: string, @CurrentUserId() userId: string) {
+    return this.payments.paymentSummaryForProducer(id, userId);
   }
 
   @Patch("reservations/:id/deposit")
