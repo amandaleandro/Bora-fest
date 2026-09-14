@@ -38,6 +38,25 @@ export interface VipReservation {
   inventory: { id: string; name: string; kind: VipInventoryKind };
 }
 
+export interface VipPaymentSummary {
+  depositCents: number | null;
+  paymentDueAt: string | null;
+  paidCents: number;
+  refundPendingCents: number;
+  depositRemainingCents: number;
+  totalRemainingCents: number;
+  latestPayment: {
+    id: string;
+    method: "PIX" | "CARD";
+    status: string;
+    amountCents: number;
+    pixQrCodeText: string | null;
+    failReason: string | null;
+    expiresAt: string | null;
+    paidAt: string | null;
+  } | null;
+}
+
 async function api<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -66,6 +85,21 @@ export function getVipInventory(token: string, eventId: string) {
 
 export function getVipReservations(token: string, eventId: string) {
   return api<VipReservation[]>(`/v1/events/${eventId}/vip/reservations`, token);
+}
+
+export function getVipPaymentSummary(token: string, reservationId: string) {
+  return api<VipPaymentSummary>(`/v1/vip/reservations/${reservationId}/payment`, token);
+}
+
+export function configureVipDeposit(
+  token: string,
+  reservationId: string,
+  input: { depositCents: number; paymentDueAt?: string | null },
+) {
+  return api<VipPaymentSummary>(`/v1/vip/reservations/${reservationId}/deposit`, token, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function createVipInventory(

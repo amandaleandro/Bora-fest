@@ -1,8 +1,11 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
+import { VipPaymentsService } from "./vip-payments.service";
 
 @Injectable()
 export class PublicVipStatusService {
+  constructor(private readonly payments: VipPaymentsService) {}
+
   async get(publicToken: string) {
     const reservation = await prisma.vipReservation.findUnique({
       where: { publicToken },
@@ -32,6 +35,7 @@ export class PublicVipStatusService {
       },
     });
     if (!reservation) throw new NotFoundException("Reserva VIP não encontrada");
-    return reservation;
+    const payment = await this.payments.paymentSummaryByToken(publicToken);
+    return { ...reservation, payment };
   }
 }

@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { prisma } from "@borafest/database";
+import { IdempotencyService } from "../common/idempotency.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { PublicVipStatusService } from "../vip/public-vip-status.service";
+import { VipPaymentsService } from "../vip/vip-payments.service";
 import { VipService } from "../vip/vip.service";
 import { cleanupFixtureEvent, createFixtureEvent } from "./helpers";
 
 let fixture: Awaited<ReturnType<typeof createFixtureEvent>>;
 let ownerId = "";
 let inventoryId = "";
-const vip = new VipService(new OrgAccessService());
-const publicStatus = new PublicVipStatusService();
+const orgAccess = new OrgAccessService();
+const vip = new VipService(orgAccess);
+const vipPayments = new VipPaymentsService(new IdempotencyService(), orgAccess);
+const publicStatus = new PublicVipStatusService(vipPayments);
 
 describe("N8 — reservas VIP", () => {
   before(async () => {
@@ -192,6 +196,7 @@ describe("N8 — reservas VIP", () => {
     assert.equal("contactEmail" in pending, false);
     assert.equal("contactPhone" in pending, false);
     assert.equal("contactName" in pending, false);
+    assert.equal("contactEmail" in pending.payment, false);
 
     await vip.confirmReservation(request.id, ownerId, { note: "Entrada pela fila VIP" });
     const confirmed = await publicStatus.get(request.publicToken);

@@ -5,6 +5,7 @@ export * from "./mercadopago";
 export * from "./pagarme";
 export * from "./registry";
 export * from "./apply-status";
+export * from "./apply-vip-status";
 export * from "./fees";
 export * from "./resilience";
 export * from "./webhook-headers";

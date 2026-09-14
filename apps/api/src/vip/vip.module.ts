@@ -5,11 +5,12 @@ import { PublicVipController } from "./public-vip.controller";
 import { PublicVipReservationController } from "./public-vip-reservation.controller";
 import { PublicVipStatusService } from "./public-vip-status.service";
 import { VipManagementController } from "./vip-management.controller";
+import { VipPaymentsService } from "./vip-payments.service";
 import { VipService } from "./vip.service";
 
 @Module({
   imports: [CommonModule],
   controllers: [PublicVipController, PublicVipReservationController, EventVipController, VipManagementController],
-  providers: [VipService, PublicVipStatusService],
+  providers: [VipService, VipPaymentsService, PublicVipStatusService],
 })
 export class VipModule {}
