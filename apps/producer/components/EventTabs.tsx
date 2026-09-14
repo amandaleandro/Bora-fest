@@ -17,6 +17,7 @@ export function EventTabs({ eventId }: { eventId: string }) {
   const tabs = [
     { id: "geral", label: "Geral", href: `${base}/dashboard` },
     { id: "ingressos", label: "Ingressos", href: base },
+    { id: "vip", label: "VIP", href: `${base}/vip` },
     { id: "vendas", label: "Vendas", href: `${base}/vendas` },
     { id: "promoters", label: "Promoters", href: `${base}/promoters` },
     { id: "divulgue", label: "Divulgue", href: `${base}/divulgue` },
