@@ -120,21 +120,50 @@ describe("N8 — reservas VIP", () => {
     assert.equal(confirmed._sum.units, 1);
 
     const view = await vip.listInventory(fixture.event.id, ownerId);
-    assert.equal(view[0]?.confirmedUnits, 1);
-    assert.equal(view[0]?.availableUnits, 0);
+    const item = view.find((space) => space.id === inventoryId);
+    assert.equal(item?.confirmedUnits, 1);
+    assert.equal(item?.availableUnits, 0);
   });
 
   it("não permite reduzir inventário abaixo do já confirmado", async () => {
     await assert.rejects(
       () => vip.updateInventory(inventoryId, ownerId, { quantity: 0 } as any),
-      /quantidade|Number must be greater than or equal to 1|greater than or equal/,
-    ).catch(async () => {
-      // O contrato HTTP barra zero antes do service; aqui exercitamos a regra
-      // transacional diretamente com uma quantidade válida menor que confirmados
-      // somente quando houver um cenário futuro com 2+ unidades.
-    });
+      /quantidade/,
+    );
 
     const current = await prisma.vipInventory.findUniqueOrThrow({ where: { id: inventoryId } });
     assert.equal(current.quantity, 1);
+  });
+
+  it("serializa confirmar e recusar a mesma solicitação", async () => {
+    const secondInventory = await vip.createInventory(fixture.event.id, ownerId, {
+      kind: "MESA",
+      name: "Mesa concorrência",
+      unitPriceCents: 20_000,
+      quantity: 1,
+      capacityPerUnit: 4,
+      maxUnitsPerReservation: 1,
+    });
+    const request = await vip.requestReservation(fixture.event.slug, {
+      inventoryId: secondInventory.id,
+      contactName: "Cliente Decisão",
+      contactEmail: "decisao-vip@example.com",
+      contactPhone: "34999990004",
+      partySize: 2,
+      units: 1,
+    });
+
+    const results = await Promise.allSettled([
+      vip.confirmReservation(request.id, ownerId, {}),
+      vip.rejectReservation(request.id, ownerId, {}),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+
+    const stored = await prisma.vipReservation.findUniqueOrThrow({ where: { id: request.id } });
+    assert.ok(stored.status === "CONFIRMED" || stored.status === "REJECTED");
+    const inventory = await vip.listInventory(fixture.event.id, ownerId);
+    const row = inventory.find((space) => space.id === secondInventory.id);
+    assert.equal(row?.availableUnits, stored.status === "CONFIRMED" ? 0 : 1);
   });
 });
