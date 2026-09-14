@@ -126,15 +126,27 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
     GROUP BY email_key
   ),
   purchase_events AS (
-    SELECT email_key, event_id, created_at FROM ticket_entries WHERE type = 'SALE_CREDIT'
+    SELECT
+      email_key,
+      event_id,
+      ('T:' || order_id::text) AS purchase_key,
+      created_at
+    FROM ticket_entries
+    WHERE type = 'SALE_CREDIT'
     UNION ALL
-    SELECT email_key, event_id, created_at FROM vip_entries WHERE type = 'SALE_CREDIT'
+    SELECT
+      email_key,
+      event_id,
+      ('V:' || payment_id::text) AS purchase_key,
+      created_at
+    FROM vip_entries
+    WHERE type = 'SALE_CREDIT'
   ),
   event_stats AS (
     SELECT
       pe.email_key,
       COUNT(DISTINCT pe.event_id)::bigint AS events_count,
-      COUNT(*)::bigint AS purchase_count,
+      COUNT(DISTINCT pe.purchase_key)::bigint AS purchase_count,
       MAX(pe.created_at) AS last_purchase_at,
       MAX(e.starts_at) FILTER (WHERE e.starts_at <= NOW()) AS last_event_at,
       MIN(e.starts_at) FILTER (WHERE e.starts_at > NOW()) AS next_event_at
@@ -153,6 +165,7 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
     FROM orders o
     JOIN events e ON e.id = o.event_id
     WHERE e.organization_id = ${organizationId}::uuid
+      AND o.status IN ('PAID', 'FULFILLED', 'PARTIALLY_REFUNDED', 'REFUNDED', 'CHARGEBACK')
       AND LENGTH(TRIM(o.contact_email)) > 0
     UNION ALL
     SELECT
@@ -166,6 +179,7 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
     JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id
     JOIN events e ON e.id = vi.event_id
     WHERE e.organization_id = ${organizationId}::uuid
+      AND vr.status = 'CONFIRMED'
       AND LENGTH(TRIM(vr.contact_email)) > 0
   ),
   latest_identity AS (
@@ -202,6 +216,26 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
     WHERE te.type = 'SALE_CREDIT' AND te.promoter_link_id IS NOT NULL
     GROUP BY te.email_key, pl.promoter_user_id, u.name, u.email
   ),
+  loyalty_points AS (
+    SELECT
+      a.id AS account_id,
+      a.email_key,
+      COALESCE(SUM(le.delta_points), 0)::bigint AS loyalty_points,
+      COALESCE(SUM(le.delta_points) FILTER (WHERE le.source_type <> 'REWARD_REDEEM'), 0)::bigint AS lifetime_points
+    FROM loyalty_accounts a
+    LEFT JOIN loyalty_entries le ON le.loyalty_account_id = a.id
+    WHERE a.organization_id = ${organizationId}::uuid
+    GROUP BY a.id, a.email_key
+  ),
+  loyalty_rewards AS (
+    SELECT
+      a.id AS account_id,
+      COUNT(rd.id)::bigint AS rewards_redeemed
+    FROM loyalty_accounts a
+    LEFT JOIN loyalty_redemptions rd ON rd.loyalty_account_id = a.id
+    WHERE a.organization_id = ${organizationId}::uuid
+    GROUP BY a.id
+  ),
   loyalty AS (
     SELECT
       a.email_key,
@@ -209,15 +243,14 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
       p.silver_points,
       p.gold_points,
       p.platinum_points,
-      COALESCE(SUM(le.delta_points), 0)::bigint AS loyalty_points,
-      COALESCE(SUM(le.delta_points) FILTER (WHERE le.source_type <> 'REWARD_REDEEM'), 0)::bigint AS lifetime_points,
-      COUNT(DISTINCT rd.id)::bigint AS rewards_redeemed
+      COALESCE(lp.loyalty_points, 0)::bigint AS loyalty_points,
+      COALESCE(lp.lifetime_points, 0)::bigint AS lifetime_points,
+      COALESCE(lr.rewards_redeemed, 0)::bigint AS rewards_redeemed
     FROM loyalty_accounts a
     JOIN loyalty_programs p ON p.organization_id = a.organization_id
-    LEFT JOIN loyalty_entries le ON le.loyalty_account_id = a.id
-    LEFT JOIN loyalty_redemptions rd ON rd.loyalty_account_id = a.id
+    LEFT JOIN loyalty_points lp ON lp.account_id = a.id
+    LEFT JOIN loyalty_rewards lr ON lr.account_id = a.id
     WHERE a.organization_id = ${organizationId}::uuid
-    GROUP BY a.email_key, p.enabled, p.silver_points, p.gold_points, p.platinum_points
   ),
   emails AS (
     SELECT email_key FROM ticket_finance
@@ -292,7 +325,7 @@ export class CustomerIntelligenceService {
       ? Prisma.sql`WHERE LOWER(email) LIKE ${`%${q}%`} OR LOWER(COALESCE(name, '')) LIKE ${`%${q}%`}`
       : Prisma.empty;
 
-    const [summaryRows, rows] = await Promise.all([
+    const [summaryRows, rows, countRows] = await Promise.all([
       prisma.$queryRaw<SummaryRow[]>(Prisma.sql`
         ${base}
         SELECT
@@ -339,12 +372,11 @@ export class CustomerIntelligenceService {
         LIMIT ${pageSize}
         OFFSET ${offset}
       `),
+      prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
+        ${base}
+        SELECT COUNT(*)::bigint AS total FROM customer_rows ${search}
+      `),
     ]);
-
-    const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
-      ${base}
-      SELECT COUNT(*)::bigint AS total FROM customer_rows ${search}
-    `);
 
     const summary = summaryRows[0];
     const totalCustomers = Number(summary?.totalCustomers ?? 0n);
