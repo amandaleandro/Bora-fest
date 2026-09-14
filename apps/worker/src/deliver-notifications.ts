@@ -1,6 +1,8 @@
 import { prisma } from "@borafest/database";
 import {
   renderAccountClaimEmail,
+  renderCrmReactivationEmail,
+  type CrmReactivationPayload,
   getEmailSender,
   getPushSender,
   getWhatsAppSender,
@@ -119,6 +121,14 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para ticket_transferred: ${channel}`);
+  }
+
+  if (template === "crm_reactivation") {
+    if (channel === "EMAIL") {
+      await getEmailSender().send(renderCrmReactivationEmail(recipient, payload as CrmReactivationPayload));
+      return;
+    }
+    throw new Error(`Canal não suportado para crm_reactivation: ${channel}`);
   }
 
   if (template === "promoter_invited") {
