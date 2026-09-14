@@ -145,11 +145,68 @@ export class VipPaymentsService {
     return this.paymentSummaryByReservationId(reservationId);
   }
 
-  async createPix(
-    publicToken: string,
-    input: CreatePixPaymentInput,
-    idempotencyKey?: string,
-  ) {
+  async refundDeposit(reservationId: string, actorUserId: string) {
+    const reservation = await prisma.vipReservation.findUnique({
+      where: { id: reservationId },
+      include: { inventory: { include: { event: true } } },
+    });
+    if (!reservation) throw new NotFoundException("Reserva VIP não encontrada");
+    await this.orgAccess.assertPermission(
+      reservation.inventory.event.organizationId,
+      actorUserId,
+      PERMISSIONS.EVENT_CREATE,
+    );
+
+    const rows = await prisma.$queryRaw<VipPaymentRow[]>`
+      SELECT
+        id, vip_reservation_id AS "vipReservationId", provider, method, status,
+        amount_cents AS "amountCents", external_id AS "externalId",
+        pix_qr_code_text AS "pixQrCodeText", fail_reason AS "failReason",
+        expires_at AS "expiresAt", paid_at AS "paidAt", metadata,
+        created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM vip_payments
+      WHERE vip_reservation_id = ${reservationId}::uuid
+        AND status IN ('PAID'::"PaymentStatus", 'REFUND_PENDING'::"PaymentStatus")
+      ORDER BY paid_at DESC NULLS LAST, created_at DESC
+      LIMIT 1
+    `;
+    const payment = rows[0];
+    if (!payment) throw new ConflictException("Não existe sinal pago para estornar");
+    if (payment.status === "REFUND_PENDING") return this.paymentSummaryByReservationId(reservationId);
+    if (!payment.externalId) throw new ConflictException("Pagamento VIP sem referência no gateway");
+
+    const gateway = getGateway(payment.provider);
+    const result = await gateway.refund({
+      externalId: payment.externalId,
+      idempotencyKey: `refund_vip_${payment.id}`,
+    });
+    if (result.status === "FAILED") {
+      throw new ServiceUnavailableException("O gateway não conseguiu iniciar o estorno do sinal");
+    }
+    if (result.status === "REFUNDED") {
+      await applyVipGatewayStatus(payment.id, "REFUNDED");
+    } else {
+      await prisma.$executeRaw`
+        UPDATE vip_payments
+        SET status = 'REFUND_PENDING'::"PaymentStatus", updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${payment.id}::uuid AND status = 'PAID'::"PaymentStatus"
+      `;
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId,
+        organizationId: reservation.inventory.event.organizationId,
+        action: "vip.deposit.refund_requested",
+        entityType: "VipReservation",
+        entityId: reservationId,
+        metadata: { vipPaymentId: payment.id, amountCents: payment.amountCents, gatewayStatus: result.status },
+      },
+    });
+    return this.paymentSummaryByReservationId(reservationId);
+  }
+
+  async createPix(publicToken: string, input: CreatePixPaymentInput, idempotencyKey?: string) {
     return this.idempotency.run(
       idempotencyKey,
       "vip-payments:create-pix",
@@ -169,13 +226,38 @@ export class VipPaymentsService {
             throw new ConflictException("O prazo para pagamento do sinal terminou");
           }
 
-          const paidCents = await this.paidCents(context.id, tx);
-          const dueCents = Math.max(0, Math.min(context.depositCents, context.totalCents) - paidCents);
-          if (dueCents <= 0) throw new ConflictException("O sinal desta reserva já está pago");
+          const committedCents = await this.committedCents(context.id, tx);
+          const dueCents = Math.max(0, Math.min(context.depositCents, context.totalCents) - committedCents);
+          if (dueCents <= 0) throw new ConflictException("O sinal desta reserva já está pago ou em estorno");
           assertMinimumCharge(dueCents);
 
-          const existing = await this.pendingPayment(context.id, tx);
-          if (existing?.pixQrCodeText) return { context, existing, paymentId: existing.id, dueCents };
+          let existing = await this.openPayment(context.id, tx);
+          if (existing?.expiresAt && existing.expiresAt.getTime() <= Date.now()) {
+            await tx.$executeRaw`
+              UPDATE vip_payments
+              SET status = 'EXPIRED'::"PaymentStatus", updated_at = CURRENT_TIMESTAMP
+              WHERE id = ${existing.id}::uuid
+                AND status IN ('PENDING'::"PaymentStatus", 'AUTHORIZED'::"PaymentStatus")
+            `;
+            existing = null;
+          }
+          if (existing?.pixQrCodeText) {
+            return { context, existing, paymentId: existing.id, dueCents };
+          }
+          if (existing) {
+            const ageMs = Date.now() - existing.createdAt.getTime();
+            if (ageMs < 2 * 60_000) {
+              throw new ConflictException("A cobrança Pix está sendo preparada. Tente novamente em instantes.");
+            }
+            await tx.$executeRaw`
+              UPDATE vip_payments
+              SET status = 'FAILED'::"PaymentStatus",
+                  fail_reason = 'Cobrança interrompida antes de receber referência do gateway',
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = ${existing.id}::uuid
+                AND status IN ('PENDING'::"PaymentStatus", 'AUTHORIZED'::"PaymentStatus")
+            `;
+          }
 
           const gateway = getGatewayForMethod("PIX");
           const paymentId = randomUUID();
@@ -250,21 +332,7 @@ export class VipPaymentsService {
   async sync(publicToken: string) {
     const context = await this.contextByToken(publicToken);
     if (!context) throw new NotFoundException("Reserva VIP não encontrada");
-    const rows = await prisma.$queryRaw<VipPaymentRow[]>`
-      SELECT
-        id, vip_reservation_id AS "vipReservationId", provider, method, status,
-        amount_cents AS "amountCents", external_id AS "externalId",
-        pix_qr_code_text AS "pixQrCodeText", fail_reason AS "failReason",
-        expires_at AS "expiresAt", paid_at AS "paidAt", metadata,
-        created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM vip_payments
-      WHERE vip_reservation_id = ${context.id}::uuid
-        AND status IN ('PENDING'::"PaymentStatus", 'AUTHORIZED'::"PaymentStatus")
-        AND external_id IS NOT NULL
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-    const payment = rows[0];
+    const payment = await this.openPayment(context.id);
     if (!payment?.externalId) return { synced: false };
     try {
       const gateway = getGateway(payment.provider);
@@ -303,13 +371,16 @@ export class VipPaymentsService {
 
   private async buildSummary(context: VipPayableContext) {
     const paidCents = await this.paidCents(context.id);
+    const refundPendingCents = await this.refundPendingCents(context.id);
     const pending = await this.pendingPayment(context.id);
+    const committed = paidCents + refundPendingCents;
     return {
       depositCents: context.depositCents,
       paymentDueAt: context.paymentDueAt,
       paidCents,
-      depositRemainingCents: Math.max(0, (context.depositCents ?? 0) - paidCents),
-      totalRemainingCents: Math.max(0, context.totalCents - paidCents),
+      refundPendingCents,
+      depositRemainingCents: Math.max(0, (context.depositCents ?? 0) - committed),
+      totalRemainingCents: Math.max(0, context.totalCents - committed),
       latestPayment: pending ? this.toPublicPayment(pending) : null,
     };
   }
@@ -339,7 +410,26 @@ export class VipPaymentsService {
     return Number(rows[0]?.paidCents ?? 0n);
   }
 
-  private async pendingPayment(reservationId: string, db: QueryDb = prisma) {
+  private async refundPendingCents(reservationId: string, db: QueryDb = prisma) {
+    const rows = await db.$queryRaw<Array<{ amount: bigint }>>`
+      SELECT COALESCE(SUM(amount_cents), 0)::bigint AS amount
+      FROM vip_payments
+      WHERE vip_reservation_id = ${reservationId}::uuid AND status = 'REFUND_PENDING'::"PaymentStatus"
+    `;
+    return Number(rows[0]?.amount ?? 0n);
+  }
+
+  private async committedCents(reservationId: string, db: QueryDb = prisma) {
+    const rows = await db.$queryRaw<Array<{ amount: bigint }>>`
+      SELECT COALESCE(SUM(amount_cents), 0)::bigint AS amount
+      FROM vip_payments
+      WHERE vip_reservation_id = ${reservationId}::uuid
+        AND status IN ('PAID'::"PaymentStatus", 'REFUND_PENDING'::"PaymentStatus")
+    `;
+    return Number(rows[0]?.amount ?? 0n);
+  }
+
+  private async openPayment(reservationId: string, db: QueryDb = prisma) {
     const rows = await db.$queryRaw<VipPaymentRow[]>`
       SELECT
         id, vip_reservation_id AS "vipReservationId", provider, method, status,
@@ -350,12 +440,17 @@ export class VipPaymentsService {
       FROM vip_payments
       WHERE vip_reservation_id = ${reservationId}::uuid
         AND status IN ('PENDING'::"PaymentStatus", 'AUTHORIZED'::"PaymentStatus")
-        AND external_id IS NOT NULL
-        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
       ORDER BY created_at DESC
       LIMIT 1
     `;
     return rows[0] ?? null;
+  }
+
+  private async pendingPayment(reservationId: string, db: QueryDb = prisma) {
+    const payment = await this.openPayment(reservationId, db);
+    if (!payment?.externalId || !payment.pixQrCodeText) return null;
+    if (payment.expiresAt && payment.expiresAt.getTime() <= Date.now()) return null;
+    return payment;
   }
 
   private async paymentById(id: string) {
