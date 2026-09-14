@@ -57,25 +57,14 @@ function CustomerCard({ customer }: { customer: CrmCustomer }) {
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-bg/55 p-3 text-center">
-        <div>
-          <p className="text-[15px] font-black text-ink">{customer.eventsCount}</p>
-          <p className="text-[9.5px] font-bold uppercase text-muted-2">eventos</p>
-        </div>
-        <div>
-          <p className="text-[15px] font-black text-ink">{customer.paidOrders}</p>
-          <p className="text-[9.5px] font-bold uppercase text-muted-2">pedidos</p>
-        </div>
-        <div>
-          <p className="text-[15px] font-black text-ink">{customer.checkedInTickets}/{customer.ticketsCount}</p>
-          <p className="text-[9.5px] font-bold uppercase text-muted-2">check-ins</p>
-        </div>
+        <div><p className="text-[15px] font-black text-ink">{customer.eventsCount}</p><p className="text-[9.5px] font-bold uppercase text-muted-2">eventos</p></div>
+        <div><p className="text-[15px] font-black text-ink">{customer.paidOrders}</p><p className="text-[9.5px] font-bold uppercase text-muted-2">pedidos</p></div>
+        <div><p className="text-[15px] font-black text-ink">{customer.checkedInTickets}/{customer.ticketsCount}</p><p className="text-[9.5px] font-bold uppercase text-muted-2">check-ins</p></div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         {customer.tags.map((tag) => (
-          <span key={tag} className="rounded-full bg-primary/8 px-2.5 py-1 text-[10px] font-extrabold text-primary">
-            {TAGS[tag] ?? tag}
-          </span>
+          <span key={tag} className="rounded-full bg-primary/8 px-2.5 py-1 text-[10px] font-extrabold text-primary">{TAGS[tag] ?? tag}</span>
         ))}
       </div>
 
@@ -112,18 +101,10 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
     setError(null);
     setPage(1);
     getCasaCustomers(token, params.orgId, { q: debouncedQuery || undefined, segment, page: 1, pageSize: 30 })
-      .then((result) => {
-        if (active) setData(result);
-      })
-      .catch((err) => {
-        if (active) setError(err instanceof Error ? err.message : "Não foi possível carregar os clientes");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Não foi possível carregar os clientes"); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [token, params.orgId, debouncedQuery, segment]);
 
   async function loadMore() {
@@ -132,12 +113,7 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
     setLoadingMore(true);
     setError(null);
     try {
-      const result = await getCasaCustomers(token, params.orgId, {
-        q: debouncedQuery || undefined,
-        segment,
-        page: nextPage,
-        pageSize: 30,
-      });
+      const result = await getCasaCustomers(token, params.orgId, { q: debouncedQuery || undefined, segment, page: nextPage, pageSize: 30 });
       setData((current) => current ? { ...result, customers: [...current.customers, ...result.customers] } : result);
       setPage(nextPage);
     } catch (err) {
@@ -159,98 +135,35 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
           <div>
             <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N5 · relacionamento</p>
             <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Clientes da Casa</h1>
-            <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
-              Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Campanhas usam somente clientes com consentimento de marketing.
-            </p>
+            <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Campanhas usam somente clientes com consentimento de marketing.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href={`/organizacoes/${params.orgId}/clientes/retencao`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
-              Ver retenção
-            </Link>
-            <Link href={`/organizacoes/${params.orgId}/clientes/reativacao`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">
-              Criar campanha →
-            </Link>
+            <Link href={`/organizacoes/${params.orgId}/fidelidade`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">Fidelidade</Link>
+            <Link href={`/organizacoes/${params.orgId}/clientes/retencao`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">Ver retenção</Link>
+            <Link href={`/organizacoes/${params.orgId}/clientes/reativacao`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">Criar campanha →</Link>
           </div>
         </div>
 
         {data ? (
           <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            {[
-              ["Recorrentes", data.summary.recurring],
-              ["Frequentes", data.summary.frequent],
-              ["Inativos 30d", data.summary.lapsed30],
-              ["No-show", data.summary.noShow],
-              ["Seguidores", data.summary.followers],
-              ["Opt-in e-mail", data.summary.emailOptIn],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="rounded-2xl border border-line bg-surface p-4">
-                <p className="text-[10.5px] font-extrabold uppercase tracking-[.04em] text-muted-2">{label}</p>
-                <p className="mt-1.5 text-[22px] font-black text-ink">{Number(value).toLocaleString("pt-BR")}</p>
-              </div>
+            {[["Recorrentes", data.summary.recurring], ["Frequentes", data.summary.frequent], ["Inativos 30d", data.summary.lapsed30], ["No-show", data.summary.noShow], ["Seguidores", data.summary.followers], ["Opt-in e-mail", data.summary.emailOptIn]].map(([label, value]) => (
+              <div key={String(label)} className="rounded-2xl border border-line bg-surface p-4"><p className="text-[10.5px] font-extrabold uppercase tracking-[.04em] text-muted-2">{label}</p><p className="mt-1.5 text-[22px] font-black text-ink">{Number(value).toLocaleString("pt-BR")}</p></div>
             ))}
           </section>
         ) : null}
 
         <section className="mt-6 rounded-3xl border border-line bg-surface p-4 lg:p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full max-w-xl">
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar por nome, e-mail ou telefone"
-                className="h-11 w-full rounded-xl border border-line-input bg-bg px-4 text-[13px] font-semibold text-ink outline-none focus:border-primary"
-              />
-            </div>
-            <p className="shrink-0 text-[11.5px] font-bold text-muted">{loading ? "Atualizando…" : totalLabel}</p>
-          </div>
-
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="relative w-full max-w-xl"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nome, e-mail ou telefone" className="h-11 w-full rounded-xl border border-line-input bg-bg px-4 text-[13px] font-semibold text-ink outline-none focus:border-primary" /></div><p className="shrink-0 text-[11.5px] font-bold text-muted">{loading ? "Atualizando…" : totalLabel}</p></div>
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden">
-            {SEGMENTS.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                onClick={() => setSegment(item.value)}
-                className={`shrink-0 rounded-full px-3.5 py-2 text-[11.5px] font-extrabold ${
-                  segment === item.value ? "bg-primary text-white" : "border border-line bg-bg text-muted"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+            {SEGMENTS.map((item) => <button key={item.value} type="button" onClick={() => setSegment(item.value)} className={`shrink-0 rounded-full px-3.5 py-2 text-[11.5px] font-extrabold ${segment === item.value ? "bg-primary text-white" : "border border-line bg-bg text-muted"}`}>{item.label}</button>)}
           </div>
         </section>
 
         {error ? <p className="mt-4 rounded-2xl border border-danger/25 bg-danger/5 p-4 text-[12px] font-bold text-danger">{error}</p> : null}
-
-        {loading && !data ? (
-          <div className="mt-5 rounded-3xl border border-line bg-surface p-12 text-center text-[13px] font-semibold text-muted">Montando sua base de clientes…</div>
-        ) : null}
-
-        {!loading && data && data.customers.length === 0 ? (
-          <div className="mt-5 rounded-3xl border border-line bg-surface p-12 text-center">
-            <p className="text-[15px] font-extrabold text-ink">Nenhum cliente neste segmento</p>
-            <p className="mt-1 text-[12px] font-semibold text-muted">A base é formada somente por pedidos pagos ou confirmados desta Casa.</p>
-          </div>
-        ) : null}
-
-        {data && data.customers.length ? (
-          <section className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {data.customers.map((customer) => <CustomerCard key={customer.email.toLowerCase()} customer={customer} />)}
-          </section>
-        ) : null}
-
-        {data && data.customers.length < data.total ? (
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="h-11 rounded-xl border border-line-input bg-surface px-6 text-[12.5px] font-extrabold text-primary disabled:opacity-50"
-            >
-              {loadingMore ? "Carregando…" : "Carregar mais"}
-            </button>
-          </div>
-        ) : null}
+        {loading && !data ? <div className="mt-5 rounded-3xl border border-line bg-surface p-12 text-center text-[13px] font-semibold text-muted">Montando sua base de clientes…</div> : null}
+        {!loading && data && data.customers.length === 0 ? <div className="mt-5 rounded-3xl border border-line bg-surface p-12 text-center"><p className="text-[15px] font-extrabold text-ink">Nenhum cliente neste segmento</p><p className="mt-1 text-[12px] font-semibold text-muted">A base é formada somente por pedidos pagos ou confirmados desta Casa.</p></div> : null}
+        {data && data.customers.length ? <section className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{data.customers.map((customer) => <CustomerCard key={customer.email.toLowerCase()} customer={customer} />)}</section> : null}
+        {data && data.customers.length < data.total ? <div className="mt-6 text-center"><button type="button" onClick={loadMore} disabled={loadingMore} className="h-11 rounded-xl border border-line-input bg-surface px-6 text-[12.5px] font-extrabold text-primary disabled:opacity-50">{loadingMore ? "Carregando…" : "Carregar mais"}</button></div> : null}
       </main>
     </GuardedPanelShell>
   );
