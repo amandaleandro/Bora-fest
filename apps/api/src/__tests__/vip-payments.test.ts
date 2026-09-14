@@ -105,7 +105,7 @@ describe("N8.1 — pagamentos VIP", () => {
     );
   });
 
-  it("PAID credita o ledger uma única vez e não emite ingresso", async () => {
+  it("PAID credita venda e taxa uma única vez sem emitir ingresso", async () => {
     const reservation = await makeConfirmedReservation("vip-paid@example.com");
     await payments.configureDeposit(reservation.id, ownerId, { depositCents: 20_000 });
     const paymentId = await insertPayment(reservation.id, 20_000);
@@ -122,11 +122,17 @@ describe("N8.1 — pagamentos VIP", () => {
     assert.equal(credits.length, 1);
     assert.equal(credits[0]?.amountCents, 20_000);
 
+    const fees = await prisma.ledgerEntry.findMany({
+      where: { referenceType: "vip_payment", referenceId: paymentId, type: "PLATFORM_FEE" },
+    });
+    assert.equal(fees.length, 1);
+    assert.ok((fees[0]?.amountCents ?? 0) < 0);
+
     const tickets = await prisma.ticket.count({ where: { eventId: fixture.event.id } });
     assert.equal(tickets, 0);
   });
 
-  it("estorno confirmado reverte o crédito VIP uma única vez", async () => {
+  it("estorno confirmado zera venda e taxa sem duplicar lançamentos", async () => {
     const reservation = await makeConfirmedReservation("vip-refund@example.com");
     await payments.configureDeposit(reservation.id, ownerId, { depositCents: 15_000 });
     const paymentId = await insertPayment(reservation.id, 15_000);
@@ -142,6 +148,12 @@ describe("N8.1 — pagamentos VIP", () => {
     });
     assert.equal(debits.length, 1);
     assert.equal(debits[0]?.amountCents, -15_000);
+
+    const feeBalance = await prisma.ledgerEntry.aggregate({
+      where: { referenceType: "vip_payment", referenceId: paymentId, type: "PLATFORM_FEE" },
+      _sum: { amountCents: true },
+    });
+    assert.equal(feeBalance._sum.amountCents, 0);
   });
 
   it("pagamento aprovado para reserva incompatível vira órfão sem crédito", async () => {
