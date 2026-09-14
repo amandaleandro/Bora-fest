@@ -17,3 +17,4 @@ export * from "./reviews";
 export * from "./add-ons";
 export * from "./guest-list";
 export * from "./crm-reactivation";
+export * from "./vip-reservations";
