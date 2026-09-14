@@ -106,11 +106,11 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
   ticket_finance AS (
     SELECT
       email_key,
-      COALESCE(SUM(amount_cents) FILTER (WHERE type = 'SALE_CREDIT'), 0)::bigint AS ticket_gross,
+      COALESCE(SUM(amount_cents) FILTER (WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT')), 0)::bigint AS ticket_gross,
       GREATEST(-COALESCE(SUM(amount_cents) FILTER (WHERE type = 'REFUND_DEBIT'), 0), 0)::bigint AS ticket_refunds,
       COALESCE(SUM(amount_cents), 0)::bigint AS ticket_net,
       COALESCE(SUM(amount_cents) FILTER (
-        WHERE type = 'SALE_CREDIT' AND promoter_link_id IS NOT NULL
+        WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND promoter_link_id IS NOT NULL
       ), 0)::bigint AS promoter_gross
     FROM ticket_entries
     GROUP BY email_key
@@ -213,7 +213,7 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
     FROM ticket_entries te
     JOIN promoter_links pl ON pl.id = te.promoter_link_id
     JOIN users u ON u.id = pl.promoter_user_id
-    WHERE te.type = 'SALE_CREDIT' AND te.promoter_link_id IS NOT NULL
+    WHERE te.type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND te.promoter_link_id IS NOT NULL
     GROUP BY te.email_key, pl.promoter_user_id, u.name, u.email
   ),
   loyalty_points AS (
