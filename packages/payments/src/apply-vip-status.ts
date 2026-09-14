@@ -1,6 +1,7 @@
 import { Prisma, prisma, type VipPaymentRow } from "@borafest/database";
 import type { GatewayPaymentStatus } from "./types";
 import { addBusinessDays } from "./apply-status";
+import { computePlatformFeeCents } from "./fees";
 
 export interface ApplyVipStatusResult {
   paymentChanged: boolean;
@@ -127,6 +128,11 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplyVip
       update: {},
       create: { organizationId: context.organizationId },
     });
+    const organization = await tx.organization.findUniqueOrThrow({
+      where: { id: context.organizationId },
+      select: { pixFeeBps: true, pixFeeFloorCents: true, cardFeeBps: true },
+    });
+    const platformFeeCents = computePlatformFeeCents(payment.method, payment.amountCents, organization);
     const availableAt = addBusinessDays(
       context.eventEndsAt,
       Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
@@ -137,16 +143,27 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplyVip
       select: { id: true },
     });
     if (!alreadyCredited) {
-      await tx.ledgerEntry.create({
-        data: {
-          ledgerAccountId: account.id,
-          type: "SALE_CREDIT",
-          amountCents: payment.amountCents,
-          referenceType: "vip_payment",
-          referenceId: paymentId,
-          description: "Pagamento de reserva VIP",
-          availableAt,
-        },
+      await tx.ledgerEntry.createMany({
+        data: [
+          {
+            ledgerAccountId: account.id,
+            type: "SALE_CREDIT",
+            amountCents: payment.amountCents,
+            referenceType: "vip_payment",
+            referenceId: paymentId,
+            description: "Pagamento de reserva VIP",
+            availableAt,
+          },
+          {
+            ledgerAccountId: account.id,
+            type: "PLATFORM_FEE",
+            amountCents: -platformFeeCents,
+            referenceType: "vip_payment",
+            referenceId: paymentId,
+            description: "Taxa BoraFest sobre reserva VIP",
+            availableAt,
+          },
+        ],
       });
       result.credited = true;
     }
@@ -186,11 +203,13 @@ async function applyReversal(
       where: { referenceType: "vip_payment", referenceId: paymentId, type: "SALE_CREDIT" },
       select: { ledgerAccountId: true },
     });
+    if (!credit) return result;
+
     const previousDebit = await tx.ledgerEntry.findFirst({
       where: { referenceType: "vip_payment", referenceId: paymentId, type: "REFUND_DEBIT" },
       select: { id: true },
     });
-    if (credit && !previousDebit) {
+    if (!previousDebit) {
       await tx.ledgerEntry.create({
         data: {
           ledgerAccountId: credit.ledgerAccountId,
@@ -199,6 +218,24 @@ async function applyReversal(
           referenceType: "vip_payment",
           referenceId: paymentId,
           description: status === "CHARGEBACK" ? "Chargeback de reserva VIP" : "Estorno de reserva VIP",
+        },
+      });
+    }
+
+    const feeBalance = await tx.ledgerEntry.aggregate({
+      where: { referenceType: "vip_payment", referenceId: paymentId, type: "PLATFORM_FEE" },
+      _sum: { amountCents: true },
+    });
+    const feeCents = feeBalance._sum.amountCents ?? 0;
+    if (feeCents < 0) {
+      await tx.ledgerEntry.create({
+        data: {
+          ledgerAccountId: credit.ledgerAccountId,
+          type: "PLATFORM_FEE",
+          amountCents: -feeCents,
+          referenceType: "vip_payment",
+          referenceId: paymentId,
+          description: "Estorno da taxa BoraFest da reserva VIP",
         },
       });
     }
