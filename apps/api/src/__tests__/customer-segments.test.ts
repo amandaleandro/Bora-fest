@@ -4,22 +4,19 @@ import { after, before, describe, it } from "node:test";
 import { prisma } from "@borafest/database";
 import { OrgAccessService } from "../common/org-access.service";
 import { CustomerSegmentsService } from "../customer-segments/customer-segments.service";
-import { cleanupFixtureEvent, createFixtureEvent } from "./helpers";
+import { createFixtureEvent } from "./helpers";
 
 let fixture: Awaited<ReturnType<typeof createFixtureEvent>>;
 let ownerId = "";
 let promoterId = "";
 let accountId = "";
 let promoterLinkId = "";
-const extraEventIds: string[] = [];
-const vipIds: string[] = [];
-const loyaltyIds: string[] = [];
 
 const service = new CustomerSegmentsService(new OrgAccessService());
 
 async function createEvent(title: string, daysAgo: number) {
   const startsAt = new Date(Date.now() - daysAgo * 86_400_000);
-  const event = await prisma.event.create({
+  return prisma.event.create({
     data: {
       organizationId: fixture.organization.id,
       title,
@@ -30,8 +27,6 @@ async function createEvent(title: string, daysAgo: number) {
       publishedAt: startsAt,
     },
   });
-  extraEventIds.push(event.id);
-  return event;
 }
 
 async function paidOrder(input: {
@@ -49,6 +44,7 @@ async function paidOrder(input: {
       expiresAt: new Date(Date.now() + 60_000),
     },
   });
+  const paidAt = new Date(Date.now() - input.purchaseDaysAgo * 86_400_000);
   const order = await prisma.order.create({
     data: {
       eventId: input.eventId,
@@ -57,7 +53,7 @@ async function paidOrder(input: {
       contactName: input.name,
       status: "PAID",
       totalCents: input.amountCents,
-      paidAt: new Date(Date.now() - input.purchaseDaysAgo * 86_400_000),
+      paidAt,
       promoterLinkId: input.promoter ? promoterLinkId : null,
     },
   });
@@ -68,7 +64,7 @@ async function paidOrder(input: {
       method: "PIX",
       status: "PAID",
       amountCents: input.amountCents,
-      paidAt: order.paidAt,
+      paidAt,
     },
   });
   await prisma.ledgerEntry.create({
@@ -78,10 +74,9 @@ async function paidOrder(input: {
       amountCents: input.amountCents,
       referenceType: "payment",
       referenceId: payment.id,
-      createdAt: new Date(Date.now() - input.purchaseDaysAgo * 86_400_000),
+      createdAt: paidAt,
     },
   });
-  return { order, payment };
 }
 
 describe("N10.3 — segmentos financeiros automáticos", () => {
@@ -142,7 +137,6 @@ describe("N10.3 — segmentos financeiros automáticos", () => {
     const vipInventoryId = randomUUID();
     const vipReservationId = randomUUID();
     const vipPaymentId = randomUUID();
-    vipIds.push(vipInventoryId, vipReservationId, vipPaymentId);
     await prisma.$executeRaw`
       INSERT INTO vip_inventory (
         id, event_id, kind, name, unit_price_cents, quantity, capacity_per_unit,
@@ -185,7 +179,6 @@ describe("N10.3 — segmentos financeiros automáticos", () => {
     const programId = randomUUID();
     const loyaltyAccountId = randomUUID();
     const loyaltyEntryId = randomUUID();
-    loyaltyIds.push(programId, loyaltyAccountId, loyaltyEntryId);
     await prisma.$executeRaw`
       INSERT INTO loyalty_programs (
         id, organization_id, enabled, points_per_real, silver_points, gold_points,
@@ -215,16 +208,27 @@ describe("N10.3 — segmentos financeiros automáticos", () => {
   });
 
   after(async () => {
-    await prisma.$executeRaw`DELETE FROM loyalty_redemptions WHERE loyalty_account_id IN (SELECT id FROM loyalty_accounts WHERE organization_id = ${fixture.organization.id}::uuid)`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM loyalty_entries WHERE organization_id = ${fixture.organization.id}::uuid`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM loyalty_accounts WHERE organization_id = ${fixture.organization.id}::uuid`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM loyalty_programs WHERE organization_id = ${fixture.organization.id}::uuid`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM vip_payment_events WHERE vip_payment_id IN (SELECT vp.id FROM vip_payments vp JOIN vip_reservations vr ON vr.id = vp.vip_reservation_id JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id WHERE vi.event_id IN (SELECT id FROM events WHERE organization_id = ${fixture.organization.id}::uuid))`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM vip_payments WHERE vip_reservation_id IN (SELECT vr.id FROM vip_reservations vr JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id WHERE vi.event_id IN (SELECT id FROM events WHERE organization_id = ${fixture.organization.id}::uuid))`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM vip_reservations WHERE vip_inventory_id IN (SELECT id FROM vip_inventory WHERE event_id IN (SELECT id FROM events WHERE organization_id = ${fixture.organization.id}::uuid))`.catch(() => 0);
-    await prisma.$executeRaw`DELETE FROM vip_inventory WHERE event_id IN (SELECT id FROM events WHERE organization_id = ${fixture.organization.id}::uuid)`.catch(() => 0);
-    await prisma.promoterLink.deleteMany({ where: { organizationId: fixture.organization.id } }).catch(() => undefined);
-    await cleanupFixtureEvent(fixture.organization.id);
+    const organizationId = fixture.organization.id;
+    await prisma.$executeRaw`DELETE FROM loyalty_redemptions WHERE loyalty_account_id IN (SELECT id FROM loyalty_accounts WHERE organization_id = ${organizationId}::uuid)`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM loyalty_entries WHERE organization_id = ${organizationId}::uuid`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM loyalty_accounts WHERE organization_id = ${organizationId}::uuid`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM loyalty_programs WHERE organization_id = ${organizationId}::uuid`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM vip_payment_events WHERE vip_payment_id IN (SELECT vp.id FROM vip_payments vp JOIN vip_reservations vr ON vr.id = vp.vip_reservation_id JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id WHERE vi.event_id IN (SELECT id FROM events WHERE organization_id = ${organizationId}::uuid))`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM vip_payments WHERE vip_reservation_id IN (SELECT vr.id FROM vip_reservations vr JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id WHERE vi.event_id IN (SELECT id FROM events WHERE organization_id = ${organizationId}::uuid))`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM vip_reservations WHERE vip_inventory_id IN (SELECT id FROM vip_inventory WHERE event_id IN (SELECT id FROM events WHERE organization_id = ${organizationId}::uuid))`.catch(() => 0);
+    await prisma.$executeRaw`DELETE FROM vip_inventory WHERE event_id IN (SELECT id FROM events WHERE organization_id = ${organizationId}::uuid)`.catch(() => 0);
+
+    await prisma.ledgerEntry.deleteMany({ where: { ledgerAccount: { organizationId } } });
+    await prisma.payment.deleteMany({ where: { order: { event: { organizationId } } } });
+    await prisma.order.deleteMany({ where: { event: { organizationId } } });
+    await prisma.reservation.deleteMany({ where: { event: { organizationId } } });
+    await prisma.promoterLink.deleteMany({ where: { organizationId } });
+    await prisma.ticketLot.deleteMany({ where: { ticketType: { event: { organizationId } } } });
+    await prisma.ticketType.deleteMany({ where: { event: { organizationId } } });
+    await prisma.ledgerAccount.deleteMany({ where: { organizationId } });
+    await prisma.organizationMember.deleteMany({ where: { organizationId } });
+    await prisma.event.deleteMany({ where: { organizationId } });
+    await prisma.organization.delete({ where: { id: organizationId } }).catch(() => undefined);
     if (ownerId) await prisma.user.delete({ where: { id: ownerId } }).catch(() => undefined);
     if (promoterId) await prisma.user.delete({ where: { id: promoterId } }).catch(() => undefined);
   });
