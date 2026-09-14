@@ -55,13 +55,14 @@ export default function RevenueIntelligencePage({ params }: { params: { orgId: s
       <main className="mx-auto max-w-7xl px-5 py-7 lg:px-8 lg:py-9">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N10.1 · receita unificada</p>
+            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N10 · Intelligence Hub</p>
             <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Inteligência da Casa</h1>
             <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
-              Ingressos, VIP, promoters, estornos, taxas e líquido na mesma leitura. Os valores vêm do ledger; esta tela não cria uma segunda contabilidade.
+              Ingressos, proteção, VIP, promoters, estornos, taxas e líquido na mesma leitura. Os valores vêm do ledger; esta tela não cria uma segunda contabilidade.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href={`/organizacoes/${params.orgId}/clientes/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">LTV clientes</Link>
             <Link href={`/organizacoes/${params.orgId}/clientes`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">Clientes</Link>
             <Link href={`/organizacoes/${params.orgId}/financeiro`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">Financeiro →</Link>
           </div>
@@ -76,7 +77,7 @@ export default function RevenueIntelligencePage({ params }: { params: { orgId: s
               <div className="rounded-3xl bg-brand-gradient p-5 text-white sm:col-span-2 xl:col-span-1">
                 <p className="text-[10.5px] font-extrabold uppercase tracking-[.06em] text-white/75">Receita bruta</p>
                 <p className="mt-2 text-[28px] font-black tabular-nums">{money(data.summary.grossCents)}</p>
-                <p className="mt-1 text-[11px] font-semibold text-white/70">Ingressos + VIP antes das saídas.</p>
+                <p className="mt-1 text-[11px] font-semibold text-white/70">Ingressos + proteção + VIP antes das saídas.</p>
               </div>
               <div className="rounded-3xl border border-line bg-surface p-5">
                 <p className="text-[10.5px] font-extrabold uppercase tracking-[.06em] text-muted-2">Líquido operacional</p>
@@ -97,7 +98,7 @@ export default function RevenueIntelligencePage({ params }: { params: { orgId: s
 
             <section className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
-                ["Ingressos", data.summary.ticketGrossCents],
+                ["Ingressos + proteção", data.summary.ticketGrossCents],
                 ["Estornos", data.summary.refundCents],
                 ["Taxas BoraFest", data.summary.platformFeeCents],
                 ["Comissões", data.summary.commissionCents],
