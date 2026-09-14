@@ -44,7 +44,7 @@ export class LoyaltyRewardsService {
 
   async listRewards(organizationId: string, actorUserId: string) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
-    return prisma.$queryRaw<Array<RewardRow & { claimed: bigint; available: number | null }>>`
+    const rows = await prisma.$queryRaw<Array<RewardRow & { claimed: bigint; available: number | null }>>`
       SELECT
         rw.id,
         rw.organization_id AS "organizationId",
@@ -67,6 +67,7 @@ export class LoyaltyRewardsService {
       GROUP BY rw.id
       ORDER BY rw.active DESC, rw.points_cost ASC, rw.created_at DESC
     `;
+    return rows.map((row) => ({ ...row, claimed: Number(row.claimed) }));
   }
 
   async createReward(organizationId: string, actorUserId: string, input: CreateLoyaltyRewardInput) {
@@ -273,10 +274,7 @@ export class LoyaltyRewardsService {
   }
 
   async myLoyalty(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     const email = user?.email?.trim().toLowerCase();
     if (!email) return [];
 
@@ -298,10 +296,7 @@ export class LoyaltyRewardsService {
         p.gold_points AS "goldPoints",
         p.platinum_points AS "platinumPoints",
         COALESCE(SUM(e.delta_points), 0)::bigint AS points,
-        COALESCE(
-          SUM(e.delta_points) FILTER (WHERE e.source_type <> 'REWARD_REDEEM'),
-          0
-        )::bigint AS "lifetimePoints"
+        COALESCE(SUM(e.delta_points) FILTER (WHERE e.source_type <> 'REWARD_REDEEM'), 0)::bigint AS "lifetimePoints"
       FROM loyalty_accounts a
       JOIN organizations o ON o.id = a.organization_id
       JOIN loyalty_programs p ON p.organization_id = a.organization_id
@@ -400,12 +395,7 @@ export class LoyaltyRewardsService {
     }));
   }
 
-  async redeem(
-    userId: string,
-    organizationId: string,
-    rewardId: string,
-    idempotencyKey?: string,
-  ) {
+  async redeem(userId: string, organizationId: string, rewardId: string, idempotencyKey?: string) {
     return this.idempotency.run(
       idempotencyKey,
       "loyalty:redeem",
@@ -438,16 +428,12 @@ export class LoyaltyRewardsService {
           await tx.$executeRaw`
             UPDATE loyalty_accounts
             SET user_id = ${userId}::uuid, updated_at = CURRENT_TIMESTAMP
-            WHERE organization_id = ${organizationId}::uuid
-              AND user_id IS NULL
-              AND email_key = ${email}
+            WHERE organization_id = ${organizationId}::uuid AND user_id IS NULL AND email_key = ${email}
           `;
           const accounts = await tx.$queryRaw<AccountRow[]>`
             SELECT id, user_id AS "userId"
             FROM loyalty_accounts
-            WHERE organization_id = ${organizationId}::uuid
-              AND (user_id = ${userId}::uuid OR email_key = ${email})
-            ORDER BY CASE WHEN user_id = ${userId}::uuid THEN 0 ELSE 1 END
+            WHERE organization_id = ${organizationId}::uuid AND user_id = ${userId}::uuid
             LIMIT 1
             FOR UPDATE
           `;
@@ -460,9 +446,7 @@ export class LoyaltyRewardsService {
             WHERE loyalty_account_id = ${account.id}::uuid
           `;
           const balance = Number(balances[0]?.points ?? 0n);
-          if (balance < reward.pointsCost) {
-            throw new ConflictException("Saldo de pontos insuficiente para esta recompensa");
-          }
+          if (balance < reward.pointsCost) throw new ConflictException("Saldo de pontos insuficiente para esta recompensa");
 
           const mineRows = await tx.$queryRaw<Array<{ count: bigint }>>`
             SELECT COUNT(*)::bigint AS count
@@ -476,9 +460,7 @@ export class LoyaltyRewardsService {
 
           if (reward.quantity !== null) {
             const claimedRows = await tx.$queryRaw<Array<{ count: bigint }>>`
-              SELECT COUNT(*)::bigint AS count
-              FROM loyalty_redemptions
-              WHERE reward_id = ${rewardId}::uuid
+              SELECT COUNT(*)::bigint AS count FROM loyalty_redemptions WHERE reward_id = ${rewardId}::uuid
             `;
             if (Number(claimedRows[0]?.count ?? 0n) >= reward.quantity) {
               throw new ConflictException("Esta recompensa esgotou");
@@ -489,42 +471,22 @@ export class LoyaltyRewardsService {
           const code = `BF-${redemptionId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
           await tx.$executeRaw`
             INSERT INTO loyalty_redemptions (
-              id, organization_id, reward_id, loyalty_account_id,
-              code, points_cost, status, created_at
+              id, organization_id, reward_id, loyalty_account_id, code, points_cost, status, created_at
             ) VALUES (
-              ${redemptionId}::uuid,
-              ${organizationId}::uuid,
-              ${rewardId}::uuid,
-              ${account.id}::uuid,
-              ${code},
-              ${reward.pointsCost},
-              'ISSUED',
-              CURRENT_TIMESTAMP
+              ${redemptionId}::uuid, ${organizationId}::uuid, ${rewardId}::uuid, ${account.id}::uuid,
+              ${code}, ${reward.pointsCost}, 'ISSUED', CURRENT_TIMESTAMP
             )
           `;
           await tx.$executeRaw`
             INSERT INTO loyalty_entries (
-              id, loyalty_account_id, organization_id, delta_points,
-              source_type, source_id, description, created_at
+              id, loyalty_account_id, organization_id, delta_points, source_type, source_id, description, created_at
             ) VALUES (
-              ${randomUUID()}::uuid,
-              ${account.id}::uuid,
-              ${organizationId}::uuid,
-              ${-reward.pointsCost},
-              'REWARD_REDEEM',
-              ${redemptionId}::uuid,
-              ${`Resgate: ${reward.name}`},
-              CURRENT_TIMESTAMP
+              ${randomUUID()}::uuid, ${account.id}::uuid, ${organizationId}::uuid, ${-reward.pointsCost},
+              'REWARD_REDEEM', ${redemptionId}::uuid, ${`Resgate: ${reward.name}`}, CURRENT_TIMESTAMP
             )
           `;
 
-          return {
-            id: redemptionId,
-            code,
-            status: "ISSUED",
-            rewardName: reward.name,
-            pointsCost: reward.pointsCost,
-          };
+          return { id: redemptionId, code, status: "ISSUED", rewardName: reward.name, pointsCost: reward.pointsCost };
         });
       },
     );
