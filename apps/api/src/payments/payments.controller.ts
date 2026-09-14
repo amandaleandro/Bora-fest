@@ -9,7 +9,10 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Post("pix")
-  @RateLimit({ limit: 20, windowSeconds: 300, keyPrefix: "pay-pix" })
+  // por PEDIDO (2026-09-13): 20/300s por IP era 4 QRs por minuto para a porta
+  // INTEIRA atrás do mesmo Wi-Fi. Por pedido é mais estrito contra abuso e
+  // ilimitado para a fila — um pedido legítimo gera poucos Pix.
+  @RateLimit({ limit: 6, windowSeconds: 300, keyPrefix: "pay-pix", by: "params:orderId" })
   createPix(
     @Param("orderId") orderId: string,
     @Headers("idempotency-key") idempotencyKey: string | undefined,

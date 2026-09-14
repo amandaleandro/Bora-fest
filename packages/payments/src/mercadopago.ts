@@ -63,6 +63,8 @@ interface MpPayment {
  */
 export class MercadoPagoGateway implements PaymentGateway {
   readonly provider = MERCADOPAGO_PROVIDER;
+  // o MP emite o Pix sem documento: `identification` so vai se houver
+  readonly pixRequiresPayerDocument = false;
 
   async createPixCharge(input: CreatePixChargeInput): Promise<PixCharge> {
     const expiresAt = new Date(Date.now() + input.expiresInSeconds * 1000);

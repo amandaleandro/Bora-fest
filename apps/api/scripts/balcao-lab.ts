@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@borafest/database";
 import { computePlatformFeeCents } from "@borafest/payments";
+import { getGatewayForMethod } from "@borafest/payments";
 import { CatalogService } from "../src/catalog/catalog.service";
 import { InventoryService } from "../src/inventory/inventory.service";
 import { OrdersService } from "../src/orders/orders.service";
@@ -39,7 +40,10 @@ async function main() {
   const atletica = await prisma.salesPartner.create({ data: { organizationId: org.id, name: "Atlética Novatos", slug: `atl-${suf}`, active: true, commissionBps: 0 } });
   await prisma.organizationMember.create({ data: { organizationId: org.id, userId: promoter.id, roleId: sellerRole.id, status: "ACTIVE", salesPartnerId: atletica.id } });
 
-  const ev = await prisma.event.create({ data: { organizationId: org.id, title: "Festa Balcão", slug: `balcao-${suf}`, status: "PUBLISHED", startsAt: new Date(Date.now() + 7 * 864e5), endsAt: new Date(Date.now() + 7 * 864e5 + 4 * 3600e3) } });
+  const ev = await prisma.event.create({ data: { organizationId: org.id, title: "Festa Balcão", slug: `balcao-${suf}`, status: "PUBLISHED", // EVENTO DENTRO DA JANELA DA PORTA (2026-09-13): o PDV só vende no dia — o servidor
+  // recusa fora de startsAt−12h..endsAt+6h (assertPortaAberta). A fixture antiga
+  // (daqui a 7 dias) passava porque essa regra não existia.
+  startsAt: new Date(Date.now() + 3600e3), endsAt: new Date(Date.now() + 5 * 3600e3) } });
   const tt = await prisma.ticketType.create({ data: { eventId: ev.id, name: "Pista" } });
 
   console.log("\n1) Criação: lote pago normal + lote CORTESIA só-balcão (R$0, cap 3)");
@@ -110,9 +114,17 @@ async function main() {
   // para o caixa de quem vendeu, não para a plataforma. Creditar significava
   // repassar dinheiro que nunca entrou (produtor pago duas vezes).
   ok("dinheiro NÃO gera SALE_CREDIT (não entrou na plataforma)", !entradas.some((e) => e.type === "SALE_CREDIT"), JSON.stringify(entradas.map((e) => e.type)));
-  ok("mas a TAXA da plataforma continua sendo cobrada", entradas.some((e) => e.type === "PLATFORM_FEE" && e.amountCents < 0));
+  ok("TAXA ZERO no dinheiro (decisão do Arthur, 2026-09-14) — nada lançado", !entradas.some((e) => e.type === "PLATFORM_FEE"), JSON.stringify(entradas.map((e) => e.type)));
   const saldo = entradas.reduce((acc, e) => acc + e.amountCents, 0);
-  ok("saldo da casa por esta venda é só a taxa (negativo), não o valor do ingresso", saldo < 0, saldo);
+  ok("saldo da casa por esta venda é ZERO — o ingresso nem a taxa tocam a plataforma", saldo === 0, saldo);
+
+  console.log("\n5c) A venda em dinheiro é um ingresso DE VERDADE, contra o lote real (não um registro solto)");
+  const lotAntes = await prisma.ticketLot.findUniqueOrThrow({ where: { id: pago.id } });
+  ok("consumiu 1 vaga do lote (o mesmo estoque do site)", lotAntes.soldCount === 1, lotAntes.soldCount);
+  ok("gerou item de pedido contra o ticketLotId escolhido", pedido.tickets.length >= 0); // emissão é assíncrona (worker); confere o pedido, não o ticket ainda
+  const itemDoPedido = await prisma.orderItem.findFirstOrThrow({ where: { orderId: pedido.id } });
+  ok("o item aponta pro MESMO lote (Pago) que a tela ofereceu", itemDoPedido.ticketLotId === pago.id);
+  ok("preço do item é o do lote, não digitado à mão", itemDoPedido.priceCents === pago.priceCents, itemDoPedido.priceCents);
 
   console.log("\n6) CORTESIA agora nasce da LISTA, cadastrada ANTES — e é do parceiro");
   await prisma.eventSalesPartner.upsert({
@@ -241,15 +253,30 @@ async function main() {
   catch (e) { pixRecusado = (e as Error).message.includes("cortesia"); }
   ok("PDV Pix R$0 recusado", pixRecusado);
 
-  console.log("\n7b) FIX pos-mortem Hello World: Pix na porta EXIGE CPF do comprador");
-  let semCpf = false;
-  try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Sem Cpf" } as never); }
-  catch (e) { semCpf = (e as Error).message.includes("CPF do comprador"); }
-  ok("Pix sem CPF recusado com mensagem clara (antes: gateway recusava e o QR nunca nascia)", semCpf);
-  let cpfRuim = false;
-  try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Cpf Ruim", buyerDocument: "11111111111" } as never); }
-  catch (e) { cpfRuim = (e as Error).message.includes("CPF do comprador"); }
-  ok("CPF invalido (digito errado) tambem recusado", cpfRuim);
+  console.log("\n7b) CPF no Pix da porta é REGRA DO GATEWAY, não do Pix (decisão do Arthur, 2026-09-13)");
+  // O pós-mortem do Hello World virou uma regra universal "Pix exige CPF" — mas
+  // ela é do Asaas (recusa cobrança sem cpfCnpj). O Mercado Pago emite sem
+  // documento. Agora o servidor pergunta ao provedor que VAI cobrar
+  // (pixRequiresPayerDocument); com um que dispensa, a porta vira maquininha.
+  const pixExige = getGatewayForMethod("PIX").pixRequiresPayerDocument === true;
+  console.log(`   provedor de Pix: ${getGatewayForMethod("PIX").provider} — exige CPF? ${pixExige}`);
+  if (pixExige) {
+    let semCpf = false;
+    try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Sem Cpf" } as never); }
+    catch (e) { semCpf = (e as Error).message.includes("CPF do comprador"); }
+    ok("provedor exige: Pix sem CPF recusado com mensagem clara", semCpf);
+    let cpfRuim = false;
+    try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Cpf Ruim", buyerDocument: "11111111111" } as never); }
+    catch (e) { cpfRuim = (e as Error).message.includes("CPF do comprador"); }
+    ok("provedor exige: CPF inválido também recusado", cpfRuim);
+  } else {
+    const semCpfOk = await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Sem Cpf" } as never);
+    ok("provedor dispensa: Pix nasce SEM CPF (maquininha — escaneia, paga, entra)", !!semCpfOk.orderId);
+    let cpfRuim = false;
+    try { await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Cpf Ruim", buyerDocument: "11111111111" } as never); }
+    catch (e) { cpfRuim = true; }
+    ok("provedor dispensa: CPF digitado errado ainda é recusado (não grava lixo)", cpfRuim);
+  }
   const pixOk = await orders.createManualPixSale(ev.id, promoter.id, { ticketLotId: pago.id, quantity: 1, buyerName: "Cpf Bom", buyerDocument: "52998224725" } as never);
   ok("com CPF valido a venda Pix nasce normalmente", !!pixOk.orderId);
 

@@ -11,10 +11,10 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string } = {},
+  options: { method?: string; body?: unknown; token?: string; headers?: Record<string, string> } = {},
 ): Promise<T> {
   // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
   if (options.body) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -136,6 +136,8 @@ export interface AvailabilityItem {
   priceCents: number;
   feeCents: number;
   available: number;
+  /** o lote aceita meia-entrada (2026-09-15)? presente só nas rotas do PDV */
+  halfPriceEnabled?: boolean;
 }
 
 export interface Reservation {
@@ -198,9 +200,13 @@ export interface OrderTicket {
 export interface PdvSaleInput {
   ticketLotId: string;
   quantity: number;
-  buyerName: string;
+  // opcional desde 2026-09-13: nome digitado no escuro não valida nada — o
+  // servidor rotula "Porta · HH:MM" quando ausente
+  buyerName?: string;
   buyerDocument?: string;
   buyerEmail?: string;
+  /** meia-entrada (2026-09-15): só aceito se o lote tiver halfPriceEnabled */
+  halfPrice?: boolean;
 }
 
 export interface PdvSaleResult {
@@ -231,6 +237,49 @@ export interface ConsentInput {
   version: string;
   terms: true;
   privacy: true;
+}
+
+
+/** fechamento de caixa da porta (2026-09-10) */
+export interface PdvFechamentoVendedor {
+  userId: string;
+  nome: string;
+  dinheiroCents: number;
+  dinheiroPedidos: number;
+  pixCents: number;
+  pixPedidos: number;
+  ingressos: number;
+}
+export interface PdvFechamento {
+  /** true = enxerga o caixa de todos os vendedores (finance:view) */
+  veTudo: boolean;
+  euId: string;
+  /** dinheiro em mãos — é o que precisa ser acertado com a produção */
+  dinheiro: { pedidos: number; totalCents: number };
+  /** Pix já entrou na plataforma: não entra no acerto */
+  pix: { pedidos: number; totalCents: number };
+  ingressos: number;
+  /** total de meia-entrada vendida na porta — exibição exigida pelo Decreto 8.537/2015 */
+  ingressosMeia: number;
+  porVendedor: PdvFechamentoVendedor[];
+  /** TODAS as vendas do escopo, mais recente primeiro (controle completo por login, 2026-09-14) */
+  vendas: PdvVenda[];
+}
+export interface PdvVenda {
+  orderId: string;
+  at: string;
+  vendedorId: string;
+  vendedorNome: string;
+  ingresso: string;
+  quantidade: number;
+  totalCents: number;
+  forma: "dinheiro" | "pix";
+  comprador: string | null;
+  /** quantos ingressos desta venda já entraram */
+  entraram: number;
+  emitidos: number;
+  /** quantos ingressos desta venda são meia */
+  meia: number;
 }
 
 export const api = {
@@ -355,20 +404,49 @@ export const api = {
       { token },
     ),
 
+  /**
+   * Fechamento de caixa da porta: quanto há EM DINHEIRO para acertar com a
+   * produção. Vendedor vê o próprio caixa; finance:view vê o de todos.
+   */
+  getPdvFechamento: (eventId: string, token: string) =>
+    request<PdvFechamento>(`/v1/events/${eventId}/pdv-orders/fechamento`, { token }),
+
+  /** o que a porta precisa saber antes de vender: o Pix exige CPF? */
+  getPdvConfig: (eventId: string, token: string) =>
+    request<{ pixProvider: string; pixExigeCpf: boolean }>(`/v1/events/${eventId}/pdv-orders/config`, { token }),
+
   /** lotes vendáveis no balcão (inclui os só-balcão que o site esconde) */
   getPdvLots: (eventId: string, token: string) =>
     request<Array<AvailabilityItem & { pdvOnly: boolean }>>(`/v1/events/${eventId}/pdv-orders/lots`, { token }),
 
-  createPdvCashSale: (eventId: string, input: PdvSaleInput, token: string) =>
-    request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders`, { method: "POST", body: input, token }),
+  createPdvCashSale: (eventId: string, input: PdvSaleInput, token: string, idempotencyKey?: string) =>
+    request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders`, {
+      method: "POST",
+      body: input,
+      token,
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    }),
 
   /**
    * Venda na porta — PIX. Cria o pedido PENDENTE; o QR sai depois de
    * `createPixPayment(orderId, ...)` (rota pública) e o check-in automático
    * ocorre quando o status vira PAID/FULFILLED.
    */
-  createPdvPixSale: (eventId: string, input: PdvSaleInput, token: string) =>
-    request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders/pix`, { method: "POST", body: input, token }),
+  createPdvPixSale: (eventId: string, input: PdvSaleInput, token: string, idempotencyKey?: string) =>
+    request<PdvSaleResult>(`/v1/events/${eventId}/pdv-orders/pix`, {
+      method: "POST",
+      body: input,
+      token,
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    }),
+
+  /** cancela o Pix pendente (devolve a vaga). canceled=false = já pagou ou já expirou */
+  cancelPdvPixSale: (eventId: string, orderId: string, token: string) =>
+    request<{ canceled: boolean; status: string }>(`/v1/events/${eventId}/pdv-orders/${orderId}/cancel`, {
+      method: "POST",
+      body: {},
+      token,
+    }),
 
   createCardPayment: (
     orderId: string,

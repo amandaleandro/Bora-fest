@@ -401,7 +401,10 @@ export class EventsService {
    */
   private async restantePorPedido(eventId: string): Promise<Map<string, number>> {
     const pedidos = await prisma.order.findMany({
-      where: { eventId, status: { in: [...EventsService.A_REEMBOLSAR] } },
+      // pedidos de PORTA ficam de fora (decisão do Arthur, 2026-09-14): quem entrou
+      // consumiu o ingresso e não tem reembolso — o laço e a prévia partem daqui,
+      // então os dois concordam
+      where: { eventId, soldByUserId: null, status: { in: [...EventsService.A_REEMBOLSAR] } },
       select: { id: true, totalCents: true, payments: { select: { id: true } } },
     });
     if (pedidos.length === 0) return new Map();

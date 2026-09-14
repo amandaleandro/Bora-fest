@@ -348,20 +348,22 @@ async function cenario() {
   eq("dashboard do evento e Resumo dizem o MESMO número", noEvento, noResumo);
   eq("o ganho sobe só o líquido MENOS a comissão", noEvento - ganhoAntes, 10000 - 1000 - 1500);
 
-  console.log("\n15) Venda de PDV com ingresso emitido (FULFILLED) é reembolsável");
+  console.log("\n15) Venda de PORTA não tem reembolso — nem total, nem parcial (decisão do Arthur, 2026-09-14)");
   const f = await novoPedido(4000, 400, false);
-  await prisma.order.update({ where: { id: f.pedido.id }, data: { status: "FULFILLED" } });
-  let deuCerto = true;
-  let erroPdv = "";
-  try {
-    await executarReembolso(f.pedido.id, ator.id, { amountCents: 4000, reason: "evento cancelado" });
-  } catch (err) {
-    deuCerto = false;
-    erroPdv = (err as Error).message;
-  }
-  ok("PDV FULFILLED nao trava mais o cancelamento", deuCerto, `— ${erroPdv}`);
-  eq("estorno devolve a taxa e fecha o pedido", await estornarTaxaDaPlataforma(f.pedido.id), 400);
-  eq("pedido em zero", await saldoDoPedido(f), 0);
+  // espelha a produção: venda de porta tem vendedor (soldByUserId) e grava só a taxa
+  await prisma.ledgerEntry.deleteMany({ where: { referenceType: "order", referenceId: f.pedido.id, type: "SALE_CREDIT" } });
+  await prisma.order.update({ where: { id: f.pedido.id }, data: { status: "FULFILLED", soldByUserId: ator.id } });
+  let recusouTotal = false; let msgTotal = "";
+  try { await executarReembolso(f.pedido.id, ator.id, { amountCents: 4000, reason: "teste" }); }
+  catch (err) { recusouTotal = true; msgTotal = (err as Error).message; }
+  ok("reembolso TOTAL de venda de porta é recusado", recusouTotal, `— ${msgTotal}`);
+  ok("a recusa diz por quê (entrou = consumiu)", /porta|consumiu/i.test(msgTotal), msgTotal);
+  let recusouParcial = false;
+  try { await executarReembolso(f.pedido.id, ator.id, { amountCents: 2000, reason: "teste" }); }
+  catch { recusouParcial = true; }
+  ok("reembolso PARCIAL também recusado", recusouParcial);
+  eq("ledger da porta intacto: só a taxa, nada devolvido", await saldoDoPedido(f), -400);
+  eq("pedido continua FULFILLED", (await prisma.order.findUniqueOrThrow({ where: { id: f.pedido.id } })).status, "FULFILLED");
 
   console.log("\n16) Pedido com DOIS pagamentos aprovados nao e adivinhado");
   const g = await novoPedido(7000, 700, true);

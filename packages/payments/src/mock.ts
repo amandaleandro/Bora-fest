@@ -42,6 +42,7 @@ interface MockWebhookBody {
  */
 export class MockGateway implements PaymentGateway {
   readonly provider = MOCK_PROVIDER;
+  readonly pixRequiresPayerDocument = false;
 
   private readonly statuses = new Map<string, GatewayPaymentStatus>();
 

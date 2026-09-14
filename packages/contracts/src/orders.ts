@@ -74,9 +74,21 @@ export type OrderWhatsAppInput = z.infer<typeof orderWhatsAppSchema>;
 export const pdvOrderSchema = z.object({
   ticketLotId: z.string().uuid(),
   quantity: z.number().int().min(1).max(20),
-  buyerName: z.string().min(2),
+  // OPCIONAL (decisão do Arthur, 2026-09-13): na porta ninguém digita nome no
+  // escuro com fila — e o nome não valida nada (só vira contactName). Sem nome
+  // o servidor rotula o pedido ("Porta · HH:MM") para o recibo e o fechamento.
+  buyerName: z.string().min(2).optional(),
   buyerDocument: z.string().min(5).max(20).optional(),
   buyerEmail: emailDeCompra.optional(),
   salesPartnerId: z.string().uuid().optional(),
-});
+  // meia-entrada na porta (decisão do Arthur, 2026-09-15): aparece SÓ se o
+  // lote permitir (lot.halfPriceEnabled) — mesmo portão de entrada que
+  // qualquer outro ingresso, sem mecanismo especial. Preço vem do servidor
+  // (metade de lot.priceCents, taxa cheia), nunca do valor digitado.
+  halfPrice: z.boolean().optional(),
+})
+  // .strict() (2026-09-13): campo desconhecido era DESCARTADO em silêncio — uma
+  // chave de idempotência mandada no corpo sumia sem erro. A chave vai no header
+  // Idempotency-Key; o corpo recusa o que não conhece.
+  .strict();
 export type PdvOrderInput = z.infer<typeof pdvOrderSchema>;

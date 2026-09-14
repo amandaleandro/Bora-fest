@@ -18,8 +18,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import PortariaVenda from "../../components/PortariaVenda";
-import { ApiError } from "../../lib/api";
+import PdvPorta from "../../components/PdvPorta";
+import { ApiError, api, type PdvFechamento } from "../../lib/api";
 import { isAuthError, portariaApi } from "../../lib/portaria/api";
 import * as db from "../../lib/portaria/db";
 import { CameraError, startScanner, type ScannerHandle } from "../../lib/portaria/scanner";
@@ -235,6 +235,10 @@ const VENDA_TAB: { id: Tab; label: string; icon: JSX.Element } = {
   ),
 };
 
+function dinheiroBR(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 export default function PortariaPage() {
   const [screen, setScreen] = useState<Screen>("pin");
   const [tab, setTab] = useState<Tab>("scanner");
@@ -399,12 +403,29 @@ export default function PortariaPage() {
         localStorage.removeItem(SESSION_KEY);
       }
     }
+    // PORTÃO SÓ VALE PARA A SESSÃO QUE O CONTÉM (2026-09-12).
+    //
+    // A chave era GLOBAL: um aparelho que operou o evento A com "Portão A"
+    // selecionado carregava esse id para o evento B. O servidor então recusa
+    // TODO check-in com 403 "Portão inválido para este evento" — alto no
+    // scanner, mudo no PDV. Resultado: a noite inteira vendendo com zero
+    // ingresso queimado e todo QR vivo, sem ninguém perceber.
+    //
+    // Agora o portão restaurado é conferido contra os checkinPoints da sessão
+    // atual; o que não pertence a ela é descartado (cai em "sem portão
+    // específico", que é sempre aceito).
     const savedGate = typeof localStorage !== "undefined" ? localStorage.getItem(GATE_KEY) : null;
     if (savedGate) {
       try {
-        setGate(JSON.parse(savedGate));
+        const g = JSON.parse(savedGate) as { id?: string; name: string };
+        const pontos = sessionRef.current?.checkinPoints ?? [];
+        if (!g.id || pontos.some((p) => p.id === g.id)) {
+          setGate(g);
+        } else {
+          localStorage.removeItem(GATE_KEY);
+        }
       } catch {
-        /* ignora portão inválido */
+        localStorage.removeItem(GATE_KEY);
       }
     }
 
@@ -413,6 +434,19 @@ export default function PortariaPage() {
     refreshQueue();
     carregarEventos();
   }, [carregarEventos, refreshQueue]);
+
+  // A guarda do portão também vale quando a SESSÃO TROCA sem recarregar a
+  // página (sair e entrar em outro evento). Sem isto, o conserto da montagem
+  // seria contornado pelo caminho mais comum da operação.
+  useEffect(() => {
+    if (!session || !gate?.id) return;
+    const pontos = session.checkinPoints ?? [];
+    if (!pontos.some((p) => p.id === gate.id)) {
+      // "sem portão específico" é sempre aceito pelo servidor — é o fallback seguro
+      setGate({ name: "Sem portão específico" });
+      if (typeof localStorage !== "undefined") localStorage.removeItem(GATE_KEY);
+    }
+  }, [session, gate]);
 
   // rede voltou: ressincroniza manifesto e esvazia a fila automaticamente
   useEffect(() => {
@@ -603,7 +637,13 @@ export default function PortariaPage() {
         localStorage.setItem(CAM_KEY, "1");
       })
       .catch((error) => {
-        // câmera negada ou indisponível: cai na aba Documento, sem travar
+        // câmera negada ou indisponível: cai na aba Documento, sem travar.
+        // `cancelled` é OBRIGATÓRIO aqui (2026-09-10): a câmera resolve tarde e
+        // o operador já pode ter ido para a aba Vender — sem o guard, este
+        // setTab arrancava ele do meio da cobrança e destruía a tela de
+        // resultado (com o QR de retirada). O `.then` sempre checou; o `.catch`
+        // não, e era justamente o caminho do erro que sequestrava a tela.
+        if (cancelled) return;
         if (error instanceof CameraError) setCameraError(error);
         localStorage.removeItem(CAM_KEY);
         setTab("doc");
@@ -657,6 +697,11 @@ export default function PortariaPage() {
 
   // --- resumo --------------------------------------------------------------
 
+  // CAIXA DA PORTA (2026-09-10): a venda em dinheiro não cria Payment — o
+  // acerto com a produção é offline. Sem este número ninguém sabia quanto
+  // tinha em mãos no fim da noite.
+  const [fechamento, setFechamento] = useState<PdvFechamento | null>(null);
+
   const carregarResumo = useCallback(async () => {
     const active = sessionRef.current;
     if (!active) return;
@@ -676,16 +721,35 @@ export default function PortariaPage() {
     if (screen === "summary") carregarResumo();
   }, [screen, carregarResumo]);
 
+  // o caixa acompanha a tela de resumo; falha aqui não pode derrubar o resumo
+  useEffect(() => {
+    if (screen !== "summary" || !session) return;
+    const token = typeof localStorage !== "undefined" ? localStorage.getItem("bf.token") : null;
+    if (!token) return;
+    api
+      .getPdvFechamento(session.event.id, token)
+      .then(setFechamento)
+      .catch(() => setFechamento(null));
+  }, [screen, session]);
+
   async function reverter(checkinId: string) {
     const active = sessionRef.current;
     if (!active) return;
+    // reverter devolve o QR à vida: um segundo toque explícito, sem gesto (2026-09-13)
+    if (typeof window !== "undefined" && !window.confirm("Reverter esta entrada? O ingresso volta a valer.")) return;
     try {
       await portariaApi.reverse(active, checkinId);
       setRecent((prev) => prev.filter((r) => r.checkinId !== checkinId));
       contar(-1);
       carregarResumo();
     } catch (error) {
-      if (isAuthError(error)) goBlocked((error as ApiError).message);
+      if (isAuthError(error)) {
+        goBlocked((error as ApiError).message);
+        return;
+      }
+      // o servidor agora recusa por aparelho/tempo — o operador precisa LER o motivo
+      const msg = error instanceof ApiError ? error.message : "Não foi possível reverter";
+      if (typeof window !== "undefined") window.alert(msg);
     }
   }
 
@@ -1465,7 +1529,7 @@ export default function PortariaPage() {
             // achado 2026-09-01: desmontar no meio de um Pix pendente perdia a
             // venda, o QR e o check-in automático — a aba agora só ESCONDE
             <div className={tab === "venda" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-            <PortariaVenda
+            <PdvPorta
               eventId={session.event.id}
               slug={session.event.slug}
               accountToken={accountToken}
@@ -1784,6 +1848,108 @@ export default function PortariaPage() {
               />
             </div>
           </div>
+
+          {/* CAIXA DA PORTA — o acerto do dinheiro (2026-09-10).
+              O Pix aparece SEPARADO de propósito: ele já entrou na plataforma e
+              NÃO entra no acerto. Misturar os dois é o jeito mais fácil de
+              cobrar duas vezes ou esquecer de cobrar. */}
+          {fechamento && (fechamento.dinheiro.pedidos > 0 || fechamento.pix.pedidos > 0) && (
+            <>
+              <h2 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-2">
+                {fechamento.veTudo ? "Caixa da porta" : "Meu caixa"}
+              </h2>
+              <div className="mb-3 rounded-2xl border-[1.5px] border-success/40 bg-success/[.07] p-4">
+                <p className="text-[12px] font-semibold text-muted">Dinheiro a acertar com a produção</p>
+                <p className="mt-1 text-[32px] font-extrabold leading-none text-ink">
+                  {dinheiroBR(fechamento.dinheiro.totalCents)}
+                </p>
+                <p className="mt-1.5 text-[12px] font-medium text-muted-2">
+                  {fechamento.dinheiro.pedidos}{" "}
+                  {fechamento.dinheiro.pedidos === 1 ? "venda em dinheiro" : "vendas em dinheiro"} · este
+                  valor está em mãos, fora da plataforma
+                </p>
+              </div>
+
+              <div className="mb-5 rounded-2xl border border-line bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-bold text-ink">Pix na porta</span>
+                  <span className="text-[16px] font-extrabold text-ink">
+                    {dinheiroBR(fechamento.pix.totalCents)}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11.5px] font-medium text-muted-2">
+                  {fechamento.pix.pedidos} {fechamento.pix.pedidos === 1 ? "venda" : "vendas"} · já entrou na
+                  plataforma, não entra no acerto
+                </p>
+              </div>
+
+              {/* MEIA-ENTRADA NA TELA (Decreto 8.537/2015, art. 11, §único): o
+                  ponto de venda tem que MOSTRAR total de ingressos vendidos e
+                  quantos são meia. Sem isso a meia vira garantida independente
+                  da cota de 40%, e a produção paga a diferença. */}
+              {fechamento.ingressos > 0 && (
+                <p className="mb-5 text-[11.5px] font-medium text-muted-2">
+                  {fechamento.ingressos} {fechamento.ingressos === 1 ? "ingresso vendido" : "ingressos vendidos"} na
+                  porta · {fechamento.ingressosMeia} {fechamento.ingressosMeia === 1 ? "é meia-entrada" : "são meia-entrada"}
+                </p>
+              )}
+
+              {/* quebra por vendedor: só faz sentido para quem fecha a noite */}
+              {fechamento.veTudo && fechamento.porVendedor.length > 1 && (
+                <div className="mb-5 space-y-2">
+                  {fechamento.porVendedor.map((vendedor) => (
+                    <div
+                      key={vendedor.userId}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13.5px] font-bold text-ink">
+                          {vendedor.nome}
+                        </span>
+                        <span className="mt-0.5 block text-[11.5px] font-medium text-muted-2">
+                          {vendedor.ingressos} {vendedor.ingressos === 1 ? "ingresso" : "ingressos"}
+                          {vendedor.pixCents > 0 ? ` · Pix ${dinheiroBR(vendedor.pixCents)}` : ""}
+                        </span>
+                      </span>
+                      <span className="flex-none text-[15px] font-extrabold text-ink">
+                        {dinheiroBR(vendedor.dinheiroCents)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* CONTROLE COMPLETO POR LOGIN (decisão do Arthur, 2026-09-14): cada venda,
+              uma a uma — não um total. "Vendi 12, diz 11" se resolve aqui, na porta. */}
+          {fechamento && fechamento.vendas.length > 0 && (
+            <>
+              <h2 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-2">
+                {fechamento.veTudo ? "Todas as vendas da porta" : "Minhas vendas"} · {fechamento.vendas.length}
+              </h2>
+              <div className="mb-5 space-y-2">
+                {fechamento.vendas.map((v) => (
+                  <div
+                    key={v.orderId}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-bold text-ink">
+                        {v.quantidade} × {v.ingresso}
+                      </span>
+                      <span className="mt-0.5 block text-[11.5px] font-medium text-muted-2">
+                        {hora(v.at)} · {v.forma === "dinheiro" ? "dinheiro" : "Pix"}
+                        {fechamento.veTudo ? ` · ${v.vendedorNome}` : ""}
+                        {v.emitidos > 0 && v.entraram < v.emitidos ? ` · ${v.entraram}/${v.emitidos} entraram` : ""}
+                      </span>
+                    </span>
+                    <span className="flex-none text-[14px] font-extrabold text-ink">{dinheiroBR(v.totalCents)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           <h2 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-2">Por portão</h2>
           <div className="mb-5 space-y-2.5">

@@ -1,21 +1,23 @@
-import { createSessionToken } from "@borafest/auth";
+import { createSessionToken, roleHasPermission } from "@borafest/auth";
 import { addBusinessDays } from "@borafest/payments";
 import { executarReembolso } from "../common/refund-order";
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   confirmSaleInventory,
+  releaseInventory,
   reserveInventory,
   returnSaleInventory,
   InsufficientStockError,
   prisma,
 } from "@borafest/database";
 import { createReservationExpirationQueue } from "@borafest/queues";
-import { applyGatewayStatus, computePlatformFeeCents, getGateway } from "@borafest/payments";
+import { applyGatewayStatus, computePlatformFeeCents, getGateway, getGatewayForMethod } from "@borafest/payments";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrderInput, PdvOrderInput, RefundOrderInput } from "@borafest/contracts";
 import { PROTECTION_FEE_CENTS, sugerirCorrecaoEmail } from "@borafest/contracts";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
+import { IdempotencyService } from "../common/idempotency.service";
 
 /**
  * Janela para pagar depois de criar o pedido. O estoque permanece em
@@ -38,6 +40,36 @@ function ehCpfValido(raw: string | undefined): boolean {
   return true;
 }
 
+
+/**
+ * A PORTA SÓ VENDE NO DIA (decisão do Arthur, 2026-09-11): o PDV existe para quem
+ * entra AGORA — o ingresso é queimado no ato da venda. Fora da janela do evento
+ * isso destruiria o ingresso de quem comprou antecipado, e em evento CANCELED /
+ * DRAFT / SALES_CLOSED / COMPLETED não existe entrada nenhuma. Até aqui a tela só
+ * pintava um aviso e o servidor não checava nada (o online exige PUBLISHED em
+ * reservations.service.ts:21; a porta, não). Aviso não é controle — esta é a
+ * segunda linha de defesa, a que vale.
+ */
+function assertPortaAberta(event: { status: string; startsAt: Date; endsAt: Date | null }) {
+  if (event.status !== "PUBLISHED") {
+    throw new BadRequestException("Este evento não está com vendas abertas — a porta não vende.");
+  }
+  const agora = Date.now();
+  const ini = event.startsAt.getTime() - 12 * 3600_000;
+  const fim = (event.endsAt ?? event.startsAt).getTime() + 6 * 3600_000;
+  if (agora < ini || agora > fim) {
+    throw new BadRequestException("Hoje não tem porta: o PDV só vende no dia do evento.");
+  }
+}
+
+/** rótulo do pedido sem nome — rastreável no recibo e no fechamento */
+function rotuloDaPorta(): string {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `Porta · ${hh}:${mm}`;
+}
+
 @Injectable()
 export class OrdersService {
   private readonly expirationQueue = createReservationExpirationQueue();
@@ -45,6 +77,10 @@ export class OrdersService {
   constructor(
     private readonly coupons: CouponsService,
     private readonly orgAccess: OrgAccessService,
+    // DEFAULT de propósito (2026-09-13): 26 labs/testes constroem este serviço à
+    // mão, sem DI. O Nest injeta o seu; fora dele entra a classe real (sem deps)
+    // — a idempotência fica LIGADA em todo lugar, nunca silenciosamente ausente.
+    private readonly idempotency: IdempotencyService = new IdempotencyService(),
   ) {}
 
   async createFromReservation(userId: string | undefined, input: CreateOrderInput) {
@@ -570,9 +606,23 @@ export class OrdersService {
     };
   }
 
-  async createManualSale(eventId: string, actorUserId: string, input: PdvOrderInput) {
+  /**
+   * IDEMPOTENTE POR HEADER (2026-09-13): sem isto, um timeout depois do POST
+   * seguido de "tentar de novo" criava uma SEGUNDA venda paga — com segundo
+   * consumo de estoque, e o promoter sem permissão de estorno para desfazer.
+   * Mesma chave + mesmo corpo devolvem a resposta gravada; falha libera a chave.
+   */
+  async createManualSale(eventId: string, actorUserId: string, input: PdvOrderInput, idempotencyKey?: string) {
+    return this.idempotency.run(idempotencyKey, `pdv-cash:${eventId}:${actorUserId}`, input, () =>
+      this.createManualSaleInner(eventId, actorUserId, input),
+    );
+  }
+
+  private async createManualSaleInner(eventId: string, actorUserId: string, input: PdvOrderInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
+    assertPortaAberta(event);
+    const nomeDoPedido = input.buyerName?.trim() || rotuloDaPorta();
     const membership = await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
 
     const partnerId = membership.role.key === "seller"
@@ -596,9 +646,16 @@ export class OrdersService {
     if (lot.status !== "ACTIVE") {
       throw new BadRequestException("Este lote não está ativo para venda");
     }
+    // MEIA-ENTRADA NA PORTA (decisão do Arthur, 2026-09-15): mesmo portão de
+    // qualquer ingresso — só existe se o lote permitir. Documento é conferido
+    // pelo próprio operador, na hora, que é quem está vendo a pessoa.
+    if (input.halfPrice && !lot.halfPriceEnabled) {
+      throw new BadRequestException("Este lote não oferece meia-entrada");
+    }
+    const precoUnitario = input.halfPrice ? Math.round(lot.priceCents / 2) : lot.priceCents;
 
-    const organization = await prisma.organization.findUniqueOrThrow({ where: { id: event.organizationId } });
-    const unitCents = lot.priceCents + lot.feeCents;
+    // organização não é mais lida aqui: taxa zero no dinheiro (2026-09-14) não precisa dela
+    const unitCents = precoUnitario + lot.feeCents;
     const totalCents = unitCents * input.quantity;
     // defesa no servidor: a UI nem lista lote gratuito, mas o endpoint tem que
     // recusar por conta propria — senao basta ter o token para liberar geral.
@@ -611,9 +668,13 @@ export class OrdersService {
       ? await prisma.salesPartner.findUnique({ where: { id: partnerId }, select: { commissionBps: true } })
       : null;
     const partnerCommissionCents = partner ? Math.floor((totalCents * partner.commissionBps) / 10_000) : 0;
-    // venda no PDV não passa por gateway; a comissão da plataforma segue a
-    // tabela do Pix (menor custo) por não haver taxa de adquirente envolvida
-    const feeCents = computePlatformFeeCents("PIX", totalCents, organization);
+    // TAXA ZERO NA VENDA EM DINHEIRO (decisão do Arthur, 2026-09-14). Reter do
+    // repasse online do evento uma taxa sobre um valor que a plataforma nunca
+    // viu — o vendedor digitou, ninguém confere — vira disputa com o produtor.
+    // Mesmo caminho do Eventbrite ("free for offline transactions"). Pix da
+    // porta continua pagando a taxa normal: aquele dinheiro passa pelo gateway
+    // e a plataforma vê o valor de verdade.
+    const feeCents = 0;
     // e-mail normalizado UMA vez (achado 2026-09-01): o contactEmail cru com
     // caixa diferente nunca casava com a reivindicação do OTP — pedido pago
     // ficava sem dono pra sempre
@@ -624,7 +685,7 @@ export class OrdersService {
       .$transaction(async (tx) => {
         // conta invisível DENTRO da transação (achado 2026-09-01): venda que
         // falha (estoque) não pode deixar conta órfã de terceiro pra trás
-        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName);
+        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, nomeDoPedido);
         await reserveInventory(tx, lot.id, input.quantity);
         await confirmSaleInventory(tx, lot.id, input.quantity);
 
@@ -634,7 +695,10 @@ export class OrdersService {
             status: "CONVERTED",
             expiresAt: new Date(),
             items: {
-              create: [{ ticketLotId: lot.id, quantity: input.quantity, priceCents: lot.priceCents, feeCents: lot.feeCents }],
+              create: [{
+                ticketLotId: lot.id, quantity: input.quantity,
+                priceCents: precoUnitario, feeCents: lot.feeCents, halfPrice: input.halfPrice ?? false,
+              }],
             },
           },
         });
@@ -647,7 +711,7 @@ export class OrdersService {
             soldByUserId: actorUserId,
             partnerCommissionCents,
             contactEmail: buyerEmail,
-            contactName: input.buyerName,
+            contactName: nomeDoPedido,
             userId: donoId,
             // conta nasceu DESTE pedido (achado 2026-09-01): sem a flag, o
             // corrigir-e-mail do balcão recusava sempre — e um typo de e-mail
@@ -657,7 +721,10 @@ export class OrdersService {
             paidAt: new Date(),
             totalCents,
             items: {
-              create: [{ ticketLotId: lot.id, quantity: input.quantity, priceCents: lot.priceCents, feeCents: lot.feeCents }],
+              create: [{
+                ticketLotId: lot.id, quantity: input.quantity,
+                priceCents: precoUnitario, feeCents: lot.feeCents, halfPrice: input.halfPrice ?? false,
+              }],
             },
           },
         });
@@ -668,35 +735,11 @@ export class OrdersService {
           create: { organizationId: event.organizationId },
         });
 
-        await tx.ledgerEntry.createMany({
-          data: [
-            // SEM SALE_CREDIT NA VENDA EM DINHEIRO (2026-09-08).
-            //
-            // Aqui o dinheiro NÃO entra na plataforma: ele vai direto para o
-            // caixa de quem vendeu (não existe Payment neste caminho — compare
-            // com apply-status.ts, onde o crédito nasce porque o gateway pagou).
-            // Creditar saldo sacável significava a plataforma repassar dinheiro
-            // que nunca recebeu, e o produtor ser pago DUAS vezes: uma no caixa
-            // dele, outra no repasse. Com escala, é rombo.
-            //
-            // A TAXA continua sendo devida — ela é da plataforma
-            // independentemente de por onde o dinheiro passou, e é descontada
-            // do saldo das vendas online. O acerto do valor do ingresso é
-            // offline, entre quem vendeu e a produção.
-            {
-              ledgerAccountId: ledgerAccount.id,
-              type: "PLATFORM_FEE",
-              amountCents: -feeCents,
-              referenceType: "order",
-              referenceId: created.id,
-              // taxa matura junto com o crédito (correção 2026-08-19)
-              availableAt: addBusinessDays(
-                event.endsAt,
-                Number(process.env.RELEASE_BUSINESS_DAYS_AFTER_EVENT ?? 2),
-              ),
-            },
-          ],
-        });
+        // SEM SALE_CREDIT NA VENDA EM DINHEIRO (2026-09-08): o dinheiro vai
+        // direto para o caixa de quem vendeu, não para a plataforma. SEM
+        // PLATFORM_FEE também, desde 2026-09-14: taxa zero no dinheiro — nada
+        // fica a lançar aqui. `ledgerAccount` continua criada (upsert acima)
+        // porque a venda de porta em Pix, no mesmo evento, ainda usa a conta.
 
         await tx.outboxEvent.create({
           data: {
@@ -747,9 +790,23 @@ export class OrdersService {
    * PaymentsService. Se não pagar na janela, o worker de expiração devolve o
    * estoque.
    */
-  async createManualPixSale(eventId: string, actorUserId: string, input: PdvOrderInput) {
+  /**
+   * IDEMPOTENTE POR HEADER (2026-09-13): sem isto, um timeout depois do POST
+   * seguido de "tentar de novo" criava uma SEGUNDA venda paga — com segundo
+   * consumo de estoque, e o promoter sem permissão de estorno para desfazer.
+   * Mesma chave + mesmo corpo devolvem a resposta gravada; falha libera a chave.
+   */
+  async createManualPixSale(eventId: string, actorUserId: string, input: PdvOrderInput, idempotencyKey?: string) {
+    return this.idempotency.run(idempotencyKey, `pdv-pix:${eventId}:${actorUserId}`, input, () =>
+      this.createManualPixSaleInner(eventId, actorUserId, input),
+    );
+  }
+
+  private async createManualPixSaleInner(eventId: string, actorUserId: string, input: PdvOrderInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
+    assertPortaAberta(event);
+    const nomeDoPedido = input.buyerName?.trim() || rotuloDaPorta();
     const membership = await this.orgAccess.assertPermission(
       event.organizationId,
       actorUserId,
@@ -775,23 +832,42 @@ export class OrdersService {
     });
     if (!lot) throw new BadRequestException("Lote não pertence a este evento");
     if (lot.status !== "ACTIVE") throw new BadRequestException("Este lote não está ativo para venda");
+    // mesma regra da venda em dinheiro: meia só existe se o lote permitir
+    if (input.halfPrice && !lot.halfPriceEnabled) {
+      throw new BadRequestException("Este lote não oferece meia-entrada");
+    }
+    const precoUnitario = input.halfPrice ? Math.round(lot.priceCents / 2) : lot.priceCents;
 
-    const unitCents = lot.priceCents + lot.feeCents;
+    const unitCents = precoUnitario + lot.feeCents;
     const totalCents = unitCents * input.quantity;
     if (totalCents === 0) {
       throw new BadRequestException(
         "Lote gratuito não gera Pix — use o botão de cortesia (emite na hora)",
       );
     }
-    // CPF do pagador é pré-requisito do Pix (pós-mortem Hello World,
-    // 2026-09-07): o gateway recusa a cobrança sem ele e a conta invisível do
-    // balcão nasce sem CPF — então o único CPF possível é o digitado aqui.
-    // Falhar agora, com mensagem clara, é melhor que reservar estoque e morrer
-    // no gateway com "não foi possível gerar o Pix".
-    if (!ehCpfValido(input.buyerDocument)) {
+    // CPF do pagador: exigência do GATEWAY, não do Pix (2026-09-11).
+    //
+    // O pós-mortem do Hello World concluiu "Pix na porta exige CPF" e a regra
+    // foi escrita aqui como universal. Ela é do Asaas, que recusa a cobrança
+    // sem cpfCnpj do customer — o Mercado Pago emite sem documento nenhum.
+    // Como universal, ela obrigava o operador a digitar o CPF de um terceiro
+    // no meio da fila, que é exatamente o atrito que trava a porta (e um CPF
+    // digitado por outra pessoa não prova posse de nada).
+    //
+    // Agora quem responde é o provedor que VAI cobrar. Com o Pix roteado para
+    // um gateway que dispensa documento, a porta vira maquininha: o cliente
+    // escaneia o QR no app do banco, paga e entra.
+    const pixExigeCpf = getGatewayForMethod("PIX").pixRequiresPayerDocument === true;
+    if (pixExigeCpf && !ehCpfValido(input.buyerDocument)) {
       throw new BadRequestException(
-        "Pix na porta exige o CPF do comprador — sem ele o banco não gera o QR. Peça o CPF ou receba em dinheiro.",
+        "Este provedor de Pix exige o CPF do comprador para gerar o QR. Peça o CPF ou receba em dinheiro.",
       );
+    }
+    // CPF é OPCIONAL na porta — mas se vier, tem que conferir. Sem esta linha um
+    // provedor que dispensa documento fazia o servidor engolir "11111111111" e
+    // gravar lixo no pedido (balcao-lab §7b, 2026-09-13).
+    if (!pixExigeCpf && input.buyerDocument && !ehCpfValido(input.buyerDocument)) {
+      throw new BadRequestException("O CPF informado não confere. Corrija ou deixe em branco.");
     }
     const partner = partnerId
       ? await prisma.salesPartner.findUnique({ where: { id: partnerId }, select: { commissionBps: true } })
@@ -802,7 +878,7 @@ export class OrdersService {
 
     const order = await prisma
       .$transaction(async (tx) => {
-        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, input.buyerName);
+        const donoId = await this.contaInvisivelDoBalcao(tx, emailNormalizado, nomeDoPedido);
         // RESERVA (sem confirmar): o estoque vira sold_count só quando o Pix aprova
         await reserveInventory(tx, lot.id, input.quantity);
 
@@ -812,7 +888,10 @@ export class OrdersService {
             status: "CONVERTED",
             expiresAt,
             items: {
-              create: [{ ticketLotId: lot.id, quantity: input.quantity, priceCents: lot.priceCents, feeCents: lot.feeCents }],
+              create: [{
+                ticketLotId: lot.id, quantity: input.quantity,
+                priceCents: precoUnitario, feeCents: lot.feeCents, halfPrice: input.halfPrice ?? false,
+              }],
             },
           },
         });
@@ -825,14 +904,17 @@ export class OrdersService {
             soldByUserId: actorUserId,
             partnerCommissionCents,
             contactEmail: emailNormalizado ?? `pdv-${Date.now()}@borafest.local`,
-            contactName: input.buyerName,
+            contactName: nomeDoPedido,
             userId: donoId,
             accountCreatedByOrder: donoId !== undefined,
             status: "PAYMENT_PENDING",
             expiresAt,
             totalCents,
             items: {
-              create: [{ ticketLotId: lot.id, quantity: input.quantity, priceCents: lot.priceCents, feeCents: lot.feeCents }],
+              create: [{
+                ticketLotId: lot.id, quantity: input.quantity,
+                priceCents: precoUnitario, feeCents: lot.feeCents, halfPrice: input.halfPrice ?? false,
+              }],
             },
           },
         });
@@ -1110,4 +1192,226 @@ export class OrdersService {
 
     return { ok: true, contactEmail: dono.email ?? order.contactEmail };
   }
+
+  /**
+   * FECHAMENTO DE CAIXA DA PORTA (2026-09-10).
+   *
+   * A venda em DINHEIRO não cria `Payment`: o dinheiro vai direto para o caixa
+   * de quem vendeu e o acerto com a produção é OFFLINE (ver createManualSale,
+   * onde o SALE_CREDIT foi removido de propósito). Até aqui esse acerto não
+   * tinha número em lugar nenhum — ninguém sabia quanto cada vendedor tinha em
+   * mãos no fim da noite, e a decisão de "o acerto vem depois" ficava sem onde
+   * acontecer.
+   *
+   * A regra que separa os dois caminhos, sem coluna nova:
+   *   pedido de balcão (soldByUserId) SEM pagamento aprovado  -> DINHEIRO (a acertar)
+   *   pedido de balcão COM pagamento aprovado                 -> PIX (já entrou na plataforma)
+   *
+   * Quem tem só SALES_PERFORM vê o próprio caixa — o vendedor não enxerga o
+   * dinheiro alheio. FINANCE_VIEW vê o de todos, que é quem fecha a noite.
+   */
+  async getPdvFechamento(eventId: string, actorUserId: string) {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, organizationId: true },
+    });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+
+    const membership = await this.orgAccess.assertPermission(
+      event.organizationId,
+      actorUserId,
+      PERMISSIONS.SALES_PERFORM,
+    );
+    const veTudo = roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW);
+
+    // CONTROLE COMPLETO POR LOGIN (decisão do Arthur, 2026-09-14): não "últimas
+    // 20" — TODAS as vendas do vendedor, uma a uma. Sem isto "conferir no caixa"
+    // não tinha o que conferir e "vendi 12, diz 11" não se resolvia na porta.
+    // Volume de porta é de centenas por noite, no máximo — cabe sem paginação.
+    //
+    // Classificação (2026-09-14): venda de porta NÃO tem reembolso, então o
+    // status é sempre PAID/FULFILLED e a forma é só "tem Payment = Pix, não tem
+    // = dinheiro". Cortesia (R$0) não existe no PDV — fica de fora por defesa.
+    const pedidos = await prisma.order.findMany({
+      where: {
+        eventId,
+        ...(veTudo ? { soldByUserId: { not: null } } : { soldByUserId: actorUserId }),
+        status: { in: ["PAID", "FULFILLED"] },
+        totalCents: { gt: 0 },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        createdAt: true,
+        totalCents: true,
+        contactName: true,
+        soldByUserId: true,
+        soldByUser: { select: { id: true, name: true, email: true } },
+        items: {
+          select: {
+            quantity: true,
+            halfPrice: true,
+            ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+          },
+        },
+        payments: { select: { id: true }, take: 1 },
+        tickets: { select: { status: true } },
+      },
+    });
+
+    type Linha = {
+      userId: string;
+      nome: string;
+      dinheiroCents: number;
+      dinheiroPedidos: number;
+      pixCents: number;
+      pixPedidos: number;
+      ingressos: number;
+    };
+    const porVendedor = new Map<string, Linha>();
+    let dinheiroCents = 0;
+    let dinheiroPedidos = 0;
+    let pixCents = 0;
+    let pixPedidos = 0;
+    let ingressos = 0;
+    // MEIA-ENTRADA NA TELA DA PORTA (Decreto 8.537/2015, art. 11, §único): o
+    // ponto de venda tem que MOSTRAR quantos dos ingressos vendidos ali são
+    // meia. Sem isso a meia é garantida independente da cota de 40%, e a
+    // produção paga a diferença — não é preciosismo, é exposição financeira.
+    let ingressosMeia = 0;
+
+    const vendas = pedidos.map((pedido) => {
+      const vendedorId = pedido.soldByUserId!;
+      const vendedorNome = pedido.soldByUser?.name ?? pedido.soldByUser?.email ?? "Vendedor";
+      const qtd = pedido.items.reduce((soma, item) => soma + item.quantity, 0);
+      const forma: "dinheiro" | "pix" = pedido.payments.length === 0 ? "dinheiro" : "pix";
+      const entraram = pedido.tickets.filter((t) => t.status === "CHECKED_IN").length;
+
+      let linha = porVendedor.get(vendedorId);
+      if (!linha) {
+        linha = { userId: vendedorId, nome: vendedorNome, dinheiroCents: 0, dinheiroPedidos: 0, pixCents: 0, pixPedidos: 0, ingressos: 0 };
+        porVendedor.set(vendedorId, linha);
+      }
+      const qtdMeia = pedido.items.reduce((soma, item) => soma + (item.halfPrice ? item.quantity : 0), 0);
+      linha.ingressos += qtd;
+      ingressos += qtd;
+      ingressosMeia += qtdMeia;
+      if (forma === "dinheiro") {
+        linha.dinheiroCents += pedido.totalCents; linha.dinheiroPedidos += 1;
+        dinheiroCents += pedido.totalCents; dinheiroPedidos += 1;
+      } else {
+        linha.pixCents += pedido.totalCents; linha.pixPedidos += 1;
+        pixCents += pedido.totalCents; pixPedidos += 1;
+      }
+
+      const primeiro = pedido.items[0]?.ticketLot;
+      return {
+        orderId: pedido.id,
+        at: pedido.createdAt,
+        vendedorId,
+        vendedorNome,
+        ingresso: primeiro ? `${primeiro.ticketType.name} · ${primeiro.name}` : "—",
+        quantidade: qtd,
+        totalCents: pedido.totalCents,
+        forma,
+        comprador: pedido.contactName,
+        /** quantos dos ingressos desta venda já entraram — a venda de porta libera na hora */
+        entraram,
+        emitidos: pedido.tickets.length,
+        /** quantos ingressos DESTA venda são meia — Decreto 8.537/2015 */
+        meia: qtdMeia,
+      };
+    });
+
+    return {
+      veTudo,
+      euId: actorUserId,
+      // DINHEIRO = o que precisa ser acertado com a produção (está em mãos)
+      dinheiro: { pedidos: dinheiroPedidos, totalCents: dinheiroCents },
+      // PIX = já entrou na plataforma, não entra no acerto
+      pix: { pedidos: pixPedidos, totalCents: pixCents },
+      ingressos,
+      /** total de ingressos meia vendidos na porta — exigido em tela pelo Decreto 8.537/2015 */
+      ingressosMeia,
+      porVendedor: [...porVendedor.values()].sort((a, b) => b.dinheiroCents - a.dinheiroCents),
+      /** todas as vendas do escopo (só as minhas, ou de todos com finance:view), mais recente primeiro */
+      vendas,
+    };
+  }
+
+
+  /** configuração da porta: exige SALES_PERFORM (mesmo portão da venda) */
+  async getPdvConfig(eventId: string, actorUserId: string) {
+    const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    const pix = getGatewayForMethod("PIX");
+    return {
+      pixProvider: pix.provider,
+      // false = maquininha: o cliente escaneia no app do banco e pronto
+      pixExigeCpf: pix.pixRequiresPayerDocument === true,
+    };
+  }
+
+
+  /**
+   * CANCELAR PIX PENDENTE DA PORTA (2026-09-13). Até aqui NÃO existia rota de
+   * cancelar pedido em lugar nenhum: o "Cancelar" da tela só zerava estado do
+   * React. A cobrança ficava pagável, a vaga presa por 30 min (listPdvLots
+   * escondia o lote como esgotado com ingresso sobrando no banco) e, se o
+   * cliente pagasse depois, o dinheiro entrava e ninguém liberava a entrada.
+   *
+   * Espelha a transação de apps/worker/src/expire-orders.ts (estado local):
+   * pedido CANCELED, reserva devolvida, cobranças abertas CANCELED. Só o
+   * PRÓPRIO vendedor cancela o PRÓPRIO pedido, e só enquanto pendente — pedido
+   * pago não passa por aqui (o updateMany com filtro de status garante isso
+   * mesmo em corrida com o webhook).
+   */
+  async cancelPdvPendingSale(eventId: string, actorUserId: string, orderId: string) {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, eventId },
+      select: { id: true, status: true, soldByUserId: true, event: { select: { organizationId: true } } },
+    });
+    if (!order) throw new NotFoundException("Pedido não encontrado");
+    await this.orgAccess.assertPermission(order.event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    if (order.soldByUserId !== actorUserId) {
+      throw new ForbiddenException("Só quem vendeu pode cancelar este pedido");
+    }
+    if (!["CREATED", "PAYMENT_PENDING"].includes(order.status)) {
+      // já pagou (ou já expirou): nada a cancelar — a tela precisa saber
+      return { canceled: false, status: order.status };
+    }
+
+    const canceled = await prisma.$transaction(async (tx) => {
+      const updated = await tx.order.updateMany({
+        where: { id: orderId, status: { in: ["CREATED", "PAYMENT_PENDING"] } },
+        data: { status: "CANCELED" },
+      });
+      if (updated.count === 0) return false; // pagou no meio do caminho
+      const items = await tx.orderItem.findMany({ where: { orderId } });
+      for (const item of items) await releaseInventory(tx, item.ticketLotId, item.quantity);
+      await tx.payment.updateMany({
+        where: { orderId, status: { in: ["PENDING", "AUTHORIZED"] } },
+        data: { status: "CANCELED" },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId: order.event.organizationId,
+          action: "order.pdv_pix_canceled",
+          entityType: "order",
+          entityId: orderId,
+          metadata: { eventId },
+        },
+      });
+      return true;
+    });
+
+    if (!canceled) {
+      const atual = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true } });
+      return { canceled: false, status: atual?.status ?? "PAID" };
+    }
+    return { canceled: true, status: "CANCELED" as const };
+  }
+
 }

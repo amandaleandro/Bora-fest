@@ -1,5 +1,12 @@
 /**
- * VENDA ANTECIPADA NA PORTA = COMPRA NORMAL (pedido do Arthur, 2026-09-07):
+ * VENDA DE BALCÃO COM E-MAIL = COMPRA NORMAL (pedido do Arthur, 2026-09-07).
+ *
+ * NOTA 2026-09-13: o PDV NÃO vende mais antecipado (decisão do Arthur, 2026-09-11 —
+ * só na porta, no dia). O que este lab prova continua valendo para a venda de
+ * balcão que leva e-mail: conta, dono do pedido e e-mails iguais ao online.
+ * O nome antigo do arquivo ficou; o conteúdo é este.
+ *
+ * Texto original:
  * "se o cara não entrar agora deveria ser o mesmo processo de compra — se tiver
  * conta manda pra conta e e-mail normal; se não tiver, cria a conta e manda o
  * código normal".
@@ -56,7 +63,11 @@ async function main() {
   const payments = new PaymentsService(new IdempotencyService());
   const suf = Math.random().toString(36).slice(2, 8);
 
-  const f = await createFixtureEvent({ lotCapacity: 50, priceCents: 5000, feeCents: 0 });
+  // evento DENTRO da janela da porta: o PDV só vende no dia (decisão do Arthur, 2026-09-11)
+  const f = await createFixtureEvent({
+    lotCapacity: 50, priceCents: 5000, feeCents: 0,
+    startsAt: new Date(Date.now() + 3600e3), endsAt: new Date(Date.now() + 5 * 3600e3),
+  });
   const ev = f.event;
   const lote = f.lot;
   const dono = await prisma.user.create({ data: { email: `dono-${suf}@lab.test`, emailVerifiedAt: new Date() } });

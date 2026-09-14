@@ -31,6 +31,16 @@ export async function executarReembolso(
   });
   if (!order) throw new NotFoundException("Pedido não encontrado");
 
+  // VENDA DE PORTA NÃO TEM REEMBOLSO (decisão do Arthur, 2026-09-14): entrou
+  // no evento, o ingresso foi consumido — não existe estorno, nem em dinheiro,
+  // nem em Pix, nem parcial, nem no cancelamento do evento (o cancelamento
+  // pula pedidos de porta em restantePorPedido). Antes disto o estorno de
+  // porta tirava do saldo do produtor o bruto de uma venda que nunca entrou
+  // na plataforma.
+  if (order.soldByUserId) {
+    throw new BadRequestException("Venda de porta não tem reembolso: quem entrou consumiu o ingresso.");
+  }
+
   /*
    * QUAL pagamento estornar — e se existe algum (revisão adversarial 2026-08-29).
    *
@@ -48,6 +58,9 @@ export async function executarReembolso(
   }
   const payment = pagos[0];
   let refundedCents = input.amountCents ?? 0;
+  let feeBackCents = 0;
+  let ticketsCanceled = 0;
+  let ticketsInside = 0;
 
   /*
    * E um pagamento que existe mas NÃO está PAID (REFUND_PENDING de uma
@@ -144,39 +157,50 @@ export async function executarReembolso(
         `Estorno excede o saldo do pedido — disponível para estorno: ${restante}`,
       );
     }
-    const isFull = devolvidoAntes + amountCents >= order.totalCents;
-    refundedCents = amountCents;
+    // VENDA EM DINHEIRO NÃO TEM LASTRO NO LEDGER (bloqueio nº 3, auditoria
+    // 2026-09-12). createManualSale grava SÓ a PLATFORM_FEE: o valor do ingresso
+    // nunca entrou na plataforma — foi pro bolso de quem vendeu. Este ramo
+    // gravava REFUND_DEBIT do BRUTO contra um crédito que não existe, e o
+    // débito nascia maduro: cada estorno de porta tirava do saldo SACÁVEL do
+    // produtor o ingresso inteiro, dinheiro que voltou em espécie ao comprador.
+    // O que a plataforma deve devolver aqui é a TAXA — e `estornarTaxaDaPlataforma`
+    // faz isso pelo saldo do pedido, idempotente.
+    //
+    // PARCIAL EM DINHEIRO: recusado. Sem lançamento não há como acumular o teto
+    // (o cálculo acima lê REFUND_DEBIT), e "devolvi metade em espécie" é
+    // exatamente o dinheiro sem lastro que a auditoria mandou não criar.
+    const restanteCents = order.totalCents - devolvidoAntes;
+    if (input.amountCents !== undefined && input.amountCents < restanteCents) {
+      throw new BadRequestException(
+        "Venda em dinheiro só aceita estorno TOTAL: o valor volta em espécie, fora da plataforma.",
+      );
+    }
+    const amountCash = restanteCents;
+    refundedCents = amountCash;
 
     await prisma.$transaction(async (tx) => {
-      const ledgerAccount = await tx.ledgerAccount.upsert({
-        where: { organizationId: order.event.organizationId },
-        update: {},
-        create: { organizationId: order.event.organizationId },
+      await tx.order.update({ where: { id: order.id }, data: { status: "REFUNDED" } });
+      // A VAGA DE QUEM ESTÁ DENTRO NÃO VOLTA (agravante do bloqueio nº 3): o
+      // ingresso da porta nasce CHECKED_IN. Devolver essa vaga ao balcão
+      // revenderia o lugar de alguém que já entrou — capacidade estourada.
+      // Só ingresso não usado é cancelado e só ele devolve estoque.
+      const naoUsados = await tx.ticket.findMany({
+        where: { orderId: order.id, status: { in: ["ISSUED", "ACTIVE"] } },
+        select: { id: true, ticketLotId: true },
       });
-      await tx.ledgerEntry.create({
-        data: {
-          ledgerAccountId: ledgerAccount.id,
-          type: "REFUND_DEBIT",
-          amountCents: -amountCents,
-          referenceType: "order",
-          referenceId: order.id,
-        },
-      });
-      await tx.order.update({
-        where: { id: order.id },
-        data: { status: isFull ? "REFUNDED" : "PARTIALLY_REFUNDED" },
-      });
-      if (isFull) {
-        const items = await tx.orderItem.findMany({ where: { orderId: order.id } });
-        for (const item of items) {
-          await returnSaleInventory(tx, item.ticketLotId, item.quantity);
-        }
+      ticketsCanceled = naoUsados.length;
+      ticketsInside = await tx.ticket.count({ where: { orderId: order.id, status: "CHECKED_IN" } });
+      if (naoUsados.length > 0) {
         await tx.ticket.updateMany({
-          where: { orderId: order.id, status: { in: ["ISSUED", "ACTIVE"] } },
+          where: { id: { in: naoUsados.map((t) => t.id) } },
           data: { status: "CANCELED", canceledAt: new Date() },
         });
+        const porLote = new Map<string, number>();
+        for (const t of naoUsados) porLote.set(t.ticketLotId, (porLote.get(t.ticketLotId) ?? 0) + 1);
+        for (const [lotId, qtd] of porLote) await returnSaleInventory(tx, lotId, qtd);
       }
     });
+    feeBackCents = await estornarTaxaDaPlataforma(order.id, "Estorno da taxa — venda de porta desfeita");
   }
 
   await prisma.auditLog.create({
@@ -186,7 +210,14 @@ export async function executarReembolso(
       action: "order.producer_refund",
       entityType: "order",
       entityId: order.id,
-      metadata: { amountCents: input.amountCents, reason: input.reason },
+      metadata: {
+        amountCents: input.amountCents,
+        reason: input.reason,
+        refundedCents,
+        feeBackCents,
+        ticketsCanceled,
+        ticketsInside,
+      },
     },
   });
 
@@ -219,7 +250,10 @@ export async function executarReembolso(
  *
  * Idempotente por construção: na segunda passada o saldo já é zero.
  */
-export async function estornarTaxaDaPlataforma(orderId: string): Promise<number> {
+export async function estornarTaxaDaPlataforma(
+  orderId: string,
+  descricao = "Estorno da taxa — evento cancelado",
+): Promise<number> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -277,7 +311,7 @@ export async function estornarTaxaDaPlataforma(orderId: string): Promise<number>
       amountCents: aDevolver,
       referenceType: destino.referenceType,
       referenceId: destino.referenceId,
-      description: "Estorno da taxa — evento cancelado",
+      description: descricao,
     },
   });
   return aDevolver;

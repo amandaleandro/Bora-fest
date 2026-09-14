@@ -67,6 +67,8 @@ interface PagarmeOrderResponse {
  */
 export class PagarmeGateway implements PaymentGateway {
   readonly provider = PAGARME_PROVIDER;
+  // Pagar.me exige documento do cliente na cobranca Pix
+  readonly pixRequiresPayerDocument = true;
 
   async createPixCharge(input: CreatePixChargeInput): Promise<PixCharge> {
     const order = await this.request<PagarmeOrderResponse>("POST", "/orders", {

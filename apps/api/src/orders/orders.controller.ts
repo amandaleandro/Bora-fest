@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, Post, UseGuards } from "@nestjs/common";
 import { createOrderSchema, pdvOrderSchema, refundOrderSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { OptionalUserId } from "../common/optional-user.decorator";
@@ -36,6 +36,7 @@ export class OrdersController {
     return this.ordersService.createFromReservation(userId, body as any);
   }
 
+  @RateLimit({ limit: 60, windowSeconds: 60, keyPrefix: "order-status", by: "params:publicToken" })
   @Get(":publicToken/status")
   status(@Param("publicToken") publicToken: string) {
     return this.ordersService.findByPublicToken(publicToken);
@@ -83,12 +84,35 @@ export class PdvController {
    * (cortesia de novatos), que a availability pública esconde de propósito.
    * Exige SALES_PERFORM — mesmo portão da venda.
    */
+  @RateLimit({ limit: 240, windowSeconds: 60, keyPrefix: "pdv-read", by: "session" })
   @Get("lots")
   listLots(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
     return this.ordersService.listPdvLots(eventId, userId);
   }
 
+  /**
+   * O que a tela da porta precisa saber ANTES de vender (2026-09-11). Hoje:
+   * se o provedor de Pix exige CPF do pagador — decide se o campo aparece.
+   * Uma chamada por sessão, não por venda.
+   */
+  @RateLimit({ limit: 240, windowSeconds: 60, keyPrefix: "pdv-read", by: "session" })
+  @Get("config")
+  config(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
+    return this.ordersService.getPdvConfig(eventId, userId);
+  }
+
+  /**
+   * Fechamento de caixa da porta: quanto cada vendedor tem EM DINHEIRO para
+   * acertar com a produção. Vendedor vê o próprio; finance:view vê todos.
+   */
+  @RateLimit({ limit: 240, windowSeconds: 60, keyPrefix: "pdv-read", by: "session" })
+  @Get("fechamento")
+  fechamento(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
+    return this.ordersService.getPdvFechamento(eventId, userId);
+  }
+
   /** ingressos de um pedido do balcão, pro check-in automático do vendedor */
+  @RateLimit({ limit: 240, windowSeconds: 60, keyPrefix: "pdv-read", by: "session" })
   @Get(":orderId/tickets")
   orderTickets(
     @Param("eventId") eventId: string,
@@ -103,13 +127,26 @@ export class PdvController {
     return this.ordersService.correctEmail(publicToken, body?.email ?? "");
   }
 
+  @RateLimit({ limit: 60, windowSeconds: 60, keyPrefix: "pdv-sale", by: "session" })
   @Post()
   create(
     @Param("eventId") eventId: string,
     @CurrentUserId() userId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Body(ZodBody(pdvOrderSchema)) body: unknown,
   ) {
-    return this.ordersService.createManualSale(eventId, userId, body as any);
+    return this.ordersService.createManualSale(eventId, userId, body as any, idempotencyKey);
+  }
+
+  /** cancela um Pix da porta ainda pendente: devolve a vaga e fecha a cobrança */
+  @RateLimit({ limit: 60, windowSeconds: 60, keyPrefix: "pdv-sale", by: "session" })
+  @Post(":orderId/cancel")
+  cancelPending(
+    @Param("eventId") eventId: string,
+    @Param("orderId") orderId: string,
+    @CurrentUserId() userId: string,
+  ) {
+    return this.ordersService.cancelPdvPendingSale(eventId, userId, orderId);
   }
 
   /**
@@ -117,12 +154,14 @@ export class PdvController {
    * orderId — a portaria chama em seguida POST /orders/:id/payments/pix (público)
    * para gerar o QR, e faz o check-in automático quando o Pix aprovar.
    */
+  @RateLimit({ limit: 60, windowSeconds: 60, keyPrefix: "pdv-sale", by: "session" })
   @Post("pix")
   createPix(
     @Param("eventId") eventId: string,
     @CurrentUserId() userId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Body(ZodBody(pdvOrderSchema)) body: unknown,
   ) {
-    return this.ordersService.createManualPixSale(eventId, userId, body as any);
+    return this.ordersService.createManualPixSale(eventId, userId, body as any, idempotencyKey);
   }
 }

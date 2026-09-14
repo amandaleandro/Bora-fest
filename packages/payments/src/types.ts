@@ -136,6 +136,18 @@ export interface PixTransferResult {
 
 export interface PaymentGateway {
   readonly provider: string;
+  /**
+   * O provedor EXIGE o CPF/CNPJ do pagador para emitir a cobrança Pix?
+   *
+   * Isto é característica do GATEWAY, não do Pix (2026-09-11). O Asaas recusa
+   * a cobrança sem cpfCnpj do customer — foi o que derrubou o Pix da porta no
+   * Hello World. O Mercado Pago emite sem documento nenhum. A regra estava
+   * escrita na venda do balcão como se valesse para todo Pix, e por isso o
+   * operador era obrigado a digitar o CPF de um terceiro na fila.
+   *
+   * Ausente = não exige.
+   */
+  readonly pixRequiresPayerDocument?: boolean;
   createPixCharge(input: CreatePixChargeInput): Promise<PixCharge>;
   createCardPayment(input: CreateCardPaymentInput): Promise<CardPaymentResult>;
   refund(input: RefundInput): Promise<RefundResult>;

@@ -400,10 +400,20 @@ export class ValidatorService {
     };
   }
 
-  /** Últimas entradas confirmadas do evento — alimenta o "Reverter" do resumo. */
+  /**
+   * Últimas entradas que ESTE aparelho pode reverter — alimenta o "Reverter".
+   * Antes vinham os 20 últimos do evento inteiro (auditoria 2026-09-12): a
+   * lista entregava de bandeja check-ins que o servidor agora recusa. Mesma
+   * regra da reversão: só do próprio aparelho, só nos últimos 10 minutos.
+   */
   async recentCheckins(device: ValidatorDevice) {
     const rows = await prisma.checkin.findMany({
-      where: { eventId: device.eventId, status: "CONFIRMED" },
+      where: {
+        eventId: device.eventId,
+        deviceId: device.id,
+        status: "CONFIRMED",
+        receivedAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+      },
       orderBy: { receivedAt: "desc" },
       take: 20,
       select: {

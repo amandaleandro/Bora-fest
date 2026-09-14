@@ -223,7 +223,10 @@ export class CheckinsService {
    * Reversão PELO APARELHO da portaria (protótipo: Resumo → Reverter).
    * Só check-ins do próprio evento do dispositivo; auditada com o deviceId.
    */
-  async reverseFromDevice(device: ValidatorDevice, checkinId: string) {
+  async reverseFromDevice(
+    device: ValidatorDevice & { credential?: { id: string; label: string } },
+    checkinId: string,
+  ) {
     const checkin = await prisma.checkin.findFirst({
       where: { id: checkinId, eventId: device.eventId },
       include: { ticket: { include: { event: { select: { organizationId: true } } } } },
@@ -231,6 +234,18 @@ export class CheckinsService {
     if (!checkin) throw new NotFoundException("Check-in não encontrado neste evento");
     if (checkin.status !== "CONFIRMED") {
       throw new BadRequestException("Só check-ins confirmados podem ser revertidos");
+    }
+    // TRANCA (auditoria 2026-09-12, bloqueio nº 5): qualquer aparelho da portaria
+    // desfazia QUALQUER check-in do evento, sem limite de tempo, e o mesmo QR
+    // voltava a entrar verde em outro portão — fraude invisível no dinheiro.
+    // Agora: só o aparelho que fez o check-in, só dentro de 10 minutos (o
+    // tempo de um "errei de pessoa"), e o auditLog diz QUEM (credencial).
+    if (checkin.deviceId !== device.id) {
+      throw new ForbiddenException("Este check-in foi feito em outro aparelho — só ele pode reverter");
+    }
+    const JANELA_MS = 10 * 60 * 1000;
+    if (Date.now() - checkin.receivedAt.getTime() > JANELA_MS) {
+      throw new BadRequestException("Passaram mais de 10 minutos — reversão só pelo painel do produtor");
     }
 
     await prisma.$transaction(async (tx) => {
@@ -249,7 +264,13 @@ export class CheckinsService {
           action: "checkin.reverse.device",
           entityType: "checkin",
           entityId: checkinId,
-          metadata: { deviceId: device.id, deviceName: device.name, eventId: device.eventId },
+          metadata: {
+            deviceId: device.id,
+            deviceName: device.name,
+            eventId: device.eventId,
+            credentialId: device.credentialId,
+            credentialLabel: device.credential?.label ?? null,
+          },
         },
       });
     });

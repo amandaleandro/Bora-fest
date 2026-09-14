@@ -66,6 +66,8 @@ interface AsaasErrorBody {
  */
 export class AsaasGateway implements PaymentGateway {
   readonly provider = ASAAS_PROVIDER;
+  // o Asaas recusa a cobranca Pix sem cpfCnpj do customer (Hello World, 2026-09-07)
+  readonly pixRequiresPayerDocument = true;
 
   async createPixCharge(input: CreatePixChargeInput): Promise<PixCharge> {
     const customerId = await this.ensureCustomer(input.customer, input.orderId);

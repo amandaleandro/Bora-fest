@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { getRedisConnection } from "@borafest/queues";
@@ -35,7 +36,14 @@ export class RateLimitGuard implements CanActivate {
     const ip = request.ip || "unknown";
 
     let keyPart = ip;
-    if (options.by?.startsWith("body:") || options.by?.startsWith("params:")) {
+    if (options.by === "session") {
+      // Este guard é global e roda ANTES do SessionGuard, então request.userId
+      // ainda não existe aqui. A sessão está no header: o hash do bearer é
+      // único por login, custa zero I/O e isola cada aparelho da porta mesmo
+      // atrás do mesmo NAT. Sem header, cai no IP (comportamento antigo).
+      const auth: string | undefined = request.headers?.authorization;
+      if (auth) keyPart = `s:${createHash("sha256").update(auth).digest("hex").slice(0, 32)}`;
+    } else if (options.by?.startsWith("body:") || options.by?.startsWith("params:")) {
       const [fonte, field] = options.by.split(":");
       const value = (fonte === "params" ? request.params : request.body)?.[field];
       // nunca deixar um objeto virar "[object Object]" na chave (auditoria

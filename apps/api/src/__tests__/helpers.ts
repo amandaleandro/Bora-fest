@@ -14,7 +14,14 @@ delete process.env.PAYMENTS_FALLBACK_CARD;
  * e limpa tudo no fim (`cleanup()`), pra rodar contra o Postgres de dev sem
  * sujar dados nem colidir entre execuções (nomes com sufixo aleatório).
  */
-export async function createFixtureEvent(options: { lotCapacity: number; priceCents?: number; feeCents?: number }) {
+export async function createFixtureEvent(options: {
+  lotCapacity: number;
+  priceCents?: number;
+  feeCents?: number;
+  /** opcional (2026-09-13): a PORTA só vende dentro de startsAt−12h..endsAt+6h — labs de PDV precisam de evento "hoje" */
+  startsAt?: Date;
+  endsAt?: Date;
+}) {
   const suffix = Math.random().toString(36).slice(2, 10);
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { key: "owner" } });
 
@@ -34,8 +41,8 @@ export async function createFixtureEvent(options: { lotCapacity: number; priceCe
       title: `Evento Teste ${suffix}`,
       slug: `evento-teste-${suffix}`,
       status: "PUBLISHED",
-      startsAt: new Date(Date.now() + 86_400_000),
-      endsAt: new Date(Date.now() + 90_000_000),
+      startsAt: options.startsAt ?? new Date(Date.now() + 86_400_000),
+      endsAt: options.endsAt ?? new Date(Date.now() + 90_000_000),
       publishedAt: new Date(),
     },
   });
