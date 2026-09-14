@@ -35,21 +35,36 @@ export class LoyaltyService {
 
   private async ensureProgram(organizationId: string): Promise<ProgramRow> {
     const rows = await prisma.$queryRaw<ProgramRow[]>`
-      INSERT INTO loyalty_programs (
-        id, organization_id, enabled, points_per_real,
-        silver_points, gold_points, platinum_points, created_at, updated_at
-      ) VALUES (
-        ${randomUUID()}::uuid, ${organizationId}::uuid, FALSE, 1, 500, 1500, 3000,
-        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      WITH inserted AS (
+        INSERT INTO loyalty_programs (
+          id, organization_id, enabled, points_per_real,
+          silver_points, gold_points, platinum_points, created_at, updated_at
+        ) VALUES (
+          ${randomUUID()}::uuid, ${organizationId}::uuid, FALSE, 1, 500, 1500, 3000,
+          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (organization_id) DO NOTHING
+        RETURNING
+          id,
+          enabled,
+          points_per_real AS "pointsPerReal",
+          silver_points AS "silverPoints",
+          gold_points AS "goldPoints",
+          platinum_points AS "platinumPoints"
       )
-      ON CONFLICT (organization_id) DO UPDATE SET organization_id = EXCLUDED.organization_id
-      RETURNING
+      SELECT * FROM inserted
+      UNION ALL
+      SELECT
         id,
         enabled,
         points_per_real AS "pointsPerReal",
         silver_points AS "silverPoints",
         gold_points AS "goldPoints",
         platinum_points AS "platinumPoints"
+      FROM loyalty_programs
+      WHERE organization_id = ${organizationId}::uuid
+        AND NOT EXISTS (SELECT 1 FROM inserted)
+      LIMIT 1
     `;
     return rows[0]!;
   }
@@ -62,35 +77,39 @@ export class LoyaltyService {
   async updateProgram(organizationId: string, actorUserId: string, input: UpdateLoyaltyProgramInput) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
     await this.ensureProgram(organizationId);
-    const rows = await prisma.$queryRaw<ProgramRow[]>`
-      UPDATE loyalty_programs
-      SET
-        enabled = ${input.enabled},
-        points_per_real = ${input.pointsPerReal},
-        silver_points = ${input.silverPoints},
-        gold_points = ${input.goldPoints},
-        platinum_points = ${input.platinumPoints},
-        updated_at = CURRENT_TIMESTAMP
-      WHERE organization_id = ${organizationId}::uuid
-      RETURNING
-        id,
-        enabled,
-        points_per_real AS "pointsPerReal",
-        silver_points AS "silverPoints",
-        gold_points AS "goldPoints",
-        platinum_points AS "platinumPoints"
-    `;
-    await prisma.auditLog.create({
-      data: {
-        actorUserId,
-        organizationId,
-        action: "loyalty.program.updated",
-        entityType: "LoyaltyProgram",
-        entityId: rows[0]!.id,
-        metadata: input,
-      },
+
+    return prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<ProgramRow[]>`
+        UPDATE loyalty_programs
+        SET
+          enabled = ${input.enabled},
+          points_per_real = ${input.pointsPerReal},
+          silver_points = ${input.silverPoints},
+          gold_points = ${input.goldPoints},
+          platinum_points = ${input.platinumPoints},
+          updated_at = CURRENT_TIMESTAMP
+        WHERE organization_id = ${organizationId}::uuid
+        RETURNING
+          id,
+          enabled,
+          points_per_real AS "pointsPerReal",
+          silver_points AS "silverPoints",
+          gold_points AS "goldPoints",
+          platinum_points AS "platinumPoints"
+      `;
+      const updated = rows[0]!;
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId,
+          action: "loyalty.program.updated",
+          entityType: "LoyaltyProgram",
+          entityId: updated.id,
+          metadata: input,
+        },
+      });
+      return updated;
     });
-    return rows[0]!;
   }
 
   async listAccounts(
