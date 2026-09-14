@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { API_BASE_URL, SITE_URL } from "../../lib/config";
 import type { PublicEvent } from "../../lib/api";
@@ -12,6 +13,17 @@ async function fetchEvent(slug: string): Promise<PublicEvent | null> {
     return (await res.json()) as PublicEvent;
   } catch {
     return null;
+  }
+}
+
+async function hasVipAvailability(slug: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}/vip`, { next: { revalidate: 30 } });
+    if (!res.ok) return false;
+    const payload = (await res.json()) as { spaces?: Array<{ availableUnits?: number }> };
+    return Boolean(payload.spaces?.some((space) => (space.availableUnits ?? 0) > 0));
+  } catch {
+    return false;
   }
 }
 
@@ -48,11 +60,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 
 export default async function EventPage({ params }: { params: { slug: string } }) {
   const event = await fetchEvent(params.slug);
-  // link curto mora na raiz: endereço errado tem que ser 404 de verdade,
-  // senão o Google indexa lixo e o comprador vê uma página vazia
   if (!event) notFound();
+  const hasVip = await hasVipAvailability(params.slug);
 
-  // dados estruturados (schema.org Event) — ajuda o Google a mostrar data/local/preço direto na busca
   const jsonLd = event
     ? {
         "@context": "https://schema.org",
@@ -100,6 +110,14 @@ export default async function EventPage({ params }: { params: { slug: string } }
         // eslint-disable-next-line react/no-danger -- JSON-LD estático montado no servidor, sem input de usuário
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       )}
+      {hasVip ? (
+        <div className="border-b border-white/10 bg-[#111827] px-4 py-3 text-center text-sm font-bold text-white">
+          Quer mesa ou camarote?{" "}
+          <Link href={`/${params.slug}/vip`} className="font-black text-primary hover:underline">
+            Ver opções VIP →
+          </Link>
+        </div>
+      ) : null}
       <EventPageClient slug={params.slug} initialEvent={event} />
     </>
   );

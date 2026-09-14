@@ -134,6 +134,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
     ? [
         { href: `/eventos/${event.id}/dashboard`, icon: icons.grid, label: "Geral" },
         { href: `/eventos/${event.id}`, icon: icons.ticket, label: "Ingressos" },
+        { href: `/eventos/${event.id}/vip`, icon: icons.card, label: "Mesas e camarotes" },
         { href: `/eventos/${event.id}/editar`, icon: icons.pencil, label: "Editar evento" },
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
         { href: `/eventos/${event.id}/vendas`, icon: icons.cart, label: "Vendas" },
