@@ -27,18 +27,17 @@ export const createVipInventorySchema = z
   });
 export type CreateVipInventoryInput = z.infer<typeof createVipInventorySchema>;
 
-export const updateVipInventorySchema = z
-  .object({
-    kind: vipInventoryKindSchema.optional(),
-    name: z.string().trim().min(2).max(80).optional(),
-    description: z.string().trim().max(600).nullable().optional(),
-    benefits: z.string().trim().max(1200).nullable().optional(),
-    unitPriceCents: z.number().int().min(0).max(100_000_000).optional(),
-    quantity: z.number().int().min(1).max(500).optional(),
-    capacityPerUnit: z.number().int().min(1).max(200).optional(),
-    maxUnitsPerReservation: z.number().int().min(1).max(50).optional(),
-    active: z.boolean().optional(),
-  });
+export const updateVipInventorySchema = z.object({
+  kind: vipInventoryKindSchema.optional(),
+  name: z.string().trim().min(2).max(80).optional(),
+  description: z.string().trim().max(600).nullable().optional(),
+  benefits: z.string().trim().max(1200).nullable().optional(),
+  unitPriceCents: z.number().int().min(0).max(100_000_000).optional(),
+  quantity: z.number().int().min(1).max(500).optional(),
+  capacityPerUnit: z.number().int().min(1).max(200).optional(),
+  maxUnitsPerReservation: z.number().int().min(1).max(50).optional(),
+  active: z.boolean().optional(),
+});
 export type UpdateVipInventoryInput = z.infer<typeof updateVipInventorySchema>;
 
 export const createVipReservationSchema = z.object({
@@ -56,3 +55,8 @@ export const resolveVipReservationSchema = z.object({
   note: z.string().trim().max(1000).optional(),
 });
 export type ResolveVipReservationInput = z.infer<typeof resolveVipReservationSchema>;
+
+export const manageVipReservationSchema = resolveVipReservationSchema.extend({
+  action: z.enum(["CONFIRM", "REJECT", "CANCEL"]),
+});
+export type ManageVipReservationInput = z.infer<typeof manageVipReservationSchema>;
