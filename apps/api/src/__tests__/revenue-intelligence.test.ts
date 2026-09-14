@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { prisma } from "@borafest/database";
+import { getEarningsByEventCents, getEventNetCents } from "../common/ledger";
 import { OrgAccessService } from "../common/org-access.service";
 import { RevenueIntelligenceService } from "../revenue-intelligence/revenue-intelligence.service";
 import { cleanupFixtureEvent, createFixtureEvent } from "./helpers";
@@ -130,5 +131,10 @@ describe("N10.1 — receita unificada", () => {
     assert.equal(result.events[0]?.ticketGrossCents, 10_000);
     assert.equal(result.events[0]?.vipGrossCents, 5000);
     assert.equal(result.events[0]?.netCents, 12_950);
+
+    const eventNet = await getEventNetCents(fixture.event.id);
+    assert.equal(eventNet, 12_950);
+    const byEvent = await getEarningsByEventCents(fixture.organization.id);
+    assert.equal(byEvent.get(fixture.event.id), 12_950);
   });
 });
