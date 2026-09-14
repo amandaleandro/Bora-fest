@@ -15,7 +15,6 @@ type VipContext = {
   eventEndsAt: Date;
 };
 
-const OPEN = ["PENDING", "AUTHORIZED"] as const;
 const NON_MONETARY = ["PENDING", "AUTHORIZED", "EXPIRED", "FAILED", "CANCELED"] as const;
 
 async function paymentForUpdate(tx: Prisma.TransactionClient, id: string): Promise<VipPaymentRow | null> {
