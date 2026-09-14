@@ -46,7 +46,7 @@ describe("N9 — fidelidade da Casa", () => {
     assert.equal(updated.goldPoints, 600);
   });
 
-  it("separa saldo resgatável de pontos históricos usados no nível", async () => {
+  it("resgate reduz saldo sem rebaixar, mas compra estornada deixa de qualificar", async () => {
     const accountId = randomUUID();
     await prisma.$executeRaw`
       INSERT INTO loyalty_accounts (id, organization_id, email_key, display_name, created_at, updated_at)
@@ -56,15 +56,16 @@ describe("N9 — fidelidade da Casa", () => {
       INSERT INTO loyalty_entries (id, loyalty_account_id, organization_id, delta_points, source_type, source_id, description, created_at)
       VALUES
         (${randomUUID()}::uuid, ${accountId}::uuid, ${fixture.organization.id}::uuid, 1000, 'ADJUSTMENT', ${randomUUID()}::uuid, 'Carga de teste', CURRENT_TIMESTAMP),
-        (${randomUUID()}::uuid, ${accountId}::uuid, ${fixture.organization.id}::uuid, -100, 'REWARD_REDEEM', ${randomUUID()}::uuid, 'Resgate de teste', CURRENT_TIMESTAMP)
+        (${randomUUID()}::uuid, ${accountId}::uuid, ${fixture.organization.id}::uuid, -100, 'REWARD_REDEEM', ${randomUUID()}::uuid, 'Resgate de teste', CURRENT_TIMESTAMP),
+        (${randomUUID()}::uuid, ${accountId}::uuid, ${fixture.organization.id}::uuid, -200, 'ORDER_REVERSAL', ${randomUUID()}::uuid, 'Compra estornada de teste', CURRENT_TIMESTAMP)
     `;
 
     const result = await loyalty.listAccounts(fixture.organization.id, ownerId, { q: "cliente-n9", page: 1, pageSize: 10 });
     assert.equal(result.total, 1);
-    assert.equal(result.accounts[0]?.points, 900);
-    assert.equal(result.accounts[0]?.lifetimePoints, 1000);
-    assert.equal(result.accounts[0]?.level, "PLATINUM");
-    assert.equal(result.summary.platinum, 1);
-    assert.equal(result.summary.pointsOutstanding, 900);
+    assert.equal(result.accounts[0]?.points, 700);
+    assert.equal(result.accounts[0]?.lifetimePoints, 800);
+    assert.equal(result.accounts[0]?.level, "GOLD");
+    assert.equal(result.summary.gold, 1);
+    assert.equal(result.summary.pointsOutstanding, 700);
   });
 });
