@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { PERMISSIONS } from "@borafest/auth";
-import { prisma, type VipPaymentRow } from "@borafest/database";
+import { Prisma, prisma, type VipPaymentRow } from "@borafest/database";
 import {
   applyVipGatewayStatus,
   AsaasApiError,
@@ -21,6 +21,8 @@ import {
 import type { ConfigureVipDepositInput, CreatePixPaymentInput } from "@borafest/contracts";
 import { IdempotencyService } from "../common/idempotency.service";
 import { OrgAccessService } from "../common/org-access.service";
+
+type QueryDb = Pick<Prisma.TransactionClient, "$queryRaw">;
 
 type VipPayableContext = {
   id: string;
@@ -312,7 +314,7 @@ export class VipPaymentsService {
     };
   }
 
-  private async contextByToken(publicToken: string, db: typeof prisma | Parameters<Parameters<typeof prisma.$transaction>[0]>[0] = prisma) {
+  private async contextByToken(publicToken: string, db: QueryDb = prisma) {
     const rows = await db.$queryRaw<VipPayableContext[]>`
       SELECT
         vr.id, vr.public_token AS "publicToken", vr.status::text AS status,
@@ -328,7 +330,7 @@ export class VipPaymentsService {
     return rows[0] ?? null;
   }
 
-  private async paidCents(reservationId: string, db: typeof prisma | Parameters<Parameters<typeof prisma.$transaction>[0]>[0] = prisma) {
+  private async paidCents(reservationId: string, db: QueryDb = prisma) {
     const rows = await db.$queryRaw<Array<{ paidCents: bigint }>>`
       SELECT COALESCE(SUM(amount_cents), 0)::bigint AS "paidCents"
       FROM vip_payments
@@ -337,7 +339,7 @@ export class VipPaymentsService {
     return Number(rows[0]?.paidCents ?? 0n);
   }
 
-  private async pendingPayment(reservationId: string, db: typeof prisma | Parameters<Parameters<typeof prisma.$transaction>[0]>[0] = prisma) {
+  private async pendingPayment(reservationId: string, db: QueryDb = prisma) {
     const rows = await db.$queryRaw<VipPaymentRow[]>`
       SELECT
         id, vip_reservation_id AS "vipReservationId", provider, method, status,
