@@ -114,7 +114,7 @@ export class VipService {
           action: "vip.inventory.updated",
           entityType: "VipInventory",
           entityId: inventoryId,
-          metadata: input,
+          metadata: input as any,
         },
       });
       return {
@@ -266,56 +266,72 @@ export class VipService {
   }
 
   async rejectReservation(reservationId: string, actorUserId: string, input: ResolveVipReservationInput) {
-    const current = await prisma.vipReservation.findUnique({
+    const initial = await prisma.vipReservation.findUnique({
       where: { id: reservationId },
       include: { inventory: { include: { event: true } } },
     });
-    if (!current) throw new NotFoundException("Reserva VIP não encontrada");
-    await this.orgAccess.assertPermission(current.inventory.event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
-    if (current.status === "REJECTED") return current;
-    if (current.status !== "REQUESTED") throw new ConflictException("Apenas reservas solicitadas podem ser recusadas");
-    const updated = await prisma.vipReservation.update({
-      where: { id: reservationId },
-      data: { status: "REJECTED", respondedAt: new Date(), resolutionNote: input.note },
+    if (!initial) throw new NotFoundException("Reserva VIP não encontrada");
+    await this.orgAccess.assertPermission(initial.inventory.event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM vip_inventory WHERE id = ${initial.vipInventoryId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM vip_reservations WHERE id = ${reservationId}::uuid FOR UPDATE`;
+      const reservation = await tx.vipReservation.findUnique({ where: { id: reservationId } });
+      if (!reservation) throw new NotFoundException("Reserva VIP não encontrada");
+      if (reservation.status === "REJECTED") return reservation;
+      if (reservation.status !== "REQUESTED") {
+        throw new ConflictException("Apenas reservas solicitadas podem ser recusadas");
+      }
+      const updated = await tx.vipReservation.update({
+        where: { id: reservationId },
+        data: { status: "REJECTED", respondedAt: new Date(), resolutionNote: input.note },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId: initial.inventory.event.organizationId,
+          action: "vip.reservation.rejected",
+          entityType: "VipReservation",
+          entityId: reservationId,
+          metadata: input.note ? { note: input.note } : undefined,
+        },
+      });
+      return updated;
     });
-    await prisma.auditLog.create({
-      data: {
-        actorUserId,
-        organizationId: current.inventory.event.organizationId,
-        action: "vip.reservation.rejected",
-        entityType: "VipReservation",
-        entityId: reservationId,
-        metadata: input.note ? { note: input.note } : undefined,
-      },
-    });
-    return updated;
   }
 
   async cancelReservation(reservationId: string, actorUserId: string, input: ResolveVipReservationInput) {
-    const current = await prisma.vipReservation.findUnique({
+    const initial = await prisma.vipReservation.findUnique({
       where: { id: reservationId },
       include: { inventory: { include: { event: true } } },
     });
-    if (!current) throw new NotFoundException("Reserva VIP não encontrada");
-    await this.orgAccess.assertPermission(current.inventory.event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
-    if (current.status === "CANCELED") return current;
-    if (!(["REQUESTED", "CONFIRMED"] as const).includes(current.status as "REQUESTED" | "CONFIRMED")) {
-      throw new ConflictException("Esta reserva não pode mais ser cancelada");
-    }
-    const updated = await prisma.vipReservation.update({
-      where: { id: reservationId },
-      data: { status: "CANCELED", respondedAt: new Date(), resolutionNote: input.note },
+    if (!initial) throw new NotFoundException("Reserva VIP não encontrada");
+    await this.orgAccess.assertPermission(initial.inventory.event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM vip_inventory WHERE id = ${initial.vipInventoryId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM vip_reservations WHERE id = ${reservationId}::uuid FOR UPDATE`;
+      const reservation = await tx.vipReservation.findUnique({ where: { id: reservationId } });
+      if (!reservation) throw new NotFoundException("Reserva VIP não encontrada");
+      if (reservation.status === "CANCELED") return reservation;
+      if (reservation.status !== "REQUESTED" && reservation.status !== "CONFIRMED") {
+        throw new ConflictException("Esta reserva não pode mais ser cancelada");
+      }
+      const updated = await tx.vipReservation.update({
+        where: { id: reservationId },
+        data: { status: "CANCELED", respondedAt: new Date(), resolutionNote: input.note },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId: initial.inventory.event.organizationId,
+          action: "vip.reservation.canceled",
+          entityType: "VipReservation",
+          entityId: reservationId,
+          metadata: input.note ? { note: input.note } : undefined,
+        },
+      });
+      return updated;
     });
-    await prisma.auditLog.create({
-      data: {
-        actorUserId,
-        organizationId: current.inventory.event.organizationId,
-        action: "vip.reservation.canceled",
-        entityType: "VipReservation",
-        entityId: reservationId,
-        metadata: input.note ? { note: input.note } : undefined,
-      },
-    });
-    return updated;
   }
 }
