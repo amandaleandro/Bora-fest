@@ -75,6 +75,7 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
       LOWER(TRIM(COALESCE(o.contact_email, po.contact_email))) AS email_key,
       COALESCE(o.event_id, po.event_id) AS event_id,
       COALESCE(o.id, po.id) AS order_id,
+      COALESCE(o.status::text, po.status::text) AS order_status,
       COALESCE(o.promoter_link_id, po.promoter_link_id) AS promoter_link_id,
       l.type,
       l.amount_cents,
@@ -85,6 +86,38 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
     LEFT JOIN orders po ON p.order_id = po.id
     WHERE l.reference_type IN ('order', 'payment')
       AND LENGTH(TRIM(COALESCE(o.contact_email, po.contact_email, ''))) > 0
+  ),
+  ticket_order_finance AS (
+    SELECT
+      email_key,
+      event_id,
+      order_id,
+      order_status,
+      promoter_link_id,
+      COALESCE(SUM(amount_cents) FILTER (WHERE type = 'SALE_CREDIT'), 0)::bigint AS sale_gross,
+      COALESCE(SUM(amount_cents) FILTER (WHERE type = 'PROTECTION_CREDIT' AND amount_cents > 0), 0)::bigint AS protection_gross,
+      COALESCE(SUM(amount_cents) FILTER (WHERE type = 'PROTECTION_CREDIT'), 0)::bigint AS protection_balance,
+      GREATEST(-COALESCE(SUM(amount_cents) FILTER (WHERE type = 'REFUND_DEBIT'), 0), 0)::bigint AS refund_debit,
+      COALESCE(SUM(amount_cents), 0)::bigint AS net,
+      MIN(created_at) FILTER (WHERE type = 'SALE_CREDIT') AS purchase_at
+    FROM ticket_entries
+    GROUP BY email_key, event_id, order_id, order_status, promoter_link_id
+  ),
+  ticket_finance AS (
+    SELECT
+      email_key,
+      COALESCE(SUM(sale_gross + protection_gross), 0)::bigint AS ticket_gross,
+      COALESCE(SUM(
+        CASE
+          WHEN order_status IN ('REFUNDED', 'CHARGEBACK') THEN
+            GREATEST((sale_gross + protection_gross) - GREATEST(protection_balance, 0), 0)
+          ELSE LEAST(refund_debit, sale_gross + protection_gross)
+        END
+      ), 0)::bigint AS ticket_refunds,
+      COALESCE(SUM(net), 0)::bigint AS ticket_net,
+      COALESCE(SUM(sale_gross + protection_gross) FILTER (WHERE promoter_link_id IS NOT NULL), 0)::bigint AS promoter_gross
+    FROM ticket_order_finance
+    GROUP BY email_key
   ),
   vip_entries AS (
     SELECT
@@ -103,18 +136,6 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
       AND e.organization_id = ${organizationId}::uuid
       AND LENGTH(TRIM(vr.contact_email)) > 0
   ),
-  ticket_finance AS (
-    SELECT
-      email_key,
-      COALESCE(SUM(amount_cents) FILTER (WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT')), 0)::bigint AS ticket_gross,
-      GREATEST(-COALESCE(SUM(amount_cents) FILTER (WHERE type = 'REFUND_DEBIT'), 0), 0)::bigint AS ticket_refunds,
-      COALESCE(SUM(amount_cents), 0)::bigint AS ticket_net,
-      COALESCE(SUM(amount_cents) FILTER (
-        WHERE type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND promoter_link_id IS NOT NULL
-      ), 0)::bigint AS promoter_gross
-    FROM ticket_entries
-    GROUP BY email_key
-  ),
   vip_finance AS (
     SELECT
       email_key,
@@ -130,9 +151,9 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
       email_key,
       event_id,
       ('T:' || order_id::text) AS purchase_key,
-      created_at
-    FROM ticket_entries
-    WHERE type = 'SALE_CREDIT'
+      purchase_at AS created_at
+    FROM ticket_order_finance
+    WHERE sale_gross > 0
     UNION ALL
     SELECT
       email_key,
@@ -202,19 +223,19 @@ const customerBase = (organizationId: string, ledgerAccountId: string | null) =>
   ),
   promoter_value AS (
     SELECT
-      te.email_key,
+      tof.email_key,
       pl.promoter_user_id,
       COALESCE(u.name, u.email) AS promoter_name,
-      SUM(te.amount_cents)::bigint AS gross,
+      SUM(tof.sale_gross + tof.protection_gross)::bigint AS gross,
       ROW_NUMBER() OVER (
-        PARTITION BY te.email_key
-        ORDER BY SUM(te.amount_cents) DESC, pl.promoter_user_id
+        PARTITION BY tof.email_key
+        ORDER BY SUM(tof.sale_gross + tof.protection_gross) DESC, pl.promoter_user_id
       ) AS pos
-    FROM ticket_entries te
-    JOIN promoter_links pl ON pl.id = te.promoter_link_id
+    FROM ticket_order_finance tof
+    JOIN promoter_links pl ON pl.id = tof.promoter_link_id
     JOIN users u ON u.id = pl.promoter_user_id
-    WHERE te.type IN ('SALE_CREDIT', 'PROTECTION_CREDIT') AND te.promoter_link_id IS NOT NULL
-    GROUP BY te.email_key, pl.promoter_user_id, u.name, u.email
+    WHERE tof.promoter_link_id IS NOT NULL AND tof.sale_gross > 0
+    GROUP BY tof.email_key, pl.promoter_user_id, u.name, u.email
   ),
   loyalty_points AS (
     SELECT
@@ -396,6 +417,7 @@ export class CustomerIntelligenceService {
       },
       customers: rows.map((row) => {
         const ltvCents = Number(row.ltvCents ?? 0n);
+        const ticketGrossCents = Number(row.ticketGrossCents ?? 0n);
         const purchaseCount = Number(row.purchaseCount ?? 0n);
         const promoterGrossCents = Number(row.promoterGrossCents ?? 0n);
         const daysSinceLastPurchase = row.lastPurchaseAt
@@ -407,13 +429,13 @@ export class CustomerIntelligenceService {
           phone: row.phone,
           userId: row.userId,
           ltvCents,
-          ticketGrossCents: Number(row.ticketGrossCents ?? 0n),
+          ticketGrossCents,
           vipGrossCents: Number(row.vipGrossCents ?? 0n),
           refundCents: Number(row.refundCents ?? 0n),
           netContributionCents: Number(row.netContributionCents ?? 0n),
           avgPurchaseCents: purchaseCount > 0 ? Math.round(ltvCents / purchaseCount) : 0,
           promoterGrossCents,
-          promoterSharePct: ltvCents > 0 ? Math.round((promoterGrossCents / ltvCents) * 10_000) / 100 : 0,
+          promoterSharePct: ticketGrossCents > 0 ? Math.round((promoterGrossCents / ticketGrossCents) * 10_000) / 100 : 0,
           primaryPromoterName: row.primaryPromoterName,
           eventsCount: Number(row.eventsCount ?? 0n),
           purchaseCount,
