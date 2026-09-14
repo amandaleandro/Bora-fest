@@ -317,6 +317,23 @@ export class VipService {
       if (reservation.status !== "REQUESTED" && reservation.status !== "CONFIRMED") {
         throw new ConflictException("Esta reserva não pode mais ser cancelada");
       }
+
+      const blocking = await tx.$queryRaw<Array<{ exists: boolean }>>`
+        SELECT EXISTS (
+          SELECT 1 FROM vip_payments
+          WHERE vip_reservation_id = ${reservationId}::uuid
+            AND status IN (
+              'PENDING'::"PaymentStatus", 'AUTHORIZED'::"PaymentStatus",
+              'PAID'::"PaymentStatus", 'REFUND_PENDING'::"PaymentStatus"
+            )
+        ) AS exists
+      `;
+      if (blocking[0]?.exists) {
+        throw new ConflictException(
+          "Há um pagamento VIP ativo ou pago. Resolva/estorne o pagamento antes de cancelar a reserva.",
+        );
+      }
+
       const updated = await tx.vipReservation.update({
         where: { id: reservationId },
         data: { status: "CANCELED", respondedAt: new Date(), resolutionNote: input.note },
