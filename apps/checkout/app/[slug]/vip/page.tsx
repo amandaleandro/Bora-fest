@@ -39,7 +39,7 @@ export default function VipReservationPage({ params }: { params: { slug: string 
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [successToken, setSuccessToken] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", partySize: "", units: "1", note: "" });
 
   useEffect(() => {
@@ -68,11 +68,14 @@ export default function VipReservationPage({ params }: { params: { slug: string 
     if (!selected) return;
     setSending(true);
     setError(null);
-    setSuccess(null);
+    setSuccessToken(null);
     try {
       const response = await fetch(`${API_BASE_URL}/v1/public/events/${encodeURIComponent(params.slug)}/vip/reservations`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify({
           inventoryId: selected.id,
           contactName: form.name,
@@ -83,12 +86,13 @@ export default function VipReservationPage({ params }: { params: { slug: string 
           customerNote: form.note || undefined,
         }),
       });
-      const payload = await response.json().catch(() => ({})) as { message?: string | string[] };
+      const payload = await response.json().catch(() => ({})) as { message?: string | string[]; publicToken?: string };
       if (!response.ok) {
         const message = Array.isArray(payload.message) ? payload.message.join(" · ") : payload.message;
         throw new Error(message || "Não foi possível enviar a reserva");
       }
-      setSuccess("Pedido enviado. A Casa ainda precisa confirmar sua reserva.");
+      if (!payload.publicToken) throw new Error("Reserva criada sem código de acompanhamento");
+      setSuccessToken(payload.publicToken);
       setSelected(null);
       setForm({ name: "", email: "", phone: "", partySize: "", units: "1", note: "" });
     } catch (err) {
@@ -115,7 +119,14 @@ export default function VipReservationPage({ params }: { params: { slug: string 
       ) : null}
 
       {error ? <p className="mt-6 rounded-2xl border border-red-400/25 bg-red-400/10 p-4 text-sm font-bold text-red-200">{error}</p> : null}
-      {success ? <p className="mt-6 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-bold text-emerald-200">{success}</p> : null}
+      {successToken ? (
+        <div className="mt-6 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-bold text-emerald-100">
+          Pedido enviado. Guarde o link para acompanhar a confirmação da Casa.{" "}
+          <Link href={`/${params.slug}/vip/reserva/${successToken}`} className="font-black underline">
+            Acompanhar reserva →
+          </Link>
+        </div>
+      ) : null}
 
       {data && data.spaces.length === 0 ? (
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-10 text-center">
@@ -134,7 +145,7 @@ export default function VipReservationPage({ params }: { params: { slug: string 
             {space.description ? <p className="mt-3 text-sm font-semibold leading-relaxed text-white/60">{space.description}</p> : null}
             {space.benefits ? <div className="mt-4 whitespace-pre-line rounded-2xl bg-black/15 p-3 text-xs font-semibold leading-relaxed text-white/65">{space.benefits}</div> : null}
             <div className="mt-4 grid grid-cols-2 gap-2 text-center"><div className="rounded-xl bg-black/15 p-3"><b className="block text-lg">{space.capacityPerUnit}</b><span className="text-[10px] text-white/45">pessoas/unidade</span></div><div className="rounded-xl bg-black/15 p-3"><b className="block text-lg">{space.availableUnits}</b><span className="text-[10px] text-white/45">disponíveis</span></div></div>
-            <button type="button" disabled={space.availableUnits <= 0} onClick={() => { setSelected(space); setSuccess(null); setForm((v) => ({ ...v, units: "1", partySize: String(Math.min(space.capacityPerUnit, 4)) })); }} className="mt-4 h-11 w-full rounded-xl bg-primary text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{space.availableUnits > 0 ? "Pedir reserva" : "Esgotado"}</button>
+            <button type="button" disabled={space.availableUnits <= 0} onClick={() => { setSelected(space); setSuccessToken(null); setForm((v) => ({ ...v, units: "1", partySize: String(Math.min(space.capacityPerUnit, 4)) })); }} className="mt-4 h-11 w-full rounded-xl bg-primary text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{space.availableUnits > 0 ? "Pedir reserva" : "Esgotado"}</button>
           </article>
         ))}
       </section>
