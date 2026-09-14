@@ -6,19 +6,16 @@ import { usePathname } from "next/navigation";
 
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
 
-/** A portaria é um app standalone: nada de header/rodapé/moldura do site. */
 function isStandaloneRoute(pathname: string | null): boolean {
   return Boolean(pathname?.startsWith("/portaria"));
 }
 
-/** Moldura de largura do site (430px no mobile) — a portaria fica fora dela. */
 export function SiteFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   if (isStandaloneRoute(pathname)) return <>{children}</>;
   return <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-bg lg:max-w-none">{children}</div>;
 }
 
-/** Header/footer do Site Público (desktop) — no mobile o app é full-screen. */
 export function SiteHeader() {
   const pathname = usePathname();
   const [signedIn, setSignedIn] = useState(false);
@@ -38,30 +35,13 @@ export function SiteHeader() {
           <span className="text-[20px] font-extrabold italic tracking-tight text-ink">BoraFest</span>
         </Link>
         <nav className="flex items-center gap-3">
-          <Link
-            href="/casas"
-            className={`rounded-xl px-4 py-2 text-[13px] font-bold ${
-              pathname?.startsWith("/casas") || pathname?.startsWith("/casa/")
-                ? "bg-primary/10 text-primary"
-                : "text-ink hover:bg-bg"
-            }`}
-          >
-            Casas
-          </Link>
-          <a href={`${PANEL}/cadastro`} className="rounded-xl border-[1.5px] border-line-input px-4 py-2 text-[13px] font-bold text-ink">
-            Produza seu evento
-          </a>
+          <Link href="/casas" className={`rounded-xl px-4 py-2 text-[13px] font-bold ${pathname?.startsWith("/casas") || pathname?.startsWith("/casa/") ? "bg-primary/10 text-primary" : "text-ink hover:bg-bg"}`}>Casas</Link>
+          {signedIn ? <Link href="/fidelidade" className={`rounded-xl px-4 py-2 text-[13px] font-bold ${pathname?.startsWith("/fidelidade") ? "bg-primary/10 text-primary" : "text-ink hover:bg-bg"}`}>Pontos</Link> : null}
+          <a href={`${PANEL}/cadastro`} className="rounded-xl border-[1.5px] border-line-input px-4 py-2 text-[13px] font-bold text-ink">Produza seu evento</a>
           {pathname?.startsWith("/perfil") ? (
-            <span
-              aria-current="page"
-              className="rounded-xl border-[1.5px] border-primary bg-primary/10 px-5 py-2 text-[13px] font-extrabold text-primary"
-            >
-              {signedIn ? "Minha conta" : "Entrar"}
-            </span>
+            <span aria-current="page" className="rounded-xl border-[1.5px] border-primary bg-primary/10 px-5 py-2 text-[13px] font-extrabold text-primary">{signedIn ? "Minha conta" : "Entrar"}</span>
           ) : (
-            <Link href="/perfil" className="rounded-xl bg-primary px-5 py-2 text-[13px] font-extrabold text-white shadow-cta">
-              {signedIn ? "Minha conta" : "Entrar"}
-            </Link>
+            <Link href="/perfil" className="rounded-xl bg-primary px-5 py-2 text-[13px] font-extrabold text-white shadow-cta">{signedIn ? "Minha conta" : "Entrar"}</Link>
           )}
         </nav>
       </div>
@@ -96,6 +76,7 @@ export function SiteFooter() {
           <p className="font-extrabold">Para você</p>
           <ul className="mt-2 space-y-1.5 font-semibold text-muted">
             <li><Link href="/casas" className="hover:text-primary">Casas e produtores</Link></li>
+            <li><Link href="/fidelidade" className="hover:text-primary">Pontos e recompensas</Link></li>
             <li><Link href="/perfil" className="hover:text-primary">Minha conta</Link></li>
             <li><Link href="/minhas-compras" className="hover:text-primary">Minhas compras</Link></li>
           </ul>
