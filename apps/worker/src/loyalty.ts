@@ -20,7 +20,7 @@ async function orderContext(orderId: string) {
 
 export async function awardLoyaltyForOrder(orderId: string) {
   const order = await orderContext(orderId);
-  if (!order || !["PAID", "FULFILLED"].includes(order.status)) return;
+  if (!order || !["PAID", "FULFILLED", "PARTIALLY_REFUNDED"].includes(order.status)) return;
   const email = order.email?.trim().toLowerCase();
   if (!email) return;
 
