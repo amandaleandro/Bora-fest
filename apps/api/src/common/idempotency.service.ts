@@ -21,15 +21,22 @@ export class IdempotencyService {
   ): Promise<T> {
     if (!key) return handler();
 
+    // CHAVE COMPOSTA POR ESCOPO (2026-09-15). A mesma Idempotency-Key vinda do
+    // aparelho servia rotas diferentes: um Pix que falhou no gateway deixava a
+    // chave gravada com o pedido PENDENTE, e o toque em Dinheiro logo depois
+    // (mesma chave) recebia esse pedido pendente de volta — o cliente pagava em
+    // dinheiro e ficava sem ingresso. Cada escopo ganha a própria linha; um
+    // retry da MESMA rota continua idempotente.
+    const id = `${scope}:${key}`;
     const requestHash = this.hashRequest(payload);
 
     try {
       await prisma.idempotencyKey.create({
-        data: { key, scope, requestHash, lockedAt: new Date() },
+        data: { key: id, scope, requestHash, lockedAt: new Date() },
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const existing = await prisma.idempotencyKey.findUnique({ where: { key } });
+        const existing = await prisma.idempotencyKey.findUnique({ where: { key: id } });
         if (!existing) throw error;
         if (existing.requestHash !== requestHash) {
           throw new UnprocessableEntityException(
@@ -47,7 +54,7 @@ export class IdempotencyService {
     try {
       const response = await handler();
       await prisma.idempotencyKey.update({
-        where: { key },
+        where: { key: id },
         data: {
           completedAt: new Date(),
           responseBody: response as Prisma.InputJsonValue,
@@ -57,7 +64,7 @@ export class IdempotencyService {
       return response;
     } catch (error) {
       // libera o key para retry — a falha não deve travar o cliente para sempre
-      await prisma.idempotencyKey.delete({ where: { key } }).catch(() => undefined);
+      await prisma.idempotencyKey.delete({ where: { key: id } }).catch(() => undefined);
       throw error;
     }
   }

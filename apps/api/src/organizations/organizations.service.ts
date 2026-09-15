@@ -102,7 +102,11 @@ export class OrganizationsService {
       where: { document, members: { some: { userId, status: "ACTIVE" } } },
       include: { members: true },
     });
-    if (jaMinha) return jaMinha;
+    // `reused` discrimina sem mudar o shape: quem lê `.id` continua lendo, e a
+    // tela pode dizer a verdade ("você já tem a organização X") em vez de fechar
+    // o formulário como se tivesse criado — ou, pior, gravar conta bancária
+    // nova por cima da que já estava lá
+    if (jaMinha) return { ...jaMinha, reused: true as const };
 
     const criada = await prisma.organization
       .create({
@@ -161,7 +165,7 @@ export class OrganizationsService {
       });
     }
 
-    return criada;
+    return { ...criada, reused: false as const };
   }
 
   /**
@@ -615,7 +619,9 @@ export class OrganizationsService {
     });
     const stats = await prisma.order.groupBy({
       by: ["promoterLinkId"],
-      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] } },
+      // totalCents > 0: pedido de lista nasce PAID com 0 e não é venda — mesma
+      // definição do relatório de promoter (paid_orders), para as telas baterem
+      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] }, totalCents: { gt: 0 } },
       _count: { _all: true },
       _sum: { promoterCommissionCents: true, totalCents: true },
     });
@@ -682,7 +688,9 @@ export class OrganizationsService {
     });
     const stats = await prisma.order.groupBy({
       by: ["promoterLinkId"],
-      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] } },
+      // totalCents > 0: pedido de lista nasce PAID com 0 e não é venda — mesma
+      // definição do relatório de promoter (paid_orders), para as telas baterem
+      where: { promoterLinkId: { in: links.map((l) => l.id) }, status: { in: ["PAID", "FULFILLED"] }, totalCents: { gt: 0 } },
       _count: { _all: true },
       // soldCents: o promoter precisa ver o que VENDEU, não só a comissão —
       // a casa já via isso (listPromoters), ele não.

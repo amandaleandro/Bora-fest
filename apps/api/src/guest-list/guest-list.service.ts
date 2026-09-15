@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { prisma, returnSaleInventory } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateGuestListEntryInput } from "@borafest/contracts";
+import { emailSinteticoLista } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { InventoryService, InsufficientStockError } from "../inventory/inventory.service";
 
@@ -117,7 +118,7 @@ export class GuestListService {
           data: {
             eventId,
             reservationId: reservation.id,
-            contactEmail: `guest-list+${reservation.id}@borafest.app`,
+            contactEmail: emailSinteticoLista(reservation.id),
             contactName: input.guestName,
             // NOME E CPF CHEGAM AO INGRESSO (2026-09-15). Antes o `guestDocument`
             // era gravado só em `guest_list_entries` e MORRIA ali: o worker lê
@@ -241,6 +242,17 @@ export class GuestListService {
       if (!ticketId && entry.orderId) {
         const issued = await tx.ticket.findFirst({ where: { orderId: entry.orderId } });
         ticketId = issued?.id ?? null;
+      }
+      // QUEM JÁ ENTROU NÃO SE CANCELA (2026-09-15) — mesma regra do reembolso
+      // (refund-order.ts): ingresso usado não devolve vaga. Cancelar aqui
+      // devolvia capacidade ao lote com a pessoa DENTRO (overbooking), devolvia
+      // cota ao promoter e apagava do relatório alguém que comprovadamente
+      // passou pela porta.
+      if (ticketId) {
+        const atual = await tx.ticket.findUnique({ where: { id: ticketId }, select: { status: true } });
+        if (atual?.status === "CHECKED_IN") {
+          throw new BadRequestException("Convidado já entrou na festa — a vaga dele não volta para o lote");
+        }
       }
 
       if (ticketId) {

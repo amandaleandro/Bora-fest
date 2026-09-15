@@ -429,7 +429,10 @@ export class ValidatorService {
         eventId: device.eventId,
         deviceId: device.id,
         status: "CONFIRMED",
+        // espelha a regra do servidor (os dois relógios), senão a lista oferece
+        // o que a reversão recusa — esse descompasso já foi bug em 2026-09-12
         receivedAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+        scannedAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
       },
       orderBy: { receivedAt: "desc" },
       take: 20,

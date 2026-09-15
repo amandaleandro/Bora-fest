@@ -76,6 +76,16 @@ function OnboardingContent() {
         return;
       }
       const org = await organizationsApi.create(token, { name, kind, document: document.replace(/\D/g, ""), producerType });
+      // ORGANIZAÇÃO JÁ EXISTIA (2026-09-15): o guard desta tela pode falhar (o
+      // list deu 500) e a pessoa preenche tudo de novo. O servidor devolve a que
+      // já é dela — e NADA aqui pode escrever por cima: gravar a conta bancária
+      // digitada agora trocava a conta de repasse e congelava o saque por 48h.
+      if (org.reused) {
+        setError(`Você já tem a organização "${org.displayName ?? org.name}". Nada foi alterado — seus dados bancários continuam os mesmos.`);
+        setBusy(false);
+        setTimeout(() => router.replace("/resumo"), 2500);
+        return;
+      }
       if (agency && account) {
         await bankAccountsApi.add((org as { id: string }).id, {
           holderName: holderName || name,

@@ -1,3 +1,4 @@
+import { semEmailReal } from "@borafest/contracts";
 import { createSessionToken } from "@borafest/auth";
 import { prisma, Prisma } from "@borafest/database";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
@@ -144,16 +145,24 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
     }
 
     const payload = buildDeliveryPayload(order, tickets, cortesia);
-    await tx.notification.create({
-      data: {
-        channel: "EMAIL",
-        recipient: order.contactEmail,
-        template: "ticket_delivery",
-        payload,
-        orderId,
-      },
-    });
-    if (order.contactPhone) {
+    // SEM CAIXA, SEM ENVIO (2026-09-15). Convidado de lista não recebe nada
+    // (prova pelo CPF na porta) e a venda na porta não tem e-mail — os dois
+    // carregam um contactEmail sintético só para o NOT NULL. Enfileirar aqui
+    // era bounce garantido, centenas por noite, contra a reputação do
+    // remetente. O ingresso nasce e o pedido fecha FULFILLED exatamente igual.
+    const daLista = order.guestListEntries.length > 0;
+    if (!daLista && !semEmailReal(order.contactEmail)) {
+      await tx.notification.create({
+        data: {
+          channel: "EMAIL",
+          recipient: order.contactEmail,
+          template: "ticket_delivery",
+          payload,
+          orderId,
+        },
+      });
+    }
+    if (!daLista && order.contactPhone) {
       await tx.notification.create({
         data: {
           channel: "WHATSAPP",

@@ -14,7 +14,7 @@ import { createReservationExpirationQueue } from "@borafest/queues";
 import { applyGatewayStatus, computePlatformFeeCents, getGateway, getGatewayForMethod } from "@borafest/payments";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrderInput, PdvOrderInput, RefundOrderInput } from "@borafest/contracts";
-import { ehCpfValido, PROTECTION_FEE_CENTS, sugerirCorrecaoEmail } from "@borafest/contracts";
+import { ehCpfValido, emailSinteticoPdv, PROTECTION_FEE_CENTS, sugerirCorrecaoEmail } from "@borafest/contracts";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { IdempotencyService } from "../common/idempotency.service";
@@ -669,7 +669,7 @@ export class OrdersService {
     // caixa diferente nunca casava com a reivindicação do OTP — pedido pago
     // ficava sem dono pra sempre
     const emailNormalizado = input.buyerEmail?.trim().toLowerCase() || undefined;
-    const buyerEmail = emailNormalizado ?? `pdv-${Date.now()}@borafest.local`;
+    const buyerEmail = emailNormalizado ?? emailSinteticoPdv();
 
     const order = await prisma
       .$transaction(async (tx) => {
@@ -893,7 +893,7 @@ export class OrdersService {
             salesPartnerId: partnerId,
             soldByUserId: actorUserId,
             partnerCommissionCents,
-            contactEmail: emailNormalizado ?? `pdv-${Date.now()}@borafest.local`,
+            contactEmail: emailNormalizado ?? emailSinteticoPdv(),
             contactName: nomeDoPedido,
             userId: donoId,
             accountCreatedByOrder: donoId !== undefined,

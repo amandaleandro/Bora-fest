@@ -6,6 +6,7 @@ export * from "./catalog";
 export * from "./reservations";
 export * from "./email-typo";
 export * from "./cpf";
+export * from "./email-sintetico";
 export * from "./orders";
 export * from "./payments";
 export * from "./checkin";

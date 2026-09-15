@@ -251,6 +251,15 @@ export default function PortariaPage() {
 
   // busca unificada: um campo que descobre sozinho se é nome, CPF ou código
   const [buscaAberta, setBuscaAberta] = useState(false);
+  /**
+   * Câmera negada/indisponível NESTE turno (2026-09-15). É state, não ref, de
+   * propósito: o botão "tentar câmera de novo" precisa re-disparar o efeito do
+   * scanner, e ref não re-renderiza. Sem esta flag, fechar a busca religava a
+   * câmera, que falhava de novo e reabria a busca — laço sem saída.
+   */
+  const [cameraIndisponivel, setCameraIndisponivel] = useState(false);
+  /** aparelho bloqueado remotamente: nada mais pode liberar entrada, nem offline */
+  const blockedRef = useRef(false);
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState<AbaBusca>("ingressos");
   const [resultado, setResultado] = useState<ResultadoBusca>({ modo: "vazio", tickets: [], outrasAbas: [] });
@@ -289,8 +298,17 @@ export default function PortariaPage() {
     // 401/403 NÃO é "sem rede": os check-ins locais ficam guardados e o
     // operador precisa de um PIN novo (bloqueio remoto ou sessão expirada).
     setBlockedMessage(message);
+    blockedRef.current = true;
     scannerRef.current?.stop();
     scannerRef.current = null;
+    // a ficha/busca não pode sobreviver ao bloqueio: ela é `fixed z-50`, ficava
+    // POR CIMA da tela de bloqueio e ainda deixava liberar pelo caminho offline
+    setBuscaAberta(false);
+    setDocSelected(null);
+    setCpfConferencia("");
+    setCpfErro(null);
+    setBusca("");
+    setResultado({ modo: "vazio", tickets: [], outrasAbas: [] });
     setScreen("blocked");
   }, []);
 
@@ -461,6 +479,7 @@ export default function PortariaPage() {
       localStorage.setItem(SESSION_KEY, JSON.stringify(data));
       sessionRef.current = data;
       setSession(data);
+      blockedRef.current = false;
       setPin("");
       setPinError(null);
       setScreen("select");
@@ -479,10 +498,13 @@ export default function PortariaPage() {
     }
   }
 
-  function sair() {
-    localStorage.removeItem(SESSION_KEY);
-    sessionRef.current = null;
-    setSession(null);
+  /**
+   * Zera TUDO que é da tela (não da sessão). Existe em função própria porque
+   * "Entrar com novo PIN" na tela de bloqueio duplicava `sair()` pela metade e
+   * deixava busca/ficha/CPF/contador do turno anterior vivos no login seguinte.
+   * `db.clearManifest()` mexe só em META e TICKETS — a fila offline fica.
+   */
+  function resetarEstadoDeTela() {
     indexRef.current = EMPTY_INDEX;
     setManifest({ ready: false, tickets: 0, version: "", syncedAt: "" });
     db.clearManifest().catch(() => undefined);
@@ -491,6 +513,18 @@ export default function PortariaPage() {
     setBuscaAberta(false);
     setResultado({ modo: "vazio", tickets: [], outrasAbas: [] });
     setDocSelected(null);
+    setCpfConferencia("");
+    setCpfErro(null);
+    setCount(0);
+    setCameraIndisponivel(false);
+    blockedRef.current = false;
+  }
+
+  function sair() {
+    localStorage.removeItem(SESSION_KEY);
+    sessionRef.current = null;
+    setSession(null);
+    resetarEstadoDeTela();
     setScreen("pin");
   }
 
@@ -512,7 +546,9 @@ export default function PortariaPage() {
   const validar = useCallback(
     async (input: { qrToken?: string; code?: string; semConferirCpf?: boolean }) => {
       const active = sessionRef.current;
-      if (!active || busyRef.current) return;
+      // bloqueio remoto vale para o caminho offline também — a UI é frágil,
+      // esta guarda é a que segura de verdade
+      if (!active || busyRef.current || blockedRef.current) return;
       busyRef.current = true;
       scannerRef.current?.stop();
       scannerRef.current = null;
@@ -606,7 +642,7 @@ export default function PortariaPage() {
     // campo de visão, `validar()` disparava, a tela pulava para o resultado e a
     // conferência morria — liberando alguém que ninguém estava olhando.
     // Mesma classe do sequestro de tela que o PDV já teve em 2026-09-13.
-    if (screen !== "validate" || tab !== "validar" || buscaAberta) {
+    if (screen !== "validate" || tab !== "validar" || buscaAberta || cameraIndisponivel) {
       scannerRef.current?.stop();
       scannerRef.current = null;
       setTorchOn(false);
@@ -640,7 +676,10 @@ export default function PortariaPage() {
         if (cancelled) return;
         if (error instanceof CameraError) setCameraError(error);
         localStorage.removeItem(CAM_KEY);
-        // câmera negada/indisponível: abre a busca, que é o caminho que sobra
+        // câmera negada/indisponível: abre a busca, que é o caminho que sobra —
+        // e MEMORIZA a falha, senão fechar a busca religava a câmera, que
+        // falhava e reabria a busca (laço fechar→reabrir, sem saída)
+        setCameraIndisponivel(true);
         setBuscaAberta(true);
       });
 
@@ -649,7 +688,7 @@ export default function PortariaPage() {
       scannerRef.current?.stop();
       scannerRef.current = null;
     };
-  }, [buscaAberta, screen, tab, validar]);
+  }, [buscaAberta, cameraIndisponivel, screen, tab, validar]);
 
   // ao entrar no modo validação, atualiza o manifesto por delta
   useEffect(() => {
@@ -699,6 +738,12 @@ export default function PortariaPage() {
     setDocSelected(null);
     setCpfConferencia("");
     setCpfErro(null);
+    // reset no FECHAMENTO, não na abertura: assim qualquer ponto que faça
+    // setBuscaAberta(true) abre limpo. Antes, "Buscar na lista" pelo resultado
+    // reabria já filtrado no nome da pessoa ANTERIOR, com um item só — e o
+    // toque de rotina abria a ficha errada.
+    setBusca("");
+    setResultado({ modo: "vazio", tickets: [], outrasAbas: [] });
   }
 
   /**
@@ -835,6 +880,7 @@ export default function PortariaPage() {
       return;
     }
     const granted = typeof localStorage !== "undefined" && localStorage.getItem(CAM_KEY) === "1";
+    setCameraIndisponivel(false);
     setTab("validar");
     setScreen(granted ? "validate" : "camera");
   }
@@ -1435,6 +1481,25 @@ export default function PortariaPage() {
               <div className="absolute inset-x-0 bottom-0 top-[52px] z-30 flex flex-col rounded-t-[24px] bg-[#171126] px-4 pb-4 pt-3">
                 <span className="mx-auto mb-3 h-1 w-9 flex-none rounded-full bg-white/20" />
                 <h2 className="mb-3 flex-none text-[16px] font-extrabold">Buscar pessoa</h2>
+                {cameraError && (
+                  <div className="mb-3 flex flex-none items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3">
+                    <p className="text-[12px] font-semibold leading-relaxed text-[#fbbf24]">
+                      {cameraError.kind === "DENIED"
+                        ? "Câmera negada neste aparelho — valide pela busca."
+                        : "Câmera indisponível neste navegador (abra por https) — valide pela busca."}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setCameraError(null);
+                        setCameraIndisponivel(false);
+                        fecharBusca();
+                      }}
+                      className="flex-none rounded-xl bg-white/10 px-3 py-2 text-[11.5px] font-bold text-white"
+                    >
+                      Tentar câmera
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex h-[50px] flex-none items-center gap-2.5 rounded-2xl border-[1.5px] border-white/[.18] bg-white/[.07] px-4 focus-within:border-primary">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="flex-none text-white/40">
@@ -1652,7 +1717,7 @@ export default function PortariaPage() {
       )}
 
       {/* confirmação do check-in por documento */}
-      {docSelected &&
+      {screen === "validate" && docSelected &&
         (() => {
           const st = statusIngresso(docSelected);
           const lot = lotLabel(indexRef.current, docSelected.ticketLotId) ?? "Ingresso";
@@ -2169,6 +2234,9 @@ export default function PortariaPage() {
                 localStorage.removeItem(SESSION_KEY);
                 sessionRef.current = null;
                 setSession(null);
+                // e o resto da tela TEM que zerar: sem isto a busca/ficha do turno
+                // bloqueado ressurgia sobre a câmera do próximo login
+                resetarEstadoDeTela();
                 setPin("");
                 setScreen("pin");
               }}

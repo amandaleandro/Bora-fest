@@ -331,7 +331,13 @@ function OrganizationsContent() {
     setError(null);
     try {
       if (!producerType) { setError("Escolha o tipo de produtor"); return; }
-      await organizationsApi.create(token, { name, document, kind, producerType });
+      const org = await organizationsApi.create(token, { name, document, kind, producerType });
+      if (org.reused) {
+        // o servidor devolveu a organização que JÁ é sua com esse documento:
+        // fechar o formulário calado fazia parecer que o clique não pegou
+        setError(`Você já tem a organização "${org.displayName ?? org.name}" com esse CPF/CNPJ — use a que já existe.`);
+        return;
+      }
       setShowForm(false);
       setName("");
       setDocument("");

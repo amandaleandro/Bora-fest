@@ -39,13 +39,27 @@ export class PromoterPerformanceService {
     });
     if (!event) throw new NotFoundException("Evento não encontrado nesta organização");
 
-    // REMOVED continua no relatório quando já vendeu: revogar o vínculo corta
-    // atribuições futuras, mas não pode reescrever o histórico do evento.
+    // O HISTÓRICO MANDA (2026-09-15). O relatório partia do ESTADO do vínculo
+    // (status + escopo atual). Re-convidar um promoter reusa a mesma linha e
+    // regrava o escopo: mudar a Bia da Casa para a Festa Y fazia o relatório da
+    // Festa X perder os 80 ingressos e R$ 4.000 que ela vendeu lá. Agora todo
+    // vínculo com pedido pago NESTE evento entra, seja qual for o estado hoje;
+    // o filtro por estado/escopo fica só para quem ainda não vendeu nada.
+    const comHistorico = await prisma.order.groupBy({
+      by: ["promoterLinkId"],
+      where: { eventId, status: { in: ["PAID", "FULFILLED"] }, promoterLinkId: { not: null } },
+    });
+    const idsComHistorico = comHistorico
+      .map((g) => g.promoterLinkId)
+      .filter((id): id is string => Boolean(id));
+
     const links = await prisma.promoterLink.findMany({
       where: {
         organizationId,
-        status: { in: ["INVITED", "ACTIVE", "REMOVED"] },
-        OR: [{ eventId: null }, { eventId }],
+        OR: [
+          { id: { in: idsComHistorico } },
+          { status: { in: ["INVITED", "ACTIVE", "REMOVED"] }, OR: [{ eventId: null }, { eventId }] },
+        ],
       },
       include: {
         promoterUser: { select: { id: true, name: true, email: true } },
@@ -120,17 +134,25 @@ export class PromoterPerformanceService {
             INNER JOIN tickets t ON t.order_id = a.id
             GROUP BY a.promoter_link_id
           ),
+          -- LISTA NÃO DEPENDE DO STATUS DO PEDIDO (2026-09-15): a base de VENDA
+          -- é PAID/FULFILLED (venda estornada não é venda), mas a lista é a
+          -- entrada em si — cancelar antes da festa corrige digitação (sai do
+          -- denominador); quem já entrou não se cancela (guarda no cancel()).
           guest_stats AS (
             SELECT
-              a.promoter_link_id,
+              o.promoter_link_id,
               COUNT(g.id)::int AS guests_registered
-            FROM attributed a
-            INNER JOIN guest_list_entries g ON g.order_id = a.id
-            WHERE a.is_guest = true
-            GROUP BY a.promoter_link_id
+            FROM guest_list_entries g
+            INNER JOIN orders o ON o.id = g.order_id
+            WHERE o.event_id = ${eventId}::uuid
+              AND o.promoter_link_id IN (${Prisma.join(linkIds.map((id) => Prisma.sql`${id}::uuid`))})
+              AND g.status <> 'CANCELED'
+            GROUP BY o.promoter_link_id
           ),
           base AS (
-            SELECT DISTINCT promoter_link_id FROM attributed
+            SELECT promoter_link_id FROM attributed
+            UNION
+            SELECT promoter_link_id FROM guest_stats
           )
           SELECT
             b.promoter_link_id AS "promoterLinkId",
@@ -190,8 +212,10 @@ export class PromoterPerformanceService {
     // Convites pendentes ficam no final. ACTIVE e REMOVED entram no ranking
     // quando possuem histórico, para que revogar alguém não altere o passado.
     rows.sort((a, b) => {
-      const aPending = a.status === "INVITED" ? 1 : 0;
-      const bPending = b.status === "INVITED" ? 1 : 0;
+      // convite genuinamente pendente (sem histórico) vai para o fim; vínculo
+      // reciclado que voltou a INVITED com vendas continua no ranking
+      const aPending = a.status === "INVITED" && !byLink.has(a.id) ? 1 : 0;
+      const bPending = b.status === "INVITED" && !byLink.has(b.id) ? 1 : 0;
       if (aPending !== bPending) return aPending - bPending;
       if (b.ticketsSold !== a.ticketsSold) return b.ticketsSold - a.ticketsSold;
       if (b.grossCents !== a.grossCents) return b.grossCents - a.grossCents;
@@ -201,10 +225,12 @@ export class PromoterPerformanceService {
     let rank = 0;
     const ranked = rows.map((row) => ({
       ...row,
-      rank: row.status !== "INVITED" && row.ticketsSold > 0 ? ++rank : null,
+      rank: row.ticketsSold > 0 ? ++rank : null,
     }));
 
-    const measured = ranked.filter((row) => row.status !== "INVITED");
+    // o resumo soma TODAS as linhas: filtrar por status fazia os cartões do topo
+    // dizerem "R$ 0" sobre uma tabela que somava R$ 4.000
+    const measured = ranked;
     return {
       event,
       summary: {

@@ -310,8 +310,16 @@ export class CheckinsService {
     if (checkin.deviceId !== device.id) {
       throw new ForbiddenException("Este check-in foi feito em outro aparelho — só ele pode reverter");
     }
+    // OS DOIS RELÓGIOS (2026-09-15). Só `receivedAt` reabria a janela inteira
+    // no instante do sync: 4h offline, 150 check-ins, e ao voltar a rede todos
+    // ficavam reversíveis por 10 min — o QR de quem entrou às 22h voltava a
+    // valer às 02h. Só `scannedAt` seria pior: é carimbado pelo aparelho, sem
+    // teto, e um valor no futuro tornaria a reversão ilimitada. Os dois juntos.
     const JANELA_MS = 10 * 60 * 1000;
-    if (Date.now() - checkin.receivedAt.getTime() > JANELA_MS) {
+    const agora = Date.now();
+    const naPorta = agora - checkin.scannedAt.getTime();
+    const noServidor = agora - checkin.receivedAt.getTime();
+    if (naPorta > JANELA_MS || noServidor > JANELA_MS) {
       throw new BadRequestException("Passaram mais de 10 minutos — reversão só pelo painel do produtor");
     }
 

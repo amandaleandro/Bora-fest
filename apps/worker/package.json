@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@borafest/auth": "workspace:*",
+    "@borafest/contracts": "workspace:*",
     "@borafest/database": "workspace:*",
     "@borafest/notifications": "workspace:*",
     "@borafest/observability": "workspace:*",

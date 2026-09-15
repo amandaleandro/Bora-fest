@@ -100,6 +100,8 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   const [lotsErro, setLotsErro] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [pixExigeCpf, setPixExigeCpf] = useState(false);
+  /** GET /config falhou: mostra o CPF sem exigir, em vez de esconder e travar o Pix */
+  const [cfgErro, setCfgErro] = useState(false);
 
   // MEIA-ENTRADA (2026-09-15): aparece só se o lote permitir, como uma opção
   // tocável a mais na mesma lista — não um checkbox, não um mecanismo à parte.
@@ -128,9 +130,13 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   // resposta em vez de vender de novo) e morre em nova venda ou quando o
   // pedido muda (lote/quantidade/nome).
   const chaveRef = useRef<string | null>(null);
-  function chaveDaTentativa(): string {
+  // sufixo por FORMA de pagamento (2026-09-15): Pix que falhou e Dinheiro em
+  // seguida não podem dividir a mesma chave — o servidor devolvia o pedido
+  // pendente do Pix e o cliente pagava em dinheiro sem receber ingresso. Não
+  // zera chaveRef na troca: o retry da mesma forma continua protegido.
+  function chaveDaTentativa(forma: Pagamento): string {
     if (!chaveRef.current) chaveRef.current = crypto.randomUUID();
-    return chaveRef.current;
+    return `${chaveRef.current}:${forma}`;
   }
   const nomeRef = useRef<HTMLInputElement>(null);
   const cpfRef = useRef<HTMLInputElement>(null);
@@ -148,7 +154,14 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       .then(([items, cfg]) => {
         const vendaveis = items.filter((i) => i.available > 0);
         setLots(vendaveis);
-        if (cfg) setPixExigeCpf(cfg.pixExigeCpf);
+        if (cfg) {
+          setPixExigeCpf(cfg.pixExigeCpf);
+          setCfgErro(false);
+        } else {
+          // um blip no 4G aqui escondia o campo de CPF pelo turno inteiro, e o
+          // Pix passava a ser recusado com 400 sem a tela ter como pedir o CPF
+          setCfgErro(true);
+        }
         // opção lembrada: se o lote sumiu, ou era meia num lote que deixou de
         // permitir, cai na inteira do primeiro lote disponível
         setOpcaoKey((atual) => {
@@ -326,7 +339,13 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     setOcupado("registrando");
     setErro(null);
     try {
-      const venda = await api.createPdvCashSale(eventId, payload(), accountToken!, chaveDaTentativa());
+      // Pix que ficou pendente segura a vaga no lote: solta antes de vender em
+      // dinheiro, senão a mesma pessoa ocupa duas vagas até o Pix expirar
+      if (pedido?.orderId) {
+        await api.cancelPdvPixSale(eventId, pedido.orderId, accountToken!).catch(() => undefined);
+        setPedido(null);
+      }
+      const venda = await api.createPdvCashSale(eventId, payload(), accountToken!, chaveDaTentativa("dinheiro"));
       await liberar(venda.orderId, venda.publicToken, "dinheiro", qtd, totalCents);
     } catch (e) {
       // a chave da tentativa FICA: tocar de novo replica a mesma venda no
@@ -343,7 +362,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     setPixExpirado(false);
     try {
       // retry reaproveita o pedido pendente (não come estoque de novo)
-      const venda = pedido ?? (await api.createPdvPixSale(eventId, payload(), accountToken!, chaveDaTentativa()));
+      const venda = pedido ?? (await api.createPdvPixSale(eventId, payload(), accountToken!, chaveDaTentativa("pix")));
       setPedido(venda);
       const doc = soDigitos(cpf);
       const pix = await api.createPixPayment(venda.orderId, { payerDocument: doc.length >= 11 ? doc : undefined });
@@ -356,6 +375,9 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       setOcupado(null);
       setFase("pix");
     } catch (e) {
+      // AUTO-CURA: se o servidor disse que o provedor exige CPF, a tela passa a
+      // pedir — sem depender de o GET /config ter funcionado na abertura
+      if (e instanceof ApiError && /CPF/i.test(e.message)) setPixExigeCpf(true);
       setErro(msgErro(e));
       setOcupado(null);
     }
@@ -698,7 +720,15 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
               Tentar de novo
             </button>
           </div>
-        ) : lots.length === 0 ? (
+        ) : cfgErro ? (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3">
+            <p className="text-[12px] font-semibold text-[#fbbf24]">Configuração do Pix não carregou — o CPF fica opcional.</p>
+            <button onClick={carregar} className="flex-none rounded-xl bg-white/10 px-3 py-2 text-[11.5px] font-bold text-white">
+              Tentar de novo
+            </button>
+          </div>
+        ) : null}
+        {!carregando && !lotsErro && lots.length === 0 ? (
           <p className="mb-4 rounded-2xl bg-white/[.05] px-4 py-4 text-[13px] font-semibold text-white/45">
             Nenhum ingresso com vaga para vender agora.
           </p>
@@ -768,7 +798,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
           enterKeyHint="done"
           className="h-[54px] w-full rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 text-[16px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary"
         />
-        {pixExigeCpf && (
+        {(pixExigeCpf || cfgErro) && (
           <input
             ref={cpfRef}
             value={cpf}
@@ -776,7 +806,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
               setCpf(e.target.value);
               if (erro) setErro(null);
             }}
-            placeholder="CPF (só para Pix)"
+            placeholder={pixExigeCpf ? "CPF (obrigatório no Pix)" : "CPF (se o Pix pedir)"}
             inputMode="numeric"
             className={`mt-2.5 h-[54px] w-full rounded-2xl border-[1.5px] bg-white/[.07] px-4 text-[16px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary ${
               cpf.trim() && !cpfValido(cpf) ? "border-red-400/70" : "border-white/15"
