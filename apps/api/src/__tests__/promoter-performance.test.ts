@@ -186,6 +186,79 @@ describe("N4 — performance de promoters por evento", () => {
     assert.equal(removed?.rank, 2);
   });
 
+  // ---------------------------------------------------------------------
+  // 2026-09-15: "quero saber qual promoter é eficiente e não só lota lista,
+  // mas quais foram validados de fato" (Arthur). Pedido de lista nasce PAID
+  // com total_cents 0 e caía em "ingressos vendidos" — quem só enchia lista
+  // aparecia como vendedor, com receita zero.
+  // ---------------------------------------------------------------------
+  it("separa lista de venda e conta quem realmente entrou", async () => {
+    const promoterC = await prisma.user.create({
+      data: { email: `n4-lista-${Date.now()}@example.com`, name: "Caio Só Lista" },
+    });
+    userIds.push(promoterC.id);
+    const linkC = await prisma.promoterLink.create({
+      data: {
+        organizationId: fixture.organization.id,
+        promoterUserId: promoterC.id,
+        slug: `caio-${Date.now()}`,
+        code: `C${Date.now()}`.slice(0, 12),
+        status: "ACTIVE",
+        commissionType: "NONE",
+        guestQuota: 10,
+      },
+    });
+
+    // 3 convidados na lista; 2 aparecem, 1 não
+    const entradas: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const order = await attributedOrder({
+        promoterLinkId: linkC.id, quantity: 1, totalCents: 0, commissionCents: 0,
+        email: `guest-${i}-${Date.now()}@example.com`,
+      });
+      await prisma.guestListEntry.create({
+        data: {
+          eventId: fixture.event.id, ticketLotId: fixture.lot.id, orderId: order.id,
+          addedByUserId: promoterC.id, guestName: `Convidado ${i}`,
+        },
+      });
+      const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: order.id } });
+      const ticket = await prisma.ticket.create({
+        data: {
+          orderId: order.id, orderItemId: item.id, eventId: fixture.event.id,
+          ticketLotId: fixture.lot.id, seq: 1,
+          code: `BF-LST${i}-${Date.now()}`.slice(0, 20),
+          qrToken: `tok-lista-${i}-${Date.now()}`,
+          status: i < 2 ? "CHECKED_IN" : "ACTIVE",
+        },
+      });
+      entradas.push(ticket.id);
+    }
+
+    const result = await performance.forEvent(fixture.organization.id, fixture.event.id, ownerId);
+    const caio = result.promoters.find((row) => row.id === linkC.id);
+
+    // promoter que só fez lista PRECISA aparecer — antes sumia do relatório,
+    // porque a query partia de money_stats (só quem tinha venda)
+    assert.ok(caio, "promoter só de lista não apareceu no relatório");
+    assert.equal(caio?.ticketsSold, 0, "lista não pode contar como ingresso vendido");
+    assert.equal(caio?.paidOrders, 0);
+    assert.equal(caio?.grossCents, 0);
+
+    assert.equal(caio?.guestsRegistered, 3);
+    assert.equal(caio?.guestsCheckedIn, 2);
+    assert.equal(caio?.guestsNoShow, 1);
+    assert.equal(caio?.guestShowRate, 67);
+
+    // e o total de vendas do evento NÃO pode ter inchado com a lista
+    assert.equal(result.summary.ticketsSold, 6);
+    assert.equal(result.summary.guestsRegistered, 3);
+    assert.equal(result.summary.guestsCheckedIn, 2);
+    assert.equal(result.summary.guestsNoShow, 1);
+
+    await prisma.ticket.deleteMany({ where: { id: { in: entradas } } });
+  });
+
   it("não deixa consultar evento de outra organização", async () => {
     await assert.rejects(
       () => performance.forEvent(fixture.organization.id, "00000000-0000-0000-0000-000000000001", ownerId),

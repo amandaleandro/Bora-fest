@@ -63,9 +63,14 @@ export default function PromotersPerformancePage() {
         <>
           <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ["Ingressos", data.summary.ticketsSold.toLocaleString("pt-BR")],
+              ["Ingressos vendidos", data.summary.ticketsSold.toLocaleString("pt-BR")],
               ["Faturamento", money(data.summary.grossCents)],
-              ["Promoters ativos", data.summary.activePromoters.toLocaleString("pt-BR")],
+              // ENTREGOU GENTE (2026-09-15): a pergunta que o produtor faz no dia
+              // seguinte não é "quantos cadastrou", é "quantos apareceram".
+              [
+                "Lista: entrou / cadastrou",
+                `${data.summary.guestsCheckedIn.toLocaleString("pt-BR")} / ${data.summary.guestsRegistered.toLocaleString("pt-BR")}`,
+              ],
               ["Comissões", money(data.summary.commissionCents)],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-line bg-surface p-4">
@@ -78,7 +83,7 @@ export default function PromotersPerformancePage() {
           <section className="mt-6 overflow-hidden rounded-3xl border border-line bg-surface">
             <div className="border-b border-line px-5 py-4">
               <h2 className="text-[15px] font-black text-ink">Ranking do evento</h2>
-              <p className="mt-1 text-[11.5px] font-semibold text-muted">Ingressos vendidos; faturamento desempata.</p>
+              <p className="mt-1 text-[11.5px] font-semibold text-muted">Ingressos vendidos; faturamento desempata. <b>Entrou</b> mostra quantos da lista passaram pela porta de verdade.</p>
             </div>
             {data.promoters.length === 0 ? (
               <div className="px-5 py-10 text-center">
@@ -87,7 +92,7 @@ export default function PromotersPerformancePage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-left text-[12px]">
+                <table className="w-full min-w-[960px] text-left text-[12px]">
                   <thead>
                     <tr className="border-b border-line bg-bg/55 text-[10.5px] font-extrabold uppercase tracking-[.04em] text-muted-2">
                       <th className="px-5 py-3">#</th>
@@ -96,6 +101,8 @@ export default function PromotersPerformancePage() {
                       <th className="px-4 py-3 text-right">Direto</th>
                       <th className="px-4 py-3 text-right">Equipe</th>
                       <th className="px-4 py-3 text-right">Pedidos</th>
+                      <th className="px-4 py-3 text-right">Lista</th>
+                      <th className="px-4 py-3 text-right">Entrou</th>
                       <th className="px-4 py-3 text-right">Faturamento</th>
                       <th className="px-5 py-3 text-right">Comissão</th>
                     </tr>
@@ -120,6 +127,29 @@ export default function PromotersPerformancePage() {
                         <td className="px-4 py-4 text-right font-bold text-muted">{row.directTickets}</td>
                         <td className="px-4 py-4 text-right font-bold text-muted">{row.sellerTickets}</td>
                         <td className="px-4 py-4 text-right font-bold text-muted">{row.paidOrders}</td>
+                        <td className="px-4 py-4 text-right font-bold text-muted">{row.guestsRegistered || "—"}</td>
+                        <td className="px-4 py-4 text-right">
+                          {row.guestsRegistered ? (
+                            <>
+                              <span className="font-black text-ink">{row.guestsCheckedIn}</span>
+                              {/* a taxa é o número que separa quem traz gente de
+                                  quem só enche lista — por isso vem junto */}
+                              <span
+                                className={`ml-1.5 text-[10.5px] font-extrabold ${
+                                  (row.guestShowRate ?? 0) >= 70
+                                    ? "text-success"
+                                    : (row.guestShowRate ?? 0) >= 40
+                                      ? "text-warning"
+                                      : "text-danger"
+                                }`}
+                              >
+                                {row.guestShowRate}%
+                              </span>
+                            </>
+                          ) : (
+                            <span className="font-bold text-muted-2">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-4 text-right font-extrabold text-ink">{money(row.grossCents)}</td>
                         <td className="px-5 py-4 text-right font-bold text-muted">{money(row.commissionCents)}</td>
                       </tr>

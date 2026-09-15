@@ -19,6 +19,13 @@ export interface PromoterPerformanceRow {
   commissionBps: number;
   commissionFixedCents: number;
   rank: number | null;
+  /** ENTREGOU GENTE (2026-09-15): lotar lista não é performance */
+  soldCheckedIn: number;
+  guestsRegistered: number;
+  guestsCheckedIn: number;
+  guestsNoShow: number;
+  /** % da lista que apareceu — null quando não cadastrou ninguém */
+  guestShowRate: number | null;
 }
 
 export interface PromoterPerformanceResponse {
@@ -37,6 +44,10 @@ export interface PromoterPerformanceResponse {
     paidOrders: number;
     grossCents: number;
     commissionCents: number;
+    soldCheckedIn: number;
+    guestsRegistered: number;
+    guestsCheckedIn: number;
+    guestsNoShow: number;
   };
   promoters: PromoterPerformanceRow[];
 }
