@@ -41,6 +41,14 @@ export const createCheckinSchema = z.object({
   code: z.string().optional(),
   checkinPointId: z.string().uuid().optional(),
   scannedAt: z.coerce.date().optional(),
+  /**
+   * LIBERADO SEM CONFERIR O CPF (2026-09-15). Convidado de lista entra pelo CPF,
+   * mas CPF errado não pode trancar a porta: pode ser digitação errada no
+   * cadastro ou documento esquecido em casa. Quem decide é o operador — e a
+   * decisão fica registrada, para o produtor saber no dia seguinte que aquela
+   * entrada saiu fora do padrão e por qual aparelho.
+   */
+  semConferirCpf: z.boolean().optional(),
 }).refine((v) => v.qrToken || v.code, {
   message: "Informe qrToken ou code",
 });

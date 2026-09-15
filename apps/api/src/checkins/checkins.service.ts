@@ -46,6 +46,27 @@ export class CheckinsService {
       null,
     );
 
+    // LIBERADO SEM CONFERIR O CPF (2026-09-15): a tela oferece essa saída porque
+    // CPF errado não pode trancar a porta de quem tem convite de verdade — mas
+    // ela não pode ser invisível. Fica no auditLog com aparelho e ingresso, para
+    // o produtor ver no dia seguinte o que saiu fora do padrão.
+    if (input.semConferirCpf && outcome.result === "VALID") {
+      await prisma.auditLog.create({
+        data: {
+          action: "checkin.sem_conferir_cpf",
+          entityType: "ticket",
+          entityId: ticket.id,
+          metadata: {
+            ticketCode: ticket.code,
+            attendeeName: ticket.attendeeName,
+            deviceId: device.id,
+            deviceName: device.name,
+            checkinId: outcome.checkinId ?? null,
+          },
+        },
+      }).catch(() => undefined); // auditoria nunca derruba a entrada de ninguém
+    }
+
     return {
       result: outcome.result,
       ticket: {

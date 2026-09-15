@@ -23,7 +23,13 @@ import { ApiError, api, type PdvFechamento } from "../../lib/api";
 import { isAuthError, portariaApi } from "../../lib/portaria/api";
 import * as db from "../../lib/portaria/db";
 import { CameraError, startScanner, type ScannerHandle } from "../../lib/portaria/scanner";
-import { searchByDocument, type DocumentSearchMode } from "../../lib/portaria/search";
+import {
+  abasDoManifesto,
+  buscarPessoa,
+  sha256Hex,
+  type AbaBusca,
+  type ResultadoBusca,
+} from "../../lib/portaria/search";
 import { enqueueCheckin, flushQueue, loadIndex, syncManifest } from "../../lib/portaria/sync";
 import type {
   ManifestTicket,
@@ -52,7 +58,11 @@ type Screen =
   | "summary"
   | "blocked";
 
-type Tab = "scanner" | "code" | "doc" | "venda";
+// DUAS AÇÕES, NÃO QUATRO (decisão do Arthur, 2026-09-15). Scanner, Código e
+// Documento eram três abas de peso igual para UMA ação: liberar quem tem
+// direito. A câmera resolve quase tudo; os outros dois são exceção e viraram
+// uma busca só, dentro da própria tela de validação.
+type Tab = "validar" | "venda";
 
 const SESSION_KEY = "bf.portaria.session";
 const GATE_KEY = "bf.portaria.portao";
@@ -177,44 +187,14 @@ const BADGE: Record<StatusIngresso, { label: string; cls: string }> = {
 
 const TABS: Array<{ id: Tab; label: string; icon: JSX.Element }> = [
   {
-    id: "scanner",
-    label: "Scanner",
+    id: "validar",
+    label: "Validar",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path
           d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M3 12h18"
           stroke="currentColor"
           strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "code",
-    label: "Código",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path
-          d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "doc",
-    label: "Documento",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
-        <circle cx="8.5" cy="11" r="2" stroke="currentColor" strokeWidth="1.6" />
-        <path
-          d="M5.5 16c.6-1.4 1.7-2.1 3-2.1s2.4.7 3 2.1M14.5 10h4M14.5 13.5h4"
-          stroke="currentColor"
-          strokeWidth="1.6"
           strokeLinecap="round"
         />
       </svg>
@@ -241,7 +221,7 @@ function dinheiroBR(cents: number): string {
 
 export default function PortariaPage() {
   const [screen, setScreen] = useState<Screen>("pin");
-  const [tab, setTab] = useState<Tab>("scanner");
+  const [tab, setTab] = useState<Tab>("validar");
   const [session, setSession] = useState<Session | null>(null);
 
   // Portaria por CONTA (2026-08-11): a lista vem da PERMISSÃO da pessoa
@@ -269,11 +249,15 @@ export default function PortariaPage() {
   const [torchOn, setTorchOn] = useState(false);
   const [torchAvailable, setTorchAvailable] = useState(false);
 
-  const [codeBody, setCodeBody] = useState("");
-  const [docQuery, setDocQuery] = useState("");
-  const [docResults, setDocResults] = useState<ManifestTicket[]>([]);
-  const [docMode, setDocMode] = useState<DocumentSearchMode>("none");
+  // busca unificada: um campo que descobre sozinho se é nome, CPF ou código
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [busca, setBusca] = useState("");
+  const [aba, setAba] = useState<AbaBusca>("ingressos");
+  const [resultado, setResultado] = useState<ResultadoBusca>({ modo: "vazio", tickets: [], outrasAbas: [] });
   const [docSelected, setDocSelected] = useState<ManifestTicket | null>(null);
+  /** conferência de CPF do convidado: só quem veio de lista passa por aqui */
+  const [cpfConferencia, setCpfConferencia] = useState("");
+  const [cpfErro, setCpfErro] = useState<string | null>(null);
 
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [recent, setRecent] = useState<RecentCheckin[]>([]);
@@ -502,10 +486,10 @@ export default function PortariaPage() {
     indexRef.current = EMPTY_INDEX;
     setManifest({ ready: false, tickets: 0, version: "", syncedAt: "" });
     db.clearManifest().catch(() => undefined);
-    setTab("scanner");
-    setCodeBody("");
-    setDocQuery("");
-    setDocResults([]);
+    setTab("validar");
+    setBusca("");
+    setBuscaAberta(false);
+    setResultado({ modo: "vazio", tickets: [], outrasAbas: [] });
     setDocSelected(null);
     setScreen("pin");
   }
@@ -526,7 +510,7 @@ export default function PortariaPage() {
   }, []);
 
   const validar = useCallback(
-    async (input: { qrToken?: string; code?: string }) => {
+    async (input: { qrToken?: string; code?: string; semConferirCpf?: boolean }) => {
       const active = sessionRef.current;
       if (!active || busyRef.current) return;
       busyRef.current = true;
@@ -541,6 +525,7 @@ export default function PortariaPage() {
               // o servidor resolve o ingresso pelo código curto quando não há QR
               code: input.qrToken ? undefined : input.code,
               checkinPointId: gate.id,
+              semConferirCpf: input.semConferirCpf,
               scannedAt: new Date().toISOString(),
             });
             const value: ScanResult = {
@@ -612,7 +597,7 @@ export default function PortariaPage() {
   // --- scanner (aba) -------------------------------------------------------
 
   useEffect(() => {
-    if (screen !== "validate" || tab !== "scanner") {
+    if (screen !== "validate" || tab !== "validar") {
       scannerRef.current?.stop();
       scannerRef.current = null;
       setTorchOn(false);
@@ -646,7 +631,8 @@ export default function PortariaPage() {
         if (cancelled) return;
         if (error instanceof CameraError) setCameraError(error);
         localStorage.removeItem(CAM_KEY);
-        setTab("doc");
+        // câmera negada/indisponível: abre a busca, que é o caminho que sobra
+        setBuscaAberta(true);
       });
 
     return () => {
@@ -668,24 +654,72 @@ export default function PortariaPage() {
     if (await handle.setTorch(next)) setTorchOn(next);
   }
 
-  // --- busca por documento (nome ou CPF-hash, 100% local) ------------------
+  // --- busca unificada (nome, CPF-hash ou código — 100% local) -------------
 
   // `manifest.syncedAt` na dependência: um sync (ou check-in) rebusca e a
   // lista reflete o status novo dos ingressos.
   useEffect(() => {
-    if (screen !== "validate" || tab !== "doc") return;
+    if (!buscaAberta) return;
     let alive = true;
-    searchByDocument(indexRef.current, docQuery)
+    buscarPessoa(indexRef.current, busca, aba)
       .then((found) => {
-        if (!alive) return;
-        setDocResults(found.tickets);
-        setDocMode(found.mode);
+        if (alive) setResultado(found);
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [docQuery, screen, tab, manifest.syncedAt]);
+  }, [busca, aba, buscaAberta, manifest.syncedAt]);
+
+  /** Abas disponíveis: Ingressos sempre; listas só se o manifesto trouxe alguma. */
+  const abas = useMemo(() => abasDoManifesto(indexRef.current), [manifest.syncedAt]);
+
+  // aba lembrada pode sumir entre eventos (a lista do promoter acabou): volta
+  // para Ingressos em vez de mostrar uma aba vazia sem explicação
+  useEffect(() => {
+    if (!abas.some((a) => a.id === aba)) setAba("ingressos");
+  }, [abas, aba]);
+
+  function abrirBusca() {
+    setBusca("");
+    setResultado({ modo: "vazio", tickets: [], outrasAbas: [] });
+    setBuscaAberta(true);
+  }
+  function fecharBusca() {
+    setBuscaAberta(false);
+    setDocSelected(null);
+    setCpfConferencia("");
+    setCpfErro(null);
+  }
+
+  /**
+   * CPF só é exigido de quem veio de LISTA (decisão do Arthur, 2026-09-15):
+   * quem tem ingresso já provou quem é pela posse dele. Na lista a pessoa não
+   * recebeu nada — o CPF é a única prova.
+   */
+  function precisaConferirCpf(ticket: ManifestTicket): boolean {
+    return Boolean(ticket.lista);
+  }
+
+  async function conferirCpfELiberar(ticket: ManifestTicket) {
+    const digitos = cpfConferencia.replace(/\D/g, "");
+    if (digitos.length !== 11) {
+      setCpfErro("Digite os 11 números do CPF.");
+      return;
+    }
+    // o aparelho nunca teve o CPF: compara hash com hash, igual à busca
+    const hash = await sha256Hex(digitos);
+    if (!ticket.cpfHash || hash !== ticket.cpfHash.toLowerCase()) {
+      setCpfErro(`CPF não confere — cadastrado como ${ticket.attendeeName ?? "convidado"}.`);
+      return;
+    }
+    setCpfErro(null);
+    // mesmo caminho de liberação de sempre — a conferência de CPF é um portão
+    // ANTES dele, não um fluxo paralelo de check-in
+    const code = ticket.code;
+    fecharBusca();
+    validar({ code });
+  }
 
   function statusIngresso(ticket: ManifestTicket): StatusIngresso {
     if (ticket.status === "CANCELED" || ticket.status === "REFUNDED") return "cancelado";
@@ -764,7 +798,6 @@ export default function PortariaPage() {
   const pendentes = queue.filter((q) => q.state === "PENDING");
   const conflitos = queue.filter((q) => q.state !== "PENDING");
   const eventoSelecionado = events.find((e) => e.id === eventId);
-  const codigoPronto = CORPO_COMPLETO.test(codeBody);
 
   // Permissões da sessão (2026-08-12). PIN não devolve os campos: valida
   // (undefined ≠ false) mas não vende. Só a sessão por CONTA traz canSell.
@@ -784,13 +817,6 @@ export default function PortariaPage() {
     if (!visibleTabs.some((t) => t.id === tab)) setTab(visibleTabs[0].id);
   }, [screen, visibleTabs, tab]);
 
-  const docHint = !manifest.ready
-    ? "Lista local não sincronizada"
-    : docMode === "cpf"
-      ? `${docResults.length} ingresso${docResults.length === 1 ? "" : "s"} com este CPF`
-      : docMode === "name"
-        ? `${docResults.length} participante${docResults.length === 1 ? "" : "s"} encontrado${docResults.length === 1 ? "" : "s"}`
-        : "Digite ao menos 2 letras ou o CPF completo";
 
   function iniciarValidacao() {
     // vendedor puro (sem canValidate): abre direto na aba de venda, sem câmera
@@ -800,15 +826,8 @@ export default function PortariaPage() {
       return;
     }
     const granted = typeof localStorage !== "undefined" && localStorage.getItem(CAM_KEY) === "1";
-    setTab("scanner");
+    setTab("validar");
     setScreen(granted ? "validate" : "camera");
-  }
-
-  function validarCodigo() {
-    if (!codigoPronto) return;
-    const code = `BF-${codeBody}`;
-    setCodeBody("");
-    validar({ code });
   }
 
   // -------------------------------------------------------------------------
@@ -1270,7 +1289,7 @@ export default function PortariaPage() {
           <div className="space-y-2.5">
             <button
               onClick={() => {
-                setTab("scanner");
+                setTab("validar");
                 setScreen("validate");
               }}
               className="h-[54px] w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white"
@@ -1279,8 +1298,9 @@ export default function PortariaPage() {
             </button>
             <button
               onClick={() => {
-                setTab("doc");
+                setTab("validar");
                 setScreen("validate");
+                setBuscaAberta(true);
               }}
               className="h-12 w-full rounded-2xl border-[1.5px] border-white/[.18] text-[13px] font-bold text-white/70"
             >
@@ -1292,7 +1312,7 @@ export default function PortariaPage() {
 
       {screen === "validate" && session && (
         <main className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#0b0910] text-white">
-          {tab === "scanner" && (
+          {tab === "validar" && (
             <>
               <div className="absolute inset-0 bg-[linear-gradient(135deg,#1a1424,#0b0910)]" />
               <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
@@ -1329,8 +1349,8 @@ export default function PortariaPage() {
             </span>
           </div>
 
-          {/* ---- aba Scanner ---- */}
-          {tab === "scanner" && (
+          {/* ---- aba Validar: câmera primeiro, busca como saída ---- */}
+          {tab === "validar" && (
             <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-8">
               <p className="mb-1.5 text-center text-[17px] font-extrabold">Aponte para o QR code</p>
               <p className="mb-6 text-center text-[12px] font-medium text-white/50">
@@ -1354,7 +1374,25 @@ export default function PortariaPage() {
                 </p>
               )}
 
-              <div className="mt-7 flex w-full items-center justify-between rounded-[18px] bg-white/[.08] px-[18px] py-3.5 backdrop-blur">
+              {/* NO CAMINHO DO OLHAR, COM PALAVRA (2026-09-15): a primeira versão
+                  usava dois ícones flutuantes na borda, com legenda só no hover —
+                  e hover não existe em tela de toque. Quem nunca viu a tela não
+                  descobria que existia outro jeito de validar. */}
+              <button
+                onClick={abrirBusca}
+                className="mt-6 flex h-[44px] items-center gap-2 rounded-2xl border-[1.5px] border-white/20 bg-white/[.1] px-5 text-[13.5px] font-extrabold text-white"
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                  <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                Buscar pessoa
+              </button>
+              <p className="mt-2 text-center text-[11px] font-semibold text-white/40">
+                Nome, CPF ou código — para quem não dá pra escanear
+              </p>
+
+              <div className="mt-6 flex w-full items-center justify-between rounded-[18px] bg-white/[.08] px-[18px] py-3.5 backdrop-blur">
                 <div>
                   <p className="text-[20px] font-extrabold leading-none">{count}</p>
                   <p className="mt-1.5 text-[11px] font-medium text-white/50">entradas neste portão</p>
@@ -1375,153 +1413,156 @@ export default function PortariaPage() {
             </div>
           )}
 
-          {/* ---- aba Código manual ---- */}
-          {tab === "code" && (
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pt-4">
-              <h1 className="text-[20px] font-extrabold">Código do ingresso</h1>
-              <p className="mb-6 mt-1 text-[13px] font-medium leading-relaxed text-white/50">
-                Digite o código curto impresso no ingresso ou no e-mail.
-              </p>
-
-              <div className="flex h-[60px] items-center rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 focus-within:border-primary">
-                <span className="text-[20px] font-extrabold tracking-[.12em] text-white/45">BF-</span>
-                <input
-                  value={codeBody}
-                  onChange={(e) => setCodeBody(formatarCorpoCodigo(e.target.value))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") validarCodigo();
-                  }}
-                  placeholder="0000-0000"
-                  autoFocus
-                  autoCapitalize="characters"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  className="w-full bg-transparent !text-[20px] font-extrabold uppercase tracking-[.12em] text-white outline-none placeholder:text-white/25"
-                />
-              </div>
-
-              {!manifest.ready && (
-                <p className="mt-3 text-[12px] font-bold text-[#fbbf24]">
-                  Lista local não sincronizada — sem rede, nenhum código será aprovado.
-                </p>
-              )}
-
+          {/* ---- BUSCA UNIFICADA: nome, CPF ou código, numa folha sobre a câmera ----
+               Antes eram duas abas separadas no rodapé (Código e Documento) para
+               a mesma ação. Aqui o operador não sai da tela de validação. */}
+          {buscaAberta && (
+            <>
               <button
-                onClick={validarCodigo}
-                disabled={!codigoPronto}
-                className="mt-5 h-[54px] w-full flex-none rounded-2xl bg-primary text-[16px] font-extrabold text-white shadow-cta disabled:bg-white/[.08] disabled:text-white/35 disabled:shadow-none"
-              >
-                Validar código
-              </button>
-              <p className="mt-4 text-[12px] font-medium leading-relaxed text-white/40">
-                Use quando o QR não carregar no celular do participante ou o papel estiver danificado.
-              </p>
-            </div>
-          )}
+                aria-label="Fechar busca"
+                onClick={fecharBusca}
+                className="absolute inset-0 z-20 bg-black/60"
+              />
+              <div className="absolute inset-x-0 bottom-0 top-[52px] z-30 flex flex-col rounded-t-[24px] bg-[#171126] px-4 pb-4 pt-3">
+                <span className="mx-auto mb-3 h-1 w-9 flex-none rounded-full bg-white/20" />
+                <h2 className="mb-3 flex-none text-[16px] font-extrabold">Buscar pessoa</h2>
 
-          {/* ---- aba Documento (nome ou CPF) ---- */}
-          {tab === "doc" && (
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col px-5 pt-4">
-              <h1 className="text-[20px] font-extrabold">Buscar participante</h1>
-              <p className="mb-4 mt-1 text-[13px] font-medium leading-relaxed text-white/50">
-                Nome ou CPF — a busca roda na lista do aparelho e funciona offline.
-              </p>
-
-              {cameraError && (
-                <p className="mb-3 flex-none rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12px] font-semibold text-[#fbbf24]">
-                  {cameraError.kind === "DENIED"
-                    ? "Câmera negada neste aparelho — valide pelo documento ou pelo código."
-                    : "Câmera indisponível neste navegador — valide pelo documento ou pelo código."}
-                </p>
-              )}
-
-              <div className="flex h-[52px] flex-none items-center gap-2.5 rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 focus-within:border-primary">
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" className="flex-none text-white/40">
-                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-                  <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-                <input
-                  value={docQuery}
-                  onChange={(e) => setDocQuery(e.target.value)}
-                  placeholder="Nome ou CPF do participante"
-                  inputMode="search"
-                  autoFocus
-                  className="w-full bg-transparent text-[15px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30"
-                />
-                {docQuery && (
-                  <button
-                    onClick={() => setDocQuery("")}
-                    aria-label="Limpar busca"
-                    className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-white/10 text-white/60"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-2.5 flex flex-none items-center justify-between px-0.5">
-                <span className="text-[11.5px] font-semibold text-white/45">{docHint}</span>
-                {!manifest.ready ? (
-                  <button
-                    onClick={() => syncNow()}
-                    className="rounded-lg bg-primary/25 px-2.5 py-1.5 text-[11.5px] font-bold text-[#c4b5fd]"
-                  >
-                    sincronizar
-                  </button>
-                ) : (
-                  docMode === "cpf" && (
-                    <span className="text-[11px] font-semibold text-white/30">comparado por hash</span>
-                  )
-                )}
-              </div>
-
-              <div className="mt-2.5 min-h-0 flex-1 space-y-2.5 overflow-y-auto pb-3">
-                {docResults.map((ticket) => {
-                  const st = statusIngresso(ticket);
-                  return (
+                <div className="flex h-[50px] flex-none items-center gap-2.5 rounded-2xl border-[1.5px] border-white/[.18] bg-white/[.07] px-4 focus-within:border-primary">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="flex-none text-white/40">
+                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                    <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  <input
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    placeholder="Nome, CPF ou código"
+                    autoFocus
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="w-full bg-transparent text-[15px] font-bold text-white outline-none placeholder:font-semibold placeholder:text-white/30"
+                  />
+                  {busca && (
                     <button
-                      key={ticket.id}
-                      onClick={() => setDocSelected(ticket)}
-                      className="flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-white/10 bg-white/[.06] px-4 py-3.5 text-left transition active:bg-white/[.12]"
+                      onClick={() => setBusca("")}
+                      aria-label="Limpar busca"
+                      className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-white/10 text-white/60"
                     >
-                      <span className="flex h-[42px] w-[42px] flex-none items-center justify-center rounded-full bg-brand-gradient text-[14px] font-extrabold">
-                        {iniciais(ticket.attendeeName ?? ticket.code)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-extrabold leading-tight">
-                          {ticket.attendeeName ?? "Ingresso não nominal"}
-                        </span>
-                        <span className="mt-1 block truncate text-[12px] font-medium text-white/45">
-                          {lotLabel(indexRef.current, ticket.ticketLotId) ?? "Ingresso"} · {ticket.code}
-                        </span>
-                      </span>
-                      <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-bold ${BADGE[st].cls}`}>
-                        {BADGE[st].label}
-                      </span>
-                    </button>
-                  );
-                })}
-
-                {docMode !== "none" && docResults.length === 0 && (
-                  <div className="flex flex-col items-center px-5 py-12 text-center">
-                    <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-[22px] bg-white/[.06] text-white/30">
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                        <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
-                        <path d="m20 20-3-3M8 11h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
                       </svg>
-                    </div>
-                    <p className="mb-1.5 text-[16px] font-extrabold">Nenhum resultado</p>
-                    <p className="max-w-[250px] text-[13px] font-medium leading-relaxed text-white/45">
-                      {docMode === "cpf"
-                        ? "Nenhum ingresso com este CPF na lista deste evento."
-                        : `Nenhum participante para “${docQuery}”. Confira o nome ou tente o CPF completo.`}
-                    </p>
+                    </button>
+                  )}
+                </div>
+                {/* diz o que ENTENDEU — some a dúvida de "por que não achou" */}
+                <p className="mt-2 h-[14px] flex-none px-1 text-[11px] font-bold text-[#c4b5fd]">
+                  {resultado.modo === "cpf"
+                    ? "buscando por CPF"
+                    : resultado.modo === "codigo"
+                      ? "buscando por código"
+                      : resultado.modo === "nome"
+                        ? "buscando por nome"
+                        : ""}
+                </p>
+
+                {/* abas: ingresso e lista são naturezas diferentes de entrada */}
+                {abas.length > 1 && (
+                  <div className="mt-2 flex flex-none gap-1.5 overflow-x-auto pb-1">
+                    {abas.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => setAba(item.id)}
+                        className={`flex-none rounded-full border-[1.5px] px-3 py-1.5 text-[11.5px] font-extrabold ${
+                          aba === item.id
+                            ? "border-primary bg-primary/20 text-[#d9caff]"
+                            : "border-white/15 bg-white/[.06] text-white/60"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
                 )}
+
+                {!manifest.ready && (
+                  <p className="mt-2 flex-none rounded-xl bg-warning/10 px-3 py-2 text-[11.5px] font-bold text-[#fbbf24]">
+                    Lista local não sincronizada — sem rede, ninguém será liberado.
+                  </p>
+                )}
+
+                <div className="mt-2.5 min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
+                  {resultado.tickets.map((ticket) => {
+                    const st = statusIngresso(ticket);
+                    return (
+                      <button
+                        key={ticket.id}
+                        onClick={() => {
+                          setCpfConferencia("");
+                          setCpfErro(null);
+                          setDocSelected(ticket);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-2xl border-[1.5px] border-white/10 bg-white/[.06] px-3.5 py-3 text-left active:bg-white/[.12]"
+                      >
+                        <span className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full bg-brand-gradient text-[13px] font-extrabold">
+                          {iniciais(ticket.attendeeName ?? ticket.code)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-extrabold leading-tight">
+                            {ticket.attendeeName ?? "Ingresso não nominal"}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11.5px] font-medium text-white/45">
+                            {ticket.lista ? ticket.lista.nome : lotLabel(indexRef.current, ticket.ticketLotId) ?? "Ingresso"} · {ticket.code}
+                          </span>
+                        </span>
+                        {/* convidado sem CPF cadastrado precisa ficar VISÍVEL na
+                            lista: é o que diz ao operador que ali a conferência
+                            vai ser só pelo nome */}
+                        {ticket.lista && !ticket.cpfHash && st === "disponivel" ? (
+                          <span className="flex-none rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold text-white/60">
+                            sem CPF
+                          </span>
+                        ) : (
+                          <span className={`flex-none rounded-full px-2.5 py-1 text-[11px] font-bold ${BADGE[st].cls}`}>
+                            {BADGE[st].label}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {resultado.tickets.length === 0 && (
+                    <div className="px-4 py-8 text-center">
+                      <p className="text-[13px] font-bold text-white/55">
+                        {resultado.modo === "cpf"
+                          ? "Ninguém com este CPF nesta aba."
+                          : resultado.modo === "codigo"
+                            ? "Nenhum ingresso com este código nesta aba."
+                            : resultado.modo === "nome"
+                              ? "Ninguém com esse nome nesta aba."
+                              : "Nenhum ingresso nesta aba."}
+                      </p>
+                      {/* SEPARAR NÃO PODE VIRAR BECO SEM SAÍDA: sem isto o
+                          operador lê "não encontrado" e manda embora quem ESTÁ
+                          cadastrado, só que em outra aba. */}
+                      {resultado.outrasAbas.length > 0 && (
+                        <p className="mt-3 text-[12.5px] font-extrabold text-[#c4b5fd]">
+                          Está em: {resultado.outrasAbas.join(" · ")}
+                          <span className="mt-1 block text-[11.5px] font-medium text-white/45">
+                            Toque na aba para conferir.
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={fecharBusca}
+                  className="mt-1 h-11 flex-none rounded-2xl text-[12.5px] font-bold text-white/55"
+                >
+                  Voltar pro scanner
+                </button>
               </div>
-            </div>
+            </>
           )}
 
           {/* ---- aba Vender na porta ---- */}
@@ -1658,20 +1699,83 @@ export default function PortariaPage() {
                   </p>
                 )}
 
+                {/* CONFERÊNCIA DE CPF — SÓ PARA QUEM VEIO DE LISTA (2026-09-15).
+                    Quem tem ingresso já provou quem é pela posse dele. Na lista a
+                    pessoa não recebeu nada: o CPF é a única prova. O aparelho
+                    nunca teve o número — compara hash com hash, então o operador
+                    confere sem nunca ver o CPF de ninguém. */}
+                {st === "disponivel" && precisaConferirCpf(docSelected) && docSelected.cpfHash && (
+                  <>
+                    <p className="mb-1 text-[13.5px] font-extrabold">Confira o CPF</p>
+                    <p className="mb-3 text-[12px] font-medium leading-relaxed text-white/50">
+                      Peça o CPF da pessoa e digite. Convidado de lista não recebe ingresso —
+                      é isto que confirma que é ela.
+                    </p>
+                    <input
+                      value={cpfConferencia}
+                      onChange={(e) => {
+                        setCpfConferencia(e.target.value);
+                        setCpfErro(null);
+                      }}
+                      placeholder="000.000.000-00"
+                      inputMode="numeric"
+                      autoFocus
+                      className="mb-2 h-[52px] w-full rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 text-[16px] font-extrabold text-white outline-none focus:border-primary placeholder:font-semibold placeholder:text-white/25"
+                    />
+                    {cpfErro && (
+                      <p className="mb-2 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12px] font-semibold leading-relaxed text-[#fbbf24]">
+                        {cpfErro}
+                        {/* NÃO TRANCA A PORTA: CPF errado pode ser digitação
+                            errada na lista ou documento esquecido em casa. Quem
+                            decide é o operador — e a decisão fica registrada. */}
+                        <button
+                          onClick={() => {
+                            const code = docSelected.code;
+                            fecharBusca();
+                            validar({ code, semConferirCpf: true });
+                          }}
+                          className="mt-2 block text-[12px] font-extrabold text-white underline"
+                        >
+                          Liberar mesmo assim
+                        </button>
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {/* convidado cadastrado ANTES do CPF virar obrigatório */}
+                {st === "disponivel" && precisaConferirCpf(docSelected) && !docSelected.cpfHash && (
+                  <p className="mb-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12px] font-semibold leading-relaxed text-[#fbbf24]">
+                    Cadastrado sem CPF — confira o nome completo no documento da pessoa.
+                  </p>
+                )}
+
                 <button
                   onClick={() => {
+                    if (st === "disponivel" && precisaConferirCpf(docSelected) && docSelected.cpfHash) {
+                      void conferirCpfELiberar(docSelected);
+                      return;
+                    }
                     const code = docSelected.code;
-                    setDocSelected(null);
+                    fecharBusca();
                     validar({ code });
                   }}
                   className={`h-[54px] w-full rounded-2xl text-[16px] font-extrabold ${
                     st === "disponivel" ? "bg-success text-white shadow-cta-green" : "bg-white/10 text-white"
                   }`}
                 >
-                  {st === "disponivel" ? "Confirmar entrada" : "Ver situação completa"}
+                  {st !== "disponivel"
+                    ? "Ver situação completa"
+                    : precisaConferirCpf(docSelected) && docSelected.cpfHash
+                      ? "Conferir e liberar"
+                      : "Confirmar entrada"}
                 </button>
                 <button
-                  onClick={() => setDocSelected(null)}
+                  onClick={() => {
+                    setDocSelected(null);
+                    setCpfConferencia("");
+                    setCpfErro(null);
+                  }}
                   className="mt-2.5 h-12 w-full rounded-2xl border-[1.5px] border-white/15 text-[13px] font-bold text-white/70"
                 >
                   Voltar
@@ -1687,8 +1791,9 @@ export default function PortariaPage() {
           gateName={gate.name}
           onNext={() => setScreen("validate")}
           onSearch={() => {
-            setTab("doc");
+            setTab("validar");
             setScreen("validate");
+            setBuscaAberta(true);
           }}
           onSync={() => setScreen("offline")}
         />

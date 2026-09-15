@@ -137,7 +137,14 @@ export const portariaApi = {
 
   checkin: (
     session: Session,
-    body: { qrToken?: string; code?: string; checkinPointId?: string; scannedAt?: string },
+    body: {
+      qrToken?: string;
+      code?: string;
+      checkinPointId?: string;
+      scannedAt?: string;
+      /** convidado de lista liberado sem o CPF bater — vai para a auditoria */
+      semConferirCpf?: boolean;
+    },
   ) => request<CheckinResponse>("/v1/checkins", { method: "POST", body, session }),
 
   sync: (

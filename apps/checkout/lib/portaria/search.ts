@@ -64,6 +64,117 @@ export async function searchByDocument(
   return { mode: "name", tickets: sortByName(tickets) };
 }
 
+// ===========================================================================
+// BUSCA UNIFICADA (2026-09-15)
+//
+// Código, documento e lista eram três abas no rodapé para UMA ação: liberar
+// quem já tem direito de entrar. Três caminhos de peso igual, sendo que o
+// scanner resolve quase tudo e os outros dois são exceção. Agora é um campo
+// só, que descobre sozinho o que foi digitado — CPF já era detectado assim;
+// código entrou junto porque o manifesto já carrega `code`.
+//
+// E a lista deixou de ser "mais um jeito de achar": ela é outra NATUREZA de
+// entrada. Quem tem ingresso prova pela posse; quem está em lista não recebeu
+// nada e prova pelo CPF. Por isso as abas nunca se misturam.
+// ===========================================================================
+
+export type ModoBusca = "cpf" | "codigo" | "nome" | "vazio";
+
+/** "ingressos" = quem tem ingresso em mãos · "todas" = qualquer lista · id = uma lista */
+export type AbaBusca = "ingressos" | "todas" | (string & {});
+
+export interface ResultadoBusca {
+  modo: ModoBusca;
+  tickets: ManifestTicket[];
+  /**
+   * Nomes das abas onde essa mesma busca acharia alguém. Separar as abas cria o
+   * risco de o operador procurar na errada, ler "não encontrado" e mandar embora
+   * quem ESTÁ cadastrado — recusa silenciosa que parece legítima. A tela usa
+   * isto para dizer "está em: Lista do João" em vez de só negar.
+   */
+  outrasAbas: string[];
+}
+
+/** BF-XXXX-XXXX, inclusive parcial enquanto a pessoa digita. */
+const PARECE_CODIGO = /^bf[-\s]?[a-z0-9]{0,4}[-\s]?[a-z0-9]{0,4}$/i;
+
+function soLetrasENumeros(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+export function detectarModo(query: string): { modo: ModoBusca; termo: string } {
+  const bruto = query.trim();
+  if (!bruto) return { modo: "vazio", termo: "" };
+
+  const digitos = bruto.replace(/\D/g, "");
+  if (digitos.length === 11) return { modo: "cpf", termo: digitos };
+  if (PARECE_CODIGO.test(bruto)) return { modo: "codigo", termo: soLetrasENumeros(bruto) };
+
+  // UMA LETRA TAMBÉM BUSCA (2026-09-15). A regra antiga exigia 2 caracteres e
+  // devolvia vazio abaixo disso — o que, agora que o campo vazio mostra a aba
+  // inteira, fazia os resultados SUMIREM no instante em que o operador digitava
+  // a primeira letra. O teto de resultados já protege de lista gigante; não
+  // precisa de mínimo.
+  return { modo: "nome", termo: normalizeName(bruto) };
+}
+
+function naAba(ticket: ManifestTicket, aba: AbaBusca): boolean {
+  if (aba === "ingressos") return !ticket.lista;
+  if (aba === "todas") return Boolean(ticket.lista);
+  return ticket.lista?.id === aba;
+}
+
+/** Abas disponíveis a partir do que o aparelho baixou — sem lista, só Ingressos. */
+export function abasDoManifesto(index: ManifestIndex): Array<{ id: AbaBusca; label: string }> {
+  const listas = new Map<string, string>();
+  for (const ticket of index.byId.values()) {
+    if (ticket.lista) listas.set(ticket.lista.id, ticket.lista.nome);
+  }
+  const abas: Array<{ id: AbaBusca; label: string }> = [{ id: "ingressos", label: "Ingressos" }];
+  if (listas.size === 0) return abas;
+  abas.push({ id: "todas", label: "Todas as listas" });
+  for (const [id, nome] of [...listas].sort((a, b) => a[1].localeCompare(b[1], "pt-BR"))) {
+    abas.push({ id, label: id === "producao" ? nome : `Lista de ${nome}` });
+  }
+  return abas;
+}
+
+/**
+ * Um campo só: nome, CPF ou código. Roda inteira no aparelho — continua offline
+ * por construção, e o CPF segue comparado por hash (o número nunca desce).
+ */
+export async function buscarPessoa(
+  index: ManifestIndex,
+  query: string,
+  aba: AbaBusca,
+  limit = 30,
+): Promise<ResultadoBusca> {
+  const { modo, termo } = detectarModo(query);
+
+  const hash = modo === "cpf" ? await sha256Hex(termo) : null;
+  const casa = (t: ManifestTicket): boolean => {
+    if (modo === "cpf") return Boolean(t.cpfHash && t.cpfHash.toLowerCase() === hash);
+    if (modo === "codigo") return soLetrasENumeros(t.code).startsWith(termo);
+    if (modo === "nome") return Boolean(t.attendeeName && normalizeName(t.attendeeName).includes(termo));
+    return true; // "vazio": mostra a aba inteira, que é o comportamento útil aqui
+  };
+
+  const daAba: ManifestTicket[] = [];
+  const foraDaAba = new Map<string, string>();
+  for (const ticket of index.byId.values()) {
+    if (!casa(ticket)) continue;
+    if (naAba(ticket, aba)) {
+      if (daAba.length < limit) daAba.push(ticket);
+    } else if (modo !== "vazio") {
+      // só interessa apontar "está em outro lugar" quando houve busca de verdade
+      const id = ticket.lista?.id ?? "ingressos";
+      foraDaAba.set(id, ticket.lista?.nome ?? "Ingressos");
+    }
+  }
+
+  return { modo, tickets: sortByName(daAba), outrasAbas: [...foraDaAba.values()] };
+}
+
 function sortByName(tickets: ManifestTicket[]): ManifestTicket[] {
   return tickets.sort((a, b) =>
     (a.attendeeName ?? a.code).localeCompare(b.attendeeName ?? b.code, "pt-BR"),
