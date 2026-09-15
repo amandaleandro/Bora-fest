@@ -39,8 +39,18 @@ export async function loadIndex(session: Session): Promise<ManifestIndex> {
 }
 
 /**
- * Baixa o manifesto. Faz o full na primeira vez (ou ao trocar de evento) e
- * delta (`since=manifestVersion`) nas demais. Devolve o índice atualizado.
+ * FORMATO do manifesto guardado no aparelho. SUBA ESTE NÚMERO sempre que um
+ * campo novo passar a ser lido do ticket — senão o aparelho que já sincronizou
+ * segue com o formato velho e a tela lê `undefined` achando que é dado ausente.
+ *   1 → formato original
+ *   2 → ticket ganhou `lista` (2026-09-15), usado para separar Ingressos das
+ *       listas e decidir se o CPF é conferido
+ */
+const MANIFEST_SCHEMA = 2;
+
+/**
+ * Baixa o manifesto. Faz o full na primeira vez, ao trocar de evento ou quando o
+ * formato guardado é antigo; delta (`since=manifestVersion`) nas demais.
  */
 export async function syncManifest(session: Session): Promise<ManifestIndex> {
   if (!db.isDbAvailable()) return EMPTY_INDEX;
@@ -51,9 +61,18 @@ export async function syncManifest(session: Session): Promise<ManifestIndex> {
     await db.clearManifest().catch(() => undefined);
   }
 
+  // ESQUEMA NOVO EXIGE FULL (2026-09-15). O delta só devolve `updatedAt > since`,
+  // então um CAMPO NOVO nunca alcança ingresso que não mudou: ele fica no
+  // aparelho com o formato antigo para sempre. Foi o que aconteceu com `lista`
+  // — em aparelho já sincronizado a barra de abas sumia, o convidado caía em
+  // "Ingressos" e o botão virava "Confirmar entrada", liberando SEM conferir
+  // CPF. Falha silenciosa: a tela não tinha como saber que o dado faltava.
+  //
+  // Ao subir o MANIFEST_SCHEMA, todo aparelho baixa o manifesto inteiro uma vez.
+  const esquemaVelho = stored?.manifestSchema !== MANIFEST_SCHEMA;
   const response = await portariaApi.manifest(
     session,
-    sameEvent ? stored?.manifestVersion : undefined,
+    sameEvent && !esquemaVelho ? stored?.manifestVersion : undefined,
   );
 
   const meta: Omit<ManifestMeta, "ticketCount"> = {
@@ -64,6 +83,7 @@ export async function syncManifest(session: Session): Promise<ManifestIndex> {
     publicKeyPem:
       response.signingKey?.publicKeyPem ?? (sameEvent ? (stored?.publicKeyPem ?? null) : null),
     syncedAt: new Date().toISOString(),
+    manifestSchema: MANIFEST_SCHEMA,
   };
 
   await db.saveManifest({
@@ -117,6 +137,7 @@ export async function flushQueue(session: Session): Promise<FlushOutcome | null>
         ticketId: item.ticketId,
         checkinPointId: item.checkinPointId,
         scannedAt: item.scannedAt,
+        semConferirCpf: item.semConferirCpf,
       })),
     );
 
@@ -144,6 +165,7 @@ export async function enqueueCheckin(input: {
   name: string | null;
   checkinPointId?: string;
   gateName: string | null;
+  semConferirCpf?: boolean;
 }): Promise<QueueItem | null> {
   if (!db.isDbAvailable()) return null;
   const localSeq = await db.nextLocalSeq();
@@ -152,6 +174,7 @@ export async function enqueueCheckin(input: {
     ticketId: input.ticketId,
     checkinPointId: input.checkinPointId,
     scannedAt: new Date().toISOString(),
+    semConferirCpf: input.semConferirCpf,
     state: "PENDING",
     code: input.code,
     name: input.name,

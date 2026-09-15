@@ -64,6 +64,12 @@ export const syncCheckinsSchema = z.object({
         ticketId: z.string().uuid(),
         checkinPointId: z.string().uuid().optional(),
         scannedAt: z.coerce.date(),
+        /**
+         * Mesma válvula do check-in online, pelo caminho offline (2026-09-15).
+         * Opcional de verdade: aparelho com o app antigo em cache continua
+         * mandando lote sem o campo e não pode passar a tomar 400.
+         */
+        semConferirCpf: z.boolean().optional(),
       }),
     )
     .min(1)

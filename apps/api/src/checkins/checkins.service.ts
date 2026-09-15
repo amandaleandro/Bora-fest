@@ -25,6 +25,48 @@ export class CheckinsService {
    * (`updateMany` com guarda de status) — sob concorrência de vários portões,
    * exatamente um aparelho recebe VALID; os demais, ALREADY_USED.
    */
+  /**
+   * LIBERADO SEM CONFERIR O CPF — o rastro da válvula de escape (2026-09-15).
+   *
+   * A tela oferece "liberar mesmo assim" porque CPF que não bate pode ser
+   * digitação errada no cadastro ou documento esquecido em casa: trancar a porta
+   * de quem tem convite de verdade é pior. Mas a saída não pode ser invisível.
+   *
+   * Mora aqui, num lugar só, porque a portaria entra pelos DOIS caminhos —
+   * online (`create`) e fila offline (`sync`). A primeira versão registrava só
+   * no online, ou seja, a garantia existia justamente onde ela menos importa: a
+   * portaria foi desenhada para rodar offline, então o uso mais provável da
+   * válvula era o que não deixava rastro nenhum.
+   */
+  private async auditarSemConferirCpf(args: {
+    ticket: { id: string; code: string; attendeeName: string | null };
+    device: ValidatorDevice;
+    checkinId: string | null;
+    origem: "ONLINE" | "OFFLINE_SYNC";
+    scannedAt: Date;
+  }) {
+    await prisma.auditLog
+      .create({
+        data: {
+          action: "checkin.sem_conferir_cpf",
+          entityType: "ticket",
+          entityId: args.ticket.id,
+          metadata: {
+            ticketCode: args.ticket.code,
+            attendeeName: args.ticket.attendeeName,
+            deviceId: args.device.id,
+            deviceName: args.device.name,
+            checkinId: args.checkinId,
+            origem: args.origem,
+            // no offline a hora do servidor não é a hora da porta, e é a da
+            // porta que o produtor vai querer cruzar no dia seguinte
+            scannedAt: args.scannedAt.toISOString(),
+          },
+        },
+      })
+      .catch(() => undefined); // auditoria nunca derruba a entrada de ninguém
+  }
+
   async create(device: ValidatorDevice, input: CreateCheckinInput) {
     const resolved = await this.resolveTicketWithReason(device.eventId, input);
     if (!resolved.ticket) {
@@ -46,25 +88,14 @@ export class CheckinsService {
       null,
     );
 
-    // LIBERADO SEM CONFERIR O CPF (2026-09-15): a tela oferece essa saída porque
-    // CPF errado não pode trancar a porta de quem tem convite de verdade — mas
-    // ela não pode ser invisível. Fica no auditLog com aparelho e ingresso, para
-    // o produtor ver no dia seguinte o que saiu fora do padrão.
     if (input.semConferirCpf && outcome.result === "VALID") {
-      await prisma.auditLog.create({
-        data: {
-          action: "checkin.sem_conferir_cpf",
-          entityType: "ticket",
-          entityId: ticket.id,
-          metadata: {
-            ticketCode: ticket.code,
-            attendeeName: ticket.attendeeName,
-            deviceId: device.id,
-            deviceName: device.name,
-            checkinId: outcome.checkinId ?? null,
-          },
-        },
-      }).catch(() => undefined); // auditoria nunca derruba a entrada de ninguém
+      await this.auditarSemConferirCpf({
+        ticket,
+        device,
+        checkinId: outcome.checkinId ?? null,
+        origem: "ONLINE",
+        scannedAt: input.scannedAt ?? new Date(),
+      });
     }
 
     return {
@@ -111,7 +142,10 @@ export class CheckinsService {
     for (const item of input.items) {
       const ticket = await prisma.ticket.findFirst({
         where: { id: item.ticketId, eventId: device.eventId },
-        select: { id: true },
+        // code/attendeeName entram por causa da auditoria do "sem conferir CPF":
+        // sem eles o registro offline nasceria sem código nem nome, pior que o
+        // online e inútil para o produtor cruzar depois
+        select: { id: true, code: true, attendeeName: true },
       });
       if (!ticket) {
         items.push({ localSeq: item.localSeq, ticketId: item.ticketId, status: "INVALID" });
@@ -129,6 +163,18 @@ export class CheckinsService {
         );
         const status = outcome.result === "VALID" ? "CONFIRMED" : "CONFLICT";
         if (status === "CONFLICT") conflictCount++;
+        // mesmo rastro do caminho online. NÃO auditamos no ramo de recuperação
+        // P2002 abaixo: aquele item já foi aplicado por um sync anterior, que já
+        // registrou — auditar de novo duplicaria a mesma entrada.
+        if (item.semConferirCpf && status === "CONFIRMED") {
+          await this.auditarSemConferirCpf({
+            ticket,
+            device,
+            checkinId: outcome.checkinId ?? null,
+            origem: "OFFLINE_SYNC",
+            scannedAt: item.scannedAt,
+          });
+        }
         items.push({
           localSeq: item.localSeq,
           ticketId: item.ticketId,

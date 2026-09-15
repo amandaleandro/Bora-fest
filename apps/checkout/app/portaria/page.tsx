@@ -576,6 +576,9 @@ export default function PortariaPage() {
             name: local.name ?? null,
             checkinPointId: gate.id,
             gateName: gate.name,
+            // o rastro do "liberar mesmo assim" viaja na fila: offline é o modo
+            // normal da portaria, e era justamente aí que ele sumia
+            semConferirCpf: input.semConferirCpf,
           });
           if (item) {
             indexRef.current.localCheckins.set(item.ticketId, {
@@ -597,7 +600,13 @@ export default function PortariaPage() {
   // --- scanner (aba) -------------------------------------------------------
 
   useEffect(() => {
-    if (screen !== "validate" || tab !== "validar") {
+    // A CÂMERA PARA COM A BUSCA ABERTA (2026-09-15). A folha de busca não troca
+    // de aba, então o scanner seguia rodando por trás dela: no meio da
+    // conferência de CPF de um convidado, um QR qualquer da fila entrava no
+    // campo de visão, `validar()` disparava, a tela pulava para o resultado e a
+    // conferência morria — liberando alguém que ninguém estava olhando.
+    // Mesma classe do sequestro de tela que o PDV já teve em 2026-09-13.
+    if (screen !== "validate" || tab !== "validar" || buscaAberta) {
       scannerRef.current?.stop();
       scannerRef.current = null;
       setTorchOn(false);
@@ -640,7 +649,7 @@ export default function PortariaPage() {
       scannerRef.current?.stop();
       scannerRef.current = null;
     };
-  }, [screen, tab, validar]);
+  }, [buscaAberta, screen, tab, validar]);
 
   // ao entrar no modo validação, atualiza o manifesto por delta
   useEffect(() => {

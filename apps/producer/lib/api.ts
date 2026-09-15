@@ -961,7 +961,13 @@ export interface GuestListEntry {
 export interface CreateGuestListEntryInput {
   ticketLotId: string;
   guestName: string;
-  guestDocument?: string;
+  /**
+   * OBRIGATÓRIO desde 2026-09-15: convidado de lista não recebe ingresso, então
+   * o CPF é a única prova de identidade dele na porta. Tipado como obrigatório
+   * de propósito — o servidor recusa sem ele, e um chamador novo tem que
+   * descobrir isso no compilador, não no 400 em produção.
+   */
+  guestDocument: string;
   guestPhone?: string;
   salesPartnerId?: string;
 }

@@ -56,6 +56,13 @@ export interface ManifestMeta {
   publicKeyPem: string | null;
   syncedAt: string;
   ticketCount: number;
+  /**
+   * Versão do FORMATO do manifesto guardado (2026-09-15). Campo novo no ticket
+   * não chega por delta: o servidor só devolve `updatedAt > since`, e ingresso
+   * antigo não mudou — ele fica no aparelho para sempre com o formato velho.
+   * `undefined` = guardado antes deste controle existir, então vale um full.
+   */
+  manifestSchema?: number;
 }
 
 export interface ManifestResponse {
@@ -81,6 +88,14 @@ export interface QueueItem {
   code: string;
   name: string | null;
   gateName: string | null;
+  /**
+   * Convidado de lista liberado sem o CPF bater (2026-09-15). Viaja na fila
+   * porque a portaria opera OFFLINE: se o rastro dependesse de rede, ele some
+   * exatamente no modo em que a válvula de escape mais é usada.
+   * Itens gravados antes deste campo existir chegam `undefined` — e `undefined`
+   * significa "entrada normal", que é a leitura certa para eles.
+   */
+  semConferirCpf?: boolean;
 }
 
 export type ResultKind = "VALID" | "ALREADY_USED" | "INVALID" | "CANCELED" | "UNVERIFIED";
