@@ -24,6 +24,7 @@ import { GuestListService } from "../src/guest-list/guest-list.service";
 import { TicketsService } from "../src/tickets/tickets.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "../src/__tests__/helpers";
 import { createGuestListEntrySchema } from "@borafest/contracts";
+import { listaDoPedido, origemGratis } from "../src/common/origem-gratis";
 
 let pass = 0, fail = 0;
 function ok(nome: string, cond: boolean, extra?: unknown) {
@@ -161,6 +162,57 @@ async function main() {
       : null);
     ok("lista cria OrderAttendee com nome e CPF",
       att?.cpf === "52998224725" && att?.name === "Convidada Com CPF", att);
+
+    // -------------------------------------------------------------------
+    // 10) DE QUEM É A LISTA + rótulo coerente (2026-09-15).
+    //
+    // O manifesto derivava `tipo` por uma CÓPIA da regra de origem-gratis, e
+    // ela já tinha divergido: não olhava promoterLinkId. Convidado de promoter
+    // saía CONVIDADO offline (manifesto) e CORTESIA online (check-in) — mesma
+    // pessoa, dois rótulos, dependendo de o aparelho ter rede.
+    // -------------------------------------------------------------------
+    console.log("\n10) Lista do pedido e rótulo vindos da mesma fonte");
+
+    const doPromoter = await prisma.order.findFirst({
+      where: { eventId: ev.id, promoterLinkId: { not: null } },
+      select: {
+        totalCents: true, soldByUserId: true,
+        salesPartnerId: true, salesPartner: { select: { name: true } },
+        promoterLinkId: true, promoterLink: { select: { promoterUser: { select: { name: true } } } },
+        guestListEntries: { select: { id: true }, take: 1 },
+      },
+    });
+    ok("convidado de promoter é CORTESIA (não CONVIDADO)",
+      doPromoter !== null && origemGratis(doPromoter)?.kind === "CORTESIA",
+      doPromoter ? origemGratis(doPromoter) : "sem pedido de promoter");
+    const listaProm = doPromoter ? listaDoPedido(doPromoter) : null;
+    ok("lista do promoter leva o id do vínculo e o nome de quem convidou",
+      listaProm?.id === doPromoter?.promoterLinkId && Boolean(listaProm?.nome), listaProm);
+
+    const daCasa = await prisma.order.findFirst({
+      where: { eventId: ev.id, promoterLinkId: null, salesPartnerId: null, totalCents: 0 },
+      select: {
+        totalCents: true, soldByUserId: true,
+        salesPartnerId: true, salesPartner: { select: { name: true } },
+        promoterLinkId: true, promoterLink: { select: { promoterUser: { select: { name: true } } } },
+        guestListEntries: { select: { id: true }, take: 1 },
+      },
+    });
+    ok("convidado da casa cai na lista 'producao'",
+      daCasa !== null && listaDoPedido(daCasa)?.id === "producao", daCasa ? listaDoPedido(daCasa) : null);
+
+    // quem PAGOU não tem lista: vai para a aba "Ingressos"
+    const pago = await prisma.order.findFirst({
+      where: { eventId: ev.id, totalCents: { gt: 0 } },
+      select: {
+        totalCents: true, soldByUserId: true,
+        salesPartnerId: true, salesPartner: { select: { name: true } },
+        promoterLinkId: true, promoterLink: { select: { promoterUser: { select: { name: true } } } },
+        guestListEntries: { select: { id: true }, take: 1 },
+      },
+    });
+    ok("quem tem ingresso não tem lista (aba Ingressos)",
+      pago === null || listaDoPedido(pago) === null, pago ? listaDoPedido(pago) : "sem pedido pago");
   } finally {
     await cleanupFixtureEvent(f.organization.id).catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);

@@ -21,6 +21,7 @@ import type {
   ValidatorSessionInput,
 } from "@borafest/contracts";
 import { PERMISSIONS, roleHasPermission } from "@borafest/auth";
+import { listaDoPedido, origemGratis } from "../common/origem-gratis";
 import { OrgAccessService } from "../common/org-access.service";
 
 /** SHA-256 (hex minúsculo) dos 11 dígitos do CPF — o cru nunca sai do servidor. */
@@ -336,7 +337,17 @@ export class ValidatorService {
         // etiqueta de entrada grátis (2026-08-31): CONVIDADO (lista) vs
         // CORTESIA (balcão de promoter) — a portaria mostra no VÁLIDO
         order: {
-          select: { totalCents: true, soldByUserId: true, guestListEntries: { select: { id: true }, take: 1 } },
+          select: {
+            totalCents: true,
+            soldByUserId: true,
+            // quem convidou (2026-09-15): alimenta o filtro por lista na porta E
+            // a etiqueta, que antes era derivada por uma cópia divergente da regra
+            salesPartnerId: true,
+            salesPartner: { select: { name: true } },
+            promoterLinkId: true,
+            promoterLink: { select: { promoterUser: { select: { name: true } } } },
+            guestListEntries: { select: { id: true }, take: 1 },
+          },
         },
       },
     });
@@ -355,18 +366,24 @@ export class ValidatorService {
       ticketCount: tickets.length,
       // busca por documento na portaria compara sha256 no aparelho — o CPF cru
       // nunca sai do servidor.
-      tickets: tickets.map(({ attendeeCpf, order, ...ticket }) => ({
-        ...ticket,
-        cpfHash: hashCpf(attendeeCpf),
-        tipo:
-          order && order.totalCents === 0
-            ? order.guestListEntries.length > 0
-              ? ("CONVIDADO" as const)
-              : order.soldByUserId
-                ? ("CORTESIA" as const)
-                : null
-            : null,
-      })),
+      tickets: tickets.map(({ attendeeCpf, order, ...ticket }) => {
+        // ETIQUETA VEM DA FONTE ÚNICA (2026-09-15). Aqui existia uma CÓPIA da
+        // derivação de `common/origem-gratis.ts` — e ela já tinha divergido: não
+        // olhava `promoterLinkId`, então convidado de promoter saía CONVIDADO
+        // pelo manifesto (offline) e CORTESIA pelo check-in online. Mesma pessoa,
+        // dois rótulos, dependendo de o aparelho ter rede. Era exatamente o
+        // motivo de `origem-gratis.ts` ter sido extraído em 2026-09-07.
+        const origem = order ? origemGratis(order) : null;
+        return {
+          ...ticket,
+          cpfHash: hashCpf(attendeeCpf),
+          tipo: origem?.kind ?? null,
+          // DE QUEM É A LISTA (2026-09-15): a porta filtra por isso, offline.
+          // `null` = tem ingresso em mãos (a posse já prova quem é) e cai na aba
+          // "Ingressos". Quem veio de lista só aparece na aba de quem convidou.
+          lista: listaDoPedido(order),
+        };
+      }),
     };
   }
 

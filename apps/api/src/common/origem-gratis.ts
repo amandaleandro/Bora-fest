@@ -28,6 +28,35 @@ export interface PedidoParaOrigem {
   guestListEntries?: Array<{ id: string }>;
 }
 
+/**
+ * DE QUEM É A LISTA (2026-09-15) — mesma fonte da etiqueta, de propósito.
+ *
+ * A portaria separa "Ingressos" (tem ingresso em mãos; a posse já prova quem é)
+ * de cada lista (só o nome cadastrado; exige CPF). `null` significa a primeira
+ * aba. Mora aqui junto de `origemGratis` porque lê exatamente os mesmos campos —
+ * separar as duas em arquivos diferentes recriaria a divergência que este
+ * arquivo existe para evitar.
+ *
+ * O id é o que o filtro da porta usa; o nome é o que a pessoa fala na fila
+ * ("tô na lista do João").
+ */
+export type ListaDoPedido = { id: string; nome: string } | null;
+
+export function listaDoPedido(order: PedidoParaOrigem): ListaDoPedido {
+  if ((order.guestListEntries?.length ?? 0) === 0) return null;
+
+  const promoterId = order.promoterLinkId ?? null;
+  if (promoterId) {
+    return { id: promoterId, nome: order.promoterLink?.promoterUser?.name ?? "Promoter" };
+  }
+  const parceiroId = order.salesPartnerId ?? null;
+  if (parceiroId) {
+    return { id: parceiroId, nome: order.salesPartner?.name ?? "Parceiro" };
+  }
+  // cadastrado pela própria casa: uma lista só, sempre com o mesmo id
+  return { id: "producao", nome: "Produção" };
+}
+
 export function origemGratis(order: PedidoParaOrigem): OrigemGratis {
   if (order.totalCents !== 0) return null;
 

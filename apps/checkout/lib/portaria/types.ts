@@ -32,6 +32,14 @@ export interface ManifestTicket {
    */
   cpfHash?: string | null;
   tipo?: "CONVIDADO" | "CORTESIA" | null;
+  /**
+   * De quem é a lista (2026-09-15). `null`/ausente = tem ingresso em mãos e cai
+   * na aba "Ingressos"; preenchido = só o nome cadastrado, aparece apenas na aba
+   * de quem convidou e exige conferência de CPF.
+   * Opcional para tolerar manifesto guardado antes do campo existir — aparelho
+   * que ainda não ressincronizou não pode quebrar a tela.
+   */
+  lista?: { id: string; nome: string } | null;
 }
 
 export interface ManifestLot {
