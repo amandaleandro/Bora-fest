@@ -14,7 +14,7 @@ import { createReservationExpirationQueue } from "@borafest/queues";
 import { applyGatewayStatus, computePlatformFeeCents, getGateway, getGatewayForMethod } from "@borafest/payments";
 import { PERMISSIONS } from "@borafest/auth";
 import type { CreateOrderInput, PdvOrderInput, RefundOrderInput } from "@borafest/contracts";
-import { PROTECTION_FEE_CENTS, sugerirCorrecaoEmail } from "@borafest/contracts";
+import { ehCpfValido, PROTECTION_FEE_CENTS, sugerirCorrecaoEmail } from "@borafest/contracts";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { IdempotencyService } from "../common/idempotency.service";
@@ -29,16 +29,6 @@ import { IdempotencyService } from "../common/idempotency.service";
 const ORDER_PAYMENT_WINDOW_MINUTES = 30;
 
 /** CPF válido (11 dígitos + dígitos verificadores) — pré-requisito do Pix no balcão. */
-function ehCpfValido(raw: string | undefined): boolean {
-  const cpf = (raw ?? "").replace(/\D/g, "");
-  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
-  for (const len of [9, 10]) {
-    let soma = 0;
-    for (let i = 0; i < len; i += 1) soma += Number(cpf[i]) * (len + 1 - i);
-    if (((soma * 10) % 11) % 10 !== Number(cpf[len])) return false;
-  }
-  return true;
-}
 
 
 /**

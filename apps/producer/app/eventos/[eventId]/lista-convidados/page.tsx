@@ -73,13 +73,18 @@ function GuestListContent({ eventId }: { eventId: string }) {
 
   async function handleAddGuest() {
     if (!token || !ticketLotId || guestName.trim().length < 2) return;
+    // trava antes do request: mensagem imediata em vez de round-trip pro 400
+    if (!ehCpfValido(guestDocument)) {
+      setFormError("Informe o CPF do convidado — é o que confirma a identidade dele na porta.");
+      return;
+    }
     setSaving(true);
     setFormError(null);
     try {
       await guestListApi.create(token, eventId, {
         ticketLotId,
         guestName: guestName.trim(),
-        guestDocument: guestDocument.trim() || undefined,
+        guestDocument: guestDocument.trim(),
         guestPhone: guestPhone.trim() || undefined,
         salesPartnerId: salesPartnerId || undefined,
       });
@@ -151,9 +156,12 @@ function GuestListContent({ eventId }: { eventId: string }) {
             value={guestName}
             onChange={(e) => setGuestName(e.target.value)}
           />
+          {/* CPF obrigatório (2026-09-15): o convidado da lista não recebe QR nem
+              código — na porta o CPF é a única prova de que é ele mesmo. */}
           <input
-            placeholder="CPF (opcional)"
+            placeholder="CPF do convidado"
             className="w-full"
+            inputMode="numeric"
             value={guestDocument}
             onChange={(e) => setGuestDocument(e.target.value)}
           />
@@ -243,6 +251,23 @@ function GuestListContent({ eventId }: { eventId: string }) {
       </section>
     </main>
   );
+}
+
+/**
+ * Cópia local de propósito: os apps web não dependem de `@borafest/contracts`
+ * (falam com a API por HTTP, com tipos próprios) — mesmo motivo do `cpfValido`
+ * em `PdvPorta.tsx` no checkout. A regra que vale é a do servidor
+ * (`packages/contracts/src/cpf.ts`); aqui é só para avisar antes do request.
+ */
+function ehCpfValido(raw: string): boolean {
+  const cpf = raw.replace(/\D/g, "");
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const len of [9, 10]) {
+    let soma = 0;
+    for (let i = 0; i < len; i += 1) soma += Number(cpf[i]) * (len + 1 - i);
+    if (((soma * 10) % 11) % 10 !== Number(cpf[len])) return false;
+  }
+  return true;
 }
 
 export default function GuestListPage({ params }: { params: { eventId: string } }) {

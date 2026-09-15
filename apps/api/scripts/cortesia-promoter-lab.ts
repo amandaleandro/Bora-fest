@@ -23,6 +23,7 @@ import { InventoryService } from "../src/inventory/inventory.service";
 import { GuestListService } from "../src/guest-list/guest-list.service";
 import { TicketsService } from "../src/tickets/tickets.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "../src/__tests__/helpers";
+import { createGuestListEntrySchema } from "@borafest/contracts";
 
 let pass = 0, fail = 0;
 function ok(nome: string, cond: boolean, extra?: unknown) {
@@ -120,6 +121,46 @@ async function main() {
       "fecha quando o evento começa",
     );
     ok("lista fechada barra até quem tem cota", rFechada !== null && !rFechada.startsWith("MENSAGEM"), rFechada);
+
+    // ---------------------------------------------------------------------
+    // 9) CPF DO CONVIDADO (2026-09-15) — regressão dupla.
+    //
+    // O `guestDocument` era gravado só em `guest_list_entries` e MORRIA ali:
+    // o convidado saía com attendeeCpf null, o hash nunca descia para a
+    // portaria e a busca por CPF não achava ninguém da lista. É o mesmo
+    // defeito que o balcão já teve ("o CPF morre no auditLog", 2026-09-08) —
+    // duas ocorrências da mesma doença, então vale guarda permanente.
+    // ---------------------------------------------------------------------
+    console.log("\n9) CPF do convidado: validado na entrada e entregue ao ingresso");
+
+    // 9a) o CONTRATO recusa o que não é CPF (o serviço é chamado direto pelos
+    // labs, com `as never`, então a validação Zod precisa ser exercitada aqui)
+    ok("contrato recusa CPF ausente",
+      createGuestListEntrySchema.safeParse({ ticketLotId: f.lot.id, guestName: "Sem Doc" }).success === false);
+    ok("contrato recusa CPF de dígito errado",
+      createGuestListEntrySchema.safeParse({ ticketLotId: f.lot.id, guestName: "Errado", guestDocument: "111.111.111-11" }).success === false);
+    const parsed = createGuestListEntrySchema.safeParse({ ticketLotId: f.lot.id, guestName: "Certo", guestDocument: "529.982.247-25" });
+    ok("contrato aceita CPF válido e normaliza para 11 dígitos",
+      parsed.success && parsed.data.guestDocument === "52998224725",
+      parsed.success ? parsed.data.guestDocument : parsed.error?.issues?.[0]?.message);
+
+    // 9b) o CPF precisa CHEGAR ao ingresso — a parte que estava quebrada
+    await prisma.event.update({ where: { id: ev.id }, data: { startsAt: new Date(Date.now() + 3600e3) } });
+    const comCpf = await guest.create(dono.id, ev.id, {
+      ticketLotId: f.lot.id, guestName: "Convidada Com CPF", guestDocument: "52998224725",
+    } as never);
+    const attendee = await prisma.orderAttendee.findFirst({
+      where: { orderId: (comCpf as { orderId?: string }).orderId ?? undefined },
+    });
+    const entryDb = await prisma.guestListEntry.findFirst({
+      where: { eventId: ev.id, guestName: "Convidada Com CPF" },
+      select: { orderId: true },
+    });
+    const att = attendee ?? (entryDb?.orderId
+      ? await prisma.orderAttendee.findFirst({ where: { orderId: entryDb.orderId } })
+      : null);
+    ok("lista cria OrderAttendee com nome e CPF",
+      att?.cpf === "52998224725" && att?.name === "Convidada Com CPF", att);
   } finally {
     await cleanupFixtureEvent(f.organization.id).catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);

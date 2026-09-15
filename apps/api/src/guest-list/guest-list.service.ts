@@ -119,6 +119,19 @@ export class GuestListService {
             reservationId: reservation.id,
             contactEmail: `guest-list+${reservation.id}@borafest.app`,
             contactName: input.guestName,
+            // NOME E CPF CHEGAM AO INGRESSO (2026-09-15). Antes o `guestDocument`
+            // era gravado só em `guest_list_entries` e MORRIA ali: o worker lê
+            // `attendee?.cpf ?? order.user?.cpf` (issue-tickets.ts), a lista não
+            // criava attendee e não tem user, então o ingresso saía com
+            // attendeeCpf null — o hash nunca descia para a portaria e a busca
+            // por CPF não achava convidado nenhum. Mesmo defeito que o balcão já
+            // teve ("o CPF morre no auditLog", REGISTRO 2026-09-08).
+            //
+            // A correção reusa a máquina que já existe (OrderAttendee), em vez de
+            // abrir um caminho paralelo de emissão.
+            attendees: {
+              create: [{ ticketLotId: lot.id, name: input.guestName, cpf: input.guestDocument }],
+            },
             salesPartnerId: input.salesPartnerId,
             // marca o promoter no pedido: é o que faz a etiqueta sair CORTESIA
             // (com o nome de quem convidou) em vez de CONVIDADO ("da produção")
