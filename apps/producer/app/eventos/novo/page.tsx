@@ -524,12 +524,18 @@ function NewEventContent() {
 
           <div>
             <h3 className="text-[13px] font-extrabold">Banner do evento</h3>
-            <div className="mt-2 aspect-video w-full max-w-md overflow-hidden rounded-xl border border-line bg-bg">
+            {/* PREVIEW NEUTRO (2026-09-16): o box era aspect-video + object-cover — cortava
+                a prévia pra caber em 16:9, então quem subia arte vertical (tipo Stories,
+                que a Ingresse recomenda como "pôster" oficial) via o próprio flyer
+                cortado antes mesmo de publicar. O card de listagem recorta mesmo
+                (como Sympla/Ingresse/Cheers), mas a PRÉVIA tem que mostrar o que a
+                pessoa realmente subiu — é o único lugar que prova isso pra ela. */}
+            <div className="mt-2 flex h-64 w-full max-w-md items-center justify-center overflow-hidden rounded-xl border border-line bg-ink/[0.04]">
               {bannerUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element -- domínio do banner é dinâmico
-                <img src={bannerUrl} alt="Banner do evento" className="h-full w-full object-cover" />
+                <img src={bannerUrl} alt="Banner do evento" className="max-h-full max-w-full object-contain" />
               ) : (
-                <div className="flex h-full items-center justify-center text-[13px] font-semibold text-muted">
+                <div className="text-[13px] font-semibold text-muted">
                   Nenhum banner ainda
                 </div>
               )}
@@ -545,7 +551,10 @@ function NewEventContent() {
                   onChange={handleBannerFile}
                 />
               </label>
-              <span className="text-[12px] font-semibold text-muted">JPG, PNG ou WebP · até 5 MB · ideal 1600×900</span>
+              <span className="text-[12px] font-semibold text-muted">
+            JPG, PNG ou WebP · até 5 MB · vertical (tipo Stories) ou horizontal — os dois funcionam:
+            a página do evento mostra o flyer inteiro, as listagens recortam pra caber no card.
+          </span>
             </div>
             {bannerError ? <p className="mt-2 text-[13px] font-semibold text-danger">{bannerError}</p> : null}
             {!bannerUrl && (
