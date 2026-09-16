@@ -317,7 +317,7 @@ export function HomeClient({
               </div>
               <div className="relative mt-3 overflow-hidden rounded-3xl">
                 <Link href={`/${highlight.slug}`} className="block">
-                  <div className="relative h-[200px] bg-brand-gradient p-5 text-white">
+                  <div className="relative h-[200px] overflow-hidden bg-brand-gradient p-5 text-white">
                     {highlight.bannerUrl && (
                       <EventImage src={highlight.bannerUrl} priority sizes="430px" className="object-cover" />
                     )}

@@ -126,7 +126,7 @@ export function EventPageClient({
           <div className="relative h-[320px] overflow-hidden rounded-3xl bg-brand-gradient">
             {event.bannerUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" className="object-cover" />
+              <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" fit="poster" />
             )}
           </div>
           {/* título FORA do banner (pedido do Arthur 2026-08-17): a arte do
@@ -202,7 +202,7 @@ export function EventPageClient({
       <div className="relative h-[430px] overflow-hidden bg-brand-gradient">
         {event.bannerUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" className="object-cover" />
+          <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" fit="poster" />
         )}
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/40 to-transparent" />
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-5">

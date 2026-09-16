@@ -27,7 +27,7 @@ export function MiniCard({ event }: { event: EventListItem }) {
         className="block overflow-hidden rounded-2xl border border-line bg-surface"
       >
         {event.bannerUrl ? (
-          <div className="relative h-28 w-full">
+          <div className="relative h-28 w-full overflow-hidden">
             <EventImage src={event.bannerUrl} sizes="240px" className="object-cover" />
           </div>
         ) : (
@@ -62,7 +62,7 @@ export function GridCard({ event }: { event: EventListItem }) {
         className="block overflow-hidden rounded-2xl border border-line bg-surface transition-shadow hover:shadow-card"
       >
         {event.bannerUrl ? (
-          <div className="relative h-32 w-full lg:h-36">
+          <div className="relative h-32 w-full lg:h-36 overflow-hidden">
             <EventImage src={event.bannerUrl} sizes="(min-width: 1024px) 25vw, 50vw" className="object-cover" />
           </div>
         ) : (
