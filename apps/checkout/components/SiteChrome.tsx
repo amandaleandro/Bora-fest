@@ -37,7 +37,7 @@ export function SiteHeader() {
         <nav className="flex items-center gap-3">
           <Link href="/casas" className={`rounded-xl px-4 py-2 text-[13px] font-bold ${pathname?.startsWith("/casas") || pathname?.startsWith("/casa/") ? "bg-primary/10 text-primary" : "text-ink hover:bg-bg"}`}>Casas</Link>
           {signedIn ? <Link href="/fidelidade" className={`rounded-xl px-4 py-2 text-[13px] font-bold ${pathname?.startsWith("/fidelidade") ? "bg-primary/10 text-primary" : "text-ink hover:bg-bg"}`}>Pontos</Link> : null}
-          <a href={`${PANEL}/cadastro`} className="rounded-xl border-[1.5px] border-line-input px-4 py-2 text-[13px] font-bold text-ink">Produza seu evento</a>
+          <Link href="/para-produtores" className={`rounded-xl border-[1.5px] px-4 py-2 text-[13px] font-bold ${pathname?.startsWith("/para-produtores") ? "border-primary bg-primary/10 text-primary" : "border-line-input text-ink"}`}>Produza seu evento</Link>
           {pathname?.startsWith("/perfil") ? (
             <span aria-current="page" className="rounded-xl border-[1.5px] border-primary bg-primary/10 px-5 py-2 text-[13px] font-extrabold text-primary">{signedIn ? "Minha conta" : "Entrar"}</span>
           ) : (
@@ -62,11 +62,12 @@ export function SiteFooter() {
             <img src="/brand/logo-b.svg" alt="" className="h-6 w-6" />
             <span className="text-[16px] font-extrabold italic tracking-tight text-ink">BoraFest</span>
           </p>
-          <p className="mt-2 font-medium text-muted">A compra de ingresso mais simples do Brasil — sem senha, sem app obrigatório.</p>
+          <p className="mt-2 font-medium text-muted">Descubra seu próximo rolê e compre sem complicação. Para produtores, venda e operação do evento no mesmo lugar.</p>
         </div>
         <div>
           <p className="font-extrabold">Para produtores</p>
           <ul className="mt-2 space-y-1.5 font-semibold text-muted">
+            <li><Link href="/para-produtores" className="hover:text-primary">Conheça o BoraFest</Link></li>
             <li><a href={`${PANEL}/login`} className="hover:text-primary">Painel do organizador</a></li>
             <li><a href={`${PANEL}/cadastro`} className="hover:text-primary">Criar conta</a></li>
             <li><a href={`${PANEL}/login#financeiro`} className="hover:text-primary">Taxas e repasses</a></li>
