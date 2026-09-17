@@ -1,19 +1,30 @@
 import { z } from "zod";
 
+const BRAZIL_STATES = new Set([
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+  "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+  "SP", "SE", "TO",
+]);
+
 export const eventVenueSchema = z.object({
-  name: z.string().min(2).max(120),
-  address: z.string().min(3).max(200).optional(),
+  name: z.string().trim().min(2).max(120),
+  address: z.string().trim().min(3).max(200).optional(),
   mapsUrl: z.string().url().max(500).optional(),
-  city: z.string().min(2).max(80),
-  state: z.string().length(2).transform((v) => v.toUpperCase()),
+  city: z.string().trim().min(2).max(80),
+  state: z
+    .string()
+    .trim()
+    .length(2)
+    .transform((v) => v.toUpperCase())
+    .refine((v) => BRAZIL_STATES.has(v), "UF inválida"),
 });
 export type EventVenueInput = z.infer<typeof eventVenueSchema>;
 
 export const eventCategorySchema = z.enum(["SHOWS", "FESTAS", "ESPORTES", "TEATRO"]);
 export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
 
-export const createEventSchema = z.object({
-  title: z.string().min(3),
+const eventCoreSchema = z.object({
+  title: z.string().trim().min(3),
   description: z.string().optional(),
   /** atrações/line-up, um nome por linha — o hotsite monta a seção */
   lineup: z.string().max(2000).optional(),
@@ -31,6 +42,16 @@ export const createEventSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   timezone: z.string().default("America/Sao_Paulo"),
+});
+
+export const createEventSchema = eventCoreSchema.superRefine((event, ctx) => {
+  if (new Date(event.endsAt).getTime() <= new Date(event.startsAt).getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "O término do evento precisa ser depois do início",
+    });
+  }
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
@@ -53,7 +74,7 @@ export const pixelSettingsSchema = z.object({
 });
 export type PixelSettingsInput = z.infer<typeof pixelSettingsSchema>;
 
-export const updateEventSchema = createEventSchema.partial().extend({
+export const updateEventSchema = eventCoreSchema.partial().extend({
   /** null limpa a categoria (a opção "Sem categoria" do painel era no-op) */
   category: eventCategorySchema.nullable().optional(),
   bannerUrl: z.string().url().optional(),
@@ -65,6 +86,14 @@ export const updateEventSchema = createEventSchema.partial().extend({
   // 2000: token de system user da Meta pode passar de 500 quando vem com
   // escopos extras (Dataset Quality API) — o limite curto barrava o salvamento
   metaCapiToken: z.string().trim().max(2000).nullable().optional(),
+}).superRefine((event, ctx) => {
+  if (event.startsAt && event.endsAt && new Date(event.endsAt).getTime() <= new Date(event.startsAt).getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "O término do evento precisa ser depois do início",
+    });
+  }
 });
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 
