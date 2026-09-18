@@ -104,9 +104,9 @@ Esta evolução foi dividida em quatro frentes:
 
 ---
 
-## 3. Próximo bloco em implementação
+## 3. Bloco complementar implementado
 
-### 3.1 Hero institucional de fallback
+### 3.1 Hero institucional de fallback — implementado
 
 **Regra desejada:** um evento qualquer não deve virar automaticamente o grande destaque da home.
 
@@ -135,7 +135,7 @@ Quando houver evidência real de destaque, a home pode usar um evento. Quando n�
 
 ---
 
-### 3.2 Busca pública melhorada
+### 3.2 Busca pública melhorada — primeira etapa implementada
 
 A busca deve evoluir de correspondência somente por título para uma experiência que possa encontrar por:
 
@@ -152,7 +152,7 @@ A primeira etapa pode permanecer client-side usando os dados já carregados; a e
 
 ---
 
-### 3.3 Publicação/republicação de evento vencido
+### 3.3 Publicação/republicação de evento vencido — implementado
 
 **Regra obrigatória:** o painel não deve permitir publicar ou republicar um evento cujo `endsAt` já esteja no passado.
 
@@ -170,7 +170,7 @@ A proteção deve existir no backend e não apenas no botão do painel.
 
 ---
 
-### 3.4 FAQ e políticas no evento
+### 3.4 FAQ e políticas no evento — implementado
 
 A página pública deve apresentar, de forma clara:
 
@@ -249,11 +249,11 @@ Para contexto completo, consulte `docs/projeto/GUIA-CONTINUIDADE.md`.
 - [x] Header/footer atualizados.
 - [x] Blocos de confiança adicionados.
 - [x] Guia permanente de continuidade criado.
-- [ ] Bloqueio de publicar evento vencido.
-- [ ] Bloqueio de republicar evento vencido.
-- [ ] Hero institucional de fallback.
-- [ ] Busca pública ampliada.
-- [ ] FAQ/políticas na página do evento.
+- [x] Bloqueio de publicar evento vencido.
+- [x] Bloqueio de republicar evento vencido.
+- [x] Hero institucional de fallback.
+- [x] Busca pública ampliada na primeira etapa client-side (título, local, cidade, UF e categoria).
+- [x] FAQ/políticas na página do evento.
 - [ ] Testes automatizados do novo comportamento.
 - [ ] CI executado com sucesso.
 - [ ] Smoke test após deploy.
@@ -301,3 +301,50 @@ Toda alteração relevante deve registrar:
 Quando a mudança corrigir um bug estrutural, documentar também **o comportamento que não pode voltar**, para evitar que alguém no futuro “simplifique” uma proteção importante.
 
 O guia permanente fica em `docs/projeto/GUIA-CONTINUIDADE.md`.
+
+
+---
+
+## 11. Implementação complementar de 18/09/2026
+
+### 11.1 Backend — publicação segura
+
+**Arquivo:** `apps/api/src/events/events.service.ts`
+
+Alterações:
+- `publish()` recusa `DRAFT` cujo `endsAt <= agora`;
+- `republish()` recusa `SALES_PAUSED` cujo `endsAt <= agora`;
+- mensagem orienta o produtor a atualizar a data antes de abrir as vendas;
+- `update()` agora valida o intervalo temporal mesmo quando apenas uma das duas datas é alterada, usando a outra data já persistida no evento.
+
+**Bug que não pode voltar:** validar `startsAt/endsAt` somente quando ambos vierem no mesmo PATCH deixa uma atualização parcial criar intervalo inválido.
+
+### 11.2 Home — destaque honesto
+
+**Arquivo:** `apps/checkout/app/HomeClient.tsx`
+
+Alterações:
+- próximo evento deixou de virar hero automaticamente;
+- hero de evento só é usado quando existe item em `sections.highlights`, que representa destaque derivado de procura real;
+- sem destaque real, entra hero institucional “Seu próximo rolê começa aqui”;
+- fallback existe em desktop e mobile;
+- CTA secundário leva à página `/para-produtores`;
+- busca passa a normalizar acentos e pesquisar título, nome do local, cidade, UF e categoria;
+- resultado vazio explica alternativas e oferece “Limpar filtros”.
+
+**Limitação conhecida:** a busca desta etapa continua client-side e só conhece os campos presentes em `EventListItem`. Busca global por produtor/Casa/line-up exige evolução do endpoint público e do contrato.
+
+### 11.3 Evento — FAQ e políticas
+
+**Arquivo:** `apps/checkout/app/[slug]/EventPageClient.tsx`
+
+Alterações:
+- nova seção “Ingresso, entrada e políticas”;
+- explica entrega do ingresso sem prometer canal específico não garantido;
+- informa que app não é obrigatório;
+- explica QR individual;
+- orienta sobre documento/classificação quando aplicável;
+- links diretos para `/legal?aba=termos` e `/legal?aba=privacidade`;
+- conteúdo específico do evento continua atribuído ao organizador.
+
+**Regra editorial:** não copiar para a página do evento uma política jurídica mais específica do que o produto realmente garante.
