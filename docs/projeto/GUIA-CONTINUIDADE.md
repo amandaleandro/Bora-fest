@@ -441,3 +441,36 @@ Mesmo que a tela desabilite um botão, `publish()` e `republish()` precisam vali
 
 ### Políticas na página de evento
 A UI pode explicar funcionamento técnico comprovado e apontar para documentos legais. Evite inventar regras específicas de reembolso, meia-entrada ou responsabilidade fora dos documentos oficiais e do modelo do evento.
+
+
+## 29. Homologação e catálogo público
+
+A estratégia atual de isolamento está documentada em:
+
+`docs/projeto/HOMOLOGACAO-CATALOGO-E-BUSCA.md`
+
+Resumo:
+- não inferir teste pelo título;
+- usar `PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS`;
+- aplicar exclusão em lista, home, cidades, detalhe e disponibilidade;
+- manter operação autenticada da organização funcionando;
+- ao criar nova organização de homologação, atualizar também a configuração do ambiente público.
+
+## 30. Busca pública no backend
+
+A busca pública usa `GET /v1/public/events?q=...`.
+
+Campos de descoberta atuais:
+- evento;
+- line-up;
+- local;
+- cidade;
+- organização/Casa;
+- nome comercial.
+
+Ao expandir a busca:
+- não indexar dados pessoais;
+- preservar paginação;
+- incluir parâmetros no cache;
+- adicionar testes para qualquer novo campo;
+- não anunciar fuzzy/autocomplete enquanto isso não existir tecnicamente.
