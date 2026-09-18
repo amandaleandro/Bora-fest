@@ -361,3 +361,52 @@ Cobre:
 - controle positivo: evento futuro válido continua publicando.
 
 **Estado da execução:** teste foi adicionado à suíte, mas o GitHub não disparou workflow/CI para o commit atual. Não considerar “verde” até executar `pnpm test`, `pnpm typecheck` e build em ambiente com dependências/infra disponíveis.
+
+
+---
+
+## 12. Homologação e busca pública — 18/09/2026
+
+### 12.1 Isolamento de organizações de teste
+
+**Configuração:** `PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS`
+
+**Arquivos:**
+- `apps/api/src/catalog/catalog.service.ts`
+- `.env.example`
+- `.env.production.example`
+- `docs/projeto/HOMOLOGACAO-CATALOGO-E-BUSCA.md`
+
+**Comportamento:**
+- organizações listadas pela variável ficam fora da lista pública;
+- ficam fora da home;
+- não geram cidades públicas;
+- URL direta do evento fica indisponível publicamente;
+- disponibilidade pública também fica indisponível porque depende do detalhe público.
+
+**Decisão:** não esconder conteúdo com heurística de título. A exclusão é explícita por organização.
+
+**Risco operacional:** se uma nova organização de homologação for criada e seu slug não for configurado em produção, ela poderá aparecer publicamente caso publique eventos.
+
+### 12.2 Busca pública no backend
+
+**Endpoint:** `GET /v1/public/events?q=...`
+
+A busca passa a considerar:
+- título;
+- line-up/atrações;
+- nome do local;
+- cidade;
+- organização/Casa;
+- nome comercial;
+- slug da organização.
+
+O frontend envia a consulta após debounce de 250 ms, combinando com cidade e categoria.
+
+### 12.3 Teste de regressão
+
+**Arquivo:** `apps/api/src/__tests__/public-catalog-hygiene.test.ts`
+
+Cobre busca por Casa/produtor e atração, além da invisibilidade de uma organização excluída na lista, home e detalhe público.
+
+**Estado da execução:** adicionado à suíte. A execução automatizada ainda depende do CI, que não estava disparando nos commits anteriores.
