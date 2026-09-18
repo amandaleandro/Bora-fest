@@ -252,7 +252,7 @@ export class EventsService {
     if (recipients.length === 0) return;
 
     const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
-    const link = `${webBaseUrl}/evento/${event.slug}`;
+    const link = `${webBaseUrl}/${event.slug}`;
     const sender = getEmailSender();
     await Promise.allSettled(
       recipients.map((to) =>
