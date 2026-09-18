@@ -1,12 +1,25 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { prisma, Prisma } from "@borafest/database";
 
+function excludedPublicOrganizationSlugs(): string[] {
+  return (process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS ?? "")
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+}
+
+function publicHouseOrganizationFilter() {
+  const excluded = excludedPublicOrganizationSlugs();
+  return excluded.length > 0 ? { slug: { notIn: excluded } } : {};
+}
+
 const publicEventSelect = {
   id: true,
   title: true,
   slug: true,
   bannerUrl: true,
   category: true,
+  lineup: true,
   startsAt: true,
   timezone: true,
   venue: { select: { name: true, city: true, state: true } },
@@ -26,6 +39,7 @@ function toEventCard(event: {
   slug: string;
   bannerUrl: string | null;
   category: string | null;
+  lineup: string | null;
   startsAt: Date;
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
@@ -49,6 +63,7 @@ function toEventCard(event: {
     slug: event.slug,
     bannerUrl: event.bannerUrl,
     category: event.category,
+    lineup: event.lineup,
     startsAt: event.startsAt,
     timezone: event.timezone,
     venue: event.venue,
@@ -143,7 +158,10 @@ export class HousesService {
               events: {
                 some: {
                   ...eventWhere,
-                  title: { contains: normalizedQuery, mode: "insensitive" as const },
+                  OR: [
+                    { title: { contains: normalizedQuery, mode: "insensitive" as const } },
+                    { lineup: { contains: normalizedQuery, mode: "insensitive" as const } },
+                  ],
                 },
               },
             },
@@ -152,6 +170,7 @@ export class HousesService {
       : {};
     const where = {
       status: { notIn: ["SUSPENDED", "BLOCKED"] as Array<"SUSPENDED" | "BLOCKED"> },
+      ...publicHouseOrganizationFilter(),
       events: { some: eventWhere },
       ...searchWhere,
     };
@@ -181,7 +200,7 @@ export class HousesService {
               WHERE se.organization_id = o.id
                 AND se.status = 'PUBLISHED'::"EventStatus"
                 AND se.ends_at > ${now}
-                AND se.title ILIKE ${pattern}
+                AND (se.title ILIKE ${pattern} OR se.lineup ILIKE ${pattern})
             )
           )
         `
@@ -272,6 +291,7 @@ export class HousesService {
     const houses = await prisma.organization.findMany({
       where: {
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
+        ...publicHouseOrganizationFilter(),
         followers: { some: { userId } },
         ...(city
           ? {
@@ -326,6 +346,7 @@ export class HousesService {
       where: {
         id,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
+        ...publicHouseOrganizationFilter(),
         events: { some: { status: "PUBLISHED" } },
       },
       select: { id: true, slug: true, name: true, displayName: true, producerType: true },
@@ -345,6 +366,7 @@ export class HousesService {
       where: {
         slug,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
+        ...publicHouseOrganizationFilter(),
         events: { some: { status: "PUBLISHED" } },
       },
       select: {
@@ -376,11 +398,18 @@ export class HousesService {
 
     if (!house) throw new NotFoundException("Casa não encontrada");
 
-    const [publishedEventsCount, upcomingEventsCount] = await Promise.all([
+    const [publishedEventsCount, upcomingEventsCount, recentPastRows] = await Promise.all([
       prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED" } }),
       prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED", endsAt: { gt: now } } }),
+      prisma.event.findMany({
+        where: { organizationId: house.id, status: "PUBLISHED", endsAt: { lte: now } },
+        orderBy: { startsAt: "desc" },
+        take: 6,
+        select: publicEventSelect,
+      }),
     ]);
     const events = house.events.map(toEventCard);
+    const recentPastEvents = recentPastRows.map(toEventCard);
     const eventLocation = events.find((event) => event.venue)?.venue ?? null;
     const fallbackVenue = house.venues[0] ?? null;
 
@@ -400,6 +429,7 @@ export class HousesService {
       location: eventLocation ?? fallbackVenue,
       heroImageUrl: house.coverUrl ?? events.find((event) => event.bannerUrl)?.bannerUrl ?? null,
       events,
+      recentPastEvents,
     };
   }
 }
