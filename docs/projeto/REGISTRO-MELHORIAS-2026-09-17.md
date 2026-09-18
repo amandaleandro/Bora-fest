@@ -431,3 +431,39 @@ Antes do merge/deploy, executar com sucesso:
 - `pnpm test`;
 - typecheck do app de check-in;
 - verificação cruzada do QR conforme `.github/workflows/ci.yml`.
+
+
+---
+
+## 13. Pré-publicação e limite de layout — 18/09/2026
+
+### 13.1 Checklist do produtor
+
+**Arquivos:**
+- `apps/api/src/dashboard/dashboard.service.ts`
+- `apps/producer/lib/api.ts`
+- `apps/producer/app/eventos/[eventId]/page.tsx`
+
+O painel agora diferencia:
+- **obrigatório:** data do evento ainda válida;
+- **recomendado:** categoria, local, banner e pelo menos um lote online ativo.
+
+A data vencida bloqueia os botões de publicar/reabrir no frontend, mas a proteção definitiva continua no backend.
+
+O lote recomendado como “online ativo” precisa estar `ACTIVE` e não pode ser `pdvOnly`.
+
+### 13.2 Correção de escopo da faixa de confiança
+
+**Problema:** `apps/checkout/app/[slug]/layout.tsx` envolvia também `/[slug]/ingressos` e `/[slug]/vip`, fazendo o conteúdo institucional aparecer em jornadas filhas.
+
+**Correção:**
+- removido o layout genérico;
+- criado `apps/checkout/components/EventTrustStrip.tsx`;
+- faixa renderizada explicitamente apenas em `EventPageClient.tsx`.
+
+### 13.3 Testes/documentação
+
+- `local-evento.test.ts` passou a exigir datas e `pdvOnly` no dashboard;
+- documentação operacional: `docs/projeto/PRE-PUBLICACAO-E-PAGINA-PUBLICA.md`.
+
+**Regra que não pode voltar:** conteúdo específico do hotsite não deve ser colocado em layout que também envolve checkout/VIP sem revisar todas as rotas filhas.
