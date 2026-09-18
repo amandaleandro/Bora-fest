@@ -119,6 +119,29 @@ function EventBuyerGuide({ event, compact = false }: { event: PublicEvent; compa
   );
 }
 
+function publicSaleState(event: PublicEvent) {
+  const now = Date.now();
+  const startsAt = new Date(event.startsAt).getTime();
+  const endsAt = new Date(event.endsAt).getTime();
+  const lots = event.ticketTypes.flatMap((type) => type.lots);
+  const onlineLots = lots.filter((lot) => lot.status === "ACTIVE");
+  const available = onlineLots.reduce(
+    (sum, lot) => sum + Math.max(lot.capacity - lot.soldCount - lot.reservedCount, 0),
+    0,
+  );
+
+  if (event.status !== "PUBLISHED" || endsAt <= now) {
+    return { key: "closed" as const, label: "Vendas encerradas", closed: true };
+  }
+  if (onlineLots.length > 0 && available <= 0) {
+    return { key: "soldout" as const, label: "Esgotado", closed: true };
+  }
+  if (startsAt <= now && now < endsAt) {
+    return { key: "live" as const, label: "Evento em andamento", closed: false };
+  }
+  return { key: "open" as const, label: "Vendas abertas", closed: false };
+}
+
 function minPriceCents(event: PublicEvent): number | null {
   // preço anunciado = o que o comprador paga (com taxa quando é dele)
   const prices = event.ticketTypes.flatMap((t) =>
@@ -166,7 +189,8 @@ export function EventPageClient({
     return <main className="flex min-h-dvh items-center justify-center text-[13px] text-muted">Carregando…</main>;
   }
 
-  const closed = event.status !== "PUBLISHED" || new Date(event.endsAt).getTime() < Date.now();
+  const saleState = publicSaleState(event);
+  const closed = saleState.closed;
   const min = minPriceCents(event);
   const starts = new Date(event.startsAt);
   const dateLabel = starts.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", timeZone: event.timezone });
@@ -192,8 +216,21 @@ export function EventPageClient({
               e sujava a imagem */}
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <h1 className="text-[30px] font-extrabold leading-tight">{event.title}</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
-              {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${
+                saleState.key === "soldout"
+                  ? "bg-danger/10 text-danger"
+                  : saleState.key === "closed"
+                    ? "bg-line text-muted"
+                    : saleState.key === "live"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-success/10 text-success"
+              }`}
+            >
+              {!closed ? (
+                <span className={`h-1.5 w-1.5 rounded-full ${saleState.key === "live" ? "bg-primary" : "animate-pulseDot bg-success"}`} />
+              ) : null}
+              {saleState.label}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -289,8 +326,21 @@ export function EventPageClient({
 
       {/* corpo sobreposto — título aqui, não em cima da arte (2026-08-17) */}
       <div className="relative -mt-[22px] rounded-t-3xl bg-bg px-5 pt-6">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
-          {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${
+            saleState.key === "soldout"
+              ? "bg-danger/10 text-danger"
+              : saleState.key === "closed"
+                ? "bg-line text-muted"
+                : saleState.key === "live"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-success/10 text-success"
+          }`}
+        >
+          {!closed ? (
+            <span className={`h-1.5 w-1.5 rounded-full ${saleState.key === "live" ? "bg-primary" : "animate-pulseDot bg-success"}`} />
+          ) : null}
+          {saleState.label}
         </span>
         <h1 className="mt-2 text-[26px] font-extrabold leading-tight">{event.title}</h1>
         <div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-2">
