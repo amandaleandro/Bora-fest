@@ -328,6 +328,7 @@ export class CatalogService {
     const where = {
       status: "PUBLISHED" as const,
       endsAt: { gt: new Date() },
+      ...publicCatalogOrganizationFilter(),
       ...(city
         ? { venue: { is: { city: { equals: city, mode: "insensitive" as const } } } }
         : {}),
