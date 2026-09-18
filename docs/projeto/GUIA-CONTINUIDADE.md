@@ -474,3 +474,16 @@ Ao expandir a busca:
 - incluir parâmetros no cache;
 - adicionar testes para qualquer novo campo;
 - não anunciar fuzzy/autocomplete enquanto isso não existir tecnicamente.
+
+
+## 31. Como interpretar falha de CI
+
+Não trate toda conclusão `failure` do GitHub Actions como regressão de código.
+
+Verifique:
+1. o runner foi atribuído?;
+2. existem steps no job?;
+3. qual foi a primeira etapa que falhou?;
+4. build/test realmente chegaram a executar?
+
+Se o job encerrar com `runner_id = 0` e `steps = []`, nenhum comando do repositório rodou. Registre como falha de infraestrutura/provisionamento e mantenha a validação como pendente.
