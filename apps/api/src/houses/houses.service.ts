@@ -132,6 +132,11 @@ export class HousesService {
     const now = new Date();
     const normalizedQuery = query?.trim();
     const pattern = normalizedQuery ? `%${normalizedQuery}%` : null;
+    const excludedSlugs = excludedPublicOrganizationSlugs();
+    const exclusionSql =
+      excludedSlugs.length > 0
+        ? Prisma.sql`AND o.slug NOT IN (${Prisma.join(excludedSlugs)})`
+        : Prisma.sql``;
     const eventWhere = {
       status: "PUBLISHED" as const,
       endsAt: { gt: now },
@@ -218,6 +223,7 @@ export class HousesService {
         ${cityJoin}
         LEFT JOIN organization_follows f ON f.organization_id = o.id
         WHERE o.status NOT IN ('SUSPENDED'::"OrganizationStatus", 'BLOCKED'::"OrganizationStatus")
+        ${exclusionSql}
         ${searchSql}
         GROUP BY o.id
         ORDER BY
@@ -236,7 +242,7 @@ export class HousesService {
     }
 
     const details = await prisma.organization.findMany({
-      where: { id: { in: rankedIds } },
+      where: { id: { in: rankedIds }, ...publicHouseOrganizationFilter() },
       select: {
         id: true,
         slug: true,
