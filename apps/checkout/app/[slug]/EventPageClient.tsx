@@ -12,6 +12,7 @@ import { TicketSelector } from "../../components/TicketSelector";
 import { PixelTracker } from "../../components/PixelTracker";
 import { captureAttributionFromUrl } from "../../lib/attribution";
 import { FollowButton } from "../../components/FollowButton";
+import { EventTrustStrip } from "../../components/EventTrustStrip";
 
 
 /** Seções estruturadas do evento (line-up, incluso, idade) — página rica sem o produtor redigir nada. */
@@ -365,6 +366,10 @@ export function EventPageClient({
           </Link>
         )}
       </div>
+      </div>
+
+      <div className="px-5 lg:px-0">
+        <EventTrustStrip />
       </div>
     </main>
   );
