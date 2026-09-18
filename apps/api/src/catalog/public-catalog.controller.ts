@@ -19,6 +19,7 @@ export class PublicCatalogController {
     @Query("pageSize") pageSize: string | undefined,
     @Query("city") city: string | undefined,
     @Query("category") category: string | undefined,
+    @Query("q") query: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     reply.header("Cache-Control", PUBLIC_CACHE_HEADER);
@@ -29,6 +30,7 @@ export class PublicCatalogController {
       pageSize: Math.min(Math.max(1, Math.floor(Number(pageSize)) || 20), 50),
       city: city?.trim() || undefined,
       category: category?.trim() || undefined,
+      query: query?.trim().slice(0, 120) || undefined,
     });
   }
 
