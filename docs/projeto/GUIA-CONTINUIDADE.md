@@ -410,13 +410,34 @@ Já cobre:
 - sinais de confiança na home/evento;
 - documentação da rodada.
 
-Pendências planejadas:
+Concluído nesta rodada:
 - impedir publicação/republicação vencida;
 - hero institucional de fallback;
-- busca pública ampliada;
-- FAQ/políticas;
+- busca pública ampliada na primeira etapa;
+- FAQ/políticas.
+
+Ainda pendente:
 - separar homologação/testes;
+- ampliar busca via API para produtor/Casa/atrações;
 - CI;
 - smoke test de produção.
 
 Atualize este bloco quando o estado mudar.
+
+
+## 28. Decisões adicionadas em 18/09/2026
+
+### Hero público
+Um evento futuro não é automaticamente um destaque. A home usa `sections.highlights` como fonte de destaque comercial. Sem evidência real, renderiza comunicação institucional.
+
+### Busca
+A etapa client-side atual cobre apenas os campos de `EventListItem`: título, venue, cidade, UF e categoria. Não anuncie essa busca como pesquisa global por line-up ou produtor até o endpoint suportar esses dados.
+
+### Datas em PATCH
+Ao editar apenas `startsAt` ou apenas `endsAt`, compare o novo valor com a contraparte persistida no banco antes do update.
+
+### Publicar/republicar
+Mesmo que a tela desabilite um botão, `publish()` e `republish()` precisam validar `endsAt` no servidor.
+
+### Políticas na página de evento
+A UI pode explicar funcionamento técnico comprovado e apontar para documentos legais. Evite inventar regras específicas de reembolso, meia-entrada ou responsabilidade fora dos documentos oficiais e do modelo do evento.
