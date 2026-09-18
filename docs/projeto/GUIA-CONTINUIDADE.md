@@ -487,3 +487,26 @@ Verifique:
 4. build/test realmente chegaram a executar?
 
 Se o job encerrar com `runner_id = 0` e `steps = []`, nenhum comando do repositório rodou. Registre como falha de infraestrutura/provisionamento e mantenha a validação como pendente.
+
+
+## 32. Pré-publicação no painel
+
+Consulte `docs/projeto/PRE-PUBLICACAO-E-PAGINA-PUBLICA.md`.
+
+Princípios:
+- regra crítica deve existir no backend;
+- UI pode antecipar o erro;
+- recomendações não viram bloqueio sem decisão de produto;
+- lote `pdvOnly` não conta como ingresso online;
+- checklist deve explicar claramente o que falta e por quê.
+
+## 33. Layouts dinâmicos no checkout
+
+Antes de adicionar conteúdo a `app/[slug]/layout.tsx`, revise todas as rotas filhas.
+
+Hoje existem, entre outras:
+- página principal do evento;
+- `/[slug]/ingressos`;
+- `/[slug]/vip`.
+
+Conteúdo exclusivo do hotsite deve ser renderizado pela página/componente do hotsite, não por um layout compartilhado.
