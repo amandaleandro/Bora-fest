@@ -104,16 +104,21 @@ export function HomeClient({
   // quando o visitante mexe no filtro, senão duplica request e pisca a tela
   const primeiraCarga = useRef(true);
   useEffect(() => {
-    if (primeiraCarga.current && initialEvents !== null && city === null && category === null) {
+    if (primeiraCarga.current && initialEvents !== null && city === null && category === null && query.trim() === "") {
       primeiraCarga.current = false;
       return;
     }
     primeiraCarga.current = false;
-    api
-      .listPublicEventsByCity(city ?? undefined, category ?? undefined)
-      .then(setEvents)
-      .catch(() => setEvents([]));
-  }, [city, category, initialEvents]);
+
+    const timer = window.setTimeout(() => {
+      api
+        .listPublicEventsByCity(city ?? undefined, category ?? undefined, query.trim() || undefined)
+        .then(setEvents)
+        .catch(() => setEvents([]));
+    }, query.trim() ? 250 : 0);
+
+    return () => window.clearTimeout(timer);
+  }, [city, category, query, initialEvents]);
 
   // home viva: Em alta (placar de vendas) + prateleiras por categoria
   const [sections, setSections] = useState<HomeSections | null>(initialSections);
@@ -165,6 +170,8 @@ export function HomeClient({
         e.venue?.name,
         e.venue?.city,
         e.venue?.state,
+        e.organization?.name,
+        e.lineup,
         e.category ? CATEGORY_LABELS[e.category] ?? e.category : null,
       ]
         .filter(Boolean)
