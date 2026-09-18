@@ -13,6 +13,7 @@ import { PixelTracker } from "../../components/PixelTracker";
 import { captureAttributionFromUrl } from "../../lib/attribution";
 import { FollowButton } from "../../components/FollowButton";
 import { EventTrustStrip } from "../../components/EventTrustStrip";
+import { ShareButton } from "../../components/ShareButton";
 
 
 /** Seções estruturadas do evento (line-up, incluso, idade) — página rica sem o produtor redigir nada. */
@@ -203,7 +204,10 @@ export function EventPageClient({
               </Link>
               {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
             </p>
-            <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
+            <div className="flex items-center gap-2">
+              <ShareButton title={event.title} />
+              <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
+            </div>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3">
             <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
@@ -278,13 +282,7 @@ export function EventPageClient({
           </button>
           <div className="flex gap-2">
             <FavoriteButton eventId={event.id} />
-            <button
-              aria-label="Compartilhar"
-              onClick={() => navigator.share?.({ title: event.title, url: location.href }).catch(() => {})}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur"
-            >
-              <Icon d={paths.share} size={18} />
-            </button>
+            <ShareButton title={event.title} compact dark />
           </div>
         </div>
       </div>
@@ -297,7 +295,10 @@ export function EventPageClient({
         <h1 className="mt-2 text-[26px] font-extrabold leading-tight">{event.title}</h1>
         <div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="min-w-0 text-[13px] font-semibold text-muted">
-            Por {event.organization.name}
+            Por{" "}
+            <Link href={`/casa/${event.organization.slug}`} className="font-extrabold text-primary">
+              {event.organization.name}
+            </Link>
             {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
           </p>
           <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
