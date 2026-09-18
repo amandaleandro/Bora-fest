@@ -197,7 +197,10 @@ export function EventPageClient({
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <p className="text-[13px] font-semibold text-muted">
-              Por {event.organization.name}
+              Por{" "}
+              <Link href={`/casa/${event.organization.slug}`} className="font-extrabold text-primary hover:underline">
+                {event.organization.name}
+              </Link>
               {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
             </p>
             <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
