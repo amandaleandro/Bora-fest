@@ -65,6 +65,32 @@ test("catálogo público: busca por produtor/atração e exclui organização de
       "busca deve encontrar evento por atração/line-up",
     );
 
+    const eventSuggestions = await catalog.getSearchSuggestions("DJ Nebula", "Uberlândia");
+    assert.ok(
+      eventSuggestions.events.some((event) => event.id === publicFixture.event.id),
+      "autocomplete deve encontrar o evento pela atração",
+    );
+    assert.ok(
+      eventSuggestions.attractions.some((item) => item.name === "DJ Nebula" && item.eventSlug === publicFixture.event.slug),
+      "autocomplete deve separar a atração do evento",
+    );
+
+    const houseSuggestions = await catalog.getSearchSuggestions("Casa Aurora", "Uberlândia");
+    assert.ok(
+      houseSuggestions.houses.some((house) => house.id === publicFixture.organization.id),
+      "autocomplete deve encontrar a Casa pelo nome comercial",
+    );
+
+    const hiddenSuggestions = await catalog.getSearchSuggestions(hiddenFixture.event.title);
+    assert.ok(
+      !hiddenSuggestions.events.some((event) => event.id === hiddenFixture.event.id),
+      "autocomplete não pode vazar evento de homologação",
+    );
+    assert.ok(
+      !hiddenSuggestions.houses.some((house) => house.id === hiddenFixture.organization.id),
+      "autocomplete não pode vazar Casa de homologação",
+    );
+
     const listing = await catalog.listPublicEvents({ page: 1, pageSize: 50 });
     assert.ok(
       !listing.events.some((event) => event.id === hiddenFixture.event.id),
