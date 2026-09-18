@@ -5,6 +5,10 @@
 **PR:** #21  
 **Objetivo:** corrigir inconsistências de produção, aumentar a confiança do comprador e fazer a vitrine pública representar melhor a maturidade real do BoraFest.
 
+> **Para quem chegou agora no projeto:** leia primeiro `docs/projeto/GUIA-CONTINUIDADE.md`. Ele explica arquitetura, fluxos críticos, regras de negócio, segurança, testes, deploy e como alterar o sistema sem reintroduzir bugs antigos.
+>
+> Este arquivo é o **registro desta rodada específica**. O `GUIA-CONTINUIDADE.md` é a documentação permanente.
+
 ---
 
 ## 1. Escopo desta evolução
@@ -35,6 +39,8 @@ Esta evolução foi dividida em quatro frentes:
 
 **Critério de aceite:** nenhuma nova reserva pode ser criada após o término do evento.
 
+**Atenção para manutenção futura:** não remova a validação do backend só porque a UI já esconde o botão. A UI é experiência; a API é a barreira real.
+
 ---
 
 ### 2.2 Qualidade de cadastro de eventos e locais
@@ -53,6 +59,8 @@ Esta evolução foi dividida em quatro frentes:
 - `packages/contracts/src/events.ts`
 
 **Critério de aceite:** cadastros com UF inválida ou término anterior/igual ao início devem ser recusados pela API.
+
+**Atenção para manutenção futura:** contratos compartilhados devem continuar em `packages/contracts` quando forem consumidos por mais de uma aplicação.
 
 ---
 
@@ -92,6 +100,8 @@ Esta evolução foi dividida em quatro frentes:
 
 **Objetivo de UX:** transmitir confiança sem transformar a tela em publicidade excessiva.
 
+**Regra editorial:** nunca prometer algo que o fluxo técnico não garanta.
+
 ---
 
 ## 3. Próximo bloco em implementação
@@ -111,6 +121,18 @@ Quando houver evidência real de destaque, a home pode usar um evento. Quando n�
 
 **Princípio:** destaque comercial não deve ser inventado.
 
+**Arquivo central:** `apps/checkout/app/HomeClient.tsx`.
+
+**Cenários obrigatórios de teste:**
+- nenhum evento;
+- um evento sem vendas;
+- múltiplos eventos sem vendas;
+- múltiplos eventos com procura real;
+- filtro por cidade;
+- filtro por categoria;
+- mobile;
+- desktop.
+
 ---
 
 ### 3.2 Busca pública melhorada
@@ -126,6 +148,8 @@ A busca deve evoluir de correspondência somente por título para uma experiênc
 
 A primeira etapa pode permanecer client-side usando os dados já carregados; a etapa seguinte deve evoluir a API de catálogo para pesquisa dedicada.
 
+**Evitar:** criar busca client-side que pareça global, mas só pesquise parte dos eventos carregados.
+
 ---
 
 ### 3.3 Publicação/republicação de evento vencido
@@ -135,6 +159,14 @@ A primeira etapa pode permanecer client-side usando os dados já carregados; a e
 A proteção deve existir no backend e não apenas no botão do painel.
 
 **Mensagem esperada:** “Atualize a data do evento antes de abrir as vendas.”
+
+**Arquivo central:** `apps/api/src/events/events.service.ts`.
+
+**Critérios de aceite:**
+- DRAFT vencido não publica;
+- SALES_PAUSED vencido não republica;
+- evento futuro continua publicando normalmente;
+- alteração da data para uma janela válida permite publicação novamente.
 
 ---
 
@@ -152,6 +184,8 @@ A página pública deve apresentar, de forma clara:
 
 Não devem ser inventadas políticas que ainda não existam no modelo/contrato do produto.
 
+**Arquivo central:** `apps/checkout/app/[slug]/EventPageClient.tsx`.
+
 ---
 
 ## 4. Pendências de produção que não são resolvidas apenas por código
@@ -165,6 +199,8 @@ Estas tarefas exigem revisão dos dados/ambiente:
 - validar banners, títulos e descrições atualmente publicados;
 - executar smoke test após deploy.
 
+**Importante:** não confundir “o código impede novos erros” com “os dados antigos já estão corrigidos”. São duas tarefas diferentes.
+
 ---
 
 ## 5. Regras de produto adotadas
@@ -176,10 +212,34 @@ Estas tarefas exigem revisão dos dados/ambiente:
 - Taxas devem continuar transparentes.
 - Conteúdo de teste não deve aparecer na experiência pública.
 - O BoraFest deve se posicionar como operação completa do evento: venda, promoters, listas, VIP, portaria, PDV e financeiro.
+- Métricas de promoter devem separar cadastrado, vendido e entrou.
+- Falha de internet na portaria não deve virar “ingresso inválido”.
+- Dinheiro, estoque, acesso e permissões exigem proteção server-side.
 
 ---
 
-## 6. Checklist de validação antes do merge
+## 6. Mapa rápido para manutenção
+
+| Se você vai mexer em… | Comece por… | Também revise… |
+|---|---|---|
+| Home pública | `apps/checkout/app/HomeClient.tsx` | catálogo público/API, cards e filtros |
+| Página do evento | `apps/checkout/app/[slug]/EventPageClient.tsx` | TicketSelector, contratos e catálogo |
+| Reserva | `apps/api/src/reservations/` | inventory, waiting-room e checkout |
+| Evento/publicação | `apps/api/src/events/` | contracts e painel producer |
+| Pagamento | módulos de payment/order | ledger, worker, webhook e emissão |
+| Portaria | check-in/gate | offline sync, manifests e auditoria |
+| PDV | orders/PDV | estoque, ledger, idempotência |
+| Promoter/listas | módulos promoter/list | relatórios, check-in e métricas |
+| VIP | `apps/api/src/vip/` | payments e inventário |
+| Financeiro | ledger/orders/payments | reembolso e repasse |
+| Validação compartilhada | `packages/contracts` | clientes que consomem o contrato |
+| Banco/migration | `packages/database` | worker/API e estratégia de deploy |
+
+Para contexto completo, consulte `docs/projeto/GUIA-CONTINUIDADE.md`.
+
+---
+
+## 7. Checklist de validação antes do merge
 
 - [x] Reserva bloqueada após `endsAt`.
 - [x] Checkout trata evento encerrado.
@@ -188,6 +248,7 @@ Estas tarefas exigem revisão dos dados/ambiente:
 - [x] Landing `/para-produtores` criada.
 - [x] Header/footer atualizados.
 - [x] Blocos de confiança adicionados.
+- [x] Guia permanente de continuidade criado.
 - [ ] Bloqueio de publicar evento vencido.
 - [ ] Bloqueio de republicar evento vencido.
 - [ ] Hero institucional de fallback.
@@ -199,7 +260,7 @@ Estas tarefas exigem revisão dos dados/ambiente:
 
 ---
 
-## 7. Definição de pronto deste ciclo
+## 8. Definição de pronto deste ciclo
 
 Este ciclo será considerado concluído quando:
 
@@ -213,7 +274,7 @@ Este ciclo será considerado concluído quando:
 
 ---
 
-## 8. Próximas fases após este ciclo
+## 9. Próximas fases após este ciclo
 
 1. Dashboard operacional do produtor.
 2. Promoters e listas como diferencial central.
@@ -222,3 +283,21 @@ Este ciclo será considerado concluído quando:
 5. CRM e campanhas.
 6. Observabilidade e alertas operacionais.
 7. Consumação/cashless como fase separada.
+
+---
+
+## 10. Política de documentação deste projeto
+
+Toda alteração relevante deve registrar:
+
+- **o que mudou**;
+- **por que mudou**;
+- **arquivos/módulos afetados**;
+- **regra de negócio envolvida**;
+- **como validar**;
+- **risco de regressão**;
+- **o que ficou pendente**.
+
+Quando a mudança corrigir um bug estrutural, documentar também **o comportamento que não pode voltar**, para evitar que alguém no futuro “simplifique” uma proteção importante.
+
+O guia permanente fica em `docs/projeto/GUIA-CONTINUIDADE.md`.
