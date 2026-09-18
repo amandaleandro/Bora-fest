@@ -254,8 +254,8 @@ Para contexto completo, consulte `docs/projeto/GUIA-CONTINUIDADE.md`.
 - [x] Hero institucional de fallback.
 - [x] Busca pública ampliada na primeira etapa client-side (título, local, cidade, UF e categoria).
 - [x] FAQ/políticas na página do evento.
-- [ ] Testes automatizados do novo comportamento.
-- [ ] CI executado com sucesso.
+- [x] Teste automatizado adicionado para publicação/republicação vencida e PATCH parcial de datas (`event-sales-window.test.ts`).
+- [ ] CI executado com sucesso — nenhum workflow foi disparado automaticamente para o head atual.
 - [ ] Smoke test após deploy.
 
 ---
@@ -348,3 +348,16 @@ Alterações:
 - conteúdo específico do evento continua atribuído ao organizador.
 
 **Regra editorial:** não copiar para a página do evento uma política jurídica mais específica do que o produto realmente garante.
+
+
+### 11.4 Teste de regressão
+
+**Arquivo:** `apps/api/src/__tests__/event-sales-window.test.ts`
+
+Cobre:
+- tentativa de publicar DRAFT vencido;
+- tentativa de republicar SALES_PAUSED vencido;
+- PATCH apenas de `startsAt` criando intervalo inválido;
+- controle positivo: evento futuro válido continua publicando.
+
+**Estado da execução:** teste foi adicionado à suíte, mas o GitHub não disparou workflow/CI para o commit atual. Não considerar “verde” até executar `pnpm test`, `pnpm typecheck` e build em ambiente com dependências/infra disponíveis.
