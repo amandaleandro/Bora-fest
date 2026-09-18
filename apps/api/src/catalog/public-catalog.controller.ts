@@ -34,6 +34,16 @@ export class PublicCatalogController {
     });
   }
 
+  @Get("search/suggestions")
+  searchSuggestions(
+    @Query("q") query: string | undefined,
+    @Query("city") city: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header("Cache-Control", "public, max-age=20, stale-while-revalidate=60");
+    return this.catalogService.getSearchSuggestions(query ?? "", city?.trim() || undefined);
+  }
+
   @Get("cities/list")
   listCities(@Res({ passthrough: true }) reply: FastifyReply) {
     reply.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
