@@ -7,6 +7,17 @@ import { OrgAccessService } from "../common/org-access.service";
 import { InventoryService } from "../inventory/inventory.service";
 
 
+function publicCatalogOrganizationFilter() {
+  const excluded = (process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS ?? "")
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+
+  return excluded.length > 0
+    ? { organization: { is: { slug: { notIn: excluded } } } }
+    : {};
+}
+
 /** Campos do cartão de vitrine (home/listas) — um só select para lista e home. */
 const showcaseSelect = {
   id: true,
@@ -17,6 +28,8 @@ const showcaseSelect = {
   startsAt: true,
   timezone: true,
   venue: { select: { name: true, city: true, state: true } },
+  organization: { select: { name: true, displayName: true, slug: true } },
+  lineup: true,
   ticketTypes: {
     select: {
       lots: {
@@ -36,6 +49,8 @@ type ShowcaseRow = {
   startsAt: Date;
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
+  organization: { name: string; displayName: string | null; slug: string };
+  lineup: string | null;
   ticketTypes: Array<{
     lots: Array<{ priceCents: number; feeCents: number; feeMode: string; endsAt: Date | null }>;
   }>;
@@ -61,6 +76,11 @@ function toShowcaseCard(event: ShowcaseRow) {
     startsAt: event.startsAt,
     timezone: event.timezone,
     venue: event.venue,
+    organization: {
+      name: event.organization.displayName ?? event.organization.name,
+      slug: event.organization.slug,
+    },
+    lineup: event.lineup,
     fromPriceCents: totals.length > 0 ? Math.min(...totals) : null,
     currentLotEndsAt: ends[0] ?? null,
   };
@@ -225,7 +245,12 @@ export class CatalogService {
    */
   async listPublicCities() {
     const venues = await prisma.event.findMany({
-      where: { status: "PUBLISHED", endsAt: { gt: new Date() }, venueId: { not: null } },
+      where: {
+        status: "PUBLISHED",
+        endsAt: { gt: new Date() },
+        venueId: { not: null },
+        ...publicCatalogOrganizationFilter(),
+      },
       select: { venue: { select: { city: true, state: true } } },
       distinct: ["venueId"],
     });
@@ -238,19 +263,35 @@ export class CatalogService {
   }
 
   /** Descoberta de eventos (Fase 12): lista eventos publicados, futuros primeiro. */
-  async listPublicEvents(options: { page: number; pageSize: number; city?: string; category?: string }) {
-    const chave = `evlist:${options.page}:${options.pageSize}:${options.city ?? ""}:${options.category ?? ""}`;
+  async listPublicEvents(options: { page: number; pageSize: number; city?: string; category?: string; query?: string }) {
+    const chave = `evlist:${options.page}:${options.pageSize}:${options.city ?? ""}:${options.category ?? ""}:${options.query ?? ""}`;
     return this.lembrado(chave, 5_000, () => this.listPublicEventsFresco(options));
   }
 
-  private async listPublicEventsFresco(options: { page: number; pageSize: number; city?: string; category?: string }) {
+  private async listPublicEventsFresco(options: { page: number; pageSize: number; city?: string; category?: string; query?: string }) {
+    const query = options.query?.trim();
     const where = {
       status: "PUBLISHED" as const,
       endsAt: { gt: new Date() },
+      ...publicCatalogOrganizationFilter(),
+      ...publicCatalogOrganizationFilter(),
       ...(options.city
         ? { venue: { is: { city: { equals: options.city, mode: "insensitive" as const } } } }
         : {}),
       ...(options.category ? { category: options.category as never } : {}),
+      ...(query
+        ? {
+            OR: [
+              { title: { contains: query, mode: "insensitive" as const } },
+              { lineup: { contains: query, mode: "insensitive" as const } },
+              { venue: { is: { name: { contains: query, mode: "insensitive" as const } } } },
+              { venue: { is: { city: { contains: query, mode: "insensitive" as const } } } },
+              { organization: { is: { name: { contains: query, mode: "insensitive" as const } } } },
+              { organization: { is: { displayName: { contains: query, mode: "insensitive" as const } } } },
+              { organization: { is: { slug: { contains: query, mode: "insensitive" as const } } } },
+            ],
+          }
+        : {}),
     };
 
     const [total, events] = await Promise.all([
@@ -371,7 +412,11 @@ export class CatalogService {
 
   private async getPublicEventFresco(slug: string, promoterSlug?: string) {
     const event = await prisma.event.findFirst({
-      where: { slug, status: "PUBLISHED" },
+      where: {
+        slug,
+        status: "PUBLISHED",
+        ...publicCatalogOrganizationFilter(),
+      },
       include: {
         venue: true,
         organization: { select: { id: true, name: true, displayName: true, slug: true } },
