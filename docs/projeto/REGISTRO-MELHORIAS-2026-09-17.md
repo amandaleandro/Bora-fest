@@ -410,3 +410,24 @@ O frontend envia a consulta após debounce de 250 ms, combinando com cidade e ca
 Cobre busca por Casa/produtor e atração, além da invisibilidade de uma organização excluída na lista, home e detalhe público.
 
 **Estado da execução:** adicionado à suíte. A execução automatizada ainda depende do CI, que não estava disparando nos commits anteriores.
+
+
+### 12.4 Estado do CI no commit atual
+
+O GitHub Actions disparou o workflow `CI`, porém o job `build-test` terminou como `failure` antes de iniciar qualquer step.
+
+Evidências do run:
+- `runner_id: 0`;
+- `steps: []`;
+- duração de poucos segundos;
+- nenhuma etapa de checkout, install, build ou teste chegou a executar.
+
+**Interpretação:** falha de infraestrutura/provisionamento do GitHub Actions. Não classificar este estado como “testes falharam”, porque os testes não chegaram a rodar. Também não classificar como “validado”.
+
+Antes do merge/deploy, executar com sucesso:
+- `pnpm install --frozen-lockfile`;
+- geração do Prisma Client;
+- `pnpm build`;
+- `pnpm test`;
+- typecheck do app de check-in;
+- verificação cruzada do QR conforme `.github/workflows/ci.yml`.
