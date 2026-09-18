@@ -61,6 +61,62 @@ function EventInfoSections({ event, compact = false }: { event: PublicEvent; com
   );
 }
 
+function EventBuyerGuide({ event, compact = false }: { event: PublicEvent; compact?: boolean }) {
+  const h2 = compact ? "text-[16px] font-extrabold" : "text-[18px] font-extrabold";
+  const items = [
+    {
+      title: "Como recebo meu ingresso?",
+      body: "Depois da confirmação do pagamento, o pedido segue para emissão e o ingresso fica disponível pelos canais do BoraFest.",
+    },
+    {
+      title: "Preciso instalar aplicativo?",
+      body: "Não. O ingresso pode ser acessado pelo celular sem app obrigatório para apresentar na entrada.",
+    },
+    {
+      title: "Como funciona o QR Code?",
+      body: "Cada ingresso emitido possui identificação própria. Na portaria, apresente o QR correspondente ao seu ingresso.",
+    },
+    {
+      title: "Preciso levar documento?",
+      body:
+        event.minAge !== null && event.minAge > 0
+          ? `Sim. Este evento informa classificação ${event.minAge}+ e pode exigir documento com foto na entrada.`
+          : "Confira as regras informadas pelo organizador. Ingressos nominais, meia-entrada ou regras específicas podem exigir documento.",
+    },
+  ];
+
+  return (
+    <section className="mt-7">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[.1em] text-primary">Antes de comprar</p>
+          <h2 className={h2}>Ingresso, entrada e políticas</h2>
+        </div>
+        <Link href="/legal?aba=termos" className="text-[12.5px] font-extrabold text-primary">
+          Ver termos completos
+        </Link>
+      </div>
+
+      <div className={`mt-3 grid gap-3 ${compact ? "grid-cols-1" : "md:grid-cols-2"}`}>
+        {items.map((item) => (
+          <div key={item.title} className="rounded-2xl border border-line bg-surface p-4">
+            <p className="text-[13.5px] font-extrabold text-ink">{item.title}</p>
+            <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed text-ink-soft">{item.body}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-line bg-surface p-4 text-[12.5px] font-medium leading-relaxed text-ink-soft">
+        Informações específicas de horário, atrações, local e regras de acesso são fornecidas pelo organizador do evento.
+        Para regras gerais da plataforma, consulte{" "}
+        <Link href="/legal?aba=termos" className="font-extrabold text-primary">Termos de Uso</Link>
+        {" "}e{" "}
+        <Link href="/legal?aba=privacidade" className="font-extrabold text-primary">Privacidade</Link>.
+      </div>
+    </section>
+  );
+}
+
 function minPriceCents(event: PublicEvent): number | null {
   // preço anunciado = o que o comprador paga (com taxa quando é dele)
   const prices = event.ticketTypes.flatMap((t) =>
@@ -183,6 +239,7 @@ export function EventPageClient({
             </section>
           )}
           <EventInfoSections event={event} />
+          <EventBuyerGuide event={event} />
         </div>
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-3xl border border-line bg-bg p-5 shadow-card">
@@ -285,6 +342,7 @@ export function EventPageClient({
           </section>
         )}
         <EventInfoSections event={event} compact />
+        <EventBuyerGuide event={event} compact />
       </div>
 
       {/* CTA sticky */}
