@@ -23,6 +23,7 @@ interface HouseProfile {
   location: { name: string; city: string; state: string } | null;
   heroImageUrl: string | null;
   events: EventListItem[];
+  recentPastEvents: EventListItem[];
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -165,6 +166,25 @@ export default async function HousePage({ params }: { params: { slug: string } }
               </div>
             )}
           </section>
+
+          {house.recentPastEvents.length > 0 ? (
+            <section className="lg:col-span-1">
+              <div className="mt-8 border-t border-line pt-7">
+                <div>
+                  <p className="text-[12px] font-extrabold uppercase tracking-[.08em] text-muted-2">Histórico recente</p>
+                  <h2 className="mt-1 text-[20px] font-black text-ink">Eventos anteriores</h2>
+                  <p className="mt-1 text-[12.5px] font-semibold text-muted">
+                    Uma amostra da agenda já realizada por {house.name}.
+                  </p>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {house.recentPastEvents.map((event) => (
+                    <GridCard key={event.id} event={event} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <aside className="space-y-3">
             <div className="rounded-3xl border border-line bg-surface p-5">
