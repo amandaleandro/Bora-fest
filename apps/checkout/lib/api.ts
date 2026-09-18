@@ -130,6 +130,23 @@ export interface EventListItem {
   currentLotEndsAt: string | null;
 }
 
+export interface SearchSuggestions {
+  events: EventListItem[];
+  houses: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+    location: { city: string; state: string } | null;
+  }>;
+  attractions: Array<{
+    name: string;
+    eventSlug: string;
+    eventTitle: string;
+    houseName: string;
+  }>;
+}
+
 export interface AvailabilityItem {
   ticketTypeId: string;
   ticketTypeName: string;
@@ -296,6 +313,11 @@ export const api = {
     return request<{ total: number; events: EventListItem[] }>(
       `/v1/public/events${qs ? `?${qs}` : ""}`,
     ).then((r) => r.events);
+  },
+  searchSuggestions: (query: string, city?: string) => {
+    const params = new URLSearchParams({ q: query });
+    if (city) params.set("city", city);
+    return request<SearchSuggestions>(`/v1/public/events/search/suggestions?${params.toString()}`);
   },
   getHomeSections: (city?: string) => {
     const params = city ? `?city=${encodeURIComponent(city)}` : "";
