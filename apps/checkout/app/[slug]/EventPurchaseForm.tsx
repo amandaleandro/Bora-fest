@@ -17,6 +17,8 @@ export function EventPurchaseForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const salesClosed = event.status !== "PUBLISHED" || new Date(event.endsAt).getTime() <= Date.now();
+
   const totalCents = useMemo(() => {
     return event.ticketTypes.reduce((sum, type) => {
       return (
@@ -37,6 +39,12 @@ export function EventPurchaseForm({
 
   async function handleReserve() {
     setError(null);
+
+    if (salesClosed) {
+      setError("As vendas deste evento já foram encerradas");
+      return;
+    }
+
     const items = Object.entries(quantities)
       .filter(([, qty]) => qty > 0)
       .map(([ticketLotId, quantity]) => ({ ticketLotId, quantity }));
@@ -57,8 +65,13 @@ export function EventPurchaseForm({
     }
   }
 
-  if (event.status !== "PUBLISHED") {
-    return <p className="mt-8 text-amber-400">Este evento não está com vendas abertas no momento.</p>;
+  if (salesClosed) {
+    return (
+      <div className="mt-8 rounded-xl border border-line bg-surface p-4 text-center">
+        <p className="text-sm font-bold text-muted">Vendas encerradas</p>
+        <p className="mt-1 text-xs font-medium text-muted">Este evento não aceita mais novas reservas.</p>
+      </div>
+    );
   }
 
   return (

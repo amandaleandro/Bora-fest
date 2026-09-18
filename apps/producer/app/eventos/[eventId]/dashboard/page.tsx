@@ -130,6 +130,36 @@ function DashboardContent({ eventId }: { eventId: string }) {
   const slug = (dashboard.event as { slug?: string }).slug ?? event?.slug ?? "";
   const chip = event ? (STATUS_CHIP[event.status] ?? { bg: "bg-line", fg: "text-muted", label: event.status }) : null;
 
+  const onlineLots = dashboard.lots.filter((lot) => lot.status === "ACTIVE" && !lot.pdvOnly);
+  const lowInventory = onlineLots.filter(
+    (lot) => lot.capacity > 0 && lot.available > 0 && lot.available <= Math.max(5, Math.ceil(lot.capacity * 0.1)),
+  );
+  const pendingOrders = dashboard.orders.byStatus["PENDING"] ?? 0;
+  const attention = [
+    ...(!dashboard.event.bannerUrl
+      ? [{ level: "warning" as const, title: "Evento sem arte", body: "Adicione um banner/flyer antes de intensificar a divulgação.", href: `/eventos/${eventId}`, action: "Adicionar arte" }]
+      : []),
+    ...(!dashboard.event.venue
+      ? [{ level: "warning" as const, title: "Local não informado", body: "O comprador ainda não vê onde o evento acontece.", href: `/eventos/${eventId}`, action: "Definir local" }]
+      : []),
+    ...(!dashboard.event.category
+      ? [{ level: "warning" as const, title: "Categoria não definida", body: "Sem categoria, o evento perde força nas prateleiras de descoberta.", href: `/eventos/${eventId}/editar`, action: "Escolher categoria" }]
+      : []),
+    ...(dashboard.event.status === "PUBLISHED" && onlineLots.length === 0
+      ? [{ level: "danger" as const, title: "Página publicada sem ingresso online", body: "Não existe lote ACTIVE disponível para venda no site. Lotes somente-PDV não contam.", href: `/eventos/${eventId}`, action: "Revisar ingressos" }]
+      : []),
+    ...lowInventory.map((lot) => ({
+      level: "warning" as const,
+      title: `Estoque baixo: ${lot.typeName} · ${lot.name}`,
+      body: `Restam ${lot.available} de ${lot.capacity} ingressos neste lote.`,
+      href: `/eventos/${eventId}`,
+      action: "Revisar lote",
+    })),
+    ...(pendingOrders > 0
+      ? [{ level: "info" as const, title: `${pendingOrders} pedido${pendingOrders === 1 ? "" : "s"} aguardando pagamento`, body: "Acompanhe a conversão antes de tomar decisão de estoque com base apenas em reservas.", href: `/eventos/${eventId}/vendas`, action: "Ver vendas" }]
+      : []),
+  ];
+
   return (
     <main>
       {/* cartão de identidade do evento — mesmo padrão do Resumo */}
@@ -171,6 +201,51 @@ function DashboardContent({ eventId }: { eventId: string }) {
           Gerenciar evento →
         </Link>
       </div>
+
+      {attention.length > 0 ? (
+        <section className="mt-4 rounded-2xl border border-line bg-surface p-4 lg:mt-5 lg:p-5">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-[10.5px] font-extrabold uppercase tracking-[.08em] text-primary">Atenção operacional</p>
+              <h2 className="mt-0.5 text-[16px] font-extrabold text-ink">O que precisa da sua atenção</h2>
+            </div>
+            <Link href={`/eventos/${eventId}/preview`} className="text-[12px] font-extrabold text-primary">
+              Ver prévia como comprador →
+            </Link>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {attention.map((item, index) => (
+              <div key={`${item.title}-${index}`} className="flex gap-3 rounded-xl border border-line bg-bg p-3.5">
+                <span
+                  className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-black ${
+                    item.level === "danger"
+                      ? "bg-danger/10 text-danger"
+                      : item.level === "warning"
+                        ? "bg-warning/10 text-warning"
+                        : "bg-primary/10 text-primary"
+                  }`}
+                >
+                  {item.level === "danger" ? "!" : item.level === "warning" ? "•" : "i"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-extrabold text-ink">{item.title}</p>
+                  <p className="mt-0.5 text-[11.5px] font-semibold leading-relaxed text-muted">{item.body}</p>
+                  <Link href={item.href} className="mt-2 inline-block text-[11.5px] font-extrabold text-primary">
+                    {item.action} →
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="mt-4 rounded-2xl border border-success/20 bg-success/5 p-4 lg:mt-5">
+          <p className="text-[13px] font-extrabold text-success">Nenhuma atenção operacional detectada agora.</p>
+          <p className="mt-0.5 text-[11.5px] font-semibold text-muted">
+            Continue acompanhando vendas, estoque e portaria conforme o evento se aproxima.
+          </p>
+        </section>
+      )}
 
       {/* 4 KPIs — receita em destaque no gradiente da marca */}
       <div className="mt-4 grid grid-cols-2 gap-3 lg:mt-5 lg:grid-cols-4 lg:gap-4">

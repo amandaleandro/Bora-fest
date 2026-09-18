@@ -455,6 +455,41 @@ function EventContent({ eventId }: { eventId: string }) {
 
   const statusStyle = STATUS_STYLES[dashboard.event.status] ?? { bg: "bg-line", fg: "text-muted", label: dashboard.event.status };
   const publicUrl = `${CHECKOUT_URL}/${dashboard.event.slug}`;
+  const eventEnded = new Date(dashboard.event.endsAt).getTime() <= Date.now();
+  const hasActivePublicLot = dashboard.lots.some((lot) => lot.status === "ACTIVE" && !lot.pdvOnly);
+  const publishChecklist = [
+    {
+      label: "Data do evento ainda está válida",
+      ok: !eventEnded,
+      required: true,
+      hint: eventEnded ? "Atualize a data antes de abrir as vendas." : "O evento ainda está dentro da janela de venda.",
+    },
+    {
+      label: "Categoria definida",
+      ok: Boolean(dashboard.event.category),
+      required: false,
+      hint: dashboard.event.category ? "Ajuda o evento a aparecer nas prateleiras certas." : "Recomendado para descoberta na home.",
+    },
+    {
+      label: "Local preenchido",
+      ok: Boolean(dashboard.event.venue),
+      required: false,
+      hint: dashboard.event.venue ? "O comprador verá onde o evento acontece." : "Recomendado antes de divulgar o link.",
+    },
+    {
+      label: "Arte do evento adicionada",
+      ok: Boolean(dashboard.event.bannerUrl),
+      required: false,
+      hint: dashboard.event.bannerUrl ? "A vitrine já tem uma imagem para o evento." : "Recomendado para melhorar confiança e conversão.",
+    },
+    {
+      label: "Ingresso online ativo",
+      ok: hasActivePublicLot,
+      required: false,
+      hint: hasActivePublicLot ? "Existe pelo menos um lote vendável no site." : "Sem lote online, a página pode ficar sem opção de compra.",
+    },
+  ];
+  const publishBlocked = publishChecklist.some((item) => item.required && !item.ok);
 
   return (
     <main>
@@ -467,7 +502,13 @@ function EventContent({ eventId }: { eventId: string }) {
 
       <div className="mt-4 flex flex-wrap gap-2">
         {dashboard.event.status === "DRAFT" ? (
-          <button type="button" className="btn-primary" onClick={handlePublish}>
+          <button
+            type="button"
+            className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handlePublish}
+            disabled={publishBlocked}
+            title={publishBlocked ? "Corrija os itens obrigatórios antes de publicar" : undefined}
+          >
             Publicar evento
           </button>
         ) : null}
@@ -479,6 +520,12 @@ function EventContent({ eventId }: { eventId: string }) {
         >
           ✎ Editar dados do evento
         </Link>
+        <Link
+          href={`/eventos/${eventId}/preview`}
+          className="chip-nav"
+        >
+          👁 Prévia como comprador
+        </Link>
         <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="chip-nav">
           Check-in ao vivo
         </Link>
@@ -488,6 +535,44 @@ function EventContent({ eventId }: { eventId: string }) {
       </div>
 
       {error ? <p className="mt-4 text-sm font-semibold text-danger">{error}</p> : null}
+
+      {["DRAFT", "SALES_PAUSED"].includes(dashboard.event.status) ? (
+        <section className="mt-5 rounded-2xl border border-line bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[.12em] text-primary">Pré-publicação</p>
+              <h2 className="mt-1 text-[17px] font-extrabold">Antes de abrir as vendas</h2>
+              <p className="mt-1 max-w-2xl text-[12.5px] font-medium leading-relaxed text-muted">
+                O item obrigatório bloqueia a publicação. Os demais são recomendações para evitar uma página pública incompleta.
+              </p>
+            </div>
+            <Link href={`/eventos/${eventId}/editar`} className="text-[12.5px] font-extrabold text-primary">
+              Revisar dados do evento →
+            </Link>
+          </div>
+
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {publishChecklist.map((item) => (
+              <div key={item.label} className="flex gap-3 rounded-xl border border-line bg-bg p-3.5">
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-extrabold ${
+                    item.ok ? "bg-success/15 text-success" : item.required ? "bg-danger/10 text-danger" : "bg-warning/10 text-warning"
+                  }`}
+                >
+                  {item.ok ? "✓" : "!"}
+                </span>
+                <div>
+                  <p className="text-[13px] font-extrabold text-ink">
+                    {item.label}
+                    {item.required ? <span className="ml-1 text-[10px] uppercase tracking-wide text-danger">obrigatório</span> : null}
+                  </p>
+                  <p className="mt-0.5 text-[11.5px] font-medium leading-relaxed text-muted">{item.hint}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-extrabold">Ingressos</h2>
@@ -832,7 +917,9 @@ function EventContent({ eventId }: { eventId: string }) {
             <button
               type="button"
               onClick={togglePublication}
-              className={`rounded-lg px-3 py-2 text-sm font-bold text-white ${dashboard.event.status === "PUBLISHED" ? "bg-warning" : "bg-success"}`}
+              disabled={dashboard.event.status === "SALES_PAUSED" && publishBlocked}
+              title={dashboard.event.status === "SALES_PAUSED" && publishBlocked ? "Atualize a data do evento antes de reabrir" : undefined}
+              className={`rounded-lg px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${dashboard.event.status === "PUBLISHED" ? "bg-warning" : "bg-success"}`}
             >
               {dashboard.event.status === "PUBLISHED" ? "Pausar vendas" : "Reabrir vendas"}
             </button>

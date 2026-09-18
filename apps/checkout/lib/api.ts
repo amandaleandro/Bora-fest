@@ -123,9 +123,28 @@ export interface EventListItem {
   startsAt: string;
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
+  organization?: { name: string; slug: string };
+  lineup?: string | null;
   fromPriceCents: number | null;
   /** fim do lote ativo mais próximo (urgência honesta na vitrine) */
   currentLotEndsAt: string | null;
+}
+
+export interface SearchSuggestions {
+  events: EventListItem[];
+  houses: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+    location: { city: string; state: string } | null;
+  }>;
+  attractions: Array<{
+    name: string;
+    eventSlug: string;
+    eventTitle: string;
+    houseName: string;
+  }>;
 }
 
 export interface AvailabilityItem {
@@ -285,14 +304,20 @@ export interface PdvVenda {
 export const api = {
   listPublicEvents: () =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
-  listPublicEventsByCity: (city?: string, category?: EventCategory) => {
+  listPublicEventsByCity: (city?: string, category?: EventCategory, query?: string) => {
     const params = new URLSearchParams();
     if (city) params.set("city", city);
     if (category) params.set("category", category);
+    if (query?.trim()) params.set("q", query.trim());
     const qs = params.toString();
     return request<{ total: number; events: EventListItem[] }>(
       `/v1/public/events${qs ? `?${qs}` : ""}`,
     ).then((r) => r.events);
+  },
+  searchSuggestions: (query: string, city?: string) => {
+    const params = new URLSearchParams({ q: query });
+    if (city) params.set("city", city);
+    return request<SearchSuggestions>(`/v1/public/events/search/suggestions?${params.toString()}`);
   },
   getHomeSections: (city?: string) => {
     const params = city ? `?city=${encodeURIComponent(city)}` : "";

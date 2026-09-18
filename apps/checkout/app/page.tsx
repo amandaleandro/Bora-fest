@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "../lib/config";
 import type { EventListItem } from "../lib/api";
 import type { HouseListResponse } from "../lib/houses-api";
+import { HomeTrustStrip } from "../components/HomeTrustStrip";
 import { HomeClient, type HomeSections } from "./HomeClient";
 import { HomeHouses } from "./HomeHouses";
 
@@ -31,6 +32,7 @@ export default async function HomePage() {
   return (
     <>
       <HomeClient initialSections={sections} initialEvents={lista?.events ?? null} banners={banners} />
+      <HomeTrustStrip />
       <HomeHouses initialHouses={houses?.houses ?? []} />
     </>
   );

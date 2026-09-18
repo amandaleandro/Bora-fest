@@ -163,6 +163,12 @@ export class EventsService {
       venueId = input.venueId;
     }
 
+    const startsAt = input.startsAt ? new Date(input.startsAt) : event.startsAt;
+    const endsAt = input.endsAt ? new Date(input.endsAt) : event.endsAt;
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      throw new BadRequestException("O término do evento precisa ser posterior ao início");
+    }
+
     // merge parcial: enviar só um pixel (ex. metaPixelId) não deve apagar os outros já salvos
     let pixelSettings: Record<string, string> | undefined;
     if (input.pixelSettings) {
@@ -198,8 +204,8 @@ export class EventsService {
               ? input.metaCapiToken
               : null,
         venueId,
-        startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
-        endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
+        startsAt: input.startsAt ? startsAt : undefined,
+        endsAt: input.endsAt ? endsAt : undefined,
         timezone: input.timezone,
       },
     });
@@ -217,6 +223,10 @@ export class EventsService {
 
     if (event.status !== "DRAFT") {
       return semSegredoDoEvento(event);
+    }
+
+    if (event.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("Atualize a data do evento antes de abrir as vendas");
     }
 
     const published = await prisma.event.update({
@@ -242,7 +252,7 @@ export class EventsService {
     if (recipients.length === 0) return;
 
     const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
-    const link = `${webBaseUrl}/evento/${event.slug}`;
+    const link = `${webBaseUrl}/${event.slug}`;
     const sender = getEmailSender();
     await Promise.allSettled(
       recipients.map((to) =>
@@ -283,6 +293,10 @@ export class EventsService {
 
     if (event.status !== "SALES_PAUSED") {
       return semSegredoDoEvento(event);
+    }
+
+    if (event.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("Atualize a data do evento antes de abrir as vendas");
     }
 
     const republicado = await prisma.event.update({

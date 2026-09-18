@@ -41,6 +41,27 @@ export const jobDuration = new client.Histogram({
   registers: [metricsRegistry],
 });
 
+/** Integridade de negócio: dinheiro confirmado sem ingresso emitido por tempo anormal. */
+export const paidOrdersWithoutTickets = new client.Gauge({
+  name: "borafest_paid_orders_without_tickets",
+  help: "Pedidos PAID há mais de 2 minutos que ainda não possuem ingressos emitidos",
+  registers: [metricsRegistry],
+});
+
+/** Eventos de outbox que esgotaram as tentativas e exigem intervenção. */
+export const failedOutboxEvents = new client.Gauge({
+  name: "borafest_outbox_failed_events",
+  help: "Eventos de outbox em estado FAILED",
+  registers: [metricsRegistry],
+});
+
+/** Eventos de outbox atrasados além da janela normal de processamento. */
+export const stalePendingOutboxEvents = new client.Gauge({
+  name: "borafest_outbox_stale_pending_events",
+  help: "Eventos de outbox PENDING e disponíveis há mais de 5 minutos",
+  registers: [metricsRegistry],
+});
+
 /** Sobe um servidor HTTP só para expor /metrics — usado por processos sem servidor HTTP próprio (worker). */
 export function startMetricsServer(port: number) {
   const server = createServer(async (req, res) => {

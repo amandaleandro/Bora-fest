@@ -439,6 +439,9 @@ export interface Dashboard {
     slug: string;
     status: string;
     category?: EventCategory | null;
+    startsAt: string;
+    endsAt: string;
+    description?: string | null;
     bannerUrl?: string | null;
     waitingRoomEnabled: boolean;
     waitingRoomConcurrency: number;
@@ -461,6 +464,7 @@ export interface Dashboard {
     feeMode?: FeeMode;
     nominal?: boolean;
     requiresCpf?: boolean;
+    pdvOnly?: boolean;
     capacity: number;
     sold: number;
     reserved: number;

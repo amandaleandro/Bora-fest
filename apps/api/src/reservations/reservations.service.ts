@@ -22,6 +22,14 @@ export class ReservationsService {
       throw new NotFoundException("Evento não encontrado ou não publicado");
     }
 
+    // Defesa que vale no servidor: um evento pode continuar PUBLISHED por
+    // dado legado/erro operacional, mas nunca pode continuar aceitando reserva
+    // depois do próprio término. A vitrine já trata esse estado; agora a API
+    // deixa de depender da UI para bloquear a venda.
+    if (event.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("As vendas deste evento já foram encerradas");
+    }
+
     if (event.waitingRoomEnabled) {
       await this.waitingRoom.assertAdmitted(event.id, input.waitingRoomTicketId);
     }
