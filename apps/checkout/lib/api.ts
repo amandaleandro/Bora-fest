@@ -123,6 +123,8 @@ export interface EventListItem {
   startsAt: string;
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
+  organization?: { name: string; slug: string };
+  lineup?: string | null;
   fromPriceCents: number | null;
   /** fim do lote ativo mais próximo (urgência honesta na vitrine) */
   currentLotEndsAt: string | null;
@@ -285,10 +287,11 @@ export interface PdvVenda {
 export const api = {
   listPublicEvents: () =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
-  listPublicEventsByCity: (city?: string, category?: EventCategory) => {
+  listPublicEventsByCity: (city?: string, category?: EventCategory, query?: string) => {
     const params = new URLSearchParams();
     if (city) params.set("city", city);
     if (category) params.set("category", category);
+    if (query?.trim()) params.set("q", query.trim());
     const qs = params.toString();
     return request<{ total: number; events: EventListItem[] }>(
       `/v1/public/events${qs ? `?${qs}` : ""}`,
