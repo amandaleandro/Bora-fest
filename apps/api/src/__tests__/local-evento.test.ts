@@ -57,6 +57,8 @@ test("local do evento: cria inline, reaproveita por nome+cidade e sai no dashboa
     const dash = await dashboards.getDashboard(created.id, member.id);
     assert.equal((dash.event as any).venue.name, "Armazém 77");
     assert.ok("bannerUrl" in dash.event, "payload traz bannerUrl (mesmo que null)");
+    assert.ok("startsAt" in dash.event && "endsAt" in dash.event, "dashboard traz a janela do evento para pré-publicação");
+    assert.ok(dash.lots.every((lot) => "pdvOnly" in lot), "lotes informam se são exclusivos do PDV");
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
   }
