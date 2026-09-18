@@ -520,6 +520,12 @@ function EventContent({ eventId }: { eventId: string }) {
         >
           ✎ Editar dados do evento
         </Link>
+        <Link
+          href={`/eventos/${eventId}/preview`}
+          className="chip-nav"
+        >
+          👁 Prévia como comprador
+        </Link>
         <Link href={`/eventos/${eventId}/checkin-ao-vivo`} className="chip-nav">
           Check-in ao vivo
         </Link>
