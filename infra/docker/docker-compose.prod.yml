@@ -63,6 +63,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?}
       REDIS_URL: redis://redis:6379
       SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:?}
+      METRICS_TOKEN: ${METRICS_TOKEN:?}
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
       ASAAS_API_KEY: ${ASAAS_API_KEY:-}
       ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN:-}
@@ -109,6 +110,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL:?}
       REDIS_URL: redis://redis:6379
+      METRICS_TOKEN: ${METRICS_TOKEN:?}
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-asaas}
       ASAAS_API_KEY: ${ASAAS_API_KEY:-}
       ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN:-}
@@ -169,7 +171,10 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - borafest_prod_prometheus:/prometheus
+    secrets:
+      - metrics_token
 
   grafana:
     image: grafana/grafana:11.3.0
@@ -215,3 +220,8 @@ volumes:
   borafest_prod_caddy_config:
   borafest_prod_prometheus:
   borafest_prod_grafana:
+
+
+secrets:
+  metrics_token:
+    environment: METRICS_TOKEN
