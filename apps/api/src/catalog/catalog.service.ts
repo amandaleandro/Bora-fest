@@ -274,7 +274,6 @@ export class CatalogService {
       status: "PUBLISHED" as const,
       endsAt: { gt: new Date() },
       ...publicCatalogOrganizationFilter(),
-      ...publicCatalogOrganizationFilter(),
       ...(options.city
         ? { venue: { is: { city: { equals: options.city, mode: "insensitive" as const } } } }
         : {}),
