@@ -7,15 +7,23 @@ import { OrgAccessService } from "../common/org-access.service";
 import { InventoryService } from "../inventory/inventory.service";
 
 
-function publicCatalogOrganizationFilter() {
-  const excluded = (process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS ?? "")
+function excludedPublicOrganizationSlugs(): string[] {
+  return (process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS ?? "")
     .split(",")
     .map((slug) => slug.trim())
     .filter(Boolean);
+}
 
+function publicCatalogOrganizationFilter() {
+  const excluded = excludedPublicOrganizationSlugs();
   return excluded.length > 0
     ? { organization: { is: { slug: { notIn: excluded } } } }
     : {};
+}
+
+function publicOrganizationFilter() {
+  const excluded = excludedPublicOrganizationSlugs();
+  return excluded.length > 0 ? { slug: { notIn: excluded } } : {};
 }
 
 /** Campos do cartão de vitrine (home/listas) — um só select para lista e home. */
@@ -260,6 +268,158 @@ export class CatalogService {
       unique.set(`${item.venue.city}|${item.venue.state}`, item.venue);
     }
     return [...unique.values()].sort((a, b) => a.city.localeCompare(b.city, "pt-BR"));
+  }
+
+  /**
+   * Autocomplete público. Mantém a resposta pequena e separa entidades para a
+   * UI não precisar adivinhar se o texto é evento, Casa ou atração.
+   */
+  async getSearchSuggestions(rawQuery: string, city?: string) {
+    const query = rawQuery.trim().slice(0, 80);
+    if (query.length < 2) return { events: [], houses: [], attractions: [] };
+
+    const now = new Date();
+    const cityEventFilter = city
+      ? { venue: { is: { city: { equals: city, mode: "insensitive" as const } } } }
+      : {};
+
+    const publicEventBase = {
+      status: "PUBLISHED" as const,
+      endsAt: { gt: now },
+      ...publicCatalogOrganizationFilter(),
+      ...cityEventFilter,
+    };
+
+    const [eventRows, houseRows, attractionRows] = await Promise.all([
+      prisma.event.findMany({
+        where: {
+          ...publicEventBase,
+          OR: [
+            { title: { contains: query, mode: "insensitive" } },
+            { lineup: { contains: query, mode: "insensitive" } },
+            { venue: { is: { name: { contains: query, mode: "insensitive" } } } },
+            { venue: { is: { city: { contains: query, mode: "insensitive" } } } },
+            { organization: { is: { name: { contains: query, mode: "insensitive" } } } },
+            { organization: { is: { displayName: { contains: query, mode: "insensitive" } } } },
+          ],
+        },
+        orderBy: { startsAt: "asc" },
+        take: 5,
+        select: showcaseSelect,
+      }),
+      prisma.organization.findMany({
+        where: {
+          status: { notIn: ["SUSPENDED", "BLOCKED"] },
+          ...publicOrganizationFilter(),
+          events: {
+            some: {
+              status: "PUBLISHED",
+              endsAt: { gt: now },
+              ...(city
+                ? { venue: { is: { city: { equals: city, mode: "insensitive" } } } }
+                : {}),
+            },
+          },
+          OR: [
+            { name: { contains: query, mode: "insensitive" } },
+            { displayName: { contains: query, mode: "insensitive" } },
+            { bio: { contains: query, mode: "insensitive" } },
+            { venues: { some: { name: { contains: query, mode: "insensitive" } } } },
+            { venues: { some: { city: { contains: query, mode: "insensitive" } } } },
+            {
+              events: {
+                some: {
+                  status: "PUBLISHED",
+                  endsAt: { gt: now },
+                  OR: [
+                    { title: { contains: query, mode: "insensitive" } },
+                    { lineup: { contains: query, mode: "insensitive" } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+        orderBy: [{ displayName: "asc" }, { name: "asc" }],
+        take: 5,
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          displayName: true,
+          logoUrl: true,
+          venues: {
+            ...(city
+              ? { where: { city: { equals: city, mode: "insensitive" as const } } }
+              : {}),
+            take: 1,
+            orderBy: { createdAt: "desc" as const },
+            select: { city: true, state: true },
+          },
+        },
+      }),
+      prisma.event.findMany({
+        where: {
+          ...publicEventBase,
+          lineup: { contains: query, mode: "insensitive" },
+        },
+        orderBy: { startsAt: "asc" },
+        take: 12,
+        select: {
+          slug: true,
+          title: true,
+          lineup: true,
+          organization: { select: { name: true, displayName: true } },
+        },
+      }),
+    ]);
+
+    const normalized = query
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    const seenAttractions = new Set<string>();
+    const attractions: Array<{
+      name: string;
+      eventSlug: string;
+      eventTitle: string;
+      houseName: string;
+    }> = [];
+
+    for (const row of attractionRows) {
+      for (const rawName of (row.lineup ?? "").split("\n")) {
+        const name = rawName.trim();
+        if (!name) continue;
+        const searchable = name
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        if (!searchable.includes(normalized)) continue;
+        const key = searchable;
+        if (seenAttractions.has(key)) continue;
+        seenAttractions.add(key);
+        attractions.push({
+          name,
+          eventSlug: row.slug,
+          eventTitle: row.title,
+          houseName: row.organization.displayName ?? row.organization.name,
+        });
+        if (attractions.length >= 6) break;
+      }
+      if (attractions.length >= 6) break;
+    }
+
+    return {
+      events: eventRows.map(toShowcaseCard),
+      houses: houseRows.map((house) => ({
+        id: house.id,
+        slug: house.slug,
+        name: house.displayName ?? house.name,
+        logoUrl: house.logoUrl,
+        location: house.venues[0] ?? null,
+      })),
+      attractions,
+    };
   }
 
   /** Descoberta de eventos (Fase 12): lista eventos publicados, futuros primeiro. */
