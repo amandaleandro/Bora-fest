@@ -527,3 +527,29 @@ Para inspecionar dados antes de limpeza:
 `pnpm --filter @borafest/database auditoria-catalogo`
 
 O comando deve permanecer somente leitura. Correções destrutivas ou atualizações em massa devem ser revisadas separadamente e nunca misturadas ao relatório.
+
+
+## 36. Loja da Casa e Ticket Studio
+
+Consulte:
+`docs/projeto/LOJA-E-TICKET-STUDIO.md`
+
+### Loja
+- `EventAddOn` continua sendo adicional de evento;
+- produto permanente usa `StoreProduct/StoreProductVariant`;
+- não usar evento oculto para venda da loja;
+- estoque total nunca pode ser menor que vendido + reservado;
+- publicação do produto exige variação ativa;
+- lookup público por slug deve combinar igualdade + exclusão de homologação sem sobrescrever a igualdade.
+
+### Ticket Studio
+- tema é exclusivamente visual;
+- QR, código, assinatura, status e validade são autoridade do backend;
+- QR e código nunca podem ficar opcionais;
+- reset de JSON opcional usa DB NULL;
+- PNG/PDF/Wallet não devem ser anunciados até existirem de fato.
+
+### Imagens
+- não abrir `remotePatterns: **` no Next para acomodar produto externo;
+- imagem externa da Loja não deve transformar `/_next/image` em proxy arbitrário;
+- preferir upload gerenciado pela plataforma quando a mídia da Loja evoluir.
