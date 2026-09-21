@@ -41,8 +41,8 @@ const showcaseSelect = {
   ticketTypes: {
     select: {
       lots: {
-        where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false },
-        select: { priceCents: true, feeCents: true, feeMode: true, startsAt: true, endsAt: true },
+        where: { status: { in: ["ACTIVE", "SOLD_OUT"] as const }, pdvOnly: false, promoterOnly: false },
+        select: { status: true, priceCents: true, feeCents: true, feeMode: true, startsAt: true, endsAt: true },
       },
     },
   },
@@ -60,7 +60,7 @@ type ShowcaseRow = {
   organization: { name: string; displayName: string | null; slug: string };
   lineup: string | null;
   ticketTypes: Array<{
-    lots: Array<{ priceCents: number; feeCents: number; feeMode: string; startsAt: Date | null; endsAt: Date | null }>;
+    lots: Array<{ status: string; priceCents: number; feeCents: number; feeMode: string; startsAt: Date | null; endsAt: Date | null }>;
   }>;
 };
 
@@ -74,10 +74,11 @@ function toShowcaseCard(event: ShowcaseRow) {
         (!lot.startsAt || lot.startsAt.getTime() <= now) &&
         (!lot.endsAt || lot.endsAt.getTime() > now),
     );
-  const totals = lots.map(
+  const sellableLots = lots.filter((lot) => lot.status === "ACTIVE");
+  const totals = sellableLots.map(
     (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
   );
-  const ends = lots
+  const ends = sellableLots
     .map((lot) => lot.endsAt)
     .filter((d): d is Date => d !== null && d.getTime() > now)
     .sort((a, b) => a.getTime() - b.getTime());
@@ -594,7 +595,7 @@ export class CatalogService {
             lots: {
               // só-balcão fica invisível pro público (cortesia via promoter)
               where: {
-                status: "ACTIVE",
+                status: { in: ["ACTIVE", "SOLD_OUT"] },
                 pdvOnly: false,
                 AND: [
                   { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
