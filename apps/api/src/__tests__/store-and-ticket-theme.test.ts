@@ -57,6 +57,27 @@ describe("Loja da Casa + Ticket Studio", () => {
     assert.equal(listed!.variants[0].available, 30);
   });
 
+  it("produto publicado não pode perder a última variação ativa", async () => {
+    const product = await store.createProduct(fixture.organization.id, "actor", {
+      name: "Produto publicado",
+    });
+    const variant = await store.createVariant(product.id, "actor", {
+      name: "Padrão",
+      sku: "ULTIMA-ATIVA",
+      priceCents: 2500,
+      stockTotal: 8,
+    });
+    await store.updateProduct(product.id, "actor", { status: "ACTIVE" });
+
+    await assert.rejects(
+      () => store.updateVariant(variant.id, "actor", { active: false }),
+      /precisa manter pelo menos uma variação ativa/i,
+    );
+
+    const saved = await prisma.storeProductVariant.findUniqueOrThrow({ where: { id: variant.id } });
+    assert.equal(saved.active, true);
+  });
+
   it("trata nome ou SKU duplicado como erro de negócio", async () => {
     const product = await store.createProduct(fixture.organization.id, "actor", {
       name: "Produto duplicidade",
