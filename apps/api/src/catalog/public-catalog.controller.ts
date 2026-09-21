@@ -80,7 +80,18 @@ export class PublicCatalogController {
   }
 
   @Get(":slug/availability")
-  getAvailability(@Param("slug") slug: string) {
-    return this.catalogService.getPublicAvailability(slug);
+  getAvailability(
+    @Param("slug") slug: string,
+    @Query("pr") promoterSlug?: string,
+    @Query("vd") sellerSlug?: string,
+    @Res({ passthrough: true }) reply?: FastifyReply,
+  ) {
+    // disponibilidade nunca é cacheada; com atribuição o escopo ainda é privado.
+    reply?.header("Cache-Control", "private, no-store");
+    return this.catalogService.getPublicAvailability(
+      slug,
+      promoterSlug?.trim() || undefined,
+      sellerSlug?.trim() || undefined,
+    );
   }
 }
