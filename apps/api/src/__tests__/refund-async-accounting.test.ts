@@ -126,6 +126,25 @@ test("parciais que somam 100% devolvem estoque vendido", async () => {
   }
 });
 
+test("lote esgotado volta para ACTIVE quando reembolso devolve unidade", async () => {
+  const fixture = await createFixtureEvent({ lotCapacity: 1, priceCents: 10000, feeCents: 0 });
+  try {
+    const { payment } = await paidOrder(fixture, ASYNC_PROVIDER);
+
+    const soldOut = await prisma.ticketLot.findUniqueOrThrow({ where: { id: fixture.lot.id } });
+    assert.equal(soldOut.soldCount, 1);
+    assert.equal(soldOut.status, "SOLD_OUT", "última venda precisa marcar lote como esgotado");
+
+    await applyGatewayStatus(payment.id, "REFUNDED");
+
+    const reopened = await prisma.ticketLot.findUniqueOrThrow({ where: { id: fixture.lot.id } });
+    assert.equal(reopened.soldCount, 0);
+    assert.equal(reopened.status, "ACTIVE", "estorno total devolve unidade e reabre lote auto-esgotado");
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
 test("estorno ASSÍNCRONO respeita o teto acumulado (dois parciais não passam do total)", async () => {
   const fixture = await createFixtureEvent({ lotCapacity: 5, priceCents: 10000, feeCents: 0 });
   try {
