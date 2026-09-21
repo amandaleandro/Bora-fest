@@ -156,7 +156,7 @@ test("promoterOnly exige acesso válido no catálogo, reserva e pedido", async (
       () =>
         orders.createFromReservation(undefined, {
           reservationId: reservation.id,
-          contactEmail: `exclusive-no-attribution-${suffix}@borafest.dev`,
+          contactEmail: promoter.email,
         }),
       /ingresso exclusivo de promoter/i,
       "não pode usar uma reserva exclusiva para remover a atribuição no pedido",
@@ -164,7 +164,7 @@ test("promoterOnly exige acesso válido no catálogo, reserva e pedido", async (
 
     const order = await orders.createFromReservation(undefined, {
       reservationId: reservation.id,
-      contactEmail: `exclusive-valid-${suffix}@borafest.dev`,
+      contactEmail: promoter.email,
       promoterSlug: link.slug,
     });
     assert.equal(order.promoterLinkId, link.id);
