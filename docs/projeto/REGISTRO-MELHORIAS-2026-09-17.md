@@ -467,3 +467,45 @@ O lote recomendado como “online ativo” precisa estar `ACTIVE` e não pode se
 - documentação operacional: `docs/projeto/PRE-PUBLICACAO-E-PAGINA-PUBLICA.md`.
 
 **Regra que não pode voltar:** conteúdo específico do hotsite não deve ser colocado em layout que também envolve checkout/VIP sem revisar todas as rotas filhas.
+
+
+---
+
+## 14. Inventário oficial, alertas de integridade e auditoria de produção — 21/09/2026
+
+### 14.1 Inventário
+
+Criado `docs/projeto/INVENTARIO-FEATURES-E-LACUNAS.md`.
+
+O inventário evita reconstruir módulos que já existem e separa:
+- pronto;
+- parcial;
+- novo;
+- futuro.
+
+### 14.2 Observabilidade de negócio
+
+Adicionados alertas Prometheus:
+- `BoraFestPaidOrderWithoutTicket`;
+- `BoraFestOutboxFailed`;
+- `BoraFestOutboxStale`.
+
+Runbook:
+`docs/projeto/RUNBOOK-INCIDENTES.md`.
+
+### 14.3 Auditoria de catálogo
+
+Script:
+`packages/database/src/auditoria-catalogo-producao.ts`
+
+Comando:
+`pnpm --filter @borafest/database auditoria-catalogo`
+
+O script é SOMENTE LEITURA e reporta:
+- eventos vencidos ainda PUBLISHED;
+- eventos ativos com problemas de dados;
+- publicação sem banner/categoria/lote online;
+- UF/local inválido;
+- organizações com aparência de teste/homologação ainda não configuradas na exclusão pública.
+
+A heurística de nome é usada apenas para RELATÓRIO HUMANO. Ela nunca esconde dados automaticamente.
