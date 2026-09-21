@@ -25,7 +25,7 @@ CREATE TABLE "store_product_variants" (
   "name" TEXT NOT NULL,
   "sku" TEXT,
   "price_cents" INTEGER NOT NULL,
-  "stock_on_hand" INTEGER NOT NULL DEFAULT 0,
+  "stock_total" INTEGER NOT NULL DEFAULT 0,
   "reserved_count" INTEGER NOT NULL DEFAULT 0,
   "sold_count" INTEGER NOT NULL DEFAULT 0,
   "active" BOOLEAN NOT NULL DEFAULT true,
@@ -62,7 +62,7 @@ ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "store_product_variants"
 ADD CONSTRAINT "store_product_variants_stock_nonnegative"
-CHECK ("stock_on_hand" >= 0 AND "reserved_count" >= 0 AND "sold_count" >= 0);
+CHECK ("stock_total" >= 0 AND "reserved_count" >= 0 AND "sold_count" >= 0);
 
 ALTER TABLE "store_product_variants"
 ADD CONSTRAINT "store_product_variants_price_nonnegative"
