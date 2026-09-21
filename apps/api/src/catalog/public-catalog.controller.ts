@@ -66,11 +66,17 @@ export class PublicCatalogController {
     @Param("slug") slug: string,
     @Res({ passthrough: true }) reply: FastifyReply,
     @Query("pr") promoterSlug?: string,
+    @Query("vd") sellerSlug?: string,
   ) {
-    // com ?pr= a resposta é PESSOAL (pode conter o lote exclusivo daquele
-    // promoter), então não pode ser guardada em cache compartilhado de CDN
-    reply.header("Cache-Control", promoterSlug ? "private, no-store" : PUBLIC_CACHE_HEADER);
-    return this.catalogService.getPublicEvent(slug, promoterSlug?.trim() || undefined);
+    // com ?pr=/ ?vd= a resposta é PESSOAL (pode conter lote exclusivo), então
+    // nunca deve entrar em cache compartilhado de CDN.
+    const privateCatalog = Boolean(promoterSlug || sellerSlug);
+    reply.header("Cache-Control", privateCatalog ? "private, no-store" : PUBLIC_CACHE_HEADER);
+    return this.catalogService.getPublicEvent(
+      slug,
+      promoterSlug?.trim() || undefined,
+      sellerSlug?.trim() || undefined,
+    );
   }
 
   @Get(":slug/availability")
