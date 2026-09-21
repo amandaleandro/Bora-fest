@@ -30,6 +30,40 @@ function detectImageExt(head: Buffer): string | null {
   return null;
 }
 
+function assertManagedTicketThemeAssets(theme: UpdateEventInput["ticketTheme"]): void {
+  if (!theme) return;
+
+  const allowedHosts = new Set<string>(["borafest.com.br", "www.borafest.com.br", "localhost", "127.0.0.1"]);
+  for (const envName of ["API_PUBLIC_URL", "WEB_BASE_URL", "CHECKOUT_URL"]) {
+    const raw = process.env[envName];
+    if (!raw) continue;
+    try {
+      allowedHosts.add(new URL(raw).hostname);
+    } catch {
+      // configuração inválida será tratada no boot/deploy; não amplia a allowlist
+    }
+  }
+
+  for (const [field, value] of [
+    ["logo", theme.logoUrl],
+    ["fundo", theme.backgroundImageUrl],
+  ] as const) {
+    if (!value) continue;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new BadRequestException(`URL de ${field} inválida`);
+    }
+    const isBorafestSubdomain = url.hostname.endsWith(".borafest.com.br");
+    if (!allowedHosts.has(url.hostname) && !isBorafestSubdomain) {
+      throw new BadRequestException(
+        `A imagem de ${field} do ingresso precisa estar hospedada pelo BoraFest`,
+      );
+    }
+  }
+}
+
 function slugify(title: string): string {
   return title
     .normalize("NFD")
@@ -162,6 +196,8 @@ export class EventsService {
       }
       venueId = input.venueId;
     }
+
+    assertManagedTicketThemeAssets(input.ticketTheme);
 
     const startsAt = input.startsAt ? new Date(input.startsAt) : event.startsAt;
     const endsAt = input.endsAt ? new Date(input.endsAt) : event.endsAt;
