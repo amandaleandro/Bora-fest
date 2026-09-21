@@ -353,7 +353,10 @@ export class HousesService {
         id,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
         ...publicHouseOrganizationFilter(),
-        events: { some: { status: "PUBLISHED" } },
+        OR: [
+          { events: { some: { status: "PUBLISHED" } } },
+          { products: { some: { status: "ACTIVE" } } },
+        ],
       },
       select: { id: true, slug: true, name: true, displayName: true, producerType: true },
     });
@@ -373,7 +376,10 @@ export class HousesService {
       where: {
         slug: excluded.length ? { equals: slug, notIn: excluded } : slug,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
-        events: { some: { status: "PUBLISHED" } },
+        OR: [
+          { events: { some: { status: "PUBLISHED" } } },
+          { products: { some: { status: "ACTIVE" } } },
+        ],
       },
       select: {
         id: true,
