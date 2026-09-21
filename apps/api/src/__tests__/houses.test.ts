@@ -248,21 +248,31 @@ describe("BoraFest Casa", () => {
     }
   });
 
-  it("não expõe organização marcada como homologação nem no ranking SQL", async () => {
+  it("não expõe organização marcada como homologação nem troca o slug por outra Casa", async () => {
     const previous = process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS;
+    const outra = await createFixtureEvent({ lotCapacity: 10, priceCents: 1000, feeCents: 100 });
     process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS = fixture.organization.slug;
 
     try {
       const list = await houses.listPublicHouses(1, 100, "Uberlândia");
       assert.equal(list.houses.some((house) => house.id === fixture.organization.id), false);
-      await assert.rejects(() => houses.getPublicHouse(fixture.organization.slug), /Casa não encontrada/);
+
+      await assert.rejects(
+        () => houses.getPublicHouse(fixture.organization.slug),
+        /Casa não encontrada/,
+        "pedir a Casa excluída precisa dar 404, nunca devolver outra organização pública",
+      );
       await assert.rejects(() => houses.resolvePublicHouseById(fixture.organization.id), /Casa não encontrada/);
+
+      const outraCasa = await houses.getPublicHouse(outra.organization.slug);
+      assert.equal(outraCasa.id, outra.organization.id);
 
       const followed = await houses.listFollowedHouses(followerId!);
       assert.equal(followed.some((house) => house.id === fixture.organization.id), false);
     } finally {
       if (previous === undefined) delete process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS;
       else process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS = previous;
+      await cleanupFixtureEvent(outra.organization.id);
     }
   });
 
