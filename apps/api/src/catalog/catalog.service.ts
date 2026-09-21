@@ -26,6 +26,8 @@ function publicOrganizationFilter() {
   return excluded.length > 0 ? { slug: { notIn: excluded } } : {};
 }
 
+const PUBLIC_LOT_STATUSES: Array<"ACTIVE" | "SOLD_OUT"> = ["ACTIVE", "SOLD_OUT"];
+
 /** Campos do cartão de vitrine (home/listas) — um só select para lista e home. */
 const showcaseSelect = {
   id: true,
@@ -41,7 +43,7 @@ const showcaseSelect = {
   ticketTypes: {
     select: {
       lots: {
-        where: { status: { in: ["ACTIVE", "SOLD_OUT"] as const }, pdvOnly: false, promoterOnly: false },
+        where: { status: { in: PUBLIC_LOT_STATUSES }, pdvOnly: false, promoterOnly: false },
         select: { status: true, priceCents: true, feeCents: true, feeMode: true, startsAt: true, endsAt: true },
       },
     },
