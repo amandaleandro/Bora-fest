@@ -56,3 +56,33 @@ groups:
         annotations:
           summary: "Latência p95 da API acima de 2s"
           description: "A latência p95 permaneceu acima de 2 segundos por 5 minutos."
+
+
+  - name: borafest-business-integrity
+    rules:
+      - alert: BoraFestPaidOrderWithoutTicket
+        expr: borafest_paid_orders_without_tickets > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pagamento confirmado sem ingresso emitido"
+          description: "Existe pelo menos um pedido PAID há mais de 2 minutos sem ingresso. Verifique outbox, worker e emissão antes de orientar o comprador a pagar novamente."
+
+      - alert: BoraFestOutboxFailed
+        expr: borafest_outbox_failed_events > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Evento de outbox falhou definitivamente"
+          description: "Há eventos de outbox em FAILED após esgotar tentativas. Pode haver emissão, notificação, fidelidade ou integração pendente."
+
+      - alert: BoraFestOutboxStale
+        expr: borafest_outbox_stale_pending_events > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox acumulando eventos pendentes"
+          description: "Existem eventos disponíveis há mais de 5 minutos ainda em PENDING. Verifique saúde do worker, Redis e banco."
