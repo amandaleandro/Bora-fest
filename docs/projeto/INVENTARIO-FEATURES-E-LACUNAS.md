@@ -54,6 +54,9 @@ CI automatizado fica deliberadamente para o fechamento final desta rodada, confo
 - tipos de ingresso;
 - lotes;
 - capacidade;
+- janela real de venda por lote (`startsAt/endsAt`);
+- `SOLD_OUT` automático e reabertura segura por estorno;
+- lotes exclusivos de promoter/vendedor com validação ponta a ponta;
 - reserva temporária;
 - controle de vendido/reservado;
 - limite por pedido;
