@@ -63,17 +63,34 @@ export class StoreService {
 
   async createProduct(organizationId: string, userId: string, input: CreateStoreProductInput) {
     await this.assertManage(organizationId, userId);
-    const slug = await this.uniqueSlug(organizationId, input.name);
-    return prisma.storeProduct.create({
-      data: {
-        organizationId,
-        name: input.name,
-        slug,
-        description: input.description,
-        imageUrl: input.imageUrl,
-      },
-      include: { variants: true },
-    });
+
+    // uniqueSlug faz a escolha amigável, mas duas requisições simultâneas
+    // ainda podem escolher o mesmo slug antes do INSERT. A constraint do banco
+    // é a autoridade; em P2002 tentamos o próximo slug em vez de devolver 500.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const base = slugify(input.name);
+      const slug = attempt === 0
+        ? await this.uniqueSlug(organizationId, input.name)
+        : `${base}-${Date.now().toString(36)}-${attempt + 1}`;
+      try {
+        return await prisma.storeProduct.create({
+          data: {
+            organizationId,
+            name: input.name,
+            slug,
+            description: input.description,
+            imageUrl: input.imageUrl,
+          },
+          include: { variants: true },
+        });
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+          throw error;
+        }
+      }
+    }
+
+    throw new BadRequestException("Não foi possível gerar um identificador único para o produto");
   }
 
   async updateProduct(productId: string, userId: string, input: UpdateStoreProductInput) {
@@ -95,17 +112,36 @@ export class StoreService {
       }
     }
 
-    return prisma.storeProduct.update({
-      where: { id: productId },
-      data: {
-        name: input.name,
-        slug,
-        description: input.description,
-        imageUrl: input.imageUrl,
-        status: input.status,
-      },
-      include: { variants: { orderBy: { createdAt: "asc" } } },
-    });
+    try {
+      return await prisma.storeProduct.update({
+        where: { id: productId },
+        data: {
+          name: input.name,
+          slug,
+          description: input.description,
+          imageUrl: input.imageUrl,
+          status: input.status,
+        },
+        include: { variants: { orderBy: { createdAt: "asc" } } },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && input.name) {
+        // corrida de rename: gera outro slug e preserva a alteração solicitada.
+        const retrySlug = `${slugify(input.name)}-${Date.now().toString(36)}`;
+        return prisma.storeProduct.update({
+          where: { id: productId },
+          data: {
+            name: input.name,
+            slug: retrySlug,
+            description: input.description,
+            imageUrl: input.imageUrl,
+            status: input.status,
+          },
+          include: { variants: { orderBy: { createdAt: "asc" } } },
+        });
+      }
+      throw error;
+    }
   }
 
   async createVariant(productId: string, userId: string, input: CreateStoreVariantInput) {
