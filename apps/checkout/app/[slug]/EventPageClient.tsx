@@ -10,7 +10,11 @@ import { Icon, paths } from "../../components/icons";
 import { FavoriteButton } from "../../components/FavoriteButton";
 import { TicketSelector } from "../../components/TicketSelector";
 import { PixelTracker } from "../../components/PixelTracker";
-import { captureAttributionFromUrl } from "../../lib/attribution";
+import {
+  captureAttributionFromUrl,
+  getAttributedPromoterSlug,
+  getAttributedSellerSlug,
+} from "../../lib/attribution";
 import { FollowButton } from "../../components/FollowButton";
 import { EventTrustStrip } from "../../components/EventTrustStrip";
 import { ShareButton } from "../../components/ShareButton";
@@ -167,12 +171,15 @@ export function EventPageClient({
 
   useEffect(() => {
     captureAttributionFromUrl();
+    const promoterSlug = getAttributedPromoterSlug();
+    const sellerSlug = getAttributedSellerSlug();
     // sem dado do servidor (ex.: navegação client-side), busca; com dado, só
-    // revalida em segundo plano — a tela nunca fica em branco esperando
+    // revalida em segundo plano — a tela nunca fica em branco esperando.
+    // Repassar a atribuição é obrigatório para lotes promoterOnly.
     if (!initialEvent) {
-      api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
+      api.getPublicEvent(slug, promoterSlug, sellerSlug).then(setEvent).catch(() => setError(true));
     } else {
-      api.getPublicEvent(slug).then(setEvent).catch(() => undefined);
+      api.getPublicEvent(slug, promoterSlug, sellerSlug).then(setEvent).catch(() => undefined);
     }
     api.getReviews(slug).then(setReviews).catch(() => {});
   }, [slug, initialEvent]);
