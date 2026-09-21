@@ -602,7 +602,8 @@ export const api = {
         ticketTheme?: TicketTheme | null;
         venue?: { name: string; city: string; state: string } | null;
       };
-      orderPublicToken: string;
+      /** null quando o ingresso foi recebido por transferência; o token do pedido original nunca vaza. */
+      orderPublicToken: string | null;
       /** só ACTIVE/ISSUED de evento não-encerrado podem ser transferidos */
       transferable: boolean;
     }>>("/v1/me/tickets", { token }),
