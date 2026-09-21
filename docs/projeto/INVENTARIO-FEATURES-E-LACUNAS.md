@@ -85,7 +85,7 @@ CI automatizado fica deliberadamente para o fechamento final desta rodada, confo
 
 ## 4. Upsell / itens adicionais
 
-### PARCIAL
+### PRONTO para o escopo de evento
 
 Já existem:
 - `EventAddOn`;
@@ -100,27 +100,35 @@ Já existem:
 - validação de pertencimento ao evento;
 - adicional fora da base de comissão do promoter/parceiro.
 
-### Falta para virar Loja da Casa
-- catálogo permanente independente de evento;
-- estoque;
-- SKU;
-- variações (P/M/G/GG, cor etc.);
-- imagem;
-- categorias;
-- venda sem ingresso;
-- retirada/entrega;
-- estoque por evento/operação;
-- relatório específico de produtos;
-- ledger/contabilidade separado por produto quando necessário.
+### NOVO — Loja da Casa
 
-### Direção futura
-Criar **BoraFest Store / Loja da Casa** reutilizando a base conceitual de add-ons, sem duplicar o mecanismo de pedidos desnecessariamente.
+Implementado nesta rodada:
+- catálogo permanente independente de evento;
+- `StoreProduct` e `StoreProductVariant`;
+- SKU;
+- preço por variação;
+- estoque total / reservado / vendido;
+- imagem;
+- rascunho/publicado/arquivado;
+- painel de gestão;
+- vitrine pública na Casa;
+- Casa pública pode existir via produto ativo mesmo sem evento publicado;
+- homologação respeitada.
+
+Ainda falta:
+- venda direta sem ingresso;
+- reserva transacional do estoque;
+- retirada/entrega;
+- cobrança e reembolso específicos da loja;
+- ledger/relatórios de comércio.
+
+Detalhes: `docs/projeto/LOJA-E-TICKET-STUDIO.md`.
 
 ---
 
 ## 5. Ingresso personalizado
 
-### FUTURO
+### NOVO / PARCIAL
 
 A segurança do ingresso já existe:
 - Ticket;
@@ -132,23 +140,29 @@ A segurança do ingresso já existe:
 - transferência;
 - check-in.
 
-Falta a camada visual:
-
-- tema por Casa;
+Implementado:
 - tema por evento;
+- templates CLASSIC / DARK / FESTA / PREMIUM;
 - logo;
 - fundo;
 - cores;
-- layout;
-- patrocinadores;
-- posição do QR;
-- campos exibidos;
-- preview do ingresso;
-- modelos prontos;
-- eventual exportação/pass.
+- texto de patrocinador;
+- campos opcionais de apresentação;
+- preview;
+- aplicação do tema na carteira real;
+- QR/código sempre protegidos e visíveis.
 
-Nome de backlog:
+Ainda falta:
+- tema padrão herdado da Casa;
+- PNG/PDF completo personalizado;
+- Apple/Google Wallet;
+- editor livre/drag-and-drop;
+- posição configurável do QR.
+
+Nome:
 **BF-020 — Ticket Studio / Ingresso Personalizado**.
+
+Detalhes: `docs/projeto/LOJA-E-TICKET-STUDIO.md`.
 
 ---
 
@@ -170,10 +184,11 @@ Nome de backlog:
 - inteligência;
 - financeiro.
 
-### PARCIAL
-- perfil ainda não possui loja permanente;
-- não existe vitrine de produtos fora de eventos;
-- não há catálogo de benefícios/comércio unificado na página pública.
+### NOVO / PARCIAL
+- perfil já possui vitrine de produtos permanentes;
+- perfil pode permanecer público por produto ativo, mesmo sem evento publicado;
+- compra direta dos produtos ainda não está habilitada;
+- benefícios/fidelidade e comércio ainda não formam uma cesta pública unificada.
 
 ---
 
@@ -315,9 +330,9 @@ Corrigido nesta rodada:
 
 ### Falta
 - [x] regras de alerta para as três métricas de integridade;
-- Alertmanager/canal de notificação externo;
-- dashboard dedicado de saúde operacional;
-- runbook de incidentes.
+- [x] runbook de incidentes;
+- Alertmanager/canal de notificação externo para os alertas Prometheus de negócio;
+- dashboard dedicado de saúde operacional.
 
 ---
 
@@ -351,22 +366,23 @@ Corrigido nesta rodada:
 4. preparar checklist/script de auditoria de dados de produção.
 
 ### Bloco B — Loja da Casa
-5. modelar Product/ProductVariant/Inventory;
-6. reutilizar checkout/pedido quando houver evento;
-7. permitir venda direta sem ingresso;
-8. integrar retirada/estoque/financeiro;
-9. página pública da loja.
+5. [x] modelar Product/ProductVariant/estoque;
+6. [x] página pública da loja;
+7. definir arquitetura de pedido comercial direto;
+8. permitir venda direta sem ingresso;
+9. integrar retirada/entrega/financeiro/reembolso.
 
 Nome:
 **BF-021 — BoraFest Store / Loja da Casa**.
 
 ### Bloco C — Ticket Studio
-10. TicketTheme;
-11. templates;
-12. editor;
-13. preview;
-14. render do ingresso;
-15. tema por Casa/evento.
+10. [x] TicketTheme;
+11. [x] templates;
+12. [x] editor;
+13. [x] preview;
+14. [x] render na carteira web;
+15. tema padrão por Casa;
+16. PNG/PDF/pass opcional.
 
 ### Bloco D — fechamento
 16. smoke tests;
