@@ -47,6 +47,10 @@ export class InventoryService {
       UPDATE ticket_lots
       SET reserved_count = GREATEST(reserved_count - ${quantity}, 0),
           sold_count = sold_count + ${quantity},
+          status = CASE
+            WHEN sold_count + ${quantity} >= capacity THEN 'SOLD_OUT'::"LotStatus"
+            ELSE status
+          END,
           updated_at = now()
       WHERE id = ${lotId}::uuid
     `);
