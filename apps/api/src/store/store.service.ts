@@ -158,9 +158,8 @@ export class StoreService {
     const excluded = excludedOrgSlugs();
     const organization = await prisma.organization.findFirst({
       where: {
-        slug,
+        slug: excluded.length ? { equals: slug, notIn: excluded } : slug,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
-        ...(excluded.length ? { slug: { notIn: excluded } } : {}),
       },
       select: {
         id: true,
