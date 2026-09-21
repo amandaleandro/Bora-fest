@@ -239,7 +239,7 @@ export interface StoreVariant {
   name: string;
   sku: string | null;
   priceCents: number;
-  stockOnHand: number;
+  stockTotal: number;
   reservedCount: number;
   soldCount: number;
   active: boolean;
@@ -287,7 +287,7 @@ export const storeApi = {
   createVariant: (
     token: string,
     productId: string,
-    input: { name: string; sku?: string; priceCents: number; stockOnHand: number },
+    input: { name: string; sku?: string; priceCents: number; stockTotal: number },
   ) =>
     request<StoreVariant>(`/v1/store/products/${productId}/variants`, {
       method: "POST",
@@ -301,7 +301,7 @@ export const storeApi = {
       name: string;
       sku: string;
       priceCents: number;
-      stockOnHand: number;
+      stockTotal: number;
       active: boolean;
     }>,
   ) =>
