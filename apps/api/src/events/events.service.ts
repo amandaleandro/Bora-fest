@@ -200,7 +200,7 @@ export class EventsService {
           input.ticketTheme === undefined
             ? undefined
             : input.ticketTheme === null
-              ? Prisma.JsonNull
+              ? Prisma.DbNull
               : (input.ticketTheme as Prisma.InputJsonValue),
         // token do CAPI: "" ou null desliga; undefined mantém o atual
         metaCapiToken:
