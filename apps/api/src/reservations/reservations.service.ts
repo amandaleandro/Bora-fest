@@ -39,6 +39,37 @@ export class ReservationsService {
       include: { ticketType: true },
     });
 
+    const needsPromoterAccess = lots.some((lot) => lot.promoterOnly);
+    let promoterAccess = !needsPromoterAccess;
+    if (needsPromoterAccess && input.sellerSlug) {
+      const seller = await prisma.promoterSeller.findFirst({
+        where: {
+          slug: input.sellerSlug,
+          status: "ACTIVE",
+          promoterLink: {
+            organizationId: event.organizationId,
+            status: "ACTIVE",
+            OR: [{ eventId: null }, { eventId: event.id }],
+          },
+        },
+        select: { id: true },
+      });
+      promoterAccess = Boolean(seller);
+    }
+    if (needsPromoterAccess && !promoterAccess && input.promoterSlug) {
+      const promoter = await prisma.promoterLink.findFirst({
+        where: {
+          slug: input.promoterSlug,
+          organizationId: event.organizationId,
+          status: "ACTIVE",
+          OR: [{ eventId: null }, { eventId: event.id }],
+        },
+        select: { id: true },
+      });
+      promoterAccess = Boolean(promoter);
+    }
+
+    const now = Date.now();
     for (const item of input.items) {
       const lot = lots.find((l) => l.id === item.ticketLotId);
       if (!lot || lot.ticketType.eventId !== input.eventId) {
@@ -48,6 +79,18 @@ export class ReservationsService {
       // descubra o id do lote, a reserva pública é recusada
       if (lot.pdvOnly) {
         throw new BadRequestException(`O lote ${lot.name} é vendido apenas no balcão do evento`);
+      }
+      if (lot.promoterOnly && !promoterAccess) {
+        throw new BadRequestException(`O lote ${lot.name} exige um link válido de promoter`);
+      }
+      if (lot.status !== "ACTIVE") {
+        throw new BadRequestException(`O lote ${lot.name} não está disponível para venda`);
+      }
+      if (lot.startsAt && lot.startsAt.getTime() > now) {
+        throw new BadRequestException(`As vendas do lote ${lot.name} ainda não começaram`);
+      }
+      if (lot.endsAt && lot.endsAt.getTime() <= now) {
+        throw new BadRequestException(`As vendas do lote ${lot.name} já foram encerradas`);
       }
       // meia-entrada é opt-in do produtor — sem a flag, ninguém compra meia
       if (item.halfPrice && !lot.halfPriceEnabled) {
