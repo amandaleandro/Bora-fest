@@ -279,6 +279,27 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   if (view === "carteira" && ticketsData) {
     const cortesia = ticketsData.cortesia ?? null;
     const convidado = cortesia?.kind === "CONVIDADO";
+    const ticketTheme = {
+      template: "CLASSIC",
+      primaryColor: "#6D28D9",
+      secondaryColor: "#111827",
+      backgroundImageUrl: null as string | null,
+      logoUrl: null as string | null,
+      sponsorText: null as string | null,
+      showVenue: true,
+      showLot: true,
+      showAttendee: true,
+      ...(ticketsData.event.ticketTheme ?? {}),
+    };
+    const ticketHeaderStyle = ticketTheme.backgroundImageUrl
+      ? {
+          backgroundImage: `linear-gradient(135deg, ${ticketTheme.secondaryColor}E8, ${ticketTheme.primaryColor}D5), url("${ticketTheme.backgroundImageUrl}")`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }
+      : {
+          background: `linear-gradient(135deg, ${ticketTheme.secondaryColor}, ${ticketTheme.primaryColor})`,
+        };
     return (
       <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pt-8">
         <div className="flex items-center gap-3">
@@ -318,7 +339,18 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         <div className="mt-5 space-y-6 lg:grid lg:grid-cols-3 lg:gap-6 lg:space-y-0">
           {ticketsData.tickets.map((ticket) => (
             <article key={ticket.id} className="overflow-hidden rounded-3xl bg-surface shadow-card">
-              <div className={`${convidado ? "bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500" : "bg-brand-gradient"} p-5 text-white`}>
+              <div
+                className={`${convidado ? "bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500" : ""} p-5 text-white`}
+                style={convidado ? undefined : ticketHeaderStyle}
+              >
+                {ticketTheme.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ticketTheme.logoUrl}
+                    alt=""
+                    className="mb-4 h-9 max-w-[140px] object-contain object-left"
+                  />
+                ) : null}
                 {cortesia && (
                   <span className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-extrabold tracking-wider">
                     {convidado ? "★ CONVIDADO" : "CORTESIA"}
@@ -328,6 +360,14 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                 <p className="mt-1 text-[12px] font-semibold text-white/85">
                   {formatDateTime(ticketsData.event.startsAt)}
                 </p>
+                {ticketTheme.showVenue && ticketsData.event.venue ? (
+                  <p className="mt-1 text-[11px] font-semibold text-white/75">
+                    {ticketsData.event.venue.name} · {ticketsData.event.venue.city}/{ticketsData.event.venue.state}
+                  </p>
+                ) : null}
+                {ticketTheme.sponsorText ? (
+                  <p className="mt-3 text-[10.5px] font-bold text-white/75">{ticketTheme.sponsorText}</p>
+                ) : null}
                 {cortesia && (
                   <p className="mt-1 text-[11.5px] font-bold text-white/90">
                     {convidado ? "Convidado da produção ✨" : `Convidado por ${cortesia.por}`}
@@ -338,11 +378,18 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                 <div className="mx-auto w-fit rounded-2xl border border-line bg-white p-3">
                   <RevealQr value={ticket.qrToken} size={184} className="w-[184px]" />
                 </div>
-                <p className="mt-3 text-[15px] font-extrabold">{ticket.attendeeName ?? order.contactName ?? "Portador"}</p>
-                <p className="text-[12px] font-bold text-muted">{ticket.code}</p>
-                <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary">
-                  {ticket.typeName} — {ticket.lotName}
-                </span>
+                {ticketTheme.showAttendee ? (
+                  <p className="mt-3 text-[15px] font-extrabold">{ticket.attendeeName ?? order.contactName ?? "Portador"}</p>
+                ) : null}
+                <p className="mt-2 text-[12px] font-bold text-muted">{ticket.code}</p>
+                {ticketTheme.showLot ? (
+                  <span
+                    className="mt-2 inline-block rounded-full px-3 py-1 text-[11px] font-bold"
+                    style={{ backgroundColor: `${ticketTheme.primaryColor}15`, color: ticketTheme.primaryColor }}
+                  >
+                    {ticket.typeName} — {ticket.lotName}
+                  </span>
+                ) : null}
                 {cortesia ? (
                   <p className="mt-4 rounded-xl bg-bg px-3 py-2.5 text-[11px] font-bold text-muted">
                     🔒 Intransferível — vale só para {ticket.attendeeName ?? order.contactName ?? "o nome emitido"}
