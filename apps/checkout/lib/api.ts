@@ -353,7 +353,13 @@ export const api = {
 
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
-  getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
+  getPublicEvent: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<PublicEvent>(`/v1/public/events/${slug}${suffix}`);
+  },
   getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
 
   joinWaitingRoom: (slug: string) =>
@@ -374,10 +380,18 @@ export const api = {
     items: Array<{ ticketLotId: string; quantity: number; halfPrice?: boolean }>,
     token?: string,
     waitingRoomTicketId?: string,
+    promoterSlug?: string,
+    sellerSlug?: string,
   ) =>
     request<Reservation>("/v1/reservations", {
       method: "POST",
-      body: { eventId, items, waitingRoomTicketId: waitingRoomTicketId || undefined },
+      body: {
+        eventId,
+        items,
+        waitingRoomTicketId: waitingRoomTicketId || undefined,
+        promoterSlug,
+        sellerSlug,
+      },
       token,
     }),
 
