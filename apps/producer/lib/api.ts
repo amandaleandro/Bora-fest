@@ -116,6 +116,7 @@ export interface Organization {
   name: string;
   /** nome comercial mostrado ao público; null = usa `name` */
   displayName?: string | null;
+  logoUrl?: string | null;
   slug: string;
   kind: string;
   status: string;
