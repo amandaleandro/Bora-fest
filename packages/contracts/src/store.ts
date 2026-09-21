@@ -1,12 +1,18 @@
 import { z } from "zod";
 
 export const storeProductStatusSchema = z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]);
+
+const httpImageUrl = z
+  .string()
+  .url()
+  .max(500)
+  .refine((value) => /^https?:\/\//i.test(value), "Use uma URL HTTP ou HTTPS");
 export type StoreProductStatusInput = z.infer<typeof storeProductStatusSchema>;
 
 export const createStoreProductSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1200).optional(),
-  imageUrl: z.string().url().max(500).optional(),
+  imageUrl: httpImageUrl.optional(),
 });
 export type CreateStoreProductInput = z.infer<typeof createStoreProductSchema>;
 
