@@ -86,6 +86,15 @@ export class StoreService {
         ? await this.uniqueSlug(product.organizationId, input.name, product.id)
         : undefined;
 
+    if (input.status === "ACTIVE") {
+      const variants = await prisma.storeProductVariant.count({
+        where: { productId: product.id, active: true },
+      });
+      if (variants === 0) {
+        throw new BadRequestException("Adicione pelo menos uma variação ativa antes de publicar o produto");
+      }
+    }
+
     return prisma.storeProduct.update({
       where: { id: productId },
       data: {
