@@ -21,6 +21,12 @@ export const eventVenueSchema = z.object({
 export type EventVenueInput = z.infer<typeof eventVenueSchema>;
 
 export const eventCategorySchema = z.enum(["SHOWS", "FESTAS", "ESPORTES", "TEATRO"]);
+
+const httpImageUrl = z
+  .string()
+  .url()
+  .max(500)
+  .refine((value) => /^https?:\/\//i.test(value), "Use uma URL HTTP ou HTTPS");
 export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
 
 const eventCoreSchema = z.object({
@@ -78,8 +84,8 @@ export const ticketThemeSchema = z.object({
   template: z.enum(["CLASSIC", "DARK", "FESTA", "PREMIUM"]).default("CLASSIC"),
   primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#6D28D9"),
   secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#111827"),
-  backgroundImageUrl: z.string().url().max(500).nullable().optional(),
-  logoUrl: z.string().url().max(500).nullable().optional(),
+  backgroundImageUrl: httpImageUrl.nullable().optional(),
+  logoUrl: httpImageUrl.nullable().optional(),
   sponsorText: z.string().trim().max(120).nullable().optional(),
   showVenue: z.boolean().default(true),
   showLot: z.boolean().default(true),
