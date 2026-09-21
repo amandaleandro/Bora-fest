@@ -119,7 +119,7 @@ export class StoreService {
         name: input.name,
         sku: input.sku,
         priceCents: input.priceCents,
-        stockOnHand: input.stockOnHand,
+        stockTotal: input.stockTotal,
       },
     });
   }
@@ -134,8 +134,8 @@ export class StoreService {
 
     // estoque físico total nunca pode ficar menor do que o que já saiu/está reservado.
     if (
-      input.stockOnHand !== undefined &&
-      input.stockOnHand < variant.soldCount + variant.reservedCount
+      input.stockTotal !== undefined &&
+      input.stockTotal < variant.soldCount + variant.reservedCount
     ) {
       throw new BadRequestException(
         "O estoque total não pode ficar abaixo do que já foi vendido ou reservado",
@@ -148,7 +148,7 @@ export class StoreService {
         name: input.name,
         sku: input.sku,
         priceCents: input.priceCents,
-        stockOnHand: input.stockOnHand,
+        stockTotal: input.stockTotal,
         active: input.active,
       },
     });
@@ -189,7 +189,7 @@ export class StoreService {
             name: true,
             sku: true,
             priceCents: true,
-            stockOnHand: true,
+            stockTotal: true,
             reservedCount: true,
             soldCount: true,
           },
@@ -211,7 +211,7 @@ export class StoreService {
             sku: variant.sku,
             priceCents: variant.priceCents,
             available: Math.max(
-              variant.stockOnHand - variant.reservedCount - variant.soldCount,
+              variant.stockTotal - variant.reservedCount - variant.soldCount,
               0,
             ),
           })),
