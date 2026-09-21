@@ -42,7 +42,7 @@ const showcaseSelect = {
     select: {
       lots: {
         where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false },
-        select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
+        select: { priceCents: true, feeCents: true, feeMode: true, startsAt: true, endsAt: true },
       },
     },
   },
@@ -60,17 +60,23 @@ type ShowcaseRow = {
   organization: { name: string; displayName: string | null; slug: string };
   lineup: string | null;
   ticketTypes: Array<{
-    lots: Array<{ priceCents: number; feeCents: number; feeMode: string; endsAt: Date | null }>;
+    lots: Array<{ priceCents: number; feeCents: number; feeMode: string; startsAt: Date | null; endsAt: Date | null }>;
   }>;
 };
 
 /** preço honesto (o que o comprador paga) + urgência real (fim do lote ativo). */
 function toShowcaseCard(event: ShowcaseRow) {
-  const lots = event.ticketTypes.flatMap((type) => type.lots);
+  const now = Date.now();
+  const lots = event.ticketTypes
+    .flatMap((type) => type.lots)
+    .filter(
+      (lot) =>
+        (!lot.startsAt || lot.startsAt.getTime() <= now) &&
+        (!lot.endsAt || lot.endsAt.getTime() > now),
+    );
   const totals = lots.map(
     (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
   );
-  const now = Date.now();
   const ends = lots
     .map((lot) => lot.endsAt)
     .filter((d): d is Date => d !== null && d.getTime() > now)
@@ -198,6 +204,9 @@ export class CatalogService {
 
     if (lot.status !== "DRAFT" && lot.status !== "SCHEDULED") {
       throw new BadRequestException("Lote não pode ser ativado a partir do estado atual");
+    }
+    if (lot.endsAt && lot.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("Atualize o término do lote antes de ativar as vendas");
     }
 
     return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "ACTIVE" } });
@@ -561,16 +570,15 @@ export class CatalogService {
     return { highlights, shelves, upcoming };
   }
 
-  async getPublicEvent(slug: string, promoterSlug?: string) {
-    // cache por (evento + promoter): quem chega pelo link de um promoter vê uma
-    // lista de lotes diferente, então não pode dividir cache com o público —
-    // senão o lote exclusivo vazaria para quem não tem o link
-    return this.lembrado(`ev:${slug}:${promoterSlug ?? "-"}`, 5_000, () =>
-      this.getPublicEventFresco(slug, promoterSlug),
+  async getPublicEvent(slug: string, promoterSlug?: string, sellerSlug?: string) {
+    // cache por (evento + promoter/vendedor): quem chega por link exclusivo vê
+    // uma lista diferente de lotes; nunca compartilhar com o público geral.
+    return this.lembrado(`ev:${slug}:${promoterSlug ?? "-"}:${sellerSlug ?? "-"}`, 5_000, () =>
+      this.getPublicEventFresco(slug, promoterSlug, sellerSlug),
     );
   }
 
-  private async getPublicEventFresco(slug: string, promoterSlug?: string) {
+  private async getPublicEventFresco(slug: string, promoterSlug?: string, sellerSlug?: string) {
     const event = await prisma.event.findFirst({
       where: {
         slug,
@@ -585,7 +593,14 @@ export class CatalogService {
           include: {
             lots: {
               // só-balcão fica invisível pro público (cortesia via promoter)
-              where: { status: "ACTIVE", pdvOnly: false },
+              where: {
+                status: "ACTIVE",
+                pdvOnly: false,
+                AND: [
+                  { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
+                  { OR: [{ endsAt: null }, { endsAt: { gt: new Date() } }] },
+                ],
+              },
               orderBy: { createdAt: "asc" },
             },
           },
@@ -603,7 +618,21 @@ export class CatalogService {
     // chegado pelo link de um promoter ATIVO desta casa (e deste evento, se o
     // vínculo tiver escopo). Slug inválido ou de outra casa não revela nada —
     // falha fechada.
-    const promoterValido = promoterSlug
+    const sellerValido = sellerSlug
+      ? await prisma.promoterSeller.findFirst({
+          where: {
+            slug: sellerSlug,
+            status: "ACTIVE",
+            promoterLink: {
+              organizationId: event.organizationId,
+              status: "ACTIVE",
+              OR: [{ eventId: null }, { eventId: event.id }],
+            },
+          },
+          select: { id: true },
+        })
+      : null;
+    const promoterValido = !sellerValido && promoterSlug
       ? await prisma.promoterLink.findFirst({
           where: {
             slug: promoterSlug,
@@ -614,7 +643,7 @@ export class CatalogService {
           select: { id: true },
         })
       : null;
-    if (!promoterValido) {
+    if (!promoterValido && !sellerValido) {
       event.ticketTypes = event.ticketTypes.map((tt) => ({
         ...tt,
         lots: tt.lots.filter((l) => !l.promoterOnly),
