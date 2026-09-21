@@ -622,3 +622,73 @@ Documento completo:
 - carteira logada passou a aplicar o mesmo Ticket Studio da carteira por link;
 - `orderPublicToken` foi tipado como nullable para ingresso transferido;
 - documentação e inventário atualizados para refletir o estado real da implementação.
+
+
+---
+
+## 16. Correções adversariais de estoque, lotes e promoter — 21/09/2026
+
+### 16.1 Reembolso acumulado restaurando estoque
+
+Corrigido caso em que dois ou mais estornos parciais somavam 100% do ingresso:
+- pedido/pagamento fechavam como `REFUNDED`;
+- ticket era revogado;
+- mas `soldCount` permanecia alto.
+
+Agora, ao atingir 100%, os itens do pedido passam por `returnSaleInventory`.
+
+Teste: `refund-async-accounting.test.ts`.
+
+### 16.2 Estado real do lote
+
+`confirmSaleInventory` e `InventoryService.confirmSale` marcam `SOLD_OUT` quando a venda completa a capacidade.
+
+`returnSaleInventory`:
+- `SOLD_OUT` + unidade devolvida -> `ACTIVE`;
+- `CLOSED` manual permanece `CLOSED`.
+
+O catálogo continua retornando lote `SOLD_OUT` para a UI mostrar “Esgotado”, mas a reserva exige `ACTIVE`.
+
+### 16.3 Janela real do lote
+
+`TicketLot.startsAt/endsAt` agora valem no servidor:
+- futuro: não aparece para venda e reserva recusa;
+- encerrado: não aparece para venda e reserva recusa;
+- ativação de lote já vencido é recusada;
+- contrato rejeita `endsAt <= startsAt`.
+
+Teste: `lot-access-window.test.ts`.
+
+### 16.4 Lote exclusivo de promoter
+
+Corrigido fluxo ponta a ponta:
+- `GET /v1/public/events/:slug?pr=&vd=`;
+- resposta exclusiva usa `private, no-store`;
+- SSR do hotsite respeita `pr/vd`;
+- revalidação client-side respeita atribuição;
+- clique de reserva recaptura a URL;
+- reserva prova promoter/vendedor;
+- pedido repete a validação para impedir remoção da atribuição após reservar.
+
+Teste cobre público geral, promoter válido, vendedor válido, reserva sem prova e pedido sem atribuição.
+
+### 16.5 Estado público
+
+A página pública agora diferencia:
+- Vendas abertas;
+- Evento em andamento;
+- Esgotado;
+- Ingressos indisponíveis;
+- Vendas encerradas.
+
+“Sem lote visível” não é mais apresentado como “Vendas abertas”.
+
+### 16.6 Segurança de e-mail
+
+Título do evento e link são escapados no HTML enviado aos seguidores.
+
+### 16.7 Loja
+
+- produto publicado não pode perder a última variação ativa;
+- criação/rename concorrente trata colisão de slug sem 500;
+- teste concorrente verifica slugs distintos.
