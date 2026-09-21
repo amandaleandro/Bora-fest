@@ -64,6 +64,18 @@ export interface PixelSettings {
   tiktokPixelId?: string;
 }
 
+export interface TicketTheme {
+  template: "CLASSIC" | "DARK" | "FESTA" | "PREMIUM";
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundImageUrl?: string | null;
+  logoUrl?: string | null;
+  sponsorText?: string | null;
+  showVenue: boolean;
+  showLot: boolean;
+  showAttendee: boolean;
+}
+
 export interface PublicEventAddOn {
   id: string;
   name: string;
@@ -95,6 +107,7 @@ export interface PublicEvent {
   addOns: PublicEventAddOn[];
   waitingRoomEnabled: boolean;
   pixelSettings: PixelSettings | null;
+  ticketTheme?: TicketTheme | null;
 }
 
 export interface ReviewSummary {
@@ -236,7 +249,14 @@ export interface PdvSaleResult {
 export interface OrderTicketsResponse {
   orderId: string;
   orderStatus: string;
-  event: { title: string; slug: string; startsAt: string; endsAt: string };
+  event: {
+    title: string;
+    slug: string;
+    startsAt: string;
+    endsAt: string;
+    ticketTheme?: TicketTheme | null;
+    venue?: { name: string; city: string; state: string } | null;
+  };
   /** conta criada no checkout ainda não verificada: QR fica trancado */
   requiresVerification?: boolean;
   /** entrada grátis: CONVIDADO (lista, dourado) ou CORTESIA (balcão, sóbria) */
@@ -574,7 +594,14 @@ export const api = {
 
   myTickets: (token: string) =>
     request<Array<OrderTicket & {
-      event: { title: string; slug: string; startsAt: string };
+      event: {
+        title: string;
+        slug: string;
+        startsAt: string;
+        endsAt?: string;
+        ticketTheme?: TicketTheme | null;
+        venue?: { name: string; city: string; state: string } | null;
+      };
       orderPublicToken: string;
       /** só ACTIVE/ISSUED de evento não-encerrado podem ser transferidos */
       transferable: boolean;
