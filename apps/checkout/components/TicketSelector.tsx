@@ -4,7 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type PublicEvent } from "../lib/api";
 import { formatCents } from "../lib/format";
-import { getAttributedPromoterSlug, getAttributedSellerSlug } from "../lib/attribution";
+import {
+  captureAttributionFromUrl,
+  getAttributedPromoterSlug,
+  getAttributedSellerSlug,
+} from "../lib/attribution";
 
 interface Selection {
   qty: number;
@@ -152,6 +156,9 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
           quantity: selection[lot.id].qty,
           halfPrice: selection[lot.id].half || undefined,
         }));
+      // SSR pode mostrar lote exclusivo no primeiro quadro antes do useEffect da
+      // página. Captura novamente aqui para o clique nunca perder ?pr= / ?vd=.
+      captureAttributionFromUrl();
       // vincula a compra à conta quando a pessoa já entrou (sessão do site/app)
       const token = localStorage.getItem("bf.token") ?? undefined;
       const reservation = await api.createReservation(
