@@ -26,7 +26,10 @@ const httpImageUrl = z
   .string()
   .url()
   .max(500)
-  .refine((value) => /^https?:\/\//i.test(value), "Use uma URL HTTP ou HTTPS");
+  .refine(
+    (value) => /^https:\/\//i.test(value) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(value),
+    "Use HTTPS (HTTP apenas em localhost)",
+  );
 export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
 
 const eventCoreSchema = z.object({
