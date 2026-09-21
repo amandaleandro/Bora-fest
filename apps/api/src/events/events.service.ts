@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { prisma, Prisma } from "@borafest/database";
 import { randomBytes } from "node:crypto";
 import sharp from "sharp";
 import { unlink, writeFile } from "node:fs/promises";
