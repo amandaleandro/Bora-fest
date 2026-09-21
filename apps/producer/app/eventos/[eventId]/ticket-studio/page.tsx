@@ -32,7 +32,7 @@ const DEFAULT_THEME: TicketTheme = {
 
 export default function TicketStudioPage({ params }: { params: { eventId: string } }) {
   const { token } = useAuth();
-  const { event } = useEventShell();
+  const { event, organization } = useEventShell();
   const [theme, setTheme] = useState<TicketTheme>(DEFAULT_THEME);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -174,7 +174,7 @@ export default function TicketStudioPage({ params }: { params: { eventId: string
               <input
                 value={theme.backgroundImageUrl ?? ""}
                 onChange={(e) => setTheme({ ...theme, backgroundImageUrl: e.target.value || null })}
-                placeholder="https://... ou use a arte do evento"
+                placeholder="Use uma imagem hospedada pelo BoraFest"
                 className="mt-1 h-11 w-full rounded-xl border border-line-input bg-bg px-3 text-[12px] text-ink outline-none focus:border-primary"
               />
             </label>
@@ -193,10 +193,19 @@ export default function TicketStudioPage({ params }: { params: { eventId: string
               <input
                 value={theme.logoUrl ?? ""}
                 onChange={(e) => setTheme({ ...theme, logoUrl: e.target.value || null })}
-                placeholder="https://..."
+                placeholder="Use uma imagem hospedada pelo BoraFest"
                 className="mt-1 h-11 w-full rounded-xl border border-line-input bg-bg px-3 text-[12px] text-ink outline-none focus:border-primary"
               />
             </label>
+            {organization?.logoUrl ? (
+              <button
+                type="button"
+                onClick={() => setTheme({ ...theme, logoUrl: organization.logoUrl ?? null })}
+                className="mt-2 text-[11.5px] font-extrabold text-primary"
+              >
+                Usar logo da Casa →
+              </button>
+            ) : null}
 
             <label className="mt-4 block text-[11px] font-bold text-muted">
               Patrocínio / assinatura
