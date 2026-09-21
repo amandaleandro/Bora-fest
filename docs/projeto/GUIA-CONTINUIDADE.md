@@ -510,3 +510,20 @@ Hoje existem, entre outras:
 - `/[slug]/vip`.
 
 Conteúdo exclusivo do hotsite deve ser renderizado pela página/componente do hotsite, não por um layout compartilhado.
+
+
+## 34. Inventário oficial
+
+Antes de propor uma feature nova, consulte:
+
+`docs/projeto/INVENTARIO-FEATURES-E-LACUNAS.md`
+
+Especialmente não duplicar CRM, fidelidade, financeiro, promoters, VIP, check-in, add-ons ou Casa pública.
+
+## 35. Auditoria segura de catálogo
+
+Para inspecionar dados antes de limpeza:
+
+`pnpm --filter @borafest/database auditoria-catalogo`
+
+O comando deve permanecer somente leitura. Correções destrutivas ou atualizações em massa devem ser revisadas separadamente e nunca misturadas ao relatório.
