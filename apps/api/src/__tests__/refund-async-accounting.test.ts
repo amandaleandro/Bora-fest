@@ -101,6 +101,31 @@ test("estorno ASSÍNCRONO (gateway PENDING) aplica a contabilidade na hora — n
   }
 });
 
+test("parciais que somam 100% devolvem estoque vendido", async () => {
+  const fixture = await createFixtureEvent({ lotCapacity: 2, priceCents: 10000, feeCents: 0 });
+  try {
+    const { order } = await paidOrder(fixture, ASYNC_PROVIDER);
+
+    const soldBefore = await prisma.ticketLot.findUniqueOrThrow({ where: { id: fixture.lot.id } });
+    assert.equal(soldBefore.soldCount, 1, "venda aprovada confirma uma unidade no estoque");
+
+    await executeOrderRefund(order.publicToken, { amountCents: 4000, idempotencyPrefix: "stock-p1" });
+    const afterFirst = await prisma.ticketLot.findUniqueOrThrow({ where: { id: fixture.lot.id } });
+    assert.equal(afterFirst.soldCount, 1, "parcial ainda não devolve ingresso ao estoque");
+
+    await executeOrderRefund(order.publicToken, { amountCents: 6000, idempotencyPrefix: "stock-p2" });
+
+    const [afterFull, refundedOrder] = await Promise.all([
+      prisma.ticketLot.findUniqueOrThrow({ where: { id: fixture.lot.id } }),
+      prisma.order.findUniqueOrThrow({ where: { id: order.id } }),
+    ]);
+    assert.equal(refundedOrder.status, "REFUNDED");
+    assert.equal(afterFull.soldCount, 0, "ao completar 100%, a unidade volta ao estoque");
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
 test("estorno ASSÍNCRONO respeita o teto acumulado (dois parciais não passam do total)", async () => {
   const fixture = await createFixtureEvent({ lotCapacity: 5, priceCents: 10000, feeCents: 0 });
   try {
