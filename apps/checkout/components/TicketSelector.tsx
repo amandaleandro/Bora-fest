@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type PublicEvent } from "../lib/api";
 import { formatCents } from "../lib/format";
+import { getAttributedPromoterSlug, getAttributedSellerSlug } from "../lib/attribution";
 
 interface Selection {
   qty: number;
@@ -158,6 +159,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
         items,
         token,
         waitingRoom.ticketId ?? undefined,
+        getAttributedPromoterSlug(),
+        getAttributedSellerSlug(),
       );
       sessionStorage.setItem(`bf.slug.${reservation.id}`, event.slug);
       router.push(`/checkout/${reservation.id}`);
