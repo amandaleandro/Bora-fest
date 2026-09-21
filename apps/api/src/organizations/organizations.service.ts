@@ -206,6 +206,7 @@ export class OrganizationsService {
       id: membership.organization.id,
       name: membership.organization.name,
       displayName: membership.organization.displayName,
+      logoUrl: membership.organization.logoUrl,
       slug: membership.organization.slug,
       kind: membership.organization.kind,
       status: membership.organization.status,
