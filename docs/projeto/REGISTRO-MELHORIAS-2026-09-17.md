@@ -509,3 +509,92 @@ O script é SOMENTE LEITURA e reporta:
 - organizações com aparência de teste/homologação ainda não configuradas na exclusão pública.
 
 A heurística de nome é usada apenas para RELATÓRIO HUMANO. Ela nunca esconde dados automaticamente.
+
+
+---
+
+## 15. BF-020 Ticket Studio + BF-021 Loja da Casa — 21/09/2026
+
+### 15.1 Ticket Studio
+
+**Banco**
+- `Event.ticketTheme` em JSON;
+- migration `20260921163000_ticket_theme_store_catalog`.
+
+**Contrato**
+- templates CLASSIC, DARK, FESTA e PREMIUM;
+- cores hex;
+- background/logo HTTP(S);
+- texto de patrocinador;
+- toggles de local/lote/participante.
+
+**Painel**
+- rota `/eventos/[eventId]/ticket-studio`;
+- editor com presets e preview;
+- reset usa `Prisma.DbNull`, limpando o JSON do banco.
+
+**Comprador**
+- carteira real aplica tema;
+- QR e código nunca podem ser escondidos pelo tema;
+- cortesia/convidado mantém identificação operacional.
+
+### 15.2 Loja da Casa
+
+**Decisão:** não transformar `EventAddOn` em produto permanente.
+
+Criados:
+- `StoreProduct`;
+- `StoreProductVariant`;
+- status DRAFT / ACTIVE / ARCHIVED;
+- SKU;
+- `stockTotal`, reservado e vendido.
+
+Regras:
+- produto não publica sem variação ativa;
+- estoque total não pode ficar abaixo de vendido + reservado;
+- disponibilidade = estoque total − reservado − vendido;
+- apenas produto ACTIVE e variação ativa aparecem;
+- homologação é aplicada;
+- Casa pode manter perfil público por produto ACTIVE mesmo sem evento PUBLISHED.
+
+Painel:
+`/organizacoes/[orgId]/loja`
+
+Vitrine:
+`/casa/[slug]`
+
+### 15.3 Bugs encontrados e corrigidos
+
+1. **Filtro de homologação sobrescrevendo slug exato**
+   - Store e Casa tinham risco de `{ slug, ...{ slug: { notIn } } }`;
+   - o segundo campo sobrescrevia o primeiro;
+   - agora lookup exato combina `equals` + `notIn`;
+   - teste usa duas Casas públicas para provar que a excluída não vira outra Casa.
+
+2. **Nome de estoque enganoso**
+   - `stockOnHand` foi renomeado antes do deploy para `stockTotal`;
+   - disponível é calculado descontando vendido/reservado.
+
+3. **Tema resetado como JSON null**
+   - corrigido para `Prisma.DbNull`.
+
+4. **Métricas de integridade**
+   - worker passou a alimentar de fato gauges usados pelos alertas de PAID sem ingresso e outbox problemático.
+
+5. **Imagem externa e Next Image**
+   - produto externo não passa pelo proxy de imagem do Next;
+   - mantém a allowlist anti-SSRF do servidor;
+   - URLs de imagem agora são HTTP/HTTPS.
+
+### 15.4 Venda direta
+
+Ainda não implementada deliberadamente.
+
+O `Payment` atual pertence a `Order` de evento. Não será criado evento escondido ou pedido falso para vender merchandise.
+
+A próxima evolução precisa decidir entre:
+- `StoreOrder/StorePayment`; ou
+- generalização segura do pedido comercial.
+
+Documento completo:
+`docs/projeto/LOJA-E-TICKET-STUDIO.md`.
