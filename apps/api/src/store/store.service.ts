@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { prisma, Prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import type {
   CreateStoreProductInput,
@@ -113,15 +113,22 @@ export class StoreService {
     if (!product) throw new NotFoundException("Produto não encontrado");
     await this.assertManage(product.organizationId, userId);
 
-    return prisma.storeProductVariant.create({
-      data: {
-        productId,
-        name: input.name,
-        sku: input.sku,
-        priceCents: input.priceCents,
-        stockTotal: input.stockTotal,
-      },
-    });
+    try {
+      return await prisma.storeProductVariant.create({
+        data: {
+          productId,
+          name: input.name,
+          sku: input.sku,
+          priceCents: input.priceCents,
+          stockTotal: input.stockTotal,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new BadRequestException("Já existe uma variação com este nome ou SKU neste produto");
+      }
+      throw error;
+    }
   }
 
   async updateVariant(variantId: string, userId: string, input: UpdateStoreVariantInput) {
@@ -142,16 +149,23 @@ export class StoreService {
       );
     }
 
-    return prisma.storeProductVariant.update({
-      where: { id: variantId },
-      data: {
-        name: input.name,
-        sku: input.sku,
-        priceCents: input.priceCents,
-        stockTotal: input.stockTotal,
-        active: input.active,
-      },
-    });
+    try {
+      return await prisma.storeProductVariant.update({
+        where: { id: variantId },
+        data: {
+          name: input.name,
+          sku: input.sku,
+          priceCents: input.priceCents,
+          stockTotal: input.stockTotal,
+          active: input.active,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new BadRequestException("Já existe uma variação com este nome ou SKU neste produto");
+      }
+      throw error;
+    }
   }
 
   async listPublicByHouseSlug(slug: string) {
