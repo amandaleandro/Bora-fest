@@ -23,16 +23,16 @@ function VariantRow({
   variant: StoreVariant;
   onUpdated: () => Promise<void>;
 }) {
-  const [stock, setStock] = useState(String(variant.stockOnHand));
+  const [stock, setStock] = useState(String(variant.stockTotal));
   const [price, setPrice] = useState((variant.priceCents / 100).toFixed(2).replace(".", ","));
   const [busy, setBusy] = useState(false);
-  const available = Math.max(variant.stockOnHand - variant.reservedCount - variant.soldCount, 0);
+  const available = Math.max(variant.stockTotal - variant.reservedCount - variant.soldCount, 0);
 
   async function save() {
     setBusy(true);
     try {
       await storeApi.updateVariant(token, variant.id, {
-        stockOnHand: Number(stock),
+        stockTotal: Number(stock),
         priceCents: parsePrice(price),
       });
       await onUpdated();
@@ -160,7 +160,7 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
         name: draftVariant.name.trim(),
         sku: draftVariant.sku.trim() || undefined,
         priceCents: parsePrice(draftVariant.price),
-        stockOnHand: Math.max(0, Number(draftVariant.stock) || 0),
+        stockTotal: Math.max(0, Number(draftVariant.stock) || 0),
       });
       setVariantDrafts((current) => ({ ...current, [productId]: { name: "", sku: "", price: "", stock: "" } }));
       await load();
@@ -177,7 +177,7 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
         (sum, product) =>
           sum +
           product.variants.reduce(
-            (variantSum, variant) => variantSum + Math.max(variant.stockOnHand - variant.reservedCount - variant.soldCount, 0),
+            (variantSum, variant) => variantSum + Math.max(variant.stockTotal - variant.reservedCount - variant.soldCount, 0),
             0,
           ),
         0,
