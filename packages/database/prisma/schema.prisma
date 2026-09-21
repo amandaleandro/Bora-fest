@@ -213,6 +213,7 @@ model Organization {
   salesPartners  SalesPartner[]
   promoterHosts  PromoterLink[]          @relation("PromoterHost")
   followers      OrganizationFollow[]
+  products       StoreProduct[]
 
   @@map("organizations")
 }
@@ -528,6 +529,8 @@ model Event {
   waitingRoomConcurrency Int            @default(300) @map("waiting_room_concurrency")
   pixelSettings          Json?          @map("pixel_settings")
   metaCapiToken          String?        @map("meta_capi_token")
+  /// tema visual do ingresso; não altera QR, validade ou regras de acesso.
+  ticketTheme            Json?          @map("ticket_theme")
   createdAt              DateTime       @default(now()) @map("created_at")
   updatedAt              DateTime       @updatedAt @map("updated_at")
 
@@ -560,6 +563,53 @@ enum EventCategory {
   FESTAS
   ESPORTES
   TEATRO
+}
+
+
+enum StoreProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model StoreProduct {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  name           String
+  slug           String
+  description    String?
+  imageUrl       String?            @map("image_url")
+  status         StoreProductStatus @default(DRAFT)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  variants     StoreProductVariant[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@map("store_products")
+}
+
+model StoreProductVariant {
+  id            String   @id @default(uuid()) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  name          String
+  sku           String?
+  priceCents    Int      @map("price_cents")
+  stockOnHand   Int      @default(0) @map("stock_on_hand")
+  reservedCount Int      @default(0) @map("reserved_count")
+  soldCount     Int      @default(0) @map("sold_count")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  product StoreProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, name])
+  @@unique([productId, sku])
+  @@index([productId, active])
+  @@map("store_product_variants")
 }
 
 model EventAddOn {
