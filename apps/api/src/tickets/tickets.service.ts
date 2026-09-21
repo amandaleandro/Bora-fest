@@ -36,7 +36,16 @@ export class TicketsService {
             ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
           },
         },
-        event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
+        event: {
+          select: {
+            title: true,
+            slug: true,
+            startsAt: true,
+            endsAt: true,
+            ticketTheme: true,
+            venue: { select: { name: true, city: true, state: true } },
+          },
+        },
         user: { select: { emailVerifiedAt: true } },
         guestListEntries: { select: { id: true }, take: 1 },
         salesPartner: { select: { name: true } },
@@ -121,7 +130,16 @@ export class TicketsService {
       orderBy: { issuedAt: "desc" },
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
-        event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
+        event: {
+          select: {
+            title: true,
+            slug: true,
+            startsAt: true,
+            endsAt: true,
+            ticketTheme: true,
+            venue: { select: { name: true, city: true, state: true } },
+          },
+        },
         order: { select: { publicToken: true, userId: true, totalCents: true } },
       },
     });
