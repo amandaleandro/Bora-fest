@@ -135,15 +135,43 @@ function publicSaleState(event: PublicEvent) {
   );
 
   if (event.status !== "PUBLISHED" || endsAt <= now) {
-    return { key: "closed" as const, label: "Vendas encerradas", closed: true };
+    return {
+      key: "closed" as const,
+      label: "Vendas encerradas",
+      message: "As vendas deste evento já foram encerradas.",
+      closed: true,
+    };
   }
-  if (onlineLots.length > 0 && available <= 0) {
-    return { key: "soldout" as const, label: "Esgotado", closed: true };
+  if (lots.length === 0) {
+    return {
+      key: "unavailable" as const,
+      label: "Ingressos indisponíveis",
+      message: "Não há ingressos disponíveis para compra agora.",
+      closed: true,
+    };
+  }
+  if (available <= 0) {
+    return {
+      key: "soldout" as const,
+      label: "Esgotado",
+      message: "Os ingressos online deste evento estão esgotados.",
+      closed: true,
+    };
   }
   if (startsAt <= now && now < endsAt) {
-    return { key: "live" as const, label: "Evento em andamento", closed: false };
+    return {
+      key: "live" as const,
+      label: "Evento em andamento",
+      message: "O evento está em andamento.",
+      closed: false,
+    };
   }
-  return { key: "open" as const, label: "Vendas abertas", closed: false };
+  return {
+    key: "open" as const,
+    label: "Vendas abertas",
+    message: "Ingressos disponíveis.",
+    closed: false,
+  };
 }
 
 function minPriceCents(event: PublicEvent): number | null {
@@ -227,9 +255,11 @@ export function EventPageClient({
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${
                 saleState.key === "soldout"
                   ? "bg-danger/10 text-danger"
-                  : saleState.key === "closed"
-                    ? "bg-line text-muted"
-                    : saleState.key === "live"
+                  : saleState.key === "unavailable"
+                    ? "bg-warning/10 text-warning"
+                    : saleState.key === "closed"
+                      ? "bg-line text-muted"
+                      : saleState.key === "live"
                       ? "bg-primary/10 text-primary"
                       : "bg-success/10 text-success"
               }`}
@@ -297,7 +327,7 @@ export function EventPageClient({
           <div className="rounded-3xl border border-line bg-bg p-5 shadow-card">
             <h2 className="text-[16px] font-extrabold">Ingressos</h2>
             {closed ? (
-              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">Vendas encerradas</p>
+              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">{saleState.message}</p>
             ) : (
               <div className="mt-3"><TicketSelector event={event} compact /></div>
             )}
@@ -337,9 +367,11 @@ export function EventPageClient({
           className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${
             saleState.key === "soldout"
               ? "bg-danger/10 text-danger"
-              : saleState.key === "closed"
-                ? "bg-line text-muted"
-                : saleState.key === "live"
+              : saleState.key === "unavailable"
+                ? "bg-warning/10 text-warning"
+                : saleState.key === "closed"
+                  ? "bg-line text-muted"
+                  : saleState.key === "live"
                   ? "bg-primary/10 text-primary"
                   : "bg-success/10 text-success"
           }`}
@@ -411,8 +443,8 @@ export function EventPageClient({
       <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-[430px] border-t border-line bg-surface/90 p-4 backdrop-blur">
         {closed ? (
           <div className="space-y-2">
-            <div className="flex h-14 items-center justify-center rounded-2xl bg-line text-[15px] font-bold text-muted-3">
-              Vendas encerradas
+            <div className="flex h-14 items-center justify-center rounded-2xl bg-line px-4 text-center text-[14px] font-bold text-muted-3">
+              {saleState.message}
             </div>
             <Link href="/" className="flex h-12 items-center justify-center rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold text-ink">
               Ver outros eventos
