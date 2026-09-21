@@ -57,6 +57,39 @@ describe("Loja da Casa + Ticket Studio", () => {
     assert.equal(listed!.variants[0].available, 30);
   });
 
+  it("trata nome ou SKU duplicado como erro de negócio", async () => {
+    const product = await store.createProduct(fixture.organization.id, "actor", {
+      name: "Produto duplicidade",
+    });
+    await store.createVariant(product.id, "actor", {
+      name: "P",
+      sku: "SKU-UNICO",
+      priceCents: 1000,
+      stockTotal: 5,
+    });
+
+    await assert.rejects(
+      () =>
+        store.createVariant(product.id, "actor", {
+          name: "P",
+          sku: "OUTRO-SKU",
+          priceCents: 1200,
+          stockTotal: 5,
+        }),
+      /Já existe uma variação/,
+    );
+    await assert.rejects(
+      () =>
+        store.createVariant(product.id, "actor", {
+          name: "M",
+          sku: "SKU-UNICO",
+          priceCents: 1200,
+          stockTotal: 5,
+        }),
+      /Já existe uma variação/,
+    );
+  });
+
   it("não deixa estoque total menor que vendido + reservado", async () => {
     const variant = await prisma.storeProductVariant.findFirstOrThrow({
       where: { product: { organizationId: fixture.organization.id } },
@@ -104,6 +137,24 @@ describe("Loja da Casa + Ticket Studio", () => {
     const saved = await prisma.event.findUniqueOrThrow({ where: { id: fixture.event.id } });
 
     assert.deepEqual(saved.ticketTheme, theme);
+  });
+
+  it("recusa asset externo no Ticket Studio mesmo com HTTPS válido", async () => {
+    await assert.rejects(
+      () =>
+        events.update(fixture.event.id, "actor", {
+          ticketTheme: {
+            template: "CLASSIC",
+            primaryColor: "#6D28D9",
+            secondaryColor: "#111827",
+            backgroundImageUrl: "https://tracker.example.com/fundo.jpg",
+            showVenue: true,
+            showLot: true,
+            showAttendee: true,
+          },
+        } as any),
+      /hospedada pelo BoraFest/,
+    );
   });
 
   it("recusa cores inválidas no Ticket Studio", () => {
