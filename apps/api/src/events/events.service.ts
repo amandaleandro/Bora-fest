@@ -64,6 +64,15 @@ function assertManagedTicketThemeAssets(theme: UpdateEventInput["ticketTheme"]):
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function slugify(title: string): string {
   return title
     .normalize("NFD")
@@ -301,7 +310,7 @@ export class EventsService {
         sender.send({
           to,
           subject: `${organization?.name ?? "Um produtor que você segue"} publicou um novo evento`,
-          html: `<p>${event.title} já está com vendas abertas.</p><p><a href="${link}">${link}</a></p>`,
+          html: `<p>${escapeHtml(event.title)} já está com vendas abertas.</p><p><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>`,
           text: `${event.title} já está com vendas abertas: ${link}`,
         }),
       ),
