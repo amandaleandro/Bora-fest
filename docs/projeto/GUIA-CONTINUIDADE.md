@@ -595,3 +595,41 @@ Hoje isso vale para:
 - carteira logada em `/perfil`.
 
 QR, código e status continuam obrigatórios e nunca são escondidos pelo tema.
+
+
+## 38. Lotes: janela, esgotamento e acesso exclusivo
+
+Regras obrigatórias no backend:
+- reserva só aceita lote `ACTIVE`;
+- `startsAt` futuro bloqueia reserva;
+- `endsAt` vencido bloqueia reserva;
+- `pdvOnly` nunca entra na reserva pública;
+- `promoterOnly` exige promoter ou vendedor válido da mesma Casa/evento;
+- a conversão da reserva em pedido repete a exigência de atribuição para lote `promoterOnly`.
+
+O catálogo pode mostrar `SOLD_OUT` para informar “Esgotado”, mas reserva continua aceitando apenas `ACTIVE`.
+
+Última venda que ocupa a capacidade marca o lote `SOLD_OUT`. Reembolso que devolve unidade reabre somente lote auto-esgotado; `CLOSED` manual não reabre automaticamente.
+
+Comportamentos que não podem voltar:
+- usar `startsAt/endsAt` só como texto/contagem regressiva;
+- aceitar UUID de lote exclusivo sem prova de promoter;
+- permitir reservar lote exclusivo e retirar a atribuição na criação do pedido;
+- esconder o lote depois de esgotar e perder o estado “Esgotado”.
+
+## 39. Reembolso e estoque
+
+Reembolsos parciais acumulados que atingem 100% do ingresso são equivalentes a reembolso total para estoque:
+- pedido -> `REFUNDED`;
+- pagamento -> `REFUNDED`;
+- ingresso revogado/refundado;
+- `sold_count` precisa voltar.
+
+A regra é coberta em `refund-async-accounting.test.ts`.
+
+## 40. Loja: invariantes adicionais
+
+- produto `ACTIVE` sempre mantém pelo menos uma variação ativa;
+- banco garante `stock_total >= sold_count + reserved_count`;
+- concorrência de criação/rename não deve transformar colisão de slug em erro 500;
+- slug amigável é conveniência; a constraint do banco continua autoridade.
