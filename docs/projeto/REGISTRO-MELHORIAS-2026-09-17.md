@@ -598,3 +598,15 @@ A próxima evolução precisa decidir entre:
 
 Documento completo:
 `docs/projeto/LOJA-E-TICKET-STUDIO.md`.
+
+
+### 15.5 Correções adicionais da revisão estática
+
+- auditoria de catálogo importava `./client`, arquivo inexistente; corrigido para `./index`;
+- `EventsService` usava `Prisma.DbNull/InputJsonValue` sem importar `Prisma`;
+- mídia do Ticket Studio agora exige host controlado pelo BoraFest, além de HTTPS;
+- imagens de produto exigem HTTPS em produção;
+- imagem externa de produto não passa pelo proxy do Next, preservando a allowlist anti-SSRF;
+- Organization do painel passou a carregar `logoUrl` para o Ticket Studio reaproveitar a identidade da Casa;
+- duplicidade de nome/SKU de variante agora responde erro de negócio em vez de P2002/500;
+- testes ampliados para duplicidade e asset externo de ingresso.
