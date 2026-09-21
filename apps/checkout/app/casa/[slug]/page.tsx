@@ -197,8 +197,18 @@ export default async function HousePage({ params }: { params: { slug: string } }
                   {store.products.map((product) => (
                     <article key={product.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
                       {product.imageUrl ? (
-                        <div className="relative aspect-[4/3] bg-bg">
-                          <EventImage src={product.imageUrl} sizes="(max-width: 640px) 50vw, 280px" className="object-cover" />
+                        <div className="relative aspect-[4/3] overflow-hidden bg-bg">
+                          {/* URL de produto pode ser externa. Não passa pelo otimizador
+                              do Next para preservar a allowlist anti-SSRF do servidor. */}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            className="h-full w-full object-cover"
+                          />
                         </div>
                       ) : (
                         <div className="flex aspect-[4/3] items-center justify-center bg-bg text-[36px]">🛍️</div>
