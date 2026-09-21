@@ -21,6 +21,17 @@ describe("Loja da Casa + Ticket Studio", () => {
     await prisma.$disconnect();
   });
 
+  it("criações concorrentes com o mesmo nome recebem slugs distintos", async () => {
+    const [a, b] = await Promise.all([
+      store.createProduct(fixture.organization.id, "actor", { name: "Produto concorrente" }),
+      store.createProduct(fixture.organization.id, "actor", { name: "Produto concorrente" }),
+    ]);
+
+    assert.notEqual(a.slug, b.slug);
+    assert.equal(a.organizationId, fixture.organization.id);
+    assert.equal(b.organizationId, fixture.organization.id);
+  });
+
   it("não publica produto sem variação ativa", async () => {
     const product = await store.createProduct(fixture.organization.id, "actor", {
       name: "Camiseta oficial",
