@@ -360,7 +360,13 @@ export const api = {
     const suffix = params.size ? `?${params.toString()}` : "";
     return request<PublicEvent>(`/v1/public/events/${slug}${suffix}`);
   },
-  getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
+  getAvailability: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability${suffix}`);
+  },
 
   joinWaitingRoom: (slug: string) =>
     request<WaitingRoomJoinResult>(`/v1/public/events/${slug}/waiting-room/join`, { method: "POST" }),
