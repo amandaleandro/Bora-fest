@@ -134,10 +134,21 @@ export class StoreService {
   async updateVariant(variantId: string, userId: string, input: UpdateStoreVariantInput) {
     const variant = await prisma.storeProductVariant.findUnique({
       where: { id: variantId },
-      include: { product: { select: { organizationId: true } } },
+      include: { product: { select: { organizationId: true, status: true } } },
     });
     if (!variant) throw new NotFoundException("Variação não encontrada");
     await this.assertManage(variant.product.organizationId, userId);
+
+    if (input.active === false && variant.active && variant.product.status === "ACTIVE") {
+      const otherActive = await prisma.storeProductVariant.count({
+        where: { productId: variant.productId, active: true, id: { not: variant.id } },
+      });
+      if (otherActive === 0) {
+        throw new BadRequestException(
+          "Produto publicado precisa manter pelo menos uma variação ativa; pause ou arquive o produto primeiro",
+        );
+      }
+    }
 
     // estoque físico total nunca pode ficar menor do que o que já saiu/está reservado.
     if (
