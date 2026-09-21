@@ -55,6 +55,10 @@ export async function confirmSaleInventory(
     UPDATE ticket_lots
     SET reserved_count = GREATEST(reserved_count - ${quantity}, 0),
         sold_count = sold_count + ${quantity},
+        status = CASE
+          WHEN sold_count + ${quantity} >= capacity THEN 'SOLD_OUT'::"LotStatus"
+          ELSE status
+        END,
         updated_at = now()
     WHERE id = ${lotId}::uuid
   `);
@@ -68,7 +72,13 @@ export async function returnSaleInventory(
 ): Promise<void> {
   await client.$executeRaw(Prisma.sql`
     UPDATE ticket_lots
-    SET sold_count = GREATEST(sold_count - ${quantity}, 0), updated_at = now()
+    SET sold_count = GREATEST(sold_count - ${quantity}, 0),
+        status = CASE
+          WHEN status = 'SOLD_OUT'::"LotStatus" AND GREATEST(sold_count - ${quantity}, 0) < capacity
+            THEN 'ACTIVE'::"LotStatus"
+          ELSE status
+        END,
+        updated_at = now()
     WHERE id = ${lotId}::uuid
   `);
 }
