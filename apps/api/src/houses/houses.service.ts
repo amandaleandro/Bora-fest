@@ -368,11 +368,11 @@ export class HousesService {
 
   async getPublicHouse(slug: string) {
     const now = new Date();
+    const excluded = excludedPublicOrganizationSlugs();
     const house = await prisma.organization.findFirst({
       where: {
-        slug,
+        slug: excluded.length ? { equals: slug, notIn: excluded } : slug,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
-        ...publicHouseOrganizationFilter(),
         events: { some: { status: "PUBLISHED" } },
       },
       select: {
