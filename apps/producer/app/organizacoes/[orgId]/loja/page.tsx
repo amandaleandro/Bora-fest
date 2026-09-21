@@ -5,10 +5,6 @@ import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { storeApi, type StoreProduct, type StoreVariant } from "@/lib/api";
 
-function money(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 function parsePrice(value: string) {
   const normalized = Number(value.trim().replace(",", "."));
   return Number.isFinite(normalized) && normalized >= 0 ? Math.round(normalized * 100) : 0;
