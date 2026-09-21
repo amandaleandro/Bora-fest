@@ -62,12 +62,7 @@ ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "store_product_variants"
 ADD CONSTRAINT "store_product_variants_stock_nonnegative"
-CHECK (
-  "stock_total" >= 0
-  AND "reserved_count" >= 0
-  AND "sold_count" >= 0
-  AND "stock_total" >= "reserved_count" + "sold_count"
-);
+CHECK ("stock_total" >= 0 AND "reserved_count" >= 0 AND "sold_count" >= 0);
 
 ALTER TABLE "store_product_variants"
 ADD CONSTRAINT "store_product_variants_price_nonnegative"
