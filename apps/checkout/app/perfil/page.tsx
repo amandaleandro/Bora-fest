@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { RevealQr } from "@/components/RevealQr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "../../lib/api";
+import { api, ApiError, type TicketTheme } from "../../lib/api";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { Icon, paths } from "../../components/icons";
 
@@ -59,6 +59,34 @@ function shortDate(iso: string): string {
   })
     .format(new Date(iso))
     .replace(/\./g, "");
+}
+
+const DEFAULT_TICKET_THEME: TicketTheme = {
+  template: "CLASSIC",
+  primaryColor: "#6D28D9",
+  secondaryColor: "#111827",
+  backgroundImageUrl: null,
+  logoUrl: null,
+  sponsorText: null,
+  showVenue: true,
+  showLot: true,
+  showAttendee: true,
+};
+
+function resolvedTicketTheme(theme?: TicketTheme | null): TicketTheme {
+  return { ...DEFAULT_TICKET_THEME, ...(theme ?? {}) };
+}
+
+function ticketHeaderStyle(theme: TicketTheme) {
+  return theme.backgroundImageUrl
+    ? {
+        backgroundImage: `linear-gradient(135deg, ${theme.secondaryColor}E8, ${theme.primaryColor}D5), url("${theme.backgroundImageUrl}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : {
+        background: `linear-gradient(135deg, ${theme.secondaryColor}, ${theme.primaryColor})`,
+      };
 }
 
 function initials(name: string | null, email: string | null): string {
@@ -459,11 +487,28 @@ export default function ProfilePage() {
                 </div>
               ) : (
                 <div className="space-y-3.5">
-                  {tickets.map((ticket) => (
+                  {tickets.map((ticket) => {
+                    const theme = resolvedTicketTheme(ticket.event.ticketTheme);
+                    return (
                     <article key={ticket.id} className="overflow-hidden rounded-[22px] border border-line bg-surface lg:flex">
-                      <div className="bg-brand-gradient p-5 lg:flex lg:w-[240px] lg:shrink-0 lg:flex-col lg:justify-center">
+                      <div
+                        className="p-5 text-white lg:flex lg:w-[240px] lg:shrink-0 lg:flex-col lg:justify-center"
+                        style={ticketHeaderStyle(theme)}
+                      >
+                        {theme.logoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={theme.logoUrl} alt="" className="mb-3 h-8 max-w-[130px] object-contain object-left" />
+                        ) : null}
                         <p className="text-[16px] font-extrabold leading-tight text-white">{ticket.event.title}</p>
                         <p className="mt-1.5 text-[11.5px] font-semibold text-white/80">{formatDateTime(ticket.event.startsAt)}</p>
+                        {theme.showVenue && ticket.event.venue ? (
+                          <p className="mt-1 text-[10.5px] font-semibold text-white/70">
+                            {ticket.event.venue.name} · {ticket.event.venue.city}/{ticket.event.venue.state}
+                          </p>
+                        ) : null}
+                        {theme.sponsorText ? (
+                          <p className="mt-3 text-[10px] font-bold text-white/70">{theme.sponsorText}</p>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-center gap-4 border-t border-dashed border-line p-5 text-center lg:flex-1 lg:flex-row lg:items-center lg:gap-[18px] lg:border-l lg:border-t-0 lg:px-[22px] lg:text-left">
                         <div className={`shrink-0 rounded-xl border border-line bg-white p-2 ${
@@ -473,9 +518,14 @@ export default function ProfilePage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap justify-center gap-2 lg:justify-start">
-                            <span className="rounded-full bg-primary/[.09] px-2.5 py-1.5 text-[11px] font-bold text-primary">
-                              {ticket.typeName} · {ticket.lotName}
-                            </span>
+                            {theme.showLot ? (
+                              <span
+                                className="rounded-full px-2.5 py-1.5 text-[11px] font-bold"
+                                style={{ backgroundColor: `${theme.primaryColor}15`, color: theme.primaryColor }}
+                              >
+                                {ticket.typeName} · {ticket.lotName}
+                              </span>
+                            ) : null}
                             <span className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${
                               ticket.status === "CHECKED_IN" ? "bg-line text-muted-2" :
                               ["CANCELED", "REFUNDED"].includes(ticket.status) ? "bg-danger/10 text-danger" :
@@ -486,7 +536,9 @@ export default function ProfilePage() {
                                 ticket.status === "CANCELED" ? "Cancelado" : "Válido"}
                             </span>
                           </div>
-                          <p className="mt-2 truncate text-[15px] font-extrabold">{ticket.attendeeName ?? profile?.name ?? "Portador"}</p>
+                          {theme.showAttendee ? (
+                            <p className="mt-2 truncate text-[15px] font-extrabold">{ticket.attendeeName ?? profile?.name ?? "Portador"}</p>
+                          ) : null}
                           <p className="mt-1 text-[12px] font-medium text-muted-2">Código {ticket.code}</p>
                           {["CANCELED", "REFUNDED"].includes(ticket.status) && (
                             <p className="mt-2 text-[12px] font-semibold text-danger">
@@ -556,7 +608,8 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
