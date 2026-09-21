@@ -107,6 +107,32 @@ describe("Loja da Casa + Ticket Studio", () => {
     );
   });
 
+  it("banco também impede estoque abaixo de vendido + reservado", async () => {
+    const product = await store.createProduct(fixture.organization.id, "actor", {
+      name: "Produto com constraint",
+    });
+    const variant = await store.createVariant(product.id, "actor", {
+      name: "Único",
+      sku: "CONSTRAINT-ESTOQUE",
+      priceCents: 1500,
+      stockTotal: 10,
+    });
+
+    await prisma.storeProductVariant.update({
+      where: { id: variant.id },
+      data: { soldCount: 6, reservedCount: 2 },
+    });
+
+    await assert.rejects(
+      () =>
+        prisma.storeProductVariant.update({
+          where: { id: variant.id },
+          data: { stockTotal: 7 },
+        }),
+      "a constraint do banco deve proteger estoque mesmo se alguém contornar o service",
+    );
+  });
+
   it("não vaza loja de organização excluída do catálogo público", async () => {
     const previous = process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS;
     process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS = fixture.organization.slug;
