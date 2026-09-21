@@ -196,6 +196,12 @@ export class EventsService {
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,
         pixelSettings,
+        ticketTheme:
+          input.ticketTheme === undefined
+            ? undefined
+            : input.ticketTheme === null
+              ? Prisma.JsonNull
+              : (input.ticketTheme as Prisma.InputJsonValue),
         // token do CAPI: "" ou null desliga; undefined mantém o atual
         metaCapiToken:
           input.metaCapiToken === undefined
