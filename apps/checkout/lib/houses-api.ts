@@ -35,6 +35,28 @@ export interface HouseListResponse {
   houses: HouseListItem[];
 }
 
+export interface HouseStoreVariant {
+  id: string;
+  name: string;
+  sku: string | null;
+  priceCents: number;
+  available: number;
+}
+
+export interface HouseStoreProduct {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  variants: HouseStoreVariant[];
+}
+
+export interface HouseStoreResponse {
+  organization: { id: string; slug: string; name: string; logoUrl: string | null };
+  products: HouseStoreProduct[];
+}
+
 async function request<T>(path: string, token?: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -51,6 +73,9 @@ export const housesApi = {
     if (query?.trim()) params.set("q", query.trim());
     return request<HouseListResponse>(`/v1/public/casas?${params.toString()}`);
   },
+
+  store: (slug: string) =>
+    request<HouseStoreResponse>(`/v1/public/casas/${encodeURIComponent(slug)}/store`),
 
   followed: (token: string, city?: string) => {
     const params = new URLSearchParams();
