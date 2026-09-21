@@ -19,7 +19,7 @@ export const createStoreVariantSchema = z.object({
   name: z.string().trim().min(1).max(80),
   sku: z.string().trim().min(1).max(80).optional(),
   priceCents: z.number().int().min(0),
-  stockOnHand: z.number().int().min(0).max(1_000_000),
+  stockTotal: z.number().int().min(0).max(1_000_000),
 });
 export type CreateStoreVariantInput = z.infer<typeof createStoreVariantSchema>;
 
