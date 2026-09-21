@@ -85,6 +85,7 @@ API:
 - produto nasce DRAFT;
 - produto não pode virar ACTIVE sem ao menos uma variação ativa;
 - estoque total não pode ser reduzido abaixo de vendido + reservado;
+- nome e SKU duplicados viram erro de negócio legível, nunca erro Prisma/500;
 - produto DRAFT/ARCHIVED não aparece publicamente;
 - variação inativa não aparece na vitrine;
 - Casa excluída por homologação não expõe loja;
@@ -94,7 +95,7 @@ API:
 ### Segurança de imagem
 
 Imagem externa de produto:
-- aceita somente HTTP/HTTPS;
+- exige HTTPS em produção (HTTP apenas em localhost);
 - na vitrine pública usa `<img>` direto no navegador;
 - não passa pelo proxy `/_next/image`;
 - preserva a allowlist anti-SSRF do Next.
@@ -186,9 +187,19 @@ O tema não pode esconder a natureza de uma cortesia nem tornar um ingresso grat
 
 ### URLs visuais
 
-Logo e background digitados no Ticket Studio aceitam apenas HTTP/HTTPS.
+Logo e background:
+- exigem HTTPS em produção;
+- HTTP só é aceito em localhost;
+- além do formato da URL, o backend exige host gerenciado pelo BoraFest;
+- subdomínios `*.borafest.com.br` e os hosts configurados de API/site são aceitos.
 
-Para produção em escala, a evolução recomendada é upload gerenciado pelo BoraFest em vez de depender de URL externa.
+Motivo: a carteira contém um token público de pedido na URL e não deve carregar assets arbitrários de servidores controlados por terceiros.
+
+A UI oferece reaproveitar:
+- arte do evento;
+- logo da Casa, quando disponível.
+
+Para novos assets, a evolução recomendada é upload gerenciado pelo BoraFest.
 
 ### Ainda NÃO implementado
 
