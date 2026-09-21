@@ -663,11 +663,12 @@ export class CatalogService {
     };
   }
 
-  async getPublicAvailability(slug: string) {
+  async getPublicAvailability(slug: string, promoterSlug?: string, sellerSlug?: string) {
     // SEM micro-cache aqui (achado 2026-09-01): esta rota é o estoque em tempo
     // real do seletor de ingressos — 5s velho perto do esgotamento mostraria
-    // vaga que não existe. O ganho anti-N+1 continua (conta dos lotes abaixo).
-    const event = await this.getPublicEventFresco(slug);
+    // vaga que não existe. O escopo de promoter/vendedor precisa ser o mesmo
+    // do detalhe público para não sumir lote exclusivo na atualização.
+    const event = await this.getPublicEventFresco(slug, promoterSlug, sellerSlug);
 
     // perf 2026-08-30: era 1 findUnique POR LOTE (N+1) rebuscando linhas que o
     // getPublicEvent JÁ trouxe — capacity/soldCount/reservedCount estão nos
