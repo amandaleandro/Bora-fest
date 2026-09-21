@@ -74,6 +74,19 @@ export const pixelSettingsSchema = z.object({
 });
 export type PixelSettingsInput = z.infer<typeof pixelSettingsSchema>;
 
+export const ticketThemeSchema = z.object({
+  template: z.enum(["CLASSIC", "DARK", "FESTA", "PREMIUM"]).default("CLASSIC"),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#6D28D9"),
+  secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#111827"),
+  backgroundImageUrl: z.string().url().max(500).nullable().optional(),
+  logoUrl: z.string().url().max(500).nullable().optional(),
+  sponsorText: z.string().trim().max(120).nullable().optional(),
+  showVenue: z.boolean().default(true),
+  showLot: z.boolean().default(true),
+  showAttendee: z.boolean().default(true),
+});
+export type TicketThemeInput = z.infer<typeof ticketThemeSchema>;
+
 export const updateEventSchema = eventCoreSchema.partial().extend({
   /** null limpa a categoria (a opção "Sem categoria" do painel era no-op) */
   category: eventCategorySchema.nullable().optional(),
@@ -86,6 +99,8 @@ export const updateEventSchema = eventCoreSchema.partial().extend({
   // 2000: token de system user da Meta pode passar de 500 quando vem com
   // escopos extras (Dataset Quality API) — o limite curto barrava o salvamento
   metaCapiToken: z.string().trim().max(2000).nullable().optional(),
+  /** personalização visual do ingresso; não altera QR/código/validade */
+  ticketTheme: ticketThemeSchema.nullable().optional(),
 }).superRefine((event, ctx) => {
   if (event.startsAt && event.endsAt && new Date(event.endsAt).getTime() <= new Date(event.startsAt).getTime()) {
     ctx.addIssue({
