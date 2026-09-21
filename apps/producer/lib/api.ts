@@ -234,6 +234,84 @@ export const organizationsApi = {
     request(`/v1/organizations/${organizationId}/members/${memberId}`, { method: "DELETE", token }),
 };
 
+export interface StoreVariant {
+  id: string;
+  name: string;
+  sku: string | null;
+  priceCents: number;
+  stockOnHand: number;
+  reservedCount: number;
+  soldCount: number;
+  active: boolean;
+}
+
+export interface StoreProduct {
+  id: string;
+  organizationId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  imageUrl: string | null;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  variants: StoreVariant[];
+}
+
+export const storeApi = {
+  list: (token: string, organizationId: string) =>
+    request<StoreProduct[]>(`/v1/organizations/${organizationId}/store/products`, { token }),
+  create: (
+    token: string,
+    organizationId: string,
+    input: { name: string; description?: string; imageUrl?: string },
+  ) =>
+    request<StoreProduct>(`/v1/organizations/${organizationId}/store/products`, {
+      method: "POST",
+      body: input,
+      token,
+    }),
+  updateProduct: (
+    token: string,
+    productId: string,
+    input: Partial<{
+      name: string;
+      description: string;
+      imageUrl: string;
+      status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+    }>,
+  ) =>
+    request<StoreProduct>(`/v1/store/products/${productId}`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
+  createVariant: (
+    token: string,
+    productId: string,
+    input: { name: string; sku?: string; priceCents: number; stockOnHand: number },
+  ) =>
+    request<StoreVariant>(`/v1/store/products/${productId}/variants`, {
+      method: "POST",
+      body: input,
+      token,
+    }),
+  updateVariant: (
+    token: string,
+    variantId: string,
+    input: Partial<{
+      name: string;
+      sku: string;
+      priceCents: number;
+      stockOnHand: number;
+      active: boolean;
+    }>,
+  ) =>
+    request<StoreVariant>(`/v1/store/variants/${variantId}`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
+};
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -280,6 +358,7 @@ export interface EventSummary {
   bannerUrl?: string | null;
   category?: EventCategory | null;
   venue?: EventVenue | null;
+  ticketTheme?: TicketTheme | null;
 }
 
 /**
@@ -728,6 +807,20 @@ export const passwordAuth = {
     }),
 };
 
+export type TicketTemplate = "CLASSIC" | "DARK" | "FESTA" | "PREMIUM";
+
+export interface TicketTheme {
+  template: TicketTemplate;
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundImageUrl?: string | null;
+  logoUrl?: string | null;
+  sponsorText?: string | null;
+  showVenue: boolean;
+  showLot: boolean;
+  showAttendee: boolean;
+}
+
 export interface UpdateEventInput {
   title?: string;
   description?: string;
@@ -748,6 +841,7 @@ export interface UpdateEventInput {
   pixelSettings?: PixelSettings;
   /** Token da API de Conversões da Meta; "" ou null desliga. */
   metaCapiToken?: string | null;
+  ticketTheme?: TicketTheme | null;
   /** A API cria/atualiza o local e vincula ao evento. */
   venue?: EventVenue;
 }
