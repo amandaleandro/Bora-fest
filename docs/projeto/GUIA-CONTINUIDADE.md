@@ -553,3 +553,21 @@ Consulte:
 - não abrir `remotePatterns: **` no Next para acomodar produto externo;
 - imagem externa da Loja não deve transformar `/_next/image` em proxy arbitrário;
 - preferir upload gerenciado pela plataforma quando a mídia da Loja evoluir.
+
+
+## 37. Mídia visual e privacidade da carteira
+
+A rota de carteira usa `/pedido/{publicToken}`. Não carregar imagem arbitrária de terceiro nessa tela.
+
+Ticket Studio:
+- validar HTTPS;
+- validar host BoraFest no backend;
+- preferir banner/logo já gerenciados;
+- nunca abrir `next/image` para hostname `**` como atalho.
+
+Loja pública:
+- imagem externa pode ser exibida diretamente no navegador com `no-referrer`;
+- não usar o servidor Next como proxy universal;
+- HTTP externo deve ser recusado para evitar mixed content.
+
+Erros de unicidade de SKU/nome devem ser traduzidos para mensagem de negócio, não expor erro Prisma.
