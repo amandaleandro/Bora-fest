@@ -571,3 +571,27 @@ Loja pública:
 - HTTP externo deve ser recusado para evitar mixed content.
 
 Erros de unicidade de SKU/nome devem ser traduzidos para mensagem de negócio, não expor erro Prisma.
+
+
+## 36. Regra de migration incremental
+
+Migration compartilhada não deve ser reescrita para adicionar uma nova invariável.
+
+Se a regra mudou:
+1. preservar o SQL antigo;
+2. criar nova migration;
+3. cobrir a nova regra com teste;
+4. documentar o motivo.
+
+A Loja usa esse padrão para a constraint:
+`stock_total >= reserved_count + sold_count`.
+
+## 37. Ticket Studio deve ser consistente
+
+Toda superfície que renderiza o ingresso deve respeitar o mesmo `ticketTheme`.
+
+Hoje isso vale para:
+- carteira pelo pedido;
+- carteira logada em `/perfil`.
+
+QR, código e status continuam obrigatórios e nunca são escondidos pelo tema.
