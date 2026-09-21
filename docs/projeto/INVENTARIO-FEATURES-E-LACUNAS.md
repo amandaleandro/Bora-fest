@@ -314,7 +314,7 @@ Corrigido nesta rodada:
 - métrica de outbox PENDING atrasado.
 
 ### Falta
-- adicionar regras de alerta para as três métricas de integridade;
+- [x] regras de alerta para as três métricas de integridade;
 - Alertmanager/canal de notificação externo;
 - dashboard dedicado de saúde operacional;
 - runbook de incidentes.
@@ -333,6 +333,7 @@ Corrigido nesta rodada:
 - documentação de continuidade.
 
 ### Falta
+- script de auditoria somente leitura pronto (`pnpm --filter @borafest/database auditoria-catalogo`);
 - limpeza efetiva dos registros já existentes em produção;
 - smoke test em produção;
 - validar variáveis reais de ambiente;
