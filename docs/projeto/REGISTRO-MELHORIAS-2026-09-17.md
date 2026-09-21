@@ -610,3 +610,15 @@ Documento completo:
 - Organization do painel passou a carregar `logoUrl` para o Ticket Studio reaproveitar a identidade da Casa;
 - duplicidade de nome/SKU de variante agora responde erro de negócio em vez de P2002/500;
 - testes ampliados para duplicidade e asset externo de ingresso.
+
+
+---
+
+## 15. Correções de robustez da Loja e Ticket Studio — 21/09/2026
+
+- estoque agora é protegido no service e no banco;
+- a constraint adicional entrou em migration incremental, sem reescrever migration compartilhada;
+- teste tenta quebrar o estoque diretamente pelo Prisma;
+- carteira logada passou a aplicar o mesmo Ticket Studio da carteira por link;
+- `orderPublicToken` foi tipado como nullable para ingresso transferido;
+- documentação e inventário atualizados para refletir o estado real da implementação.
