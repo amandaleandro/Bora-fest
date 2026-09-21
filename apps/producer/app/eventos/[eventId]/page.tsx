@@ -37,8 +37,9 @@ const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> =
   DRAFT: { bg: "bg-warning/10", fg: "text-warning", label: "Rascunho" },
   PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
   SALES_PAUSED: { bg: "bg-warning/10", fg: "text-warning", label: "Vendas pausadas" },
-  UNPUBLISHED: { bg: "bg-line", fg: "text-muted", label: "Despublicado" },
-  CANCELLED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
+  SALES_CLOSED: { bg: "bg-line", fg: "text-muted", label: "Vendas encerradas" },
+  COMPLETED: { bg: "bg-line", fg: "text-muted", label: "Concluído" },
+  CANCELED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
 };
 
 interface LocalTicketType {
