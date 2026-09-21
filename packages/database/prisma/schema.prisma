@@ -597,7 +597,7 @@ model StoreProductVariant {
   name          String
   sku           String?
   priceCents    Int      @map("price_cents")
-  stockOnHand   Int      @default(0) @map("stock_on_hand")
+  stockTotal   Int      @default(0) @map("stock_total")
   reservedCount Int      @default(0) @map("reserved_count")
   soldCount     Int      @default(0) @map("sold_count")
   active        Boolean  @default(true)
