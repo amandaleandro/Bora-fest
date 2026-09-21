@@ -276,6 +276,43 @@ describe("BoraFest Casa", () => {
     }
   });
 
+  it("mantém a Casa pública pela Loja mesmo sem evento publicado", async () => {
+    const loja = await createFixtureEvent({ lotCapacity: 10, priceCents: 1200, feeCents: 100 });
+
+    try {
+      await prisma.event.update({
+        where: { id: loja.event.id },
+        data: { status: "DRAFT", publishedAt: null },
+      });
+      const product = await prisma.storeProduct.create({
+        data: {
+          organizationId: loja.organization.id,
+          name: "Camiseta oficial",
+          slug: "camiseta-oficial",
+          status: "ACTIVE",
+        },
+      });
+      await prisma.storeProductVariant.create({
+        data: {
+          productId: product.id,
+          name: "M",
+          priceCents: 3990,
+          stockTotal: 12,
+          active: true,
+        },
+      });
+
+      const profile = await houses.getPublicHouse(loja.organization.slug);
+      assert.equal(profile.id, loja.organization.id);
+      assert.equal(profile.upcomingEventsCount, 0);
+
+      const resolved = await houses.resolvePublicHouseById(loja.organization.id);
+      assert.equal(resolved.slug, loja.organization.slug);
+    } finally {
+      await cleanupFixtureEvent(loja.organization.id);
+    }
+  });
+
   it("não expõe casa bloqueada", async () => {
     await prisma.organization.update({
       where: { id: fixture.organization.id },
