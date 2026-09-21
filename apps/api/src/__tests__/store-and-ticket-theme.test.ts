@@ -41,7 +41,7 @@ describe("Loja da Casa + Ticket Studio", () => {
       name: "500ml",
       sku: "COPO-500",
       priceCents: 2000,
-      stockOnHand: 40,
+      stockTotal: 40,
     });
 
     await prisma.storeProductVariant.update({
@@ -65,11 +65,11 @@ describe("Loja da Casa + Ticket Studio", () => {
 
     await prisma.storeProductVariant.update({
       where: { id: variant.id },
-      data: { soldCount: 5, reservedCount: 2, stockOnHand: 10 },
+      data: { soldCount: 5, reservedCount: 2, stockTotal: 10 },
     });
 
     await assert.rejects(
-      () => store.updateVariant(variant.id, "actor", { stockOnHand: 6 }),
+      () => store.updateVariant(variant.id, "actor", { stockTotal: 6 }),
       /abaixo do que já foi vendido ou reservado/i,
     );
   });
