@@ -304,3 +304,60 @@ Reposição futura deve aumentar `stockTotal` ou, se evoluirmos para movimentos 
 - revisar CSP/domínios de imagens se política de mídia mudar.
 
 CI continua deliberadamente para o fechamento final da rodada, conforme decisão atual do projeto.
+
+
+---
+
+## 9. Correções de robustez — 21/09/2026
+
+### 9.1 Estoque protegido em duas camadas
+
+A API já recusava reduzir `stockTotal` abaixo de `soldCount + reservedCount`.
+
+Agora existe também constraint no banco:
+
+`20260921174500_store_stock_capacity`
+
+Regra:
+
+`stock_total >= reserved_count + sold_count`
+
+Isso impede corrupção mesmo se alguma rotina futura contornar `StoreService`.
+
+Teste:
+`store-and-ticket-theme.test.ts` tenta violar a regra diretamente pelo Prisma e espera falha.
+
+### 9.2 Regra de migrations
+
+Não reescrever migration já criada/aplicada para acrescentar regra nova.
+
+Mesmo durante desenvolvimento, se uma migration já entrou no histórico compartilhado, prefira uma migration incremental.
+
+Comportamento que não pode retornar:
+- editar uma migration antiga para “corrigir” produção;
+- depender de checksum diferente entre ambientes;
+- assumir que ninguém aplicou uma migration só porque CI ainda não rodou.
+
+### 9.3 Ticket Studio consistente nas duas carteiras
+
+O tema visual agora é aplicado em:
+- `/pedido/[publicToken]`;
+- `/perfil` (carteira logada).
+
+Antes, o mesmo ingresso podia aparecer personalizado por link e genérico na conta.
+
+A carteira logada também respeita:
+- logo;
+- background/gradiente;
+- patrocinador;
+- `showVenue`;
+- `showLot`;
+- `showAttendee`.
+
+### 9.4 Transferência e segredo do pedido
+
+Para ingresso recebido por transferência, `orderPublicToken` é `null`.
+
+O tipo do client foi corrigido para refletir isso.
+
+Motivo: quem recebe um ingresso não pode receber o segredo do pedido original e enxergar os demais ingressos do comprador.
