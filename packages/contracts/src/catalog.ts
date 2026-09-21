@@ -25,5 +25,13 @@ export const createTicketLotSchema = z.object({
   maxPerOrder: z.number().int().min(1).max(20).default(6),
   startsAt: z.string().datetime().optional(),
   endsAt: z.string().datetime().optional(),
+}).superRefine((lot, ctx) => {
+  if (lot.startsAt && lot.endsAt && new Date(lot.endsAt).getTime() <= new Date(lot.startsAt).getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "O término do lote precisa ser depois do início",
+    });
+  }
 });
 export type CreateTicketLotInput = z.infer<typeof createTicketLotSchema>;
