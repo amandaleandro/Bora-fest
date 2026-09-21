@@ -97,7 +97,7 @@ export class OrdersService {
     // PRODUCER absorve — o comprador paga só o preço e o repasse é descontado.
     const lots = await prisma.ticketLot.findMany({
       where: { id: { in: reservation.items.map((i) => i.ticketLotId) } },
-      select: { id: true, feeMode: true, nominal: true, requiresCpf: true },
+      select: { id: true, feeMode: true, nominal: true, requiresCpf: true, promoterOnly: true },
     });
     const lotById = new Map(lots.map((l) => [l.id, l]));
 
@@ -229,6 +229,13 @@ export class OrdersService {
       // (cupom agressivo + comissão fixa deixavam a casa no negativo —
       // revisão adversarial 2026-08-11)
       promoterCommissionCents = Math.max(0, Math.min(promoterCommissionCents, ticketTotalCents));
+    }
+
+    const hasPromoterOnlyLot = lots.some((lot) => lot.promoterOnly);
+    if (hasPromoterOnlyLot && !promoterLinkId) {
+      throw new BadRequestException(
+        "Este pedido contém ingresso exclusivo de promoter; informe um link, vendedor ou código válido",
+      );
     }
 
     // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV, só sobre ingressos
