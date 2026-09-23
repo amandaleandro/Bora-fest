@@ -58,3 +58,19 @@ nem do emulador Android (use o IP da sua máquina na rede local, ou
   escrito e checado por tipos (`pnpm --filter @borafest/mobile-checkin
   typecheck`), mas **não foi executado de fato** — rodar em um celular com
   Expo Go é o próximo passo antes de confiar nele em produção.
+
+
+## Check-in facial
+
+O app suporta um modo facial 1:1 opcional.
+
+Ele só fica habilitado quando:
+- o backend informa provedor facial configurado;
+- o build possui o native module `BoraFestFace`;
+- o evento habilitou facial;
+- o ingresso possui enrollment ativo.
+
+O módulo nativo deve implementar:
+`captureProbe({ provider, ticketId }) -> { probeReference }`.
+
+Facial é online. Em falha de rede/provedor, use QR ou busca manual.
