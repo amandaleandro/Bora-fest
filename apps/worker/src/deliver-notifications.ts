@@ -240,7 +240,10 @@ async function send(
     };
     await getEmailSender().send({
       to: recipient,
-      subject: "Seu pedido da Loja está pronto para retirada · BoraFest",
+      subject:
+        p.fulfillmentMethod === "DELIVERY"
+          ? "Seu pedido da Loja está pronto para entrega · BoraFest"
+          : "Seu pedido da Loja está pronto para retirada · BoraFest",
       text: [
         p.fulfillmentMethod === "DELIVERY"
           ? "Seu pedido está pronto para envio/entrega."
@@ -262,7 +265,7 @@ async function send(
     <div style="font-size:28px;font-weight:800;letter-spacing:4px">${escapeHtml(p.pickupCode)}</div>
   </div>`}
   <p><a href="${escapeHtml(p.orderUrl)}" style="display:inline-block;background:#6D28D9;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Ver pedido</a></p>
-  <p style="color:#666;font-size:12px">Mostre o código no momento da retirada.</p>
+  <p style="color:#666;font-size:12px">${p.fulfillmentMethod === "DELIVERY" ? "Acompanhe a entrega pelo pedido." : "Mostre o código no momento da retirada."}</p>
   <p>Equipe BoraFest</p>
 </div>`.trim(),
     });
