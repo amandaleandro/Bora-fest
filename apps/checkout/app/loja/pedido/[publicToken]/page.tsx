@@ -165,16 +165,24 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-[30px]">✓</div>
           <h1 className="mt-4 text-center text-[24px] font-black text-ink">
             {order.status === "READY"
-              ? "Pedido pronto para retirada"
+              ? order.fulfillmentMethod === "DELIVERY"
+                ? "Pedido pronto para entrega"
+                : "Pedido pronto para retirada"
               : order.status === "FULFILLED"
-                ? "Pedido retirado"
+                ? order.fulfillmentMethod === "DELIVERY"
+                  ? "Pedido entregue"
+                  : "Pedido retirado"
                 : "Pagamento confirmado"}
           </h1>
           <p className="mt-2 text-center text-[13px] font-semibold text-muted">
             {order.status === "READY"
-              ? `Seu pedido na Loja de ${order.house.name} já está pronto. Mostre o código abaixo na retirada.`
+              ? order.fulfillmentMethod === "DELIVERY"
+                ? `Seu pedido na Loja de ${order.house.name} já está pronto para entrega.`
+                : `Seu pedido na Loja de ${order.house.name} já está pronto. Mostre o código abaixo na retirada.`
               : order.status === "FULFILLED"
-                ? `A retirada na Loja de ${order.house.name} já foi confirmada.`
+                ? order.fulfillmentMethod === "DELIVERY"
+                  ? `A entrega da Loja de ${order.house.name} já foi confirmada.`
+                  : `A retirada na Loja de ${order.house.name} já foi confirmada.`
                 : `Seu pedido na Loja de ${order.house.name} está pago e agora está sendo preparado.`}
           </p>
 
@@ -214,7 +222,7 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
 
           {order.status === "FULFILLED" ? (
             <p className="mt-4 rounded-xl bg-success/10 p-3 text-center text-[12px] font-extrabold text-success">
-              Pedido já retirado.
+              {order.fulfillmentMethod === "DELIVERY" ? "Pedido entregue." : "Pedido já retirado."}
             </p>
           ) : null}
 
