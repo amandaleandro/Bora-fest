@@ -869,11 +869,27 @@ function EventContent({ eventId }: { eventId: string }) {
                 onChange={handleBannerFile}
               />
             </label>
-            <span className="text-[12px] font-semibold text-muted">
-          JPG, PNG ou WebP · até 5 MB · vertical (tipo Stories) ou horizontal — os dois funcionam:
-          a página do evento mostra o flyer inteiro, as listagens recortam pra caber no card.
-        </span>
+            <span className="text-[12px] font-semibold text-muted">JPG, PNG ou WebP · até 5 MB</span>
           </div>
+          {/* TAMANHO IDEAL (2026-09-23): qualquer proporção é aceita (2026-09-16) — isto
+              é GUIA, não trava, igual Ingresse/Cheers ("recomendamos", nunca "obrigatório").
+              Vertical = resolução nativa do Instagram Stories, zero retrabalho pra quem já
+              tem a arte pronta. Horizontal = 2:1, a proporção que MENOS corta em todo slot
+              de listagem (mini/grade/destaque) e bate exato com o teto de saída do servidor
+              (resize width:1600 em events.service.ts) — sobe sem perda nem reamostragem. */}
+          <div className="mt-2 grid gap-1 sm:grid-cols-2">
+            <p className="text-[12px] font-semibold text-muted">
+              <span className="font-extrabold text-ink">Vertical (tipo Stories):</span> 1080×1920px — aparece
+              inteiro na página do evento.
+            </p>
+            <p className="text-[12px] font-semibold text-muted">
+              <span className="font-extrabold text-ink">Horizontal:</span> 1600×800px — preenche melhor os
+              cards de lista.
+            </p>
+          </div>
+          <p className="mt-1 text-[11px] font-semibold text-muted-2">
+            Qualquer proporção é aceita — os tamanhos acima são só o ideal, não obrigatório.
+          </p>
           {bannerError ? <p className="mt-2 text-[13px] font-semibold text-danger">{bannerError}</p> : null}
 
       </Bloco>
