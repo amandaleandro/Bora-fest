@@ -36,6 +36,7 @@ export async function flushPendingCheckins(device: DeviceCredentials): Promise<S
       pending.map((item) => ({
         localSeq: item.local_seq,
         ticketId: item.ticket_id,
+        qrHash: item.qr_hash ?? undefined,
         checkinPointId: item.checkin_point_id ?? undefined,
         scannedAt: item.scanned_at,
       })),
