@@ -1006,3 +1006,49 @@ A mesma tela da Loja agora permite:
 
 ### Testes
 Regressões adicionadas para READY, retorno físico e REFUND_PENDING.
+
+
+---
+
+## 20. Loja — cartão, entrega e inteligência comercial — 23/09/2026
+
+### Entrega
+- configuração por Casa de retirada/entrega;
+- DELIVERY no pedido;
+- frete fixo calculado no servidor;
+- endereço congelado;
+- subtotal/frete/total separados;
+- checkout e painel diferenciados por modalidade.
+
+Migration: `20260923203000_store_delivery`.
+
+### Cartão
+- aba Pix/Cartão na Loja;
+- mesmo gateway da plataforma;
+- parcelas persistidas;
+- raw card não persistido;
+- retry protegido por Idempotency-Key;
+- PAN/CVV fora do payload idempotente.
+
+Migration: `20260923210000_store_card_installments`.
+
+### Comunicação
+- owner/admin recebem `store_sale_received` somente após venda realmente honrada;
+- templates do comprador distinguem entrega de retirada.
+
+Durante revisão, um posicionamento inicial do alerta no ramo órfão foi detectado e corrigido antes do fechamento.
+
+### Analytics/CRM
+- receita;
+- pedidos;
+- ticket médio;
+- clientes únicos;
+- preparo/prontos;
+- retirada/entrega;
+- top produtos;
+- top clientes.
+
+### Testes
+Incluídos cenários de frete, entrega, cartão, parcelas, analytics e retry idempotente.
+
+Execução real segue reservada para o fechamento do CI.
