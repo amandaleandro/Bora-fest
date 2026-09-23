@@ -137,6 +137,29 @@ test("promoterOnly exige acesso válido no catálogo, reserva e pedido", async (
       "link válido de vendedor herda acesso do promoter",
     );
 
+    const publicAvailability = await catalog.getPublicAvailability(fixture.event.slug);
+    assert.equal(
+      publicAvailability.some((item) => item.lotId === fixture.lot.id),
+      false,
+      "disponibilidade pública também esconde lote exclusivo",
+    );
+    const promoterAvailability = await catalog.getPublicAvailability(fixture.event.slug, link.slug);
+    assert.equal(
+      promoterAvailability.some((item) => item.lotId === fixture.lot.id),
+      true,
+      "disponibilidade com promoter mantém o mesmo escopo do detalhe",
+    );
+    const sellerAvailability = await catalog.getPublicAvailability(
+      fixture.event.slug,
+      undefined,
+      sellerLink.slug,
+    );
+    assert.equal(
+      sellerAvailability.some((item) => item.lotId === fixture.lot.id),
+      true,
+      "disponibilidade com vendedor herda o acesso do promoter",
+    );
+
     await assert.rejects(
       () =>
         reservations.create(undefined, {
