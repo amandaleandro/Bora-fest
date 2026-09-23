@@ -27,7 +27,11 @@ function Root() {
       if (!url) return;
       try {
         const parsed = new URL(url);
-        const slug = parsed.pathname.replace(/^\/+|\/+$/g, "");
+        // HTTPS usa pathname (/meu-evento); custom scheme usa host
+        // (borafest://meu-evento?pr=...). Aceita ambos sem duplicar regra.
+        const slug =
+          parsed.pathname.replace(/^\/+|\/+$/g, "") ||
+          (parsed.protocol === "borafest:" ? parsed.hostname : "");
         if (!slug) return;
         setScreen({
           name: "event",
