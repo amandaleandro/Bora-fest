@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { prisma, Prisma, type ValidatorDevice } from "@borafest/database";
 import { verifyTicketToken, InvalidTicketTokenError } from "@borafest/tickets";
 import { PERMISSIONS } from "@borafest/auth";
@@ -145,9 +146,17 @@ export class CheckinsService {
         // code/attendeeName entram por causa da auditoria do "sem conferir CPF":
         // sem eles o registro offline nasceria sem código nem nome, pior que o
         // online e inútil para o produtor cruzar depois
-        select: { id: true, code: true, attendeeName: true },
+        select: { id: true, code: true, attendeeName: true, qrToken: true },
       });
       if (!ticket) {
+        items.push({ localSeq: item.localSeq, ticketId: item.ticketId, status: "INVALID" });
+        continue;
+      }
+
+      if (
+        item.qrHash &&
+        createHash("sha256").update(ticket.qrToken).digest("hex") !== item.qrHash.toLowerCase()
+      ) {
         items.push({ localSeq: item.localSeq, ticketId: item.ticketId, status: "INVALID" });
         continue;
       }
