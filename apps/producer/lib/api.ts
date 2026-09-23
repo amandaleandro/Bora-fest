@@ -262,6 +262,29 @@ export interface StoreProduct {
   variants: StoreVariant[];
 }
 
+export interface StoreOrderManage {
+  id: string;
+  publicToken: string;
+  status: "CREATED" | "PAYMENT_PENDING" | "PAID" | "READY" | "FULFILLED" | "CANCELED" | "REFUNDED" | "CHARGEBACK";
+  pickupCode: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string | null;
+  totalCents: number;
+  expiresAt: string;
+  paidAt: string | null;
+  fulfilledAt: string | null;
+  createdAt: string;
+  items: Array<{
+    id: string;
+    productName: string;
+    variantName: string;
+    quantity: number;
+    priceCents: number;
+  }>;
+  payments: Array<{ method: string; status: string; amountCents: number; paidAt: string | null }>;
+}
+
 export const storeApi = {
   list: (token: string, organizationId: string) =>
     request<StoreProduct[]>(`/v1/organizations/${organizationId}/store/products`, { token }),
@@ -314,6 +337,14 @@ export const storeApi = {
     request<StoreVariant>(`/v1/store/variants/${variantId}`, {
       method: "PATCH",
       body: input,
+      token,
+    }),
+  listOrders: (token: string, organizationId: string) =>
+    request<StoreOrderManage[]>(`/v1/organizations/${organizationId}/store/orders`, { token }),
+  fulfillOrder: (token: string, orderId: string, pickupCode: string) =>
+    request<{ fulfilled: boolean }>(`/v1/store/orders/${orderId}/fulfill`, {
+      method: "POST",
+      body: { pickupCode },
       token,
     }),
 };
