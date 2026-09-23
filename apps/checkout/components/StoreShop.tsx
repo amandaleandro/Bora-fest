@@ -75,6 +75,15 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
         contactPhone: phone.trim() || undefined,
         fulfillmentMethod: "PICKUP",
       });
+      try {
+        const current = JSON.parse(localStorage.getItem("bf.storeOrders") ?? "[]") as string[];
+        localStorage.setItem(
+          "bf.storeOrders",
+          JSON.stringify([order.publicToken, ...current.filter((token) => token !== order.publicToken)].slice(0, 20)),
+        );
+      } catch {
+        // histórico local é conveniência; falha não impede a compra.
+      }
       router.push(`/loja/pedido/${order.publicToken}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar o pedido.");
