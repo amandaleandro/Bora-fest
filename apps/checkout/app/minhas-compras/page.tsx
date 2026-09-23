@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type Order } from "../../lib/api";
+import { storeApi } from "../../lib/store-api";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { Icon, paths } from "../../components/icons";
 
@@ -18,6 +19,29 @@ interface PurchaseRow {
   /** reembolso solicitado e ainda em análise — badge âmbar + botão travado */
   refundRequested?: boolean;
 }
+
+interface StorePurchaseRow {
+  publicToken: string;
+  status: string;
+  totalCents: number;
+  houseName: string;
+  houseSlug: string;
+  itemsLabel: string;
+  pickupCode: string | null;
+  refundStatus: string | null;
+  owned: boolean;
+}
+
+const STORE_STATUS_LABEL: Record<string, string> = {
+  CREATED: "Pedido criado",
+  PAYMENT_PENDING: "Aguardando Pix",
+  PAID: "Preparando",
+  READY: "Pronto para retirada",
+  FULFILLED: "Retirado",
+  CANCELED: "Cancelado",
+  REFUNDED: "Reembolsado",
+  CHARGEBACK: "Pagamento revertido",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   FULFILLED: "Pagamento aprovado",
@@ -61,6 +85,7 @@ async function loadDeviceOrders(skip: Set<string>): Promise<PurchaseRow[]> {
 export default function PurchasesPage() {
   const router = useRouter();
   const [rows, setRows] = useState<PurchaseRow[] | null>(null);
+  const [storeRows, setStoreRows] = useState<StorePurchaseRow[] | null>(null);
   const [refundFor, setRefundFor] = useState<string | null>(null);
   const [refundOk, setRefundOk] = useState<string | null>(null);
   const [refundReviewer, setRefundReviewer] = useState<string | null>(null);
@@ -92,6 +117,59 @@ export default function PurchasesPage() {
       // fontes são unidas (sem repetir o mesmo pedido).
       const deviceRows = await loadDeviceOrders(new Set(serverRows.map((r) => r.publicToken)));
       setRows([...serverRows, ...deviceRows]);
+
+      let serverStoreRows: StorePurchaseRow[] = [];
+      if (token) {
+        try {
+          const orders = await api.myStoreOrders(token);
+          serverStoreRows = orders.map((order) => ({
+            publicToken: order.publicToken,
+            status: order.status,
+            totalCents: order.totalCents,
+            houseName: order.house.name,
+            houseSlug: order.house.slug,
+            itemsLabel: order.items
+              .map((item) => `${item.quantity}× ${item.productName} · ${item.variantName}`)
+              .join(", "),
+            pickupCode: ["PAID", "READY", "FULFILLED"].includes(order.status) ? order.pickupCode : null,
+            refundStatus: order.refundRequest?.status ?? null,
+            owned: true,
+          }));
+        } catch {
+          // mantém histórico local se a sessão não responder.
+        }
+      }
+
+      let deviceStoreTokens: string[] = [];
+      try {
+        deviceStoreTokens = JSON.parse(localStorage.getItem("bf.storeOrders") ?? "[]");
+      } catch {
+        deviceStoreTokens = [];
+      }
+      const knownStore = new Set(serverStoreRows.map((row) => row.publicToken));
+      const deviceStoreRows: StorePurchaseRow[] = [];
+      for (const publicToken of deviceStoreTokens) {
+        if (knownStore.has(publicToken)) continue;
+        try {
+          const order = await storeApi.getOrder(publicToken);
+          deviceStoreRows.push({
+            publicToken,
+            status: order.status,
+            totalCents: order.totalCents,
+            houseName: order.house.name,
+            houseSlug: order.house.slug,
+            itemsLabel: order.items
+              .map((item) => `${item.quantity}× ${item.productName} · ${item.variantName}`)
+              .join(", "),
+            pickupCode: order.pickupCode,
+            refundStatus: null,
+            owned: false,
+          });
+        } catch {
+          // token local antigo/inválido: ignora.
+        }
+      }
+      setStoreRows([...serverStoreRows, ...deviceStoreRows]);
     }
     load();
   }, []);
@@ -110,6 +188,31 @@ export default function PurchasesPage() {
     }
   }
 
+  async function requestStoreRefund(publicToken: string) {
+    const token = localStorage.getItem("bf.token");
+    if (!token) {
+      setError("Entre e verifique seu e-mail para solicitar reembolso desta compra.");
+      return;
+    }
+    setError(null);
+    try {
+      const created = await api.requestStoreRefund(
+        publicToken,
+        "Solicitado pelo comprador em Minhas compras",
+        token,
+      );
+      setStoreRows((current) =>
+        current?.map((row) =>
+          row.publicToken === publicToken
+            ? { ...row, refundStatus: created.status }
+            : row,
+        ) ?? current,
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Não foi possível solicitar o reembolso da Loja");
+    }
+  }
+
   return (
     <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pb-14 lg:pt-8">
       <header className="flex items-center gap-3">
@@ -120,9 +223,9 @@ export default function PurchasesPage() {
         </Link>
       </header>
 
-      {rows === null ? (
+      {rows === null || storeRows === null ? (
         <p className="mt-10 text-center text-[13px] text-muted">Carregando…</p>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && storeRows.length === 0 ? (
         <div className="mt-16 text-center lg:mt-10 lg:rounded-[22px] lg:border lg:border-line lg:bg-surface lg:py-16">
           <Icon d={paths.ticket} size={48} className="mx-auto text-muted-4" />
           <p className="mt-3 text-[15px] font-bold lg:text-[17px]">Nenhuma compra por aqui</p>
@@ -176,6 +279,80 @@ export default function PurchasesPage() {
             </article>
           ))}
         </div>
+      )}
+
+      {storeRows && storeRows.length > 0 && (
+        <section className="mt-8">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Loja da Casa</p>
+              <h2 className="mt-1 text-[18px] font-extrabold">Produtos</h2>
+            </div>
+          </div>
+          <div className="mt-4 space-y-4 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
+            {storeRows.map((row) => (
+              <article key={row.publicToken} className="rounded-2xl border border-line bg-surface p-4 lg:p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[14px] font-extrabold lg:text-[15px]">{row.houseName}</p>
+                    <p className="mt-1 text-[12px] font-semibold text-ink-soft">{row.itemsLabel}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                    row.status === "READY"
+                      ? "bg-success/10 text-success"
+                      : row.status === "PAID"
+                        ? "bg-primary/10 text-primary"
+                        : row.status === "FULFILLED"
+                          ? "bg-line text-muted"
+                          : row.refundStatus
+                            ? "bg-warning/10 text-warning"
+                            : "bg-line text-muted"
+                  }`}>
+                    {row.refundStatus === "AWAITING_RETURN"
+                      ? "Aguardando devolução"
+                      : row.refundStatus === "PENDING"
+                        ? "Reembolso em análise"
+                        : STORE_STATUS_LABEL[row.status] ?? row.status}
+                  </span>
+                </div>
+                <p className="mt-2 text-[15px] font-extrabold">{formatCents(row.totalCents)}</p>
+
+                {row.pickupCode && ["PAID", "READY"].includes(row.status) && (
+                  <div className="mt-3 rounded-xl bg-primary/5 p-3">
+                    <p className="text-[10px] font-extrabold uppercase tracking-[.08em] text-primary">Código de retirada</p>
+                    <p className="mt-1 font-mono text-[18px] font-black tracking-[.1em]">{row.pickupCode}</p>
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    href={`/loja/pedido/${row.publicToken}`}
+                    className="flex-1 rounded-xl bg-primary/10 py-2.5 text-center text-[12px] font-bold text-primary"
+                  >
+                    Ver pedido
+                  </Link>
+                  {["PAID", "READY", "FULFILLED"].includes(row.status) && !row.refundStatus && (
+                    row.owned ? (
+                      <button
+                        onClick={() => void requestStoreRefund(row.publicToken)}
+                        className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger"
+                      >
+                        Solicitar reembolso
+                      </button>
+                    ) : (
+                      <Link
+                        href="/entrar"
+                        className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-center text-[12px] font-bold"
+                      >
+                        Entrar para solicitar
+                      </Link>
+                    )
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
       )}
 
       {error && <p className="mt-3 text-center text-[12px] font-semibold text-danger">{error}</p>}
