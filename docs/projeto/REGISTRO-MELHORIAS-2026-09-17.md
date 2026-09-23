@@ -820,3 +820,19 @@ O app:
 O servidor compara o hash da fila com a versão atual do ingresso. Se houve transferência/reemissão depois do scan, o item vira `INVALID`.
 
 O SQLite possui migration local aditiva para `qr_hash` tanto em `tickets` quanto em `pending_checkins`.
+
+
+### 18.5 Código curto também era credencial antiga
+
+Depois de corrigir o QR, foi identificado um bypass restante: `Ticket.code` não mudava na transferência.
+
+Agora a transferência:
+- gera novo código curto;
+- atualiza QR e código na mesma troca atômica de titular;
+- envia o código novo ao destinatário;
+- registra `fromCode/toCode` na auditoria.
+
+O teste de transferência verifica que:
+- QR anterior é inválido;
+- código anterior é inválido;
+- QR novo continua válido.
