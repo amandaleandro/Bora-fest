@@ -143,6 +143,7 @@ export class MeService {
         paidAt: true,
         fulfilledAt: true,
         pickupCode: true,
+        fulfillmentMethod: true,
         organization: {
           select: { slug: true, name: true, displayName: true, logoUrl: true },
         },
@@ -170,6 +171,10 @@ export class MeService {
         name: organization.displayName ?? organization.name,
         logoUrl: organization.logoUrl,
       },
+      pickupCode:
+        order.fulfillmentMethod === "PICKUP" && ["PAID", "READY", "FULFILLED"].includes(order.status)
+          ? order.pickupCode
+          : null,
       refundRequest: refundRequests[0] ?? null,
     }));
   }
