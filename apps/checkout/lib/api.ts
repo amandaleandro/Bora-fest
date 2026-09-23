@@ -172,6 +172,28 @@ export interface AvailabilityItem {
   halfPriceEnabled?: boolean;
 }
 
+export interface FaceCapabilities {
+  enabled: boolean;
+  provider: string | null;
+  mode: "ONE_TO_ONE";
+  storesRawFaceImage: false;
+  offlineVerification: false;
+  fallbackMethods: readonly ["QR", "MANUAL"];
+}
+
+export interface FaceEnrollmentStatus {
+  enrolled: boolean;
+  enrollment: {
+    status: "PENDING" | "ACTIVE" | "REVOKED" | "EXPIRED";
+    provider: string;
+    consentVersion: string;
+    consentedAt: string;
+    revokedAt: string | null;
+    expiresAt: string;
+  } | null;
+  capabilities: FaceCapabilities;
+}
+
 export interface Reservation {
   id: string;
   eventId: string;
@@ -362,6 +384,29 @@ export const api = {
     const suffix = params.size ? `?${params.toString()}` : "";
     return request<PublicEvent>(`/v1/public/events/${slug}${suffix}`);
   },
+  getFaceCapabilities: () =>
+    request<FaceCapabilities>("/v1/face-checkin/capabilities"),
+
+  getFaceEnrollment: (ticketId: string, token: string) =>
+    request<FaceEnrollmentStatus>(`/v1/tickets/${ticketId}/face-enrollment`, { token }),
+
+  enrollFace: (
+    ticketId: string,
+    body: { provider: string; providerReference: string; consentVersion: string; consent: true },
+    token: string,
+  ) =>
+    request(`/v1/tickets/${ticketId}/face-enrollment`, {
+      method: "POST",
+      body,
+      token,
+    }),
+
+  revokeFaceEnrollment: (ticketId: string, token: string) =>
+    request<{ revoked: boolean }>(`/v1/tickets/${ticketId}/face-enrollment`, {
+      method: "DELETE",
+      token,
+    }),
+
   getAvailability: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
     const params = new URLSearchParams();
     if (promoterSlug) params.set("pr", promoterSlug);
