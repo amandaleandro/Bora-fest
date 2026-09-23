@@ -24,3 +24,5 @@ export * from "./vip-payments";
 export * from "./loyalty";
 
 export * from "./store";
+
+export * from "./face-checkin";
