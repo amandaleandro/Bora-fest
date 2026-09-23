@@ -77,6 +77,15 @@ export async function deliverPendingNotifications(): Promise<number> {
   return delivered;
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function send(
   channel: string,
   recipient: string,
@@ -186,6 +195,69 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para member_invited: ${channel}`);
+  }
+
+  if (template === "store_order_paid") {
+    if (channel !== "EMAIL") {
+      throw new Error(`Canal não suportado para store_order_paid: ${channel}`);
+    }
+    const p = payload as {
+      houseName: string;
+      customerName: string;
+      pickupCode: string;
+      totalCents: number;
+      orderUrl: string;
+      items: Array<{ productName: string; variantName: string; quantity: number }>;
+    };
+    const itemsText = p.items
+      .map((item) => `- ${item.quantity}x ${item.productName} · ${item.variantName}`)
+      .join("\n");
+    const itemsHtml = p.items
+      .map(
+        (item) =>
+          `<li>${item.quantity}x <b>${escapeHtml(item.productName)}</b> · ${escapeHtml(item.variantName)}</li>`,
+      )
+      .join("");
+    const total = (p.totalCents / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    await getEmailSender().send({
+      to: recipient,
+      subject: `Compra confirmada na Loja de ${p.houseName} · BoraFest`,
+      text: [
+        `Olá, ${p.customerName}!`,
+        "",
+        `Seu pagamento na Loja de ${p.houseName} foi confirmado.`,
+        "",
+        itemsText,
+        "",
+        `Total: ${total}`,
+        `Código de retirada: ${p.pickupCode}`,
+        "",
+        "Acompanhe o pedido e mostre o código na retirada:",
+        p.orderUrl,
+        "",
+        "Equipe BoraFest",
+      ].join("\n"),
+      html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <h2>Compra confirmada 🎉</h2>
+  <p>Olá, <b>${escapeHtml(p.customerName)}</b>!</p>
+  <p>Seu pagamento na Loja de <b>${escapeHtml(p.houseName)}</b> foi confirmado.</p>
+  <ul>${itemsHtml}</ul>
+  <p><b>Total: ${escapeHtml(total)}</b></p>
+  <div style="margin:20px 0;padding:16px;border-radius:12px;background:#f4f1ff;text-align:center">
+    <div style="font-size:12px;color:#666">Código de retirada</div>
+    <div style="font-size:28px;font-weight:800;letter-spacing:4px">${escapeHtml(p.pickupCode)}</div>
+  </div>
+  <p><a href="${escapeHtml(p.orderUrl)}" style="display:inline-block;background:#6D28D9;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Acompanhar pedido</a></p>
+  <p style="color:#666;font-size:12px">Mostre o código acima no momento da retirada.</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+    });
+    return;
   }
 
   if (template === "cpf_defined") {
