@@ -170,7 +170,8 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySto
           storeOrderId: payment.storeOrderId,
           houseName: payment.order.organization.displayName ?? payment.order.organization.name,
           customerName: payment.order.contactName,
-          pickupCode: payment.order.pickupCode,
+          pickupCode: payment.order.fulfillmentMethod === "PICKUP" ? payment.order.pickupCode : null,
+          fulfillmentMethod: payment.order.fulfillmentMethod,
           totalCents: payment.amountCents,
           orderUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/loja/pedido/${payment.order.publicToken}`,
           items: payment.order.items.map((item) => ({
