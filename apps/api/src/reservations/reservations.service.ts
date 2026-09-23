@@ -157,15 +157,42 @@ export class ReservationsService {
       { delay: RESERVATION_TTL_MINUTES * 60 * 1000, jobId: reservation.id },
     );
 
-    return reservation;
+    const feeModeByLot = new Map(lots.map((lot) => [lot.id, lot.feeMode]));
+    const buyerTotalCents = reservation.items.reduce(
+      (sum, item) =>
+        sum +
+        item.quantity *
+          (item.priceCents + (feeModeByLot.get(item.ticketLotId) === "PRODUCER" ? 0 : item.feeCents)),
+      0,
+    );
+    return { ...reservation, buyerTotalCents };
   }
 
   async findById(reservationId: string) {
     const reservation = await prisma.reservation.findUnique({
       where: { id: reservationId },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            ticketLot: { select: { feeMode: true } },
+          },
+        },
+      },
     });
     if (!reservation) throw new NotFoundException("Reserva não encontrada");
-    return reservation;
+
+    const buyerTotalCents = reservation.items.reduce(
+      (sum, item) =>
+        sum +
+        item.quantity *
+          (item.priceCents + (item.ticketLot.feeMode === "PRODUCER" ? 0 : item.feeCents)),
+      0,
+    );
+
+    return {
+      ...reservation,
+      buyerTotalCents,
+      items: reservation.items.map(({ ticketLot: _ticketLot, ...item }) => item),
+    };
   }
 }
