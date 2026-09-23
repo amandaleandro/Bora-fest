@@ -180,6 +180,10 @@ model Organization {
   coverUrl                     String?            @map("cover_url")
   /// tema padrão herdado pelos eventos que não definirem ticketTheme próprio.
   defaultTicketTheme           Json?              @map("default_ticket_theme")
+  storePickupEnabled           Boolean            @default(true) @map("store_pickup_enabled")
+  storeDeliveryEnabled         Boolean            @default(false) @map("store_delivery_enabled")
+  storeFlatShippingCents       Int                @default(0) @map("store_flat_shipping_cents")
+  storeDeliveryInstructions    String?            @map("store_delivery_instructions")
   instagramUrl                 String?            @map("instagram_url")
   websiteUrl                   String?            @map("website_url")
   status                       OrganizationStatus @default(PENDING_VERIFICATION)
@@ -638,6 +642,7 @@ enum StoreOrderStatus {
 
 enum StoreFulfillmentMethod {
   PICKUP
+  DELIVERY
 }
 
 model StoreOrder {
@@ -651,7 +656,10 @@ model StoreOrder {
   contactName       String                 @map("contact_name")
   contactEmail      String                 @map("contact_email")
   contactPhone      String?                @map("contact_phone")
+  subtotalCents     Int                    @map("subtotal_cents")
+  shippingCents     Int                    @default(0) @map("shipping_cents")
   totalCents        Int                    @map("total_cents")
+  shippingAddress   Json?                  @map("shipping_address")
   expiresAt         DateTime               @map("expires_at")
   paidAt            DateTime?              @map("paid_at")
   fulfilledAt       DateTime?              @map("fulfilled_at")
