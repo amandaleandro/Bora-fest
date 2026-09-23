@@ -108,6 +108,12 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
     setBusy(true);
     setError(null);
     try {
+      const storageKey = `bf.storeCardIdem.${publicToken}`;
+      let idem = sessionStorage.getItem(storageKey);
+      if (!idem) {
+        idem = crypto.randomUUID();
+        sessionStorage.setItem(storageKey, idem);
+      }
       const result = await storeApi.createCard(publicToken, {
         card: {
           number: digits,
@@ -121,10 +127,14 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
         },
         installments,
         payerDocument: cardCpf.replace(/\D/g, "") || undefined,
-      });
+      }, idem);
       if (result.status === "FAILED") {
+        sessionStorage.removeItem(storageKey);
         setError("Pagamento recusado. Revise os dados e tente novamente.");
         return;
+      }
+      if (result.status === "PAID") {
+        sessionStorage.removeItem(storageKey);
       }
       await load();
     } catch (err) {
