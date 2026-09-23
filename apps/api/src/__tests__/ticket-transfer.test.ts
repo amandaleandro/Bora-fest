@@ -107,6 +107,7 @@ test("transferência troca titular, reassina o QR e audita", async () => {
     const updated = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
     assert.equal(updated.ownerUserId, toUser.id, "POSSE muda para a conta destino");
     assert.notEqual(updated.qrToken, ticket.qrToken, "QR deve ser reassinado (nonce novo)");
+    assert.notEqual(updated.code, ticket.code, "código curto também precisa ser girado");
 
     const carteiraNova = await ticketsService.findByUser(toUser.id);
     assert.ok(carteiraNova.some((t: any) => t.id === ticket.id), "ingresso na carteira destino");
@@ -299,6 +300,13 @@ test("QR antigo é revogado após transferência e o novo continua válido", asy
     const oldResult = await checkins.create(device, { qrToken: original.qrToken });
     assert.equal(oldResult.result, "INVALID", "QR anterior não pode entrar depois da transferência");
     assert.equal((oldResult as any).reason, "REVOKED_QR");
+
+    const oldCodeResult = await checkins.create(device, { code: original.code });
+    assert.equal(oldCodeResult.result, "INVALID", "código curto anterior também precisa ser revogado");
+
+    const persisted = await prisma.ticket.findUniqueOrThrow({ where: { id: original.id } });
+    assert.equal(persisted.code, transferred.code);
+    assert.notEqual(persisted.code, original.code);
 
     const offlineSync = await checkins.sync(device, {
       batchKey: `revoked-${Math.random().toString(36).slice(2, 12)}`,
