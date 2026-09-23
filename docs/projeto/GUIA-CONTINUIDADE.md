@@ -633,3 +633,40 @@ A regra é coberta em `refund-async-accounting.test.ts`.
 - banco garante `stock_total >= sold_count + reserved_count`;
 - concorrência de criação/rename não deve transformar colisão de slug em erro 500;
 - slug amigável é conveniência; a constraint do banco continua autoridade.
+
+
+## 41. Atribuição de promoter é congelada na reserva
+
+Quando a reserva nasce com `promoterSlug` ou `sellerSlug` válido:
+- a API resolve os IDs reais;
+- grava `promoterLinkId` / `promoterSellerId` em `Reservation`;
+- o pedido herda esse vínculo;
+- slugs/códigos enviados depois não podem trocar a atribuição;
+- se o vínculo congelado deixar de estar ativo antes da conversão, o pedido falha e a reserva deve ser refeita.
+
+Motivo: lote `promoterOnly` não pode ser usado para abrir acesso com A e redirecionar comissão para B depois.
+
+Migration:
+`20260923102000_reservation_promoter_attribution`.
+
+## 42. Preço do comprador
+
+A reserva expõe `buyerTotalCents` calculado no backend.
+
+Esse valor:
+- respeita `feeMode=PRODUCER`;
+- evita somar taxa absorvida pela Casa;
+- é usado pelo app mobile e como fallback no checkout web enquanto o catálogo carrega;
+- deve bater com o `order.totalCents` antes de cupom/add-ons/proteção adicionais.
+
+Não recalcular preço financeiro crítico apenas pela UI quando a API já possui a regra autoritativa.
+
+## 43. Preview do produtor
+
+A prévia diferencia:
+- lotes públicos disponíveis agora;
+- lotes exclusivos por promoter;
+- PDV;
+- janela temporal do lote.
+
+Nunca rotular `promoterOnly` como “público” para todos.
