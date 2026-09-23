@@ -103,10 +103,16 @@ async function expireStoreOrder(orderId: string): Promise<void> {
     if (updated.count === 0) return;
 
     for (const item of order.items) {
-      await tx.storeProductVariant.update({
-        where: { id: item.variantId },
-        data: { reservedCount: { decrement: item.quantity } },
-      });
+      const released = await tx.$executeRaw`
+        UPDATE store_product_variants
+        SET reserved_count = reserved_count - ${item.quantity},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${item.variantId}::uuid
+          AND reserved_count >= ${item.quantity}
+      `;
+      if (released === 0) {
+        throw new Error(`Reserva de estoque inconsistente na variação ${item.variantId}`);
+      }
     }
 
     await tx.storePayment.updateMany({
