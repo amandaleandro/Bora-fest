@@ -176,15 +176,16 @@ export class MeService {
 
   /** LGPD: portabilidade — tudo que temos sobre o titular, em JSON. */
   async dataExport(userId: string) {
-    const [user, orders, tickets] = await Promise.all([
+    const [user, orders, storeOrders, tickets] = await Promise.all([
       this.profile(userId),
       this.orders(userId),
+      this.storeOrders(userId),
       prisma.ticket.findMany({
         where: { order: { userId } },
         select: { id: true, code: true, status: true, issuedAt: true, attendeeName: true },
       }),
     ]);
-    return { exportedAt: new Date(), user, orders, tickets };
+    return { exportedAt: new Date(), user, orders, storeOrders, tickets };
   }
 
   /**
