@@ -247,6 +247,11 @@ export class StoreRefundsService {
     if (!["PENDING", "AWAITING_RETURN"].includes(request.status)) {
       throw new BadRequestException("Solicitação já foi resolvida");
     }
+    if (request.returnedAt) {
+      throw new BadRequestException(
+        "A devolução física já foi recebida; conclua o estorno em vez de rejeitar",
+      );
+    }
 
     const updated = await prisma.storeRefundRequest.update({
       where: { id: request.id },
