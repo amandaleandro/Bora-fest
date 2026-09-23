@@ -670,3 +670,23 @@ A prévia diferencia:
 - janela temporal do lote.
 
 Nunca rotular `promoterOnly` como “público” para todos.
+
+
+## 44. Checkout falha fechado sem metadados do lote
+
+O checkout usa `buyerTotalCents` para manter o preço correto mesmo antes do catálogo carregar.
+
+Porém, metadados como:
+- nominal;
+- CPF obrigatório;
+- `feeMode`;
+- add-ons do evento;
+
+não podem ser inventados.
+
+Se o catálogo não carregar ou não contiver todos os lotes da reserva:
+- preço base continua vindo da reserva;
+- criação do pedido é bloqueada;
+- o usuário recebe instrução para atualizar a página.
+
+Comportamento proibido: seguir para pagamento assumindo que lote desconhecido não é nominal ou que a taxa é do comprador.
