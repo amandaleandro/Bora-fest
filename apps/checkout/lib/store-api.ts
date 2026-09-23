@@ -47,11 +47,12 @@ export interface StoreOrderPublic {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string } = {},
+  options: { method?: string; body?: unknown; token?: string; idempotencyKey?: string } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (options.body) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: Object.keys(headers).length ? headers : undefined,
@@ -124,6 +125,7 @@ export const storeApi = {
       installments: number;
       payerDocument?: string;
     },
+    idempotencyKey?: string,
   ) =>
     request<{
       id: string;
@@ -135,6 +137,7 @@ export const storeApi = {
     }>(`/v1/public/store/orders/${publicToken}/payments/card`, {
       method: "POST",
       body,
+      idempotencyKey,
     }),
 
   syncPayment: (publicToken: string) =>
