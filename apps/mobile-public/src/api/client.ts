@@ -40,11 +40,31 @@ async function request<T>(
 export const api = {
   listEvents: (page = 1) => request<EventListResponse>(`/v1/public/events?page=${page}&pageSize=20`),
 
-  getEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
-  getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
+  getEvent: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<PublicEvent>(`/v1/public/events/${slug}${suffix}`);
+  },
+  getAvailability: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability${suffix}`);
+  },
 
-  createReservation: (eventId: string, items: Array<{ ticketLotId: string; quantity: number }>) =>
-    request<Reservation>("/v1/reservations", { method: "POST", body: { eventId, items } }),
+  createReservation: (
+    eventId: string,
+    items: Array<{ ticketLotId: string; quantity: number }>,
+    promoterSlug?: string,
+    sellerSlug?: string,
+  ) =>
+    request<Reservation>("/v1/reservations", {
+      method: "POST",
+      body: { eventId, items, promoterSlug, sellerSlug },
+    }),
 
   getReservation: (id: string) => request<Reservation>(`/v1/reservations/${id}`),
 
@@ -53,6 +73,8 @@ export const api = {
     contactEmail: string;
     contactName?: string;
     contactPhone?: string;
+    promoterSlug?: string;
+    sellerSlug?: string;
   }) => request<Order>("/v1/orders", { method: "POST", body: input }),
 
   getOrderStatus: (publicToken: string) => request<Order>(`/v1/orders/${publicToken}/status`),
