@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useEventShell } from "@/lib/eventContext";
-import { eventControls, type TicketTheme, type TicketTemplate } from "@/lib/api";
+import {
+  eventControls,
+  organizationsApi,
+  type TicketTheme,
+  type TicketTemplate,
+} from "@/lib/api";
 
 const PRESETS: Array<{
   template: TicketTemplate;
@@ -40,8 +45,12 @@ export default function TicketStudioPage({ params }: { params: { eventId: string
 
   useEffect(() => {
     if (!event) return;
-    setTheme({ ...DEFAULT_THEME, ...(event.ticketTheme ?? {}) });
-  }, [event]);
+    setTheme({
+      ...DEFAULT_THEME,
+      ...(organization?.defaultTicketTheme ?? {}),
+      ...(event.ticketTheme ?? {}),
+    });
+  }, [event, organization?.defaultTicketTheme]);
 
   const previewBackground = useMemo(() => {
     if (theme.backgroundImageUrl) {
@@ -82,6 +91,23 @@ export default function TicketStudioPage({ params }: { params: { eventId: string
     }
   }
 
+  async function saveAsHouseDefault() {
+    if (!token || !organization) return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await organizationsApi.update(token, organization.id, {
+        defaultTicketTheme: theme,
+      });
+      setMessage("Tema salvo como padrão da Casa. Eventos sem tema próprio passam a herdar este visual.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível salvar o padrão da Casa");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function reset() {
     if (!token) return;
     setSaving(true);
@@ -89,8 +115,15 @@ export default function TicketStudioPage({ params }: { params: { eventId: string
     setMessage(null);
     try {
       await eventControls.update(params.eventId, { ticketTheme: null }, token);
-      setTheme(DEFAULT_THEME);
-      setMessage("Personalização removida. O ingresso voltou ao padrão BoraFest.");
+      setTheme({
+        ...DEFAULT_THEME,
+        ...(organization?.defaultTicketTheme ?? {}),
+      });
+      setMessage(
+        organization?.defaultTicketTheme
+          ? "Personalização do evento removida. O ingresso voltou a herdar o padrão da Casa."
+          : "Personalização removida. O ingresso voltou ao padrão BoraFest.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível restaurar o tema");
     } finally {
@@ -109,15 +142,23 @@ export default function TicketStudioPage({ params }: { params: { eventId: string
           <p className="text-[11px] font-extrabold uppercase tracking-[.1em] text-primary">BF-020 · Ticket Studio</p>
           <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Ingresso personalizado</h1>
           <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
-            Personalize a apresentação. QR, código, assinatura e validade continuam controlados pelo BoraFest e não são editáveis.
+            Personalize a apresentação. O evento pode ter um tema próprio ou herdar o padrão da Casa. QR, código, assinatura e validade continuam controlados pelo BoraFest e não são editáveis.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={saveAsHouseDefault}
+            disabled={saving || !organization}
+            className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-2.5 text-[12px] font-extrabold text-primary disabled:opacity-50"
+          >
+            Salvar como padrão da Casa
+          </button>
           <button type="button" onClick={reset} disabled={saving} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-muted disabled:opacity-50">
-            Restaurar padrão
+            Usar padrão da Casa
           </button>
           <button type="button" onClick={save} disabled={saving} className="rounded-xl bg-primary px-5 py-2.5 text-[12px] font-extrabold text-white shadow-cta disabled:opacity-50">
-            {saving ? "Salvando…" : "Salvar tema"}
+            {saving ? "Salvando…" : "Salvar neste evento"}
           </button>
         </div>
       </div>
