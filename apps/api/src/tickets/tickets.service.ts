@@ -43,6 +43,7 @@ export class TicketsService {
             startsAt: true,
             endsAt: true,
             ticketTheme: true,
+            organization: { select: { defaultTicketTheme: true } },
             venue: { select: { name: true, city: true, state: true } },
           },
         },
@@ -55,6 +56,11 @@ export class TicketsService {
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     const cortesia = origemGratis(order);
+    const { organization: eventOrganization, ...eventData } = order.event;
+    const resolvedEvent = {
+      ...eventData,
+      ticketTheme: eventData.ticketTheme ?? eventOrganization.defaultTicketTheme ?? null,
+    };
 
     // Portão do 1º ingresso: conta não verificada não vê QR — nem por link
     // encaminhado. Verificou (código ou link mágico), abre.
@@ -62,7 +68,7 @@ export class TicketsService {
       return {
         orderId: order.id,
         orderStatus: order.status,
-        event: order.event,
+        event: resolvedEvent,
         requiresVerification: true,
         contactEmail: order.contactEmail,
         cortesia,
@@ -73,7 +79,7 @@ export class TicketsService {
     return {
       orderId: order.id,
       orderStatus: order.status,
-      event: order.event,
+      event: resolvedEvent,
       requiresVerification: false,
       contactEmail: order.contactEmail,
       cortesia,
@@ -137,6 +143,7 @@ export class TicketsService {
             startsAt: true,
             endsAt: true,
             ticketTheme: true,
+            organization: { select: { defaultTicketTheme: true } },
             venue: { select: { name: true, city: true, state: true } },
           },
         },
@@ -153,7 +160,13 @@ export class TicketsService {
       const isBuyer = (ticket as any).order.userId === userId;
       return {
         ...this.toPublicTicket(ticket),
-        event: (ticket as any).event,
+        event: (() => {
+          const { organization, ...event } = (ticket as any).event;
+          return {
+            ...event,
+            ticketTheme: event.ticketTheme ?? organization?.defaultTicketTheme ?? null,
+          };
+        })(),
         orderPublicToken: isBuyer ? (ticket as any).order.publicToken : null,
         transferable:
           (ticket.status === "ISSUED" || ticket.status === "ACTIVE") &&
