@@ -318,6 +318,17 @@ export class TicketsService {
         );
       }
 
+      // Biometria pertence à PESSOA, não ao UUID eterno do ingresso.
+      // Transferiu: o enrollment anterior deixa de valer imediatamente.
+      await tx.ticketFaceEnrollment.updateMany({
+        where: { ticketId: ticket.id, status: { in: ["PENDING", "ACTIVE"] } },
+        data: {
+          status: "REVOKED",
+          revokedAt: new Date(),
+          providerReference: null,
+        },
+      });
+
       await tx.auditLog.create({
         data: {
           action: "ticket.transfer",
