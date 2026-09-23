@@ -9,11 +9,13 @@ import {
 import { StoreService } from "./store.service";
 import { StoreOrdersService } from "./store-orders.service";
 import { StorePaymentsService } from "./store-payments.service";
+import { StoreRefundsService } from "./store-refunds.service";
 import {
   PublicStoreOrderController,
   PublicStoreOrdersController,
   StoreOrderManageController,
   StoreOrdersManageController,
+  StoreRefundRequestsController,
 } from "./store-orders.controller";
 
 @Module({
@@ -26,8 +28,9 @@ import {
     PublicStoreOrderController,
     StoreOrdersManageController,
     StoreOrderManageController,
+    StoreRefundRequestsController,
   ],
-  providers: [StoreService, StoreOrdersService, StorePaymentsService, OrgAccessService],
+  providers: [StoreService, StoreOrdersService, StorePaymentsService, StoreRefundsService, OrgAccessService],
   exports: [StoreService, StoreOrdersService],
 })
 export class StoreModule {}
