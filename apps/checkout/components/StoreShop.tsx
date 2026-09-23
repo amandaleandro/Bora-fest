@@ -17,6 +17,18 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<"PICKUP" | "DELIVERY">(
+    liveStore.fulfillment.pickupEnabled ? "PICKUP" : "DELIVERY",
+  );
+  const [address, setAddress] = useState({
+    postalCode: "",
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,10 +52,13 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
     }))
     .filter((item) => item.quantity > 0);
 
-  const totalCents = selected.reduce(
+  const subtotalCents = selected.reduce(
     (sum, item) => sum + item.variant.priceCents * item.quantity,
     0,
   );
+  const shippingCents =
+    fulfillmentMethod === "DELIVERY" ? liveStore.fulfillment.flatShippingCents : 0;
+  const totalCents = subtotalCents + shippingCents;
   const totalQty = selected.reduce((sum, item) => sum + item.quantity, 0);
 
   function setQty(variantId: string, next: number, available: number) {
@@ -61,6 +76,19 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
       setError("Informe um e-mail válido.");
       return;
     }
+    if (fulfillmentMethod === "DELIVERY") {
+      if (
+        !address.postalCode.trim() ||
+        !address.street.trim() ||
+        !address.number.trim() ||
+        !address.neighborhood.trim() ||
+        !address.city.trim() ||
+        address.state.trim().length !== 2
+      ) {
+        setError("Preencha o endereço de entrega.");
+        return;
+      }
+    }
 
     setBusy(true);
     setError(null);
@@ -73,7 +101,19 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
         contactName: name.trim(),
         contactEmail: email.trim().toLowerCase(),
         contactPhone: phone.trim() || undefined,
-        fulfillmentMethod: "PICKUP",
+        fulfillmentMethod,
+        shippingAddress:
+          fulfillmentMethod === "DELIVERY"
+            ? {
+                postalCode: address.postalCode.trim(),
+                street: address.street.trim(),
+                number: address.number.trim(),
+                complement: address.complement.trim() || undefined,
+                neighborhood: address.neighborhood.trim(),
+                city: address.city.trim(),
+                state: address.state.trim().toUpperCase(),
+              }
+            : undefined,
       });
       try {
         const current = JSON.parse(localStorage.getItem("bf.storeOrders") ?? "[]") as string[];
@@ -101,7 +141,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
               <p className="text-[12px] font-extrabold uppercase tracking-[.08em] text-primary">Loja da Casa</p>
               <h2 className="mt-1 text-[20px] font-black text-ink">Produtos oficiais</h2>
               <p className="mt-1 text-[12.5px] font-semibold text-muted">
-                Compre pela BoraFest e retire diretamente com {liveStore.organization.name}.
+                Compre pela BoraFest com retirada ou entrega, conforme as opções da Casa.
               </p>
             </div>
             <span className="rounded-full border border-success/20 bg-success/10 px-3 py-1.5 text-[10.5px] font-extrabold text-success">
@@ -217,7 +257,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
                 <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Loja da Casa</p>
                 <h2 className="mt-1 text-[20px] font-black text-ink">Finalizar pedido</h2>
                 <p className="mt-1 text-[12px] font-semibold text-muted">
-                  O estoque fica reservado por 15 minutos enquanto você paga o Pix.
+                  O estoque fica reservado por 15 minutos enquanto você conclui o pagamento.
                 </p>
               </div>
               <button
@@ -272,13 +312,88 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
               />
             </div>
 
-            <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
-              <span className="text-[13px] font-bold text-muted">Total</span>
-              <span className="text-[20px] font-black text-ink">{money(totalCents)}</span>
+            <div className="mt-4">
+              <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-muted">Recebimento</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {liveStore.fulfillment.pickupEnabled ? (
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentMethod("PICKUP")}
+                    className={`rounded-xl border px-3 py-3 text-left text-[12px] font-extrabold ${
+                      fulfillmentMethod === "PICKUP"
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-line text-ink"
+                    }`}
+                  >
+                    Retirada na Casa
+                  </button>
+                ) : null}
+                {liveStore.fulfillment.deliveryEnabled ? (
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentMethod("DELIVERY")}
+                    className={`rounded-xl border px-3 py-3 text-left text-[12px] font-extrabold ${
+                      fulfillmentMethod === "DELIVERY"
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-line text-ink"
+                    }`}
+                  >
+                    Entrega · {money(liveStore.fulfillment.flatShippingCents)}
+                  </button>
+                ) : null}
+              </div>
+              {liveStore.fulfillment.deliveryInstructions ? (
+                <p className="mt-2 text-[10.5px] font-semibold text-muted">
+                  {liveStore.fulfillment.deliveryInstructions}
+                </p>
+              ) : null}
+            </div>
+
+            {fulfillmentMethod === "DELIVERY" ? (
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {[
+                  ["postalCode", "CEP"],
+                  ["street", "Rua / avenida"],
+                  ["number", "Número"],
+                  ["complement", "Complemento"],
+                  ["neighborhood", "Bairro"],
+                  ["city", "Cidade"],
+                  ["state", "UF"],
+                ].map(([key, label]) => (
+                  <input
+                    key={key}
+                    value={address[key as keyof typeof address]}
+                    onChange={(e) =>
+                      setAddress((current) => ({ ...current, [key]: e.target.value }))
+                    }
+                    placeholder={label}
+                    className="h-11 rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold outline-none focus:border-primary"
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-1.5 border-t border-line pt-4">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="font-semibold text-muted">Produtos</span>
+                <span className="font-bold text-ink">{money(subtotalCents)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="font-semibold text-muted">Frete</span>
+                <span className="font-bold text-ink">
+                  {shippingCents > 0 ? money(shippingCents) : "Grátis"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[13px] font-bold text-muted">Total</span>
+                <span className="text-[20px] font-black text-ink">{money(totalCents)}</span>
+              </div>
             </div>
 
             <p className="mt-3 rounded-xl bg-primary/5 p-3 text-[11px] font-semibold leading-relaxed text-muted">
-              Retirada na Casa. Após a confirmação do pagamento, você recebe um código de retirada deste pedido.
+              {fulfillmentMethod === "PICKUP"
+                ? "Após o pagamento, a Casa prepara o pedido e avisa quando estiver pronto para retirada."
+                : "Após o pagamento, a Casa prepara o pedido para entrega no endereço informado."}
             </p>
 
             {error ? <p className="mt-3 text-[12px] font-bold text-danger">{error}</p> : null}
@@ -289,7 +404,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
               disabled={busy}
               className="mt-4 h-12 w-full rounded-xl bg-primary px-4 py-3.5 text-[14px] font-extrabold text-white shadow-cta disabled:opacity-50"
             >
-              {busy ? "Reservando estoque…" : "Reservar e pagar com Pix"}
+              {busy ? "Reservando estoque…" : "Reservar e continuar para pagamento"}
             </button>
           </div>
         </div>
