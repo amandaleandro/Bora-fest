@@ -883,3 +883,81 @@ O webhook do estorno nunca deve repor a mesma unidade outra vez.
 - rejeitar reembolso depois de aceitar a devolução física;
 - repor estoque duas vezes;
 - marcar mercadoria como devolvida só porque o PSP devolveu dinheiro.
+
+
+## 47. Loja — cartão, entrega, frete e CRM
+
+### Frete é regra de servidor
+
+O cliente escolhe PICKUP ou DELIVERY, mas nunca define `shippingCents`.
+
+A autoridade é:
+`Organization.storeFlatShippingCents`.
+
+O pedido guarda snapshot do frete/endereço para mudanças futuras na configuração da Casa não alterarem pedidos já feitos.
+
+### Configuração válida
+
+Nunca permitir:
+`pickupEnabled = false && deliveryEnabled = false`.
+
+DELIVERY exige:
+- deliveryEnabled;
+- endereço completo.
+
+### Cartão
+
+Reutilizar o gateway existente.
+Não criar processador paralelo da Loja.
+
+Nunca persistir:
+- número completo;
+- CVV;
+- rawCard;
+- PAN no idempotency payload.
+
+Retry de cartão precisa reutilizar a mesma `Idempotency-Key`.
+
+### Entrega x retirada
+
+PICKUP:
+`PAID -> READY -> FULFILLED`, com pickupCode no último passo.
+
+DELIVERY:
+`PAID -> READY -> FULFILLED`, sem pickupCode.
+
+Não mostrar pickupCode em:
+- API pública;
+- Minhas compras;
+- e-mail;
+quando fulfillmentMethod = DELIVERY.
+
+### Notificação da Casa
+
+`store_sale_received` só nasce DEPOIS de `changedOrder.count > 0` e da conversão real da reserva em venda.
+
+Não mover o alerta para antes dessa confirmação: pagamento órfão é estornado e não deve parecer venda válida.
+
+### Analytics/CRM
+
+Analytics exige FINANCE_VIEW.
+
+O CRM da Loja pode expor histórico transacional autorizado ao time da Casa, mas não deve ser reutilizado como lista de disparo promocional sem consentimento.
+
+### Limites atuais
+
+Entrega local atual:
+- frete fixo;
+- endereço manual;
+- confirmação manual de entrega.
+
+Futuro:
+- faixas de CEP;
+- raio/geocoding;
+- cotação dinâmica;
+- transportadora;
+- tracking;
+- push para equipe;
+- campanhas consentidas.
+
+Essas evoluções devem ampliar StoreOrder/settings; não criar outro domínio de pedido.
