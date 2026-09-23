@@ -720,7 +720,8 @@ export const api = {
       createdAt: string;
       paidAt: string | null;
       fulfilledAt: string | null;
-      pickupCode: string;
+      pickupCode: string | null;
+      fulfillmentMethod: "PICKUP" | "DELIVERY";
       house: { slug: string; name: string; logoUrl: string | null };
       items: Array<{
         id: string;
