@@ -38,6 +38,16 @@ export const updateStoreVariantSchema = createStoreVariantSchema.partial().exten
 export type UpdateStoreVariantInput = z.infer<typeof updateStoreVariantSchema>;
 
 
+export const storeShippingAddressSchema = z.object({
+  postalCode: z.string().trim().min(8).max(10),
+  street: z.string().trim().min(2).max(180),
+  number: z.string().trim().min(1).max(30),
+  complement: z.string().trim().max(120).optional(),
+  neighborhood: z.string().trim().min(2).max(120),
+  city: z.string().trim().min(2).max(120),
+  state: z.string().trim().length(2).transform((value) => value.toUpperCase()),
+});
+
 export const createStoreOrderSchema = z.object({
   items: z.array(z.object({
     variantId: z.string().uuid(),
@@ -46,7 +56,12 @@ export const createStoreOrderSchema = z.object({
   contactName: z.string().trim().min(2).max(120),
   contactEmail: z.string().trim().email().max(254),
   contactPhone: z.string().trim().min(8).max(30).optional(),
-  fulfillmentMethod: z.literal("PICKUP").default("PICKUP"),
+  fulfillmentMethod: z.enum(["PICKUP", "DELIVERY"]).default("PICKUP"),
+  shippingAddress: storeShippingAddressSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.fulfillmentMethod === "DELIVERY" && !value.shippingAddress) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shippingAddress"], message: "Informe o endereço de entrega" });
+  }
 });
 export type CreateStoreOrderInput = z.infer<typeof createStoreOrderSchema>;
 
@@ -71,3 +86,12 @@ export const rejectStoreRefundSchema = z.object({
   note: z.string().trim().min(3).max(1000),
 });
 export type RejectStoreRefundInput = z.infer<typeof rejectStoreRefundSchema>;
+
+
+export const updateStoreSettingsSchema = z.object({
+  pickupEnabled: z.boolean().optional(),
+  deliveryEnabled: z.boolean().optional(),
+  flatShippingCents: z.number().int().min(0).max(1_000_000).optional(),
+  deliveryInstructions: z.string().trim().max(500).nullable().optional(),
+});
+export type UpdateStoreSettingsInput = z.infer<typeof updateStoreSettingsSchema>;
