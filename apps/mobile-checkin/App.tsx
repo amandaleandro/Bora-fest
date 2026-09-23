@@ -10,16 +10,21 @@ import { ScannerScreen } from "./src/screens/ScannerScreen";
 import { ManualSearchScreen } from "./src/screens/ManualSearchScreen";
 import { SyncSummaryScreen } from "./src/screens/SyncSummaryScreen";
 import { PrivacyScreen } from "./src/screens/PrivacyScreen";
+import { FaceCheckinScreen } from "./src/screens/FaceCheckinScreen";
+import { api } from "./src/api/client";
+import type { FaceCapabilities } from "./src/api/types";
 import { colors } from "./src/theme/colors";
 
-type Screen = "home" | "priming" | "scanner" | "manual" | "summary" | "privacy";
+type Screen = "home" | "priming" | "scanner" | "manual" | "face" | "summary" | "privacy";
 
 function Root() {
   const { session, loading } = useSession();
   const [screen, setScreen] = useState<Screen>("home");
+  const [faceCapabilities, setFaceCapabilities] = useState<FaceCapabilities | null>(null);
 
   useEffect(() => {
     initDatabase();
+    api.faceCapabilities().then(setFaceCapabilities).catch(() => setFaceCapabilities(null));
   }, []);
 
   if (loading) {
@@ -58,6 +63,15 @@ function Root() {
     );
   }
 
+  if (screen === "face" && faceCapabilities) {
+    return (
+      <View style={styles.flex}>
+        <FaceCheckinScreen capabilities={faceCapabilities} />
+        <BackButton onPress={() => setScreen("home")} />
+      </View>
+    );
+  }
+
   if (screen === "summary") {
     return (
       <View style={styles.flex}>
@@ -80,6 +94,8 @@ function Root() {
     <HomeScreen
       onOpenScanner={() => setScreen("priming")}
       onOpenManualSearch={() => setScreen("manual")}
+      onOpenFace={() => setScreen("face")}
+      faceCapabilities={faceCapabilities}
       onOpenSummary={() => setScreen("summary")}
       onOpenPrivacy={() => setScreen("privacy")}
     />
