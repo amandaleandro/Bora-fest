@@ -106,9 +106,19 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
       <main className="min-h-dvh bg-bg px-5 py-10">
         <div className="mx-auto max-w-[560px] rounded-3xl border border-line bg-surface p-6 shadow-card">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success/10 text-[30px]">✓</div>
-          <h1 className="mt-4 text-center text-[24px] font-black text-ink">Pagamento confirmado</h1>
+          <h1 className="mt-4 text-center text-[24px] font-black text-ink">
+            {order.status === "READY"
+              ? "Pedido pronto para retirada"
+              : order.status === "FULFILLED"
+                ? "Pedido retirado"
+                : "Pagamento confirmado"}
+          </h1>
           <p className="mt-2 text-center text-[13px] font-semibold text-muted">
-            Seu pedido na Loja de {order.house.name} está pago e reservado para retirada.
+            {order.status === "READY"
+              ? `Seu pedido na Loja de ${order.house.name} já está pronto. Mostre o código abaixo na retirada.`
+              : order.status === "FULFILLED"
+                ? `A retirada na Loja de ${order.house.name} já foi confirmada.`
+                : `Seu pedido na Loja de ${order.house.name} está pago e agora está sendo preparado.`}
           </p>
 
           <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center">
