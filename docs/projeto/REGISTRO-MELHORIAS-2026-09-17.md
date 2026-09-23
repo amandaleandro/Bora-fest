@@ -963,3 +963,46 @@ A execução automatizada fica para o fechamento do CI, conforme combinado.
 - “Minhas compras” para produtos;
 - CRM/relatórios;
 - push de nova venda da Loja.
+
+
+---
+
+## 19. Loja — Minhas compras, preparo e reembolso — 23/09/2026
+
+### Conta do comprador
+- novo `GET /v1/me/store-orders`;
+- OTP/magic link reivindicam StoreOrders do e-mail verificado;
+- claim por leitura da conta só ocorre com `emailVerifiedAt`;
+- compras guest também ficam lembradas em `bf.storeOrders`;
+- `/minhas-compras` exibe produtos em seção separada.
+
+### Operação
+- PAID agora significa “em preparo”;
+- Casa usa “Marcar pronto para retirada”;
+- READY notifica o cliente por e-mail;
+- retirada exige READY + código;
+- FULFILLED não pode mais ser alcançado direto de PAID.
+
+### Reembolso
+- novo StoreRefundRequest;
+- pedido não retirado pode ir direto à análise;
+- pedido retirado entra AWAITING_RETURN;
+- Casa confirma retorno físico;
+- depois aprova estorno;
+- devolução física repõe estoque;
+- webhook de estorno não repõe novamente;
+- REFUND_PENDING pode ser concluído por webhook REFUNDED;
+- rejeição é bloqueada depois de returnedAt.
+
+### Painel da Casa
+A mesma tela da Loja agora permite:
+- preparar;
+- marcar pronto;
+- confirmar retirada;
+- listar solicitações;
+- confirmar devolução;
+- aprovar estorno;
+- rejeitar antes de receber a devolução.
+
+### Testes
+Regressões adicionadas para READY, retorno físico e REFUND_PENDING.
