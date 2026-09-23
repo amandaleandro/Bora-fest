@@ -9,8 +9,19 @@ export interface StoreOrderPublic {
   contactName: string;
   contactEmail: string;
   contactPhone: string | null;
-  fulfillmentMethod: "PICKUP";
+  fulfillmentMethod: "PICKUP" | "DELIVERY";
+  subtotalCents: number;
+  shippingCents: number;
   totalCents: number;
+  shippingAddress?: {
+    postalCode: string;
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+  } | null;
   expiresAt: string;
   paidAt: string | null;
   fulfilledAt?: string | null;
@@ -63,7 +74,16 @@ export const storeApi = {
       contactName: string;
       contactEmail: string;
       contactPhone?: string;
-      fulfillmentMethod: "PICKUP";
+      fulfillmentMethod: "PICKUP" | "DELIVERY";
+      shippingAddress?: {
+        postalCode: string;
+        street: string;
+        number: string;
+        complement?: string;
+        neighborhood: string;
+        city: string;
+        state: string;
+      };
     },
   ) =>
     request<StoreOrderPublic>(`/v1/public/casas/${encodeURIComponent(houseSlug)}/store/orders`, {
@@ -83,6 +103,36 @@ export const storeApi = {
       expiresAt: string | null;
       paidAt: string | null;
     }>(`/v1/public/store/orders/${publicToken}/payments/pix`, {
+      method: "POST",
+      body,
+    }),
+
+  createCard: (
+    publicToken: string,
+    body: {
+      cardToken?: string;
+      card?: {
+        number: string;
+        holderName: string;
+        expiryMonth: string;
+        expiryYear: string;
+        ccv: string;
+        holderCpf: string;
+        postalCode: string;
+        addressNumber: string;
+      };
+      installments: number;
+      payerDocument?: string;
+    },
+  ) =>
+    request<{
+      id: string;
+      status: string;
+      amountCents: number;
+      pixQrCodeText: string | null;
+      expiresAt: string | null;
+      paidAt: string | null;
+    }>(`/v1/public/store/orders/${publicToken}/payments/card`, {
       method: "POST",
       body,
     }),
