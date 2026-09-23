@@ -292,8 +292,8 @@ export class StorePaymentsService {
       status: payment.status,
       amountCents: payment.amountCents,
       pixQrCodeText: payment.pixQrCodeText,
-      expiresAt: payment.expiresAt,
-      paidAt: payment.paidAt,
+      expiresAt: payment.expiresAt?.toISOString() ?? null,
+      paidAt: payment.paidAt?.toISOString() ?? null,
     };
   }
 }
