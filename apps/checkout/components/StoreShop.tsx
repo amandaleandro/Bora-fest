@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { HouseStoreResponse } from "../lib/houses-api";
 import { storeApi } from "../lib/store-api";
@@ -11,6 +11,7 @@ function money(cents: number) {
 
 export function StoreShop({ store }: { store: HouseStoreResponse }) {
   const router = useRouter();
+  const [liveStore, setLiveStore] = useState(store);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [name, setName] = useState("");
@@ -21,11 +22,15 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
 
   const variants = useMemo(
     () =>
-      store.products.flatMap((product) =>
+      liveStore.products.flatMap((product) =>
         product.variants.map((variant) => ({ product, variant })),
       ),
-    [store],
+    [liveStore],
   );
+
+  useEffect(() => {
+    storeApi.store(liveStore.organization.slug).then(setLiveStore).catch(() => undefined);
+  }, [store.organization.slug]);
 
   const selected = variants
     .map(({ product, variant }) => ({
@@ -87,7 +92,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
               <p className="text-[12px] font-extrabold uppercase tracking-[.08em] text-primary">Loja da Casa</p>
               <h2 className="mt-1 text-[20px] font-black text-ink">Produtos oficiais</h2>
               <p className="mt-1 text-[12.5px] font-semibold text-muted">
-                Compre pela BoraFest e retire diretamente com {store.organization.name}.
+                Compre pela BoraFest e retire diretamente com {liveStore.organization.name}.
               </p>
             </div>
             <span className="rounded-full border border-success/20 bg-success/10 px-3 py-1.5 text-[10.5px] font-extrabold text-success">
@@ -96,7 +101,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {store.products.map((product) => (
+            {liveStore.products.map((product) => (
               <article key={product.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
                 {product.imageUrl ? (
                   <div className="aspect-[4/3] overflow-hidden bg-bg">
@@ -273,7 +278,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
               type="button"
               onClick={createOrder}
               disabled={busy}
-              className="mt-4 h-13 w-full rounded-xl bg-primary px-4 py-3.5 text-[14px] font-extrabold text-white shadow-cta disabled:opacity-50"
+              className="mt-4 h-12 w-full rounded-xl bg-primary px-4 py-3.5 text-[14px] font-extrabold text-white shadow-cta disabled:opacity-50"
             >
               {busy ? "Reservando estoque…" : "Reservar e pagar com Pix"}
             </button>
