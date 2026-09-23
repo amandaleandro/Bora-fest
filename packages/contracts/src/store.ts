@@ -72,7 +72,7 @@ export const createStorePixPaymentSchema = z.object({
 export type CreateStorePixPaymentInput = z.infer<typeof createStorePixPaymentSchema>;
 
 export const fulfillStoreOrderSchema = z.object({
-  pickupCode: z.string().trim().min(6).max(20),
+  pickupCode: z.string().trim().min(6).max(20).optional(),
 });
 export type FulfillStoreOrderInput = z.infer<typeof fulfillStoreOrderSchema>;
 
