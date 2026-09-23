@@ -547,6 +547,14 @@ export class CheckinsService {
 
     const found = await this.findTicket(eventId, ticketId, input.code);
     if (!found) return { ticket: null, reason: "NOT_FOUND" as const };
+
+    // Transferência/reemissão reassina o mesmo ticketId com nonce novo. A
+    // assinatura antiga continua matematicamente válida, então é obrigatório
+    // comparar com o token ATUAL salvo no ingresso.
+    if (input.qrToken && found.qrToken !== input.qrToken) {
+      return { ticket: null, reason: "REVOKED_QR" as const };
+    }
+
     return { ticket: found, reason: null };
   }
 
