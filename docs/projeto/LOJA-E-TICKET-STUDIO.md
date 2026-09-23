@@ -100,39 +100,132 @@ Imagem externa de produto:
 - não passa pelo proxy `/_next/image`;
 - preserva a allowlist anti-SSRF do Next.
 
-### Ainda NÃO implementado
+### Venda direta implementada — 23/09/2026
 
-Venda direta sem ingresso.
+A Loja possui domínio comercial próprio. Não usa evento escondido nem `Order` de ingresso.
 
-Não criar:
-- evento oculto;
-- lote falso;
-- Order de ingresso vazio;
-- Payment apontando para pedido inventado.
+Modelos:
+- `StoreOrder`;
+- `StoreOrderItem`;
+- `StorePayment`;
+- `StorePaymentEvent`;
+- `StoreOrderStatus`;
+- `StoreFulfillmentMethod`.
 
-O modelo atual de `Payment` exige `orderId` de um `Order` de evento. A venda direta precisa de uma decisão estrutural:
-1. criar `StoreOrder / StoreOrderItem / StorePayment`; ou
-2. generalizar o modelo de pedido para commerce order de forma compatível com ingressos.
+Migration:
+`20260923160000_store_orders`.
 
-Antes disso, a página pública informa que compra direta está em preparação e não mostra CTA falso.
+Fluxo atual:
+1. comprador seleciona variações na página da Casa;
+2. backend valida produto/variação ativos e recalcula o preço;
+3. estoque é reservado atomicamente por 15 minutos;
+4. é criado um `StoreOrder` com snapshot de nome, variação, preço e quantidade;
+5. comprador gera Pix;
+6. gateway/webhook confirma o pagamento;
+7. reserva vira estoque vendido;
+8. ledger recebe `SALE_CREDIT` e `PLATFORM_FEE`;
+9. comprador recebe código de retirada;
+10. e-mail de confirmação contém itens, total, código e link do pedido;
+11. Casa confere o código no painel e marca `FULFILLED`.
 
-### Próxima etapa da venda
+Rotas públicas:
+- `POST /v1/public/casas/:slug/store/orders`;
+- `GET /v1/public/store/orders/:publicToken`;
+- `POST /v1/public/store/orders/:publicToken/payments/pix`;
+- `POST /v1/public/store/orders/:publicToken/payments/sync`.
 
-Quando implementada, precisa cobrir:
-- reserva atômica de estoque;
-- expiração da reserva;
-- Pix/cartão;
-- idempotência;
-- confirmação de venda;
-- devolução de estoque em falha/expiração/reembolso;
-- ledger;
-- taxa da plataforma;
-- retirada/entrega;
-- status do pedido;
-- recibo;
-- reembolso;
-- CRM;
-- relatórios.
+Rotas do painel:
+- `GET /v1/organizations/:organizationId/store/orders`;
+- `POST /v1/store/orders/:orderId/fulfill`.
+
+Frontend:
+- carrinho em `/casa/[slug]`;
+- checkout em `/loja/pedido/[publicToken]`;
+- operação/retirada em `/organizacoes/[orgId]/loja`.
+
+#### Regra de estoque
+
+Disponível continua sendo:
+
+```
+stockTotal - reservedCount - soldCount
+```
+
+Criação do pedido usa UPDATE condicional no banco. Duas compras concorrentes não podem reservar a mesma última unidade.
+
+No `PAID`:
+- `reservedCount -= quantity`;
+- `soldCount += quantity`.
+
+Na expiração sem pagamento:
+- `reservedCount -= quantity`;
+- pedido vira `CANCELED`.
+
+A liberação falha fechada se não existir reserva suficiente; não usar `GREATEST(..., 0)` para esconder inconsistência.
+
+#### Regra financeira
+
+O pagamento da Loja reutiliza o gateway Pix/failover da plataforma, mas possui `StorePayment` próprio.
+
+O worker de webhook procura o pagamento no domínio:
+1. ticketing;
+2. VIP;
+3. Loja.
+
+`StorePaymentEvent` garante deduplicação do webhook.
+
+Pagamento confirmado:
+- credita o bruto no ledger;
+- lança a taxa da plataforma;
+- referência contábil: `store_payment`;
+- liberação financeira segue `refundHoldDays` da Casa.
+
+Pagamento que chega depois de a reserva já ter sido cancelada é tratado como órfão e entra no estorno automático pelo outbox.
+
+#### Estorno/chargeback
+
+Se o produto ainda NÃO foi retirado:
+- ledger é revertido;
+- estoque vendido retorna.
+
+Se o pedido já está `FULFILLED`:
+- o estoque não aumenta automaticamente;
+- uma devolução física futura precisa ser tratada como operação de inventário separada.
+
+Nunca assumir que estorno financeiro significa que a mercadoria voltou fisicamente à Casa.
+
+#### Retirada
+
+O código de retirada:
+- nasce junto com o pedido;
+- não é exposto publicamente antes de pagamento;
+- aparece após `PAID`;
+- é enviado por e-mail;
+- é exigido pelo painel para marcar `FULFILLED`.
+
+#### Escopo atual
+
+Implementado:
+- Pix;
+- retirada na Casa;
+- reserva/expiração;
+- webhook/reconciliação;
+- ledger/taxa;
+- e-mail de confirmação;
+- painel de pedidos/retirada;
+- estorno/chargeback vindo do gateway;
+- testes de integração.
+
+Ainda não implementado:
+- cartão na Loja;
+- frete/entrega/endereço;
+- devolução física/reposição formal;
+- reembolso self-service específico da Loja;
+- pedido da Loja dentro de “Minhas compras” da conta;
+- CRM/relatórios específicos de commerce;
+- notificação push ao produtor para venda da Loja.
+
+Essas evoluções devem usar `StoreOrder`; não voltar a simular comércio com evento fictício.
 
 ---
 
@@ -292,6 +385,22 @@ Reposição futura deve aumentar `stockTotal` ou, se evoluirmos para movimentos 
 
 ## 8. Pendências antes de deploy
 
+Além das migrations anteriores, aplicar:
+- `20260923160000_store_orders`.
+
+Smoke tests da Loja:
+- comprar última unidade em duas sessões concorrentes;
+- expirar Pix e confirmar devolução de reserva;
+- pagar Pix e confirmar reservado → vendido;
+- repetir webhook e confirmar ledger/estoque sem duplicação;
+- validar e-mail com código de retirada;
+- confirmar retirada com código correto;
+- recusar código incorreto;
+- estornar pedido não retirado e confirmar retorno ao estoque;
+- não devolver estoque automaticamente se já foi retirado.
+
+
+
 - gerar Prisma Client com a nova migration;
 - aplicar migration em ambiente de teste;
 - executar typecheck/build/test;
@@ -361,3 +470,22 @@ Para ingresso recebido por transferência, `orderPublicToken` é `null`.
 O tipo do client foi corrigido para refletir isso.
 
 Motivo: quem recebe um ingresso não pode receber o segredo do pedido original e enxergar os demais ingressos do comprador.
+
+
+---
+
+## 10. Testes da venda da Loja — 23/09/2026
+
+Arquivo:
+`apps/api/src/__tests__/store-orders.test.ts`.
+
+Cenários:
+- pedido reserva estoque e congela preço;
+- nova compra acima do disponível é recusada;
+- `PAID` converte reserva em venda;
+- webhook/status `PAID` repetido é idempotente;
+- `SALE_CREDIT` e `PLATFORM_FEE` não duplicam;
+- estorno antes da retirada devolve estoque;
+- expiração devolve reserva.
+
+Esses testes foram adicionados ao repositório, mas a execução completa continua pendente até retomarmos o CI conforme combinado.
