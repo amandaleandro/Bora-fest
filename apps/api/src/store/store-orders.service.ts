@@ -237,15 +237,15 @@ export class StoreOrdersService {
     if (!order) throw new NotFoundException("Pedido da Loja não encontrado");
     await this.orgAccess.assertPermission(order.organizationId, userId, PERMISSIONS.EVENT_CREATE);
 
-    if (!["PAID", "READY"].includes(order.status)) {
-      throw new BadRequestException("Somente pedido pago pode ser entregue");
+    if (order.status !== "READY") {
+      throw new BadRequestException("Marque o pedido como pronto antes de confirmar a retirada");
     }
     if (order.pickupCode.toUpperCase() !== input.pickupCode.toUpperCase()) {
       throw new ForbiddenException("Código de retirada incorreto");
     }
 
     const updated = await prisma.storeOrder.updateMany({
-      where: { id: order.id, status: { in: ["PAID", "READY"] } },
+      where: { id: order.id, status: "READY" },
       data: { status: "FULFILLED", fulfilledAt: new Date() },
     });
     if (updated.count === 0) {
