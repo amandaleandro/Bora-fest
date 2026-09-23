@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Ip, Param, Post, UseGuards } from "@nestjs/common";
 import {
   createStoreOrderSchema,
   createStorePixPaymentSchema,
   fulfillStoreOrderSchema,
   rejectStoreRefundSchema,
   requestStoreRefundSchema,
+  createCardPaymentSchema,
 } from "@borafest/contracts";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { SessionGuard } from "../common/session.guard";
@@ -48,6 +49,15 @@ export class PublicStoreOrderController {
     @Body(ZodBody(createStorePixPaymentSchema)) body: unknown,
   ) {
     return this.payments.createPix(publicToken, body as any);
+  }
+
+  @Post(":publicToken/payments/card")
+  createCard(
+    @Param("publicToken") publicToken: string,
+    @Ip() ip: string,
+    @Body(ZodBody(createCardPaymentSchema)) body: unknown,
+  ) {
+    return this.payments.createCard(publicToken, body as any, ip);
   }
 
   @Post(":publicToken/payments/sync")
