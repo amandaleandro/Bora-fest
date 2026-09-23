@@ -191,7 +191,9 @@ export class StoreOrdersService {
     });
     if (!order) throw new NotFoundException("Pedido da Loja não encontrado");
 
-    const showPickupCode = ["PAID", "READY", "FULFILLED"].includes(order.status);
+    const showPickupCode =
+      order.fulfillmentMethod === "PICKUP" &&
+      ["PAID", "READY", "FULFILLED"].includes(order.status);
     return {
       id: order.id,
       publicToken: order.publicToken,
