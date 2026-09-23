@@ -7,6 +7,14 @@ import {
   StoreVariantController,
 } from "./store.controller";
 import { StoreService } from "./store.service";
+import { StoreOrdersService } from "./store-orders.service";
+import { StorePaymentsService } from "./store-payments.service";
+import {
+  PublicStoreOrderController,
+  PublicStoreOrdersController,
+  StoreOrderManageController,
+  StoreOrdersManageController,
+} from "./store-orders.controller";
 
 @Module({
   controllers: [
@@ -14,8 +22,12 @@ import { StoreService } from "./store.service";
     StoreProductController,
     StoreVariantController,
     PublicStoreController,
+    PublicStoreOrdersController,
+    PublicStoreOrderController,
+    StoreOrdersManageController,
+    StoreOrderManageController,
   ],
-  providers: [StoreService, OrgAccessService],
-  exports: [StoreService],
+  providers: [StoreService, StoreOrdersService, StorePaymentsService, OrgAccessService],
+  exports: [StoreService, StoreOrdersService],
 })
 export class StoreModule {}
