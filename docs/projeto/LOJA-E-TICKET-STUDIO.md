@@ -489,3 +489,114 @@ Cenários:
 - expiração devolve reserva.
 
 Esses testes foram adicionados ao repositório, mas a execução completa continua pendente até retomarmos o CI conforme combinado.
+
+
+---
+
+## 11. Conta, preparo e pós-venda da Loja — 23/09/2026
+
+### 11.1 Minhas compras
+
+A conta do comprador agora possui:
+`GET /v1/me/store-orders`.
+
+Regra de segurança:
+- compra como convidado pode ficar com `userId = null`;
+- o pedido só é reivindicado automaticamente pela conta quando a posse do e-mail foi comprovada;
+- OTP e magic link atualizam também `StoreOrder.userId`;
+- `/v1/me/store-orders` só faz claim por e-mail quando `emailVerifiedAt` existe;
+- não associar pedido a conta apenas porque alguém digitou o e-mail no checkout.
+
+O frontend `/minhas-compras` mostra ingressos e, em seção própria, produtos da Loja.
+
+Compra como convidado também é lembrada localmente em:
+`bf.storeOrders`.
+
+Esse histórico local é conveniência, não prova de propriedade para ação financeira.
+
+### 11.2 Estados operacionais
+
+Fluxo obrigatório:
+```
+PAID -> READY -> FULFILLED
+```
+
+Semântica:
+- `PAID`: pagamento confirmado / pedido em preparo;
+- `READY`: Casa terminou o preparo e o cliente pode retirar;
+- `FULFILLED`: produto efetivamente entregue.
+
+A retirada não pode pular READY.
+
+Endpoint:
+- `POST /v1/store/orders/:orderId/ready`;
+- `POST /v1/store/orders/:orderId/fulfill`.
+
+Ao marcar READY:
+- cliente recebe e-mail;
+- código de retirada é lembrado no e-mail;
+- página do pedido passa a dizer “Pronto para retirada”.
+
+### 11.3 Reembolso e devolução
+
+Modelo:
+`StoreRefundRequest`.
+
+Status:
+- `PENDING`;
+- `AWAITING_RETURN`;
+- `APPROVED`;
+- `REJECTED`.
+
+Migration:
+`20260923190000_store_refund_requests`.
+
+Pedido ainda não retirado:
+- solicitação entra PENDING;
+- aprovação chama o gateway;
+- estorno financeiro reverte ledger;
+- estoque vendido retorna automaticamente.
+
+Pedido já FULFILLED:
+- solicitação entra AWAITING_RETURN;
+- Casa precisa confirmar recebimento físico;
+- ao confirmar devolução, soldCount diminui;
+- solicitação vira PENDING;
+- só depois o estorno pode ser aprovado;
+- o estorno financeiro NÃO reduz o estoque novamente.
+
+Depois de `returnedAt` preenchido, rejeição é bloqueada.
+Motivo: a Casa já declarou que recebeu fisicamente a mercadoria.
+
+Endpoints:
+- `POST /v1/public/store/orders/:publicToken/refund-requests` — exige sessão do dono;
+- `GET /v1/organizations/:organizationId/store/refund-requests`;
+- `POST .../:requestId/returned`;
+- `POST .../:requestId/approve`;
+- `POST .../:requestId/reject`.
+
+### 11.4 Estorno pendente
+
+Se o PSP responder PENDING ao refund:
+- `StorePayment.status = REFUND_PENDING`;
+- solicitação fica APPROVED;
+- webhook posterior REFUNDED conclui a máquina de estados.
+
+`applyStoreGatewayStatus` aceita reversão tanto de PAID quanto de REFUND_PENDING.
+
+### 11.5 Testes adicionais
+
+`store-orders.test.ts` agora cobre também:
+- PAID -> READY;
+- devolução física repõe estoque uma única vez;
+- REFUNDED depois de REFUND_PENDING;
+- impossibilidade de dupla reposição após devolução física.
+
+O helper de integração limpa explicitamente:
+- StorePaymentEvent;
+- StorePayment;
+- StoreRefundRequest;
+- StoreOrderItem;
+- StoreOrder;
+- StoreProductVariant;
+- StoreProduct.
