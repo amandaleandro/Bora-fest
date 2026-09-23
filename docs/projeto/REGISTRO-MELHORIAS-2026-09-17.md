@@ -836,3 +836,130 @@ O teste de transferência verifica que:
 - QR anterior é inválido;
 - código anterior é inválido;
 - QR novo continua válido.
+
+
+---
+
+## 18. Loja da Casa — compra real — 23/09/2026
+
+### 18.1 Decisão estrutural
+
+A Loja ganhou pedido comercial próprio:
+- `StoreOrder`;
+- `StoreOrderItem`;
+- `StorePayment`;
+- `StorePaymentEvent`.
+
+Não foi reutilizado `Order` de ingresso porque isso exigiria evento/lote fictício.
+
+Migration:
+`20260923160000_store_orders`.
+
+### 18.2 Jornada pública
+
+`/casa/[slug]` agora permite:
+- escolher variação;
+- quantidade;
+- montar carrinho;
+- informar contato;
+- reservar estoque;
+- seguir para o Pix.
+
+Página:
+`/loja/pedido/[publicToken]`.
+
+Ela:
+- mostra itens e total;
+- conta a janela de reserva;
+- gera Pix;
+- exibe QR/copia-e-cola;
+- sincroniza o gateway;
+- libera código de retirada após pagamento.
+
+### 18.3 Estoque
+
+Reserva usa UPDATE condicional no banco.
+
+Não existe oversell por simples leitura seguida de update.
+
+PAID converte reserva em venda com guards de capacidade.
+
+Expiração:
+- cancela pedido;
+- libera `reservedCount`;
+- falha se a contagem estiver inconsistente.
+
+### 18.4 Webhook e financeiro
+
+Worker reconhece pagamento de:
+- ticketing;
+- VIP;
+- Loja.
+
+Loja usa `StorePaymentEvent` para idempotência.
+
+PAID lança:
+- SALE_CREDIT;
+- PLATFORM_FEE.
+
+Pagamento tardio sem pedido honrável vira `store.payment.orphaned` e é estornado pelo outbox.
+
+### 18.5 Retirada
+
+Pedido pago recebe código.
+
+Painel:
+`/organizacoes/[orgId]/loja`.
+
+Produtor:
+- vê comprador;
+- itens;
+- valor;
+- status;
+- informa código apresentado pelo cliente;
+- confirma entrega.
+
+Somente PAID/READY vira FULFILLED.
+
+### 18.6 Comunicação
+
+No PAID é criada notificação `store_order_paid`.
+
+E-mail contém:
+- Casa;
+- itens;
+- total;
+- código de retirada;
+- link permanente do pedido.
+
+HTML escapa campos controlados por comprador/produto.
+
+### 18.7 Reversão
+
+REFUNDED/CHARGEBACK:
+- reverte ledger;
+- antes da retirada: estoque vendido volta;
+- depois de FULFILLED: não repõe estoque automaticamente.
+
+### 18.8 Testes
+
+`store-orders.test.ts` cobre:
+- preço congelado;
+- reserva;
+- anti-oversell;
+- PAID idempotente;
+- ledger único;
+- estorno;
+- expiração.
+
+A execução automatizada fica para o fechamento do CI, conforme combinado.
+
+### 18.9 Próximas evoluções
+
+- cartão;
+- entrega/frete;
+- reembolso self-service;
+- devolução física;
+- “Minhas compras” para produtos;
+- CRM/relatórios;
+- push de nova venda da Loja.
