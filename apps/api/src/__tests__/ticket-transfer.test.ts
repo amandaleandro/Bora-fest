@@ -101,6 +101,19 @@ test("transferência troca titular, reassina o QR e audita", async () => {
     );
 
     const toUser = await prisma.user.create({ data: { name: "Novo Titular", email } });
+
+    await prisma.ticketFaceEnrollment.create({
+      data: {
+        ticketId: ticket.id,
+        status: "ACTIVE",
+        provider: "test-provider",
+        providerReference: "face-ref-original-owner",
+        consentVersion: "face-checkin-v1",
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+
     const result = await ticketsService.transferTicket(ticket.id, buyerUserId, { toEmail: email });
     assert.equal(result.attendeeName, "Novo Titular");
 
@@ -108,6 +121,13 @@ test("transferência troca titular, reassina o QR e audita", async () => {
     assert.equal(updated.ownerUserId, toUser.id, "POSSE muda para a conta destino");
     assert.notEqual(updated.qrToken, ticket.qrToken, "QR deve ser reassinado (nonce novo)");
     assert.notEqual(updated.code, ticket.code, "código curto também precisa ser girado");
+
+    const faceEnrollment = await prisma.ticketFaceEnrollment.findUniqueOrThrow({
+      where: { ticketId: ticket.id },
+    });
+    assert.equal(faceEnrollment.status, "REVOKED", "biometria do titular anterior precisa ser revogada");
+    assert.equal(faceEnrollment.providerReference, null, "referência biométrica anterior não permanece no ingresso");
+    assert.ok(faceEnrollment.revokedAt, "revogação facial deve deixar timestamp de auditoria");
 
     const carteiraNova = await ticketsService.findByUser(toUser.id);
     assert.ok(carteiraNova.some((t: any) => t.id === ticket.id), "ingresso na carteira destino");
