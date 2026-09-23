@@ -43,6 +43,11 @@ export class MeController {
     return this.meService.orders(userId);
   }
 
+  @Get("store-orders")
+  storeOrders(@CurrentUserId() userId: string) {
+    return this.meService.storeOrders(userId);
+  }
+
   @Get("data-export")
   dataExport(@CurrentUserId() userId: string) {
     return this.meService.dataExport(userId);
