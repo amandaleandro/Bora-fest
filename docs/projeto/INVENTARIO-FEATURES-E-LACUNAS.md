@@ -255,6 +255,29 @@ Não criar um segundo sistema de afiliados. Evoluções devem usar `PromoterLink
 ### Regra
 Falha de rede não pode ser tratada automaticamente como ingresso inválido.
 
+### 9.1 Check-in facial — NOVO / PARCIAL
+
+Implementado:
+- schema e migrations de enrollment facial;
+- `CheckinMethod.FACE`;
+- opt-in por evento;
+- consentimento explícito por ingresso;
+- enrollment/revogação;
+- verificação 1:1;
+- liveness exigido pelo contrato do provedor;
+- portaria com modo facial;
+- bridge web e mobile;
+- facial não funciona offline;
+- QR/manual obrigatórios como fallback;
+- transferência revoga biometria anterior;
+- referência biométrica não é exposta ao cliente.
+
+Pendente externo:
+- escolher e integrar SDK/gateway biométrico real;
+- job de retenção/limpeza no provedor.
+
+Detalhes: `docs/projeto/CHECKIN-FACIAL.md`.
+
 ---
 
 ## 10. Financeiro
