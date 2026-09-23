@@ -4,7 +4,7 @@ import { prisma } from "@borafest/database";
 import { closeRedisConnection } from "@borafest/queues";
 import { applyGatewayStatus } from "@borafest/payments";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
-import { randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { ReservationsService } from "../reservations/reservations.service";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
@@ -299,6 +299,20 @@ test("QR antigo é revogado após transferência e o novo continua válido", asy
     const oldResult = await checkins.create(device, { qrToken: original.qrToken });
     assert.equal(oldResult.result, "INVALID", "QR anterior não pode entrar depois da transferência");
     assert.equal((oldResult as any).reason, "REVOKED_QR");
+
+    const offlineSync = await checkins.sync(device, {
+      batchKey: `revoked-${Math.random().toString(36).slice(2, 12)}`,
+      items: [
+        {
+          localSeq: 1,
+          ticketId: original.id,
+          qrHash: createHash("sha256").update(original.qrToken).digest("hex"),
+          scannedAt: new Date(),
+        },
+      ],
+    });
+    assert.equal(offlineSync.invalid, 1, "fila offline com QR antigo deve ser recusada no sync");
+    assert.equal(offlineSync.confirmed, 0);
 
     const newResult = await checkins.create(device, { qrToken: transferred.qrToken });
     assert.equal(newResult.result, "VALID", "QR reassinado do novo titular continua válido");
