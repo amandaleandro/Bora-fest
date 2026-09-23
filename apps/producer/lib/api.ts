@@ -545,6 +545,9 @@ export interface Dashboard {
     nominal?: boolean;
     requiresCpf?: boolean;
     pdvOnly?: boolean;
+    promoterOnly?: boolean;
+    startsAt?: string | null;
+    endsAt?: string | null;
     capacity: number;
     sold: number;
     reserved: number;
