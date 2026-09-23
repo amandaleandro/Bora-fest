@@ -531,6 +531,8 @@ model Event {
   canceledAt             DateTime?      @map("canceled_at")
   waitingRoomEnabled     Boolean        @default(false) @map("waiting_room_enabled")
   waitingRoomConcurrency Int            @default(300) @map("waiting_room_concurrency")
+  /// facial é opt-in por evento; QR/manual continuam como fallback obrigatório.
+  faceCheckinEnabled     Boolean        @default(false) @map("face_checkin_enabled")
   pixelSettings          Json?          @map("pixel_settings")
   metaCapiToken          String?        @map("meta_capi_token")
   /// tema visual do ingresso; não altera QR, validade ou regras de acesso.
