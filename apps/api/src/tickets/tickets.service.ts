@@ -3,7 +3,7 @@ import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { origemGratis } from "../common/origem-gratis";
-import { signTicketToken } from "@borafest/tickets";
+import { generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
 import type { TransferTicketInput } from "@borafest/contracts";
@@ -270,6 +270,10 @@ export class TicketsService {
       },
       ticket.event.signingKey.privateKeyPem,
     );
+    // O código curto também é credencial de entrada. Se ele permanecesse
+    // estável, o antigo titular poderia ignorar o QR revogado e entrar digitando
+    // o código antigo na portaria.
+    const newCode = generateTicketCode();
 
     const toName = toUser.name ?? toUser.email ?? "Novo titular";
     const lotLabel = `${ticket.ticketLot.ticketType.name} — ${ticket.ticketLot.name}`;
@@ -291,6 +295,7 @@ export class TicketsService {
           attendeeName: toName,
           attendeeEmail: toUser.email,
           attendeeCpf: toUser.cpf ?? null,
+          code: newCode,
           qrToken,
         },
       });
@@ -306,7 +311,14 @@ export class TicketsService {
           entityType: "ticket",
           entityId: ticket.id,
           actorUserId: userId,
-          metadata: { fromName, fromEmail, toUserId: toUser.id, toEmail: toUser.email },
+          metadata: {
+            fromName,
+            fromEmail,
+            fromCode: ticket.code,
+            toUserId: toUser.id,
+            toEmail: toUser.email,
+            toCode: newCode,
+          },
         },
       });
 
@@ -319,7 +331,7 @@ export class TicketsService {
           payload: {
             eventTitle: ticket.event.title,
             lotLabel,
-            code: ticket.code,
+            code: newCode,
             toName,
             fromEmail,
             walletUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/perfil`,
