@@ -770,3 +770,53 @@ Isso evita:
 - omitir CPF obrigatório;
 - somar taxa absorvida pelo produtor por fallback errado;
 - avançar com metadados incompletos.
+
+
+---
+
+## 18. Segurança de transferência e portaria — 23/09/2026
+
+### 18.1 Dupla transferência concorrente
+
+Antes, duas chamadas simultâneas podiam ler o mesmo dono antes da escrita.
+
+Agora a mudança de titular usa compare-and-swap em `ownerUserId` dentro da transação:
+- uma vence;
+- outra falha;
+- não duplica audit log;
+- não duplica notificação.
+
+Teste em `ticket-transfer.test.ts`.
+
+### 18.2 Reembolso depois de presentear
+
+Bloqueado nos caminhos self-service:
+- `RefundRequestsService.create`;
+- `OrdersService.requestProtectionRefund`.
+
+Se algum ingresso ativo estiver com `ownerUserId` diferente do titular do pedido, o comprador precisa receber o ingresso de volta antes de pedir reembolso.
+
+A regra não foi aplicada aos fluxos administrativos, para não impedir cancelamento de evento ou decisão operacional legítima.
+
+### 18.3 QR antigo ainda assinado
+
+Bug crítico encontrado: transferência gerava QR novo, porém o QR antigo ainda tinha assinatura Ed25519 válida e o check-in online só extraía o mesmo `ticketId`.
+
+Correção:
+- servidor compara o QR recebido com o `qrToken` atual;
+- motivo específico `REVOKED_QR`;
+- portaria mostra mensagem orientando pedir o ingresso atualizado.
+
+### 18.4 Revogação offline
+
+O manifesto agora leva `qrHash = SHA-256(qrToken)`.
+
+O app:
+- persiste apenas o hash;
+- compara o QR escaneado com o manifesto;
+- guarda o hash escaneado na fila offline;
+- envia o hash no sync.
+
+O servidor compara o hash da fila com a versão atual do ingresso. Se houve transferência/reemissão depois do scan, o item vira `INVALID`.
+
+O SQLite possui migration local aditiva para `qr_hash` tanto em `tickets` quanto em `pending_checkins`.
