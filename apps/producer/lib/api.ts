@@ -285,6 +285,34 @@ export interface StoreOrderManage {
   payments: Array<{ method: string; status: string; amountCents: number; paidAt: string | null }>;
 }
 
+export interface StoreRefundRequestManage {
+  id: string;
+  reason: string;
+  status: "PENDING" | "AWAITING_RETURN" | "APPROVED" | "REJECTED";
+  requestedAt: string;
+  returnedAt: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  order: {
+    id: string;
+    publicToken: string;
+    status: string;
+    contactName: string;
+    contactEmail: string;
+    totalCents: number;
+    pickupCode: string;
+    paidAt: string | null;
+    fulfilledAt: string | null;
+    items: Array<{
+      id: string;
+      productName: string;
+      variantName: string;
+      quantity: number;
+      priceCents: number;
+    }>;
+  };
+}
+
 export const storeApi = {
   list: (token: string, organizationId: string) =>
     request<StoreProduct[]>(`/v1/organizations/${organizationId}/store/products`, { token }),
@@ -341,12 +369,37 @@ export const storeApi = {
     }),
   listOrders: (token: string, organizationId: string) =>
     request<StoreOrderManage[]>(`/v1/organizations/${organizationId}/store/orders`, { token }),
+  markReady: (token: string, orderId: string) =>
+    request<{ ready: boolean }>(`/v1/store/orders/${orderId}/ready`, {
+      method: "POST",
+      token,
+    }),
   fulfillOrder: (token: string, orderId: string, pickupCode: string) =>
     request<{ fulfilled: boolean }>(`/v1/store/orders/${orderId}/fulfill`, {
       method: "POST",
       body: { pickupCode },
       token,
     }),
+  listRefundRequests: (token: string, organizationId: string) =>
+    request<StoreRefundRequestManage[]>(
+      `/v1/organizations/${organizationId}/store/refund-requests`,
+      { token },
+    ),
+  markRefundReturned: (token: string, organizationId: string, requestId: string) =>
+    request<{ returned: boolean }>(
+      `/v1/organizations/${organizationId}/store/refund-requests/${requestId}/returned`,
+      { method: "POST", token },
+    ),
+  approveRefund: (token: string, organizationId: string, requestId: string) =>
+    request<{ approved: boolean; gatewayStatus: string }>(
+      `/v1/organizations/${organizationId}/store/refund-requests/${requestId}/approve`,
+      { method: "POST", token },
+    ),
+  rejectRefund: (token: string, organizationId: string, requestId: string, note: string) =>
+    request<StoreRefundRequestManage>(
+      `/v1/organizations/${organizationId}/store/refund-requests/${requestId}/reject`,
+      { method: "POST", body: { note }, token },
+    ),
 };
 
 // ---------------------------------------------------------------------------
