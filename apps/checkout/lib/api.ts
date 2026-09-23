@@ -183,6 +183,7 @@ export interface FaceCapabilities {
 
 export interface FaceEnrollmentStatus {
   enrolled: boolean;
+  eventEnabled: boolean;
   enrollment: {
     status: "PENDING" | "ACTIVE" | "REVOKED" | "EXPIRED";
     provider: string;
