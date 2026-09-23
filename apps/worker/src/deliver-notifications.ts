@@ -197,6 +197,40 @@ async function send(
     throw new Error(`Canal não suportado para member_invited: ${channel}`);
   }
 
+  if (template === "store_order_ready") {
+    if (channel !== "EMAIL") {
+      throw new Error(`Canal não suportado para store_order_ready: ${channel}`);
+    }
+    const p = payload as { pickupCode: string; orderUrl: string };
+    await getEmailSender().send({
+      to: recipient,
+      subject: "Seu pedido da Loja está pronto para retirada · BoraFest",
+      text: [
+        "Seu pedido está pronto para retirada.",
+        "",
+        `Código de retirada: ${p.pickupCode}`,
+        "",
+        "Abra o pedido para conferir os detalhes:",
+        p.orderUrl,
+        "",
+        "Equipe BoraFest",
+      ].join("\n"),
+      html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <h2>Seu pedido está pronto 🎉</h2>
+  <p>Agora você já pode fazer a retirada.</p>
+  <div style="margin:20px 0;padding:16px;border-radius:12px;background:#f4f1ff;text-align:center">
+    <div style="font-size:12px;color:#666">Código de retirada</div>
+    <div style="font-size:28px;font-weight:800;letter-spacing:4px">${escapeHtml(p.pickupCode)}</div>
+  </div>
+  <p><a href="${escapeHtml(p.orderUrl)}" style="display:inline-block;background:#6D28D9;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Ver pedido</a></p>
+  <p style="color:#666;font-size:12px">Mostre o código no momento da retirada.</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+    });
+    return;
+  }
+
   if (template === "store_order_paid") {
     if (channel !== "EMAIL") {
       throw new Error(`Canal não suportado para store_order_paid: ${channel}`);
