@@ -30,10 +30,33 @@ export default function EventPreviewPage({ params }: { params: { eventId: string
     dashboardApi.get(token, params.eventId).then(setDashboard).catch(() => setDashboard(null));
   }, [token, params.eventId]);
 
-  const publicLots = useMemo(
-    () => dashboard?.lots.filter((lot) => lot.status === "ACTIVE" && !lot.pdvOnly) ?? [],
-    [dashboard],
-  );
+  const publicLots = useMemo(() => {
+    const now = Date.now();
+    return (
+      dashboard?.lots.filter(
+        (lot) =>
+          lot.status === "ACTIVE" &&
+          !lot.pdvOnly &&
+          !lot.promoterOnly &&
+          (!lot.startsAt || new Date(lot.startsAt).getTime() <= now) &&
+          (!lot.endsAt || new Date(lot.endsAt).getTime() > now),
+      ) ?? []
+    );
+  }, [dashboard]);
+
+  const promoterLots = useMemo(() => {
+    const now = Date.now();
+    return (
+      dashboard?.lots.filter(
+        (lot) =>
+          lot.status === "ACTIVE" &&
+          !lot.pdvOnly &&
+          Boolean(lot.promoterOnly) &&
+          (!lot.startsAt || new Date(lot.startsAt).getTime() <= now) &&
+          (!lot.endsAt || new Date(lot.endsAt).getTime() > now),
+      ) ?? []
+    );
+  }, [dashboard]);
 
   if (!event || !dashboard) {
     return <p className="mt-4 text-[13px] font-semibold text-muted">Carregando prévia…</p>;
@@ -139,7 +162,7 @@ export default function EventPreviewPage({ params }: { params: { eventId: string
             ) : null}
 
             <div className="mt-7">
-              <h2 className="text-[16px] font-extrabold text-ink">Ingressos disponíveis no site</h2>
+              <h2 className="text-[16px] font-extrabold text-ink">Ingressos públicos agora</h2>
               {publicLots.length > 0 ? (
                 <div className="mt-3 space-y-2">
                   {publicLots.map((lot) => (
@@ -156,11 +179,33 @@ export default function EventPreviewPage({ params }: { params: { eventId: string
                 <div className="mt-3 rounded-2xl border border-warning/30 bg-warning/5 p-4">
                   <p className="text-[13px] font-extrabold text-ink">Nenhum lote online ativo</p>
                   <p className="mt-1 text-[12px] font-semibold text-muted">
-                    Lotes exclusivos de PDV não aparecem para compra no site.
+                    Não há lote online público dentro da janela de venda neste momento. Lotes de PDV e promoter ficam fora desta lista.
                   </p>
                 </div>
               )}
             </div>
+
+            {promoterLots.length > 0 ? (
+              <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                <h2 className="text-[14px] font-extrabold text-ink">Exclusivos por promoter</h2>
+                <p className="mt-1 text-[11.5px] font-semibold text-muted">
+                  Estes lotes só aparecem para quem entra por um link válido de promoter ou vendedor.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {promoterLots.map((lot) => (
+                    <div key={lot.id} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3">
+                      <div>
+                        <p className="text-[12.5px] font-extrabold text-ink">{lot.typeName} · {lot.name}</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-muted">{lot.available} disponíveis</p>
+                      </div>
+                      <p className="text-[13px] font-black text-ink">
+                        {money(lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0))}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
