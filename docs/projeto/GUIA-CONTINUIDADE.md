@@ -825,3 +825,61 @@ O `pickupCode` é segredo operacional do pedido:
 ### Evolução prevista
 
 Cartão, frete, endereço, reembolso self-service, histórico na conta e CRM da Loja devem ampliar `StoreOrder`, não criar um terceiro modelo comercial paralelo.
+
+
+## 46. Loja — conta, READY e devolução
+
+### Propriedade da compra
+
+`publicToken` permite acompanhar o pedido, mas não autoriza ação financeira.
+
+Solicitação de reembolso exige sessão e:
+`storeOrder.userId === currentUserId`.
+
+Pedidos de convidado só entram na conta depois de posse do e-mail comprovada.
+
+Nunca implementar “claim por e-mail” para conta não verificada.
+
+### Máquina operacional
+
+```
+CREATED/PAYMENT_PENDING
+        |
+       PAID        = preparando
+        |
+       READY       = pronto para retirada
+        |
+     FULFILLED     = retirado
+```
+
+FULFILLED exige READY.
+
+### Máquina de devolução
+
+Não retirado:
+```
+PAID/READY -> refund PENDING -> REFUNDED
+```
+
+Já retirado:
+```
+FULFILLED
+ -> refund AWAITING_RETURN
+ -> Casa confirma retorno físico
+ -> refund PENDING
+ -> gateway refund
+ -> REFUNDED
+```
+
+A confirmação física é quem devolve o item ao inventário no caso FULFILLED.
+
+O webhook do estorno nunca deve repor a mesma unidade outra vez.
+
+### Regra que não pode voltar
+
+- confirmar retirada direto de PAID;
+- permitir reembolso financeiro irreversível apenas com publicToken;
+- associar pedido guest a conta sem e-mail verificado;
+- rejeitar reembolso depois de aceitar a devolução física;
+- repor estoque duas vezes;
+- marcar mercadoria como devolvida só porque o PSP devolveu dinheiro.
