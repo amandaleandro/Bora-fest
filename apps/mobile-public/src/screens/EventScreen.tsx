@@ -38,7 +38,13 @@ export function EventScreen({ slug, promoterSlug, sellerSlug, onBack, onReserved
     return event.ticketTypes.reduce(
       (sum, type) =>
         sum +
-        type.lots.reduce((lotSum, lot) => lotSum + (quantities[lot.id] ?? 0) * (lot.priceCents + lot.feeCents), 0),
+        type.lots.reduce(
+          (lotSum, lot) =>
+            lotSum +
+            (quantities[lot.id] ?? 0) *
+              (lot.priceCents + (lot.feeMode === "PRODUCER" ? 0 : lot.feeCents)),
+          0,
+        ),
       0,
     );
   }, [event, quantities]);
@@ -116,7 +122,9 @@ export function EventScreen({ slug, promoterSlug, sellerSlug, onBack, onReserved
               <View key={lot.id} style={styles.lotRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.lotName}>{lot.name}</Text>
-                  <Text style={styles.lotPrice}>{formatCents(lot.priceCents + lot.feeCents)}</Text>
+                  <Text style={styles.lotPrice}>
+                    {formatCents(lot.priceCents + (lot.feeMode === "PRODUCER" ? 0 : lot.feeCents))}
+                  </Text>
                   {soldOut ? <Text style={styles.soldOut}>esgotado</Text> : null}
                 </View>
                 <View style={styles.stepper}>
