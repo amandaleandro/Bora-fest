@@ -208,3 +208,51 @@ test("comprador NÃO reclama de volta um ingresso já presenteado", async () => 
     await cleanupFixtureEvent(organization.id);
   }
 });
+
+
+test("duas transferências concorrentes do mesmo ingresso: apenas uma vence", async () => {
+  const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
+
+  try {
+    const { buyerUserId, tickets } = await buildPaidOrder(event.id, lot.id);
+    const ticket = tickets[0];
+    const ticketsService = new TicketsService();
+
+    const a = await prisma.user.create({
+      data: { name: "Destino A", email: `dest-a-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+    const b = await prisma.user.create({
+      data: { name: "Destino B", email: `dest-b-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+
+    const results = await Promise.allSettled([
+      ticketsService.transferTicket(ticket.id, buyerUserId, { toEmail: a.email! }),
+      ticketsService.transferTicket(ticket.id, buyerUserId, { toEmail: b.email! }),
+    ]);
+
+    assert.equal(
+      results.filter((result) => result.status === "fulfilled").length,
+      1,
+      "somente uma transferência concorrente pode concluir",
+    );
+    assert.equal(
+      results.filter((result) => result.status === "rejected").length,
+      1,
+      "a segunda precisa falhar ao perder o compare-and-swap da posse",
+    );
+
+    const finalTicket = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+    assert.ok([a.id, b.id].includes(finalTicket.ownerUserId ?? ""));
+
+    const audits = await prisma.auditLog.count({
+      where: { entityType: "ticket", entityId: ticket.id, action: "ticket.transfer" },
+    });
+    const notifications = await prisma.notification.count({
+      where: { template: "ticket_transferred", payload: { path: ["code"], equals: ticket.code } },
+    });
+    assert.equal(audits, 1, "não pode duplicar auditoria");
+    assert.equal(notifications, 1, "não pode duplicar notificação");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});
