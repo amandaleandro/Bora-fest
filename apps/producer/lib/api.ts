@@ -530,6 +530,7 @@ export interface Dashboard {
     bannerUrl?: string | null;
     waitingRoomEnabled: boolean;
     waitingRoomConcurrency: number;
+    faceCheckinEnabled: boolean;
     pixelSettings?: PixelSettings | null;
     venue?: EventVenue | null;
   };
@@ -847,6 +848,7 @@ export interface UpdateEventInput {
   bannerUrl?: string;
   waitingRoomEnabled?: boolean;
   waitingRoomConcurrency?: number;
+  faceCheckinEnabled?: boolean;
   pixelSettings?: PixelSettings;
   /** Token da API de Conversões da Meta; "" ou null desliga. */
   metaCapiToken?: string | null;
