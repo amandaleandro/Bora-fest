@@ -1025,6 +1025,7 @@ export class OrdersService {
       include: {
         event: { select: { startsAt: true } },
         payments: { select: { id: true } },
+        tickets: { select: { ownerUserId: true, status: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
@@ -1046,6 +1047,17 @@ export class OrdersService {
     if (order.event.startsAt.getTime() <= Date.now()) {
       throw new BadRequestException(
         "A janela do reembolso protegido fechou — ela vai até o início do evento",
+      );
+    }
+    const hasTransferredAway = order.tickets.some(
+      (ticket) =>
+        !["REFUNDED", "CANCELED"].includes(ticket.status) &&
+        ticket.ownerUserId !== null &&
+        ticket.ownerUserId !== order.userId,
+    );
+    if (hasTransferredAway) {
+      throw new BadRequestException(
+        "Este pedido tem ingresso transferido para outra pessoa. O ingresso precisa voltar ao titular do pedido antes do reembolso protegido",
       );
     }
 
