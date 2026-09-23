@@ -211,10 +211,10 @@ async function applyReversal(
       where: { id: paymentId },
       include: { order: { include: { items: true } } },
     });
-    if (!payment || payment.status !== "PAID") return result;
+    if (!payment || !["PAID", "REFUND_PENDING"].includes(payment.status)) return result;
 
     const changed = await tx.storePayment.updateMany({
-      where: { id: payment.id, status: "PAID" },
+      where: { id: payment.id, status: { in: ["PAID", "REFUND_PENDING"] } },
       data: { status },
     });
     if (changed.count === 0) return result;
