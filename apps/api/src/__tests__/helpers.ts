@@ -88,6 +88,23 @@ export async function cleanupFixtureEvent(organizationId: string) {
     await prisma.ticketLot.deleteMany({ where: { ticketType: { eventId: event.id } } });
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
   }
+  await prisma.storePaymentEvent.deleteMany({
+    where: { payment: { order: { organizationId } } },
+  });
+  await prisma.storePayment.deleteMany({
+    where: { order: { organizationId } },
+  });
+  await prisma.storeRefundRequest.deleteMany({
+    where: { order: { organizationId } },
+  });
+  await prisma.storeOrderItem.deleteMany({
+    where: { order: { organizationId } },
+  });
+  await prisma.storeOrder.deleteMany({ where: { organizationId } });
+  await prisma.storeProductVariant.deleteMany({
+    where: { product: { organizationId } },
+  });
+  await prisma.storeProduct.deleteMany({ where: { organizationId } });
   await prisma.payoutRequest.deleteMany({ where: { organizationId } });
   await prisma.ledgerEntry.deleteMany({
     where: { ledgerAccount: { organizationId } },
