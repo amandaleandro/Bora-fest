@@ -473,3 +473,37 @@ Pendências de evolução:
 
 Documentação detalhada:
 `docs/projeto/LOJA-E-TICKET-STUDIO.md`.
+
+
+---
+
+## Loja da Casa — expansão comercial 23/09/2026
+
+Status: **MVP comercial transacional implementado**.
+
+Além do bloco anterior, já existe:
+- cartão;
+- Idempotency-Key contra cobrança duplicada;
+- retirada configurável;
+- entrega local configurável;
+- frete fixo server-side;
+- endereço congelado;
+- operação específica por modalidade;
+- alerta de venda por e-mail para owner/admin;
+- analytics/KPIs;
+- top produtos;
+- CRM operacional;
+- testes de entrega/frete/cartão/idempotência/analytics.
+
+Ainda falta para logística avançada:
+- frete por CEP/raio;
+- geocoding;
+- transportadora/cotação;
+- rastreio;
+- etiquetas;
+- push de nova venda (hoje e-mail);
+- exportação/filtros avançados do CRM;
+- campanhas promocionais somente com consentimento;
+- smoke/deploy/CI final.
+
+CRM transacional não equivale a consentimento de marketing.
