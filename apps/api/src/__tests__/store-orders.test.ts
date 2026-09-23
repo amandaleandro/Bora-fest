@@ -546,3 +546,58 @@ test("analytics da Loja separa retirada entrega e CRM", async () => {
     if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
   }
 });
+
+
+test("retry de cartão com a mesma chave não cria segunda cobrança", async () => {
+  const fixture = await buildStore();
+  try {
+    const orders = new StoreOrdersService(new OrgAccessService());
+    const payments = new StorePaymentsService(new IdempotencyService());
+    const order = await orders.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Retry",
+      contactEmail: "retry-card@example.com",
+      fulfillmentMethod: "PICKUP",
+    });
+
+    const input = {
+      card: {
+        number: "4111111111111111",
+        holderName: "CLIENTE RETRY",
+        expiryMonth: "12",
+        expiryYear: "2030",
+        ccv: "123",
+        holderCpf: "12345678901",
+        postalCode: "38400000",
+        addressNumber: "10",
+      },
+      installments: 1,
+      payerDocument: "12345678901",
+    };
+
+    const first = await payments.createCard(
+      order.publicToken,
+      input,
+      "127.0.0.1",
+      "store-card-retry-test",
+    );
+    const second = await payments.createCard(
+      order.publicToken,
+      input,
+      "127.0.0.1",
+      "store-card-retry-test",
+    );
+
+    assert.equal(second.id, first.id);
+    const count = await prisma.storePayment.count({
+      where: { storeOrderId: order.id, method: "CARD" },
+    });
+    assert.equal(count, 1, "mesma Idempotency-Key precisa representar uma única cobrança");
+  } finally {
+    await prisma.notification.deleteMany({ where: { recipient: "retry-card@example.com" } });
+    await prisma.idempotencyKey.deleteMany({
+      where: { key: { contains: "store-card-retry-test" } },
+    });
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
