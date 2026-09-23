@@ -50,7 +50,11 @@ export async function attemptCheckin(
       attendeeName: response.ticket?.attendeeName,
       ticketType: response.ticket?.typeName ?? response.ticket?.lotName,
       previousCheckinAt: response.firstCheckin?.at ?? null,
-      message: describeOutcome(response.result, response.firstCheckin?.deviceName),
+      message: describeOutcome(
+        response.result,
+        response.firstCheckin?.deviceName,
+        response.reason,
+      ),
     };
   } catch {
     return attemptCheckinOffline(scanned, checkinPointId, scannedAt);
@@ -147,7 +151,11 @@ async function attemptCheckinOffline(
   };
 }
 
-function describeOutcome(outcome: CheckinResponse["result"], firstDeviceName?: string): string {
+function describeOutcome(
+  outcome: CheckinResponse["result"],
+  firstDeviceName?: string,
+  reason?: CheckinResponse["reason"],
+): string {
   switch (outcome) {
     case "VALID":
       return "Entrada confirmada";
@@ -158,6 +166,15 @@ function describeOutcome(outcome: CheckinResponse["result"], firstDeviceName?: s
     case "CANCELED":
       return "Ingresso cancelado ou reembolsado";
     default:
+      if (reason === "REVOKED_QR") {
+        return "QR antigo/revogado — peça o ingresso atualizado ao titular";
+      }
+      if (reason === "BAD_SIGNATURE") {
+        return "QR adulterado ou não autêntico";
+      }
+      if (reason === "OTHER_EVENT") {
+        return "Ingresso pertence a outro evento";
+      }
       return "Ingresso inválido";
   }
 }
