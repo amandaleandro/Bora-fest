@@ -692,3 +692,66 @@ Título do evento e link são escapados no HTML enviado aos seguidores.
 - produto publicado não pode perder a última variação ativa;
 - criação/rename concorrente trata colisão de slug sem 500;
 - teste concorrente verifica slugs distintos.
+
+
+---
+
+## 17. Continuidade da revisão — 23/09/2026
+
+### 17.1 Disponibilidade com o mesmo escopo do catálogo
+
+`GET /v1/public/events/:slug/availability` agora aceita `pr` e `vd` e usa o mesmo filtro do detalhe do evento.
+
+Isso corrige inconsistência em que o lote exclusivo aparecia no evento e sumia na leitura de estoque.
+
+### 17.2 Checkout web e mobile
+
+- `/{slug}/ingressos` relê a atribuição salva;
+- checkout web relê o catálogo com `pr/vd`;
+- app mobile propaga promoter/vendedor em catálogo, disponibilidade, reserva e pedido;
+- app registra `borafest://` para deep links;
+- links HTTPS podem ser interpretados se chegarem ao app, mas Universal Links/App Links ainda exigem configuração de domínio/plataforma.
+
+### 17.3 Total do comprador
+
+A reserva agora retorna `buyerTotalCents` calculado pelo backend.
+
+Corrigido caso `feeMode=PRODUCER`, em que o mobile somava a taxa ao comprador mesmo que ela fosse absorvida pela Casa.
+
+Teste em `order-payment-flow.test.ts` garante:
+- reserva mostra R$ 100,00 para 2×R$ 50,00;
+- taxa de R$ 5,00 por unidade não entra;
+- releitura da reserva mantém o valor;
+- pedido cobra o mesmo valor.
+
+### 17.4 Prévia do produtor
+
+Dashboard passou a incluir:
+- `promoterOnly`;
+- `startsAt`;
+- `endsAt` dos lotes.
+
+A prévia separa lotes públicos e lotes exclusivos por promoter e respeita a janela temporal.
+
+### 17.5 Confirmação de estoque
+
+`confirmSaleInventory` e `InventoryService.confirmSale` agora exigem:
+- `reserved_count >= quantity`;
+- `sold_count + quantity <= capacity`.
+
+Sem reserva real, a confirmação falha fechada e não cria venda artificial.
+
+Teste: `inventory-concurrency.test.ts`.
+
+### 17.6 Atribuição congelada na reserva
+
+Nova migration:
+`20260923102000_reservation_promoter_attribution`.
+
+`Reservation` ganhou:
+- `promoterLinkId`;
+- `promoterSellerId`.
+
+O pedido usa esse vínculo como autoridade e ignora tentativa de trocar o promoter depois da reserva.
+
+Teste em `lot-access-window.test.ts` tenta reservar com A e enviar B na criação do pedido; o pedido permanece atribuído a A.
