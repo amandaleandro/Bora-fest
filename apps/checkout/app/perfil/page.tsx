@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError, type TicketTheme } from "../../lib/api";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { Icon, paths } from "../../components/icons";
+import { FaceEnrollmentButton } from "../../components/FaceEnrollmentButton";
 
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
 /** versão vigente do aceite de Termos/Privacidade (handoff v2) */
@@ -563,6 +564,9 @@ export default function ProfilePage() {
                               </button>
                             )}
                           </div>
+                          {!["CANCELED", "REFUNDED", "CHECKED_IN"].includes(ticket.status) ? (
+                            <FaceEnrollmentButton ticketId={ticket.id} />
+                          ) : null}
                           {transferFor === ticket.id && (
                             <div className="mt-3 rounded-2xl border border-line bg-[#faf9fd] p-4 text-left">
                               <p className="text-[12px] font-semibold leading-relaxed text-ink-soft">
