@@ -59,6 +59,11 @@ test("local do evento: cria inline, reaproveita por nome+cidade e sai no dashboa
     assert.ok("bannerUrl" in dash.event, "payload traz bannerUrl (mesmo que null)");
     assert.ok("startsAt" in dash.event && "endsAt" in dash.event, "dashboard traz a janela do evento para pré-publicação");
     assert.ok(dash.lots.every((lot) => "pdvOnly" in lot), "lotes informam se são exclusivos do PDV");
+    assert.ok(dash.lots.every((lot) => "promoterOnly" in lot), "lotes informam se são exclusivos de promoter");
+    assert.ok(
+      dash.lots.every((lot) => "startsAt" in lot && "endsAt" in lot),
+      "dashboard traz a janela de venda de cada lote para a prévia",
+    );
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
   }
