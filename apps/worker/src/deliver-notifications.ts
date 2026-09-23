@@ -197,6 +197,38 @@ async function send(
     throw new Error(`Canal não suportado para member_invited: ${channel}`);
   }
 
+  if (template === "store_sale_received") {
+    if (channel !== "EMAIL") throw new Error(`Canal não suportado para store_sale_received: ${channel}`);
+    const p = payload as {
+      recipientName?: string | null;
+      customerName: string;
+      totalCents: number;
+      fulfillmentMethod: string;
+    };
+    const total = (p.totalCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    await getEmailSender().send({
+      to: recipient,
+      subject: "Nova venda na Loja · BoraFest",
+      text: [
+        p.recipientName ? `Olá, ${p.recipientName}!` : "Olá!",
+        "",
+        `Nova venda de ${total} para ${p.customerName}.`,
+        `Modalidade: ${p.fulfillmentMethod === "DELIVERY" ? "Entrega" : "Retirada"}.`,
+        "",
+        "Abra o painel BoraFest para preparar o pedido.",
+      ].join("\n"),
+      html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <h2>Nova venda na Loja 🎉</h2>
+  <p>${p.recipientName ? `Olá, <b>${escapeHtml(p.recipientName)}</b>!` : "Olá!"}</p>
+  <p>Entrou uma venda de <b>${escapeHtml(total)}</b> para ${escapeHtml(p.customerName)}.</p>
+  <p>Modalidade: <b>${p.fulfillmentMethod === "DELIVERY" ? "Entrega" : "Retirada"}</b>.</p>
+  <p>Abra o painel BoraFest para preparar o pedido.</p>
+</div>`.trim(),
+    });
+    return;
+  }
+
   if (template === "store_order_ready") {
     if (channel !== "EMAIL") {
       throw new Error(`Canal não suportado para store_order_ready: ${channel}`);
