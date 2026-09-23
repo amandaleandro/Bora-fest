@@ -177,6 +177,8 @@ model Organization {
   bio                          String?
   logoUrl                      String?            @map("logo_url")
   coverUrl                     String?            @map("cover_url")
+  /// tema padrão herdado pelos eventos que não definirem ticketTheme próprio.
+  defaultTicketTheme           Json?              @map("default_ticket_theme")
   instagramUrl                 String?            @map("instagram_url")
   websiteUrl                   String?            @map("website_url")
   status                       OrganizationStatus @default(PENDING_VERIFICATION)
