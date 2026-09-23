@@ -43,9 +43,9 @@ export class InventoryService {
   }
 
   async confirmSale(lotId: string, quantity: number, client: DbClient = prisma): Promise<void> {
-    await client.$executeRaw(Prisma.sql`
+    const rows = await client.$queryRaw<{ id: string }[]>(Prisma.sql`
       UPDATE ticket_lots
-      SET reserved_count = GREATEST(reserved_count - ${quantity}, 0),
+      SET reserved_count = reserved_count - ${quantity},
           sold_count = sold_count + ${quantity},
           status = CASE
             WHEN sold_count + ${quantity} >= capacity THEN 'SOLD_OUT'::"LotStatus"
@@ -53,7 +53,14 @@ export class InventoryService {
           END,
           updated_at = now()
       WHERE id = ${lotId}::uuid
+        AND reserved_count >= ${quantity}
+        AND sold_count + ${quantity} <= capacity
+      RETURNING id
     `);
+
+    if (rows.length === 0) {
+      throw new InsufficientStockError(lotId);
+    }
   }
 
   async getAvailability(lotId: string, client: DbClient = prisma) {
