@@ -6,6 +6,7 @@ import { applyStoreGatewayStatus } from "@borafest/payments";
 import { OrgAccessService } from "../common/org-access.service";
 import { StoreOrdersService } from "../store/store-orders.service";
 import { StoreRefundsService } from "../store/store-refunds.service";
+import { StorePaymentsService } from "../store/store-payments.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
 after(async () => {
@@ -363,5 +364,184 @@ test("webhook REFUNDED conclui pagamento que estava REFUND_PENDING", async () =>
     assert.equal(finalPayment.status, "REFUNDED");
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
+
+test("entrega desabilitada é recusada pelo backend", async () => {
+  const fixture = await buildStore();
+  try {
+    const service = new StoreOrdersService(new OrgAccessService());
+    await assert.rejects(
+      () =>
+        service.createPublic(fixture.organization.slug, {
+          items: [{ variantId: fixture.variant.id, quantity: 1 }],
+          contactName: "Cliente Delivery Off",
+          contactEmail: "delivery-off@example.com",
+          fulfillmentMethod: "DELIVERY",
+          shippingAddress: {
+            postalCode: "38400000",
+            street: "Rua Teste",
+            number: "100",
+            neighborhood: "Centro",
+            city: "Uberlândia",
+            state: "MG",
+          },
+        }),
+      /entrega não está habilitada/i,
+    );
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
+test("frete da entrega vem da configuração da Casa e entra no total", async () => {
+  const fixture = await buildStore();
+  try {
+    await prisma.organization.update({
+      where: { id: fixture.organization.id },
+      data: {
+        storeDeliveryEnabled: true,
+        storeFlatShippingCents: 1200,
+      },
+    });
+    const service = new StoreOrdersService(new OrgAccessService());
+    const order = await service.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Delivery",
+      contactEmail: "delivery@example.com",
+      fulfillmentMethod: "DELIVERY",
+      shippingAddress: {
+        postalCode: "38400000",
+        street: "Rua Teste",
+        number: "100",
+        complement: "Apto 2",
+        neighborhood: "Centro",
+        city: "Uberlândia",
+        state: "MG",
+      },
+    });
+
+    assert.equal(order.subtotalCents, 5000);
+    assert.equal(order.shippingCents, 1200);
+    assert.equal(order.totalCents, 6200);
+    assert.equal(order.fulfillmentMethod, "DELIVERY");
+
+    const persisted = await prisma.storeOrder.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(persisted.shippingCents, 1200);
+    assert.equal((persisted.shippingAddress as { city?: string } | null)?.city, "Uberlândia");
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
+test("cartão da Loja cobra total com frete e persiste parcelas", async () => {
+  const fixture = await buildStore();
+  try {
+    await prisma.organization.update({
+      where: { id: fixture.organization.id },
+      data: { storeDeliveryEnabled: true, storeFlatShippingCents: 900 },
+    });
+    const orders = new StoreOrdersService(new OrgAccessService());
+    const payments = new StorePaymentsService();
+    const order = await orders.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Cartão",
+      contactEmail: "card-store@example.com",
+      contactPhone: "34999999999",
+      fulfillmentMethod: "DELIVERY",
+      shippingAddress: {
+        postalCode: "38400000",
+        street: "Avenida Teste",
+        number: "55",
+        neighborhood: "Centro",
+        city: "Uberlândia",
+        state: "MG",
+      },
+    });
+
+    const payment = await payments.createCard(order.publicToken, {
+      card: {
+        number: "4111111111111111",
+        holderName: "CLIENTE TESTE",
+        expiryMonth: "12",
+        expiryYear: "2030",
+        ccv: "123",
+        holderCpf: "12345678901",
+        postalCode: "38400000",
+        addressNumber: "55",
+      },
+      installments: 3,
+      payerDocument: "12345678901",
+    });
+
+    assert.equal(payment.status, "PAID");
+    assert.equal(payment.amountCents, 5900);
+
+    const persistedPayment = await prisma.storePayment.findFirstOrThrow({
+      where: { storeOrderId: order.id, method: "CARD" },
+    });
+    const persistedOrder = await prisma.storeOrder.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(persistedPayment.installments, 3);
+    assert.equal(persistedPayment.amountCents, 5900);
+    assert.equal(persistedOrder.status, "PAID");
+  } finally {
+    await prisma.notification.deleteMany({ where: { recipient: "card-store@example.com" } });
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
+test("analytics da Loja separa retirada entrega e CRM", async () => {
+  const fixture = await buildStore();
+  let userId: string | undefined;
+  try {
+    const owner = await addOwnerMembership(fixture.organization.id, fixture.ownerRoleId);
+    userId = owner.id;
+    await prisma.organization.update({
+      where: { id: fixture.organization.id },
+      data: { storeDeliveryEnabled: true, storeFlatShippingCents: 1000 },
+    });
+
+    const orders = new StoreOrdersService(new OrgAccessService());
+    const delivery = await orders.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente CRM",
+      contactEmail: "crm-store@example.com",
+      fulfillmentMethod: "DELIVERY",
+      shippingAddress: {
+        postalCode: "38400000",
+        street: "Rua CRM",
+        number: "1",
+        neighborhood: "Centro",
+        city: "Uberlândia",
+        state: "MG",
+      },
+    });
+    const payment = await prisma.storePayment.create({
+      data: {
+        storeOrderId: delivery.id,
+        provider: "mock",
+        method: "PIX",
+        status: "PENDING",
+        amountCents: delivery.totalCents,
+        externalId: `analytics-store-${Math.random().toString(36).slice(2, 10)}`,
+      },
+    });
+    await applyStoreGatewayStatus(payment.id, "PAID");
+
+    const analytics = await orders.analytics(fixture.organization.id, owner.id);
+    assert.equal(analytics.paidOrders, 1);
+    assert.equal(analytics.deliveryOrders, 1);
+    assert.equal(analytics.pickupOrders, 0);
+    assert.equal(analytics.uniqueCustomers, 1);
+    assert.equal(analytics.grossCents, 6000);
+    assert.equal(analytics.topProducts[0]?.quantity, 1);
+    assert.equal(analytics.customers[0]?.email, "crm-store@example.com");
+  } finally {
+    await prisma.notification.deleteMany({
+      where: { recipient: { in: ["crm-store@example.com"] } },
+    });
+    await cleanupFixtureEvent(fixture.organization.id);
+    if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
   }
 });
