@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Ip, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Ip, Param, Post, UseGuards } from "@nestjs/common";
 import {
   createStoreOrderSchema,
   createStorePixPaymentSchema,
@@ -55,9 +55,10 @@ export class PublicStoreOrderController {
   createCard(
     @Param("publicToken") publicToken: string,
     @Ip() ip: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Body(ZodBody(createCardPaymentSchema)) body: unknown,
   ) {
-    return this.payments.createCard(publicToken, body as any, ip);
+    return this.payments.createCard(publicToken, body as any, ip, idempotencyKey);
   }
 
   @Post(":publicToken/payments/sync")
