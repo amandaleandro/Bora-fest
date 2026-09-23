@@ -188,3 +188,35 @@ test("estorno antes da retirada devolve estoque e reverte financeiro", async () 
     await cleanupFixtureEvent(fixture.organization.id);
   }
 });
+
+
+test("pedido expirado devolve a reserva de estoque", async () => {
+  const fixture = await buildStore();
+  try {
+    const service = new StoreOrdersService(new OrgAccessService());
+    const order = await service.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Expirado",
+      contactEmail: "expirado@example.com",
+      fulfillmentMethod: "PICKUP",
+    });
+
+    await prisma.storeOrder.update({
+      where: { id: order.id },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    });
+
+    const result = await service.expireOpenOrders();
+    assert.ok(result.released >= 1);
+
+    const [expired, variant] = await Promise.all([
+      prisma.storeOrder.findUniqueOrThrow({ where: { id: order.id } }),
+      prisma.storeProductVariant.findUniqueOrThrow({ where: { id: fixture.variant.id } }),
+    ]);
+    assert.equal(expired.status, "CANCELED");
+    assert.equal(variant.reservedCount, 0);
+    assert.equal(variant.soldCount, 0);
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
