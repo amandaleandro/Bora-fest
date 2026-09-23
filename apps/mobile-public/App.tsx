@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, ActivityIndicator, Linking, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { HomeScreen } from "./src/screens/HomeScreen";
@@ -12,8 +12,8 @@ import "./src/push"; // registra o handler de notificação em foreground assim 
 
 type Screen =
   | { name: "home" }
-  | { name: "event"; slug: string }
-  | { name: "checkout"; reservationId: string }
+  | { name: "event"; slug: string; promoterSlug?: string; sellerSlug?: string }
+  | { name: "checkout"; reservationId: string; promoterSlug?: string; sellerSlug?: string }
   | { name: "wallet"; publicToken: string }
   | { name: "login" }
   | { name: "my-tickets" };
@@ -21,6 +21,29 @@ type Screen =
 function Root() {
   const { user, loading } = useAuth();
   const [screen, setScreen] = useState<Screen>({ name: "home" });
+
+  useEffect(() => {
+    function openUrl(url: string | null) {
+      if (!url) return;
+      try {
+        const parsed = new URL(url);
+        const slug = parsed.pathname.replace(/^\/+|\/+$/g, "");
+        if (!slug) return;
+        setScreen({
+          name: "event",
+          slug,
+          promoterSlug: parsed.searchParams.get("pr") || undefined,
+          sellerSlug: parsed.searchParams.get("vd") || undefined,
+        });
+      } catch {
+        // URL inválida não deve derrubar o app.
+      }
+    }
+
+    Linking.getInitialURL().then(openUrl).catch(() => undefined);
+    const subscription = Linking.addEventListener("url", ({ url }) => openUrl(url));
+    return () => subscription.remove();
+  }, []);
 
   if (loading) {
     return (
@@ -35,14 +58,25 @@ function Root() {
       return (
         <EventScreen
           slug={screen.slug}
+          promoterSlug={screen.promoterSlug}
+          sellerSlug={screen.sellerSlug}
           onBack={() => setScreen({ name: "home" })}
-          onReserved={(reservationId) => setScreen({ name: "checkout", reservationId })}
+          onReserved={(reservationId) =>
+            setScreen({
+              name: "checkout",
+              reservationId,
+              promoterSlug: screen.promoterSlug,
+              sellerSlug: screen.sellerSlug,
+            })
+          }
         />
       );
     case "checkout":
       return (
         <CheckoutScreen
           reservationId={screen.reservationId}
+          promoterSlug={screen.promoterSlug}
+          sellerSlug={screen.sellerSlug}
           onFulfilled={(publicToken) => setScreen({ name: "wallet", publicToken })}
         />
       );
