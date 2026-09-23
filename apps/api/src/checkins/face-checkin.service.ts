@@ -35,7 +35,15 @@ export class FaceCheckinService {
         OR: [{ ownerUserId: userId }, { order: { userId } }],
       },
       include: {
-        event: { select: { id: true, title: true, startsAt: true, endsAt: true } },
+        event: {
+          select: {
+            id: true,
+            title: true,
+            startsAt: true,
+            endsAt: true,
+            faceCheckinEnabled: true,
+          },
+        },
       },
     });
     if (!ticket) throw new NotFoundException("Ingresso não encontrado na sua conta");
@@ -69,6 +77,7 @@ export class FaceCheckinService {
     return {
       enrolled: enrollment?.status === "ACTIVE" && enrollment.expiresAt > new Date(),
       enrollment,
+      eventEnabled: ticket.event.faceCheckinEnabled,
       capabilities: this.capabilities(),
     };
   }
@@ -77,6 +86,9 @@ export class FaceCheckinService {
     const ticket = await this.ownedTicket(userId, ticketId);
     if (!["ISSUED", "ACTIVE"].includes(ticket.status)) {
       throw new BadRequestException("Somente ingresso ativo pode cadastrar biometria facial");
+    }
+    if (!ticket.event.faceCheckinEnabled) {
+      throw new BadRequestException("O produtor não habilitou check-in facial para este evento");
     }
 
     const configured = this.providerName();
@@ -138,6 +150,7 @@ export class FaceCheckinService {
         ticket: {
           eventId: device.eventId,
           status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] },
+          event: { faceCheckinEnabled: true },
         },
       },
       include: {
