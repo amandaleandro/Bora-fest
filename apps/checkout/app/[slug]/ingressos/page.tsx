@@ -8,6 +8,11 @@ import { api, type PublicEvent } from "../../../lib/api";
 import { formatDateTime } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { TicketSelector } from "../../../components/TicketSelector";
+import {
+  captureAttributionFromUrl,
+  getAttributedPromoterSlug,
+  getAttributedSellerSlug,
+} from "../../../lib/attribution";
 
 export default function SelectTicketsPage({ params }: { params: { slug: string } }) {
   const { slug } = params;
@@ -16,7 +21,11 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getPublicEvent(slug).then(setEvent).catch(() => setError("Evento não encontrado"));
+    captureAttributionFromUrl();
+    api
+      .getPublicEvent(slug, getAttributedPromoterSlug(), getAttributedSellerSlug())
+      .then(setEvent)
+      .catch(() => setError("Evento não encontrado"));
   }, [slug]);
 
   if (!event) {
