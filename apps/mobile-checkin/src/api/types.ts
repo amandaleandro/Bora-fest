@@ -36,6 +36,7 @@ export type CheckinOutcome = "VALID" | "ALREADY_USED" | "INVALID" | "CANCELED";
 
 export interface CheckinResponse {
   result: CheckinOutcome;
+  reason?: "EVENT_WITHOUT_KEY" | "OTHER_EVENT" | "BAD_SIGNATURE" | "REVOKED_QR" | "NOT_FOUND" | string | null;
   ticket?: {
     id: string;
     code: string;
