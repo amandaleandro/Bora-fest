@@ -77,7 +77,7 @@ export function FaceEnrollmentButton({ ticketId }: { ticketId: string }) {
 
   if (!status) return null;
 
-  if (!status.capabilities.enabled) {
+  if (!status.eventEnabled || !status.capabilities.enabled) {
     return null;
   }
 
