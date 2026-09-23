@@ -281,10 +281,8 @@ export class TicketsService {
         where: {
           id: ticket.id,
           status: { in: ["ISSUED", "ACTIVE"] },
-          OR: [
-            { ownerUserId: userId },
-            { ownerUserId: null, order: { userId } },
-          ],
+          // compare-and-swap da posse exatamente como foi lida acima
+          ownerUserId: ticket.ownerUserId,
         },
         data: {
           ownerUserId: toUser.id,
