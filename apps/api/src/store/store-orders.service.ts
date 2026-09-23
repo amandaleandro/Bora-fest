@@ -203,6 +203,35 @@ export class StoreOrdersService {
     });
   }
 
+  async markReady(orderId: string, userId: string) {
+    const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException("Pedido da Loja não encontrado");
+    await this.orgAccess.assertPermission(order.organizationId, userId, PERMISSIONS.EVENT_CREATE);
+
+    const changed = await prisma.storeOrder.updateMany({
+      where: { id: order.id, status: "PAID" },
+      data: { status: "READY" },
+    });
+    if (changed.count === 0) {
+      throw new BadRequestException("Somente pedido pago e ainda em preparo pode ficar pronto");
+    }
+
+    await prisma.notification.create({
+      data: {
+        channel: "EMAIL",
+        recipient: order.contactEmail,
+        template: "store_order_ready",
+        payload: {
+          storeOrderId: order.id,
+          pickupCode: order.pickupCode,
+          orderUrl: (process.env.WEB_BASE_URL ?? "https://borafest.com.br") + "/loja/pedido/" + order.publicToken,
+        },
+      },
+    });
+
+    return { ready: true };
+  }
+
   async fulfill(orderId: string, userId: string, input: FulfillStoreOrderInput) {
     const order = await prisma.storeOrder.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException("Pedido da Loja não encontrado");
