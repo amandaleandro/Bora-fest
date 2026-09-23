@@ -5,6 +5,7 @@ import { closeRedisConnection } from "@borafest/queues";
 import { applyStoreGatewayStatus } from "@borafest/payments";
 import { OrgAccessService } from "../common/org-access.service";
 import { StoreOrdersService } from "../store/store-orders.service";
+import { StoreRefundsService } from "../store/store-refunds.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
 after(async () => {
@@ -216,6 +217,150 @@ test("pedido expirado devolve a reserva de estoque", async () => {
     assert.equal(expired.status, "CANCELED");
     assert.equal(variant.reservedCount, 0);
     assert.equal(variant.soldCount, 0);
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+  }
+});
+
+
+async function addOwnerMembership(organizationId: string, ownerRoleId: string) {
+  const suffix = Math.random().toString(36).slice(2, 10);
+  const user = await prisma.user.create({
+    data: {
+      email: `store-owner-${suffix}@example.com`,
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.organizationMember.create({
+    data: {
+      organizationId,
+      userId: user.id,
+      roleId: ownerRoleId,
+      status: "ACTIVE",
+      joinedAt: new Date(),
+    },
+  });
+  return user;
+}
+
+test("pedido pago pode virar READY e continua elegível à retirada", async () => {
+  const fixture = await buildStore();
+  let userId: string | undefined;
+  try {
+    const owner = await addOwnerMembership(fixture.organization.id, fixture.ownerRoleId);
+    userId = owner.id;
+    const service = new StoreOrdersService(new OrgAccessService());
+    const order = await service.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Pronto",
+      contactEmail: "pronto@example.com",
+      fulfillmentMethod: "PICKUP",
+    });
+    const payment = await prisma.storePayment.create({
+      data: {
+        storeOrderId: order.id,
+        provider: "mock",
+        method: "PIX",
+        status: "PENDING",
+        amountCents: order.totalCents,
+        externalId: `store-ready-${Math.random().toString(36).slice(2, 10)}`,
+      },
+    });
+    await applyStoreGatewayStatus(payment.id, "PAID");
+
+    await service.markReady(order.id, owner.id);
+    const ready = await prisma.storeOrder.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(ready.status, "READY");
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+    if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+  }
+});
+
+test("devolução física repõe estoque uma vez e estorno não repõe de novo", async () => {
+  const fixture = await buildStore();
+  let userId: string | undefined;
+  try {
+    const owner = await addOwnerMembership(fixture.organization.id, fixture.ownerRoleId);
+    userId = owner.id;
+    const orders = new StoreOrdersService(new OrgAccessService());
+    const refunds = new StoreRefundsService(new OrgAccessService());
+    const order = await orders.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Devolução",
+      contactEmail: "devolucao@example.com",
+      fulfillmentMethod: "PICKUP",
+    });
+    const payment = await prisma.storePayment.create({
+      data: {
+        storeOrderId: order.id,
+        provider: "mock",
+        method: "PIX",
+        status: "PENDING",
+        amountCents: order.totalCents,
+        externalId: `store-return-${Math.random().toString(36).slice(2, 10)}`,
+      },
+    });
+    await applyStoreGatewayStatus(payment.id, "PAID");
+    await prisma.storeOrder.update({
+      where: { id: order.id },
+      data: { status: "FULFILLED", fulfilledAt: new Date() },
+    });
+    const request = await prisma.storeRefundRequest.create({
+      data: {
+        storeOrderId: order.id,
+        reason: "Produto devolvido",
+        status: "AWAITING_RETURN",
+      },
+    });
+
+    await refunds.markReturned(request.id, fixture.organization.id, owner.id);
+    const afterReturn = await prisma.storeProductVariant.findUniqueOrThrow({
+      where: { id: fixture.variant.id },
+    });
+    assert.equal(afterReturn.soldCount, 0);
+
+    await applyStoreGatewayStatus(payment.id, "REFUNDED");
+    const afterRefund = await prisma.storeProductVariant.findUniqueOrThrow({
+      where: { id: fixture.variant.id },
+    });
+    assert.equal(afterRefund.soldCount, 0, "estorno não pode repor novamente item já devolvido");
+  } finally {
+    await cleanupFixtureEvent(fixture.organization.id);
+    if (userId) await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+  }
+});
+
+test("webhook REFUNDED conclui pagamento que estava REFUND_PENDING", async () => {
+  const fixture = await buildStore();
+  try {
+    const service = new StoreOrdersService(new OrgAccessService());
+    const order = await service.createPublic(fixture.organization.slug, {
+      items: [{ variantId: fixture.variant.id, quantity: 1 }],
+      contactName: "Cliente Pending",
+      contactEmail: "pending@example.com",
+      fulfillmentMethod: "PICKUP",
+    });
+    const payment = await prisma.storePayment.create({
+      data: {
+        storeOrderId: order.id,
+        provider: "mock",
+        method: "PIX",
+        status: "PENDING",
+        amountCents: order.totalCents,
+        externalId: `store-pending-${Math.random().toString(36).slice(2, 10)}`,
+      },
+    });
+    await applyStoreGatewayStatus(payment.id, "PAID");
+    await prisma.storePayment.update({
+      where: { id: payment.id },
+      data: { status: "REFUND_PENDING" },
+    });
+
+    const result = await applyStoreGatewayStatus(payment.id, "REFUNDED");
+    assert.equal(result.paymentChanged, true);
+    const finalPayment = await prisma.storePayment.findUniqueOrThrow({ where: { id: payment.id } });
+    assert.equal(finalPayment.status, "REFUNDED");
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
   }
