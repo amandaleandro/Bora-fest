@@ -29,7 +29,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
   );
 
   useEffect(() => {
-    storeApi.store(liveStore.organization.slug).then(setLiveStore).catch(() => undefined);
+    storeApi.store(store.organization.slug).then(setLiveStore).catch(() => undefined);
   }, [store.organization.slug]);
 
   const selected = variants
@@ -65,7 +65,7 @@ export function StoreShop({ store }: { store: HouseStoreResponse }) {
     setBusy(true);
     setError(null);
     try {
-      const order = await storeApi.createOrder(store.organization.slug, {
+      const order = await storeApi.createOrder(liveStore.organization.slug, {
         items: selected.map((item) => ({
           variantId: item.variant.id,
           quantity: item.quantity,
