@@ -29,7 +29,15 @@ export class StoreOrdersService {
         slug: excluded.length ? { equals: houseSlug, notIn: excluded } : houseSlug,
         status: { notIn: ["SUSPENDED", "BLOCKED"] },
       },
-      select: { id: true, slug: true, name: true, displayName: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        displayName: true,
+        storePickupEnabled: true,
+        storeDeliveryEnabled: true,
+        storeFlatShippingCents: true,
+      },
     });
     if (!organization) throw new NotFoundException("Casa não encontrada");
 
@@ -56,13 +64,26 @@ export class StoreOrdersService {
       throw new BadRequestException("Um ou mais produtos não estão disponíveis para compra");
     }
 
-    const totalCents = variants.reduce(
+    const subtotalCents = variants.reduce(
       (sum, variant) => sum + variant.priceCents * (quantities.get(variant.id) ?? 0),
       0,
     );
-    if (totalCents <= 0) {
+    if (subtotalCents <= 0) {
       throw new BadRequestException("Pedido da Loja precisa ter valor maior que zero");
     }
+
+    if (input.fulfillmentMethod === "PICKUP" && !organization.storePickupEnabled) {
+      throw new BadRequestException("Retirada não está habilitada nesta Loja");
+    }
+    if (input.fulfillmentMethod === "DELIVERY" && !organization.storeDeliveryEnabled) {
+      throw new BadRequestException("Entrega não está habilitada nesta Loja");
+    }
+    if (input.fulfillmentMethod === "DELIVERY" && !input.shippingAddress) {
+      throw new BadRequestException("Informe o endereço de entrega");
+    }
+    const shippingCents =
+      input.fulfillmentMethod === "DELIVERY" ? organization.storeFlatShippingCents : 0;
+    const totalCents = subtotalCents + shippingCents;
 
     const expiresAt = new Date(Date.now() + ORDER_TTL_MS);
 
@@ -101,9 +122,14 @@ export class StoreOrdersService {
           contactName: input.contactName,
           contactEmail: input.contactEmail.toLowerCase(),
           contactPhone: input.contactPhone,
-          fulfillmentMethod: "PICKUP",
+          fulfillmentMethod: input.fulfillmentMethod,
           pickupCode: code,
+          subtotalCents,
+          shippingCents,
           totalCents,
+          shippingAddress: input.fulfillmentMethod === "DELIVERY"
+            ? (input.shippingAddress as Prisma.InputJsonValue)
+            : undefined,
           expiresAt,
           items: {
             create: variants.map((variant) => ({
@@ -131,7 +157,10 @@ export class StoreOrdersService {
       contactEmail: order.contactEmail,
       contactPhone: order.contactPhone,
       fulfillmentMethod: order.fulfillmentMethod,
+      subtotalCents: order.subtotalCents,
+      shippingCents: order.shippingCents,
       totalCents: order.totalCents,
+      shippingAddress: order.shippingAddress,
       expiresAt: order.expiresAt,
       paidAt: order.paidAt,
       pickupCode: null,
@@ -176,7 +205,10 @@ export class StoreOrdersService {
       contactEmail: order.contactEmail,
       contactPhone: order.contactPhone,
       fulfillmentMethod: order.fulfillmentMethod,
+      subtotalCents: order.subtotalCents,
+      shippingCents: order.shippingCents,
       totalCents: order.totalCents,
+      shippingAddress: order.shippingAddress,
       expiresAt: order.expiresAt,
       paidAt: order.paidAt,
       fulfilledAt: order.fulfilledAt,
