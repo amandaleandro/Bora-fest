@@ -20,10 +20,17 @@ type Step =
 
 interface Props {
   reservationId: string;
+  promoterSlug?: string;
+  sellerSlug?: string;
   onFulfilled: (publicToken: string) => void;
 }
 
-export function CheckoutScreen({ reservationId, onFulfilled }: Props) {
+export function CheckoutScreen({
+  reservationId,
+  promoterSlug,
+  sellerSlug,
+  onFulfilled,
+}: Props) {
   const [step, setStep] = useState<Step>("loading");
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
@@ -102,6 +109,8 @@ export function CheckoutScreen({ reservationId, onFulfilled }: Props) {
         contactEmail: email,
         contactName: name || undefined,
         contactPhone: phone || undefined,
+        promoterSlug,
+        sellerSlug,
       });
       setOrder(created);
       registerPushSilently(created.publicToken);
