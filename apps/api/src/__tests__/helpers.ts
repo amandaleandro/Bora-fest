@@ -88,6 +88,25 @@ export async function cleanupFixtureEvent(organizationId: string) {
     await prisma.ticketLot.deleteMany({ where: { ticketType: { eventId: event.id } } });
     await prisma.ticketType.deleteMany({ where: { eventId: event.id } });
   }
+  const storeNotificationRecipients = [
+    ...(await prisma.storeOrder.findMany({
+      where: { organizationId },
+      select: { contactEmail: true },
+    })).map((order) => order.contactEmail),
+    ...(await prisma.organizationMember.findMany({
+      where: { organizationId },
+      select: { user: { select: { email: true } } },
+    })).flatMap((member) => (member.user.email ? [member.user.email] : [])),
+  ];
+  if (storeNotificationRecipients.length > 0) {
+    await prisma.notification.deleteMany({
+      where: {
+        recipient: { in: [...new Set(storeNotificationRecipients)] },
+        template: { in: ["store_order_paid", "store_order_ready", "store_sale_received"] },
+      },
+    });
+  }
+
   await prisma.storePaymentEvent.deleteMany({
     where: { payment: { order: { organizationId } } },
   });
