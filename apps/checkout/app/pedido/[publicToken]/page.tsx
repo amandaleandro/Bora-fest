@@ -8,6 +8,7 @@ import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
 import { RevealQr } from "../../../components/RevealQr";
 import { EventReview } from "../../../components/EventReview";
+import { FaceEnrollmentButton } from "../../../components/FaceEnrollmentButton";
 
 // entrega por WhatsApp desligada por padrão (decisão 2026-08-15): só aparece com NEXT_PUBLIC_WA_DELIVERY=on
 const WA_ON = process.env.NEXT_PUBLIC_WA_DELIVERY === "on";
@@ -406,6 +407,9 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                   </button>
                 </div>
                 )}
+                {!["CANCELED", "REFUNDED", "CHECKED_IN"].includes(ticket.status) ? (
+                  <FaceEnrollmentButton ticketId={ticket.id} />
+                ) : null}
               </div>
             </article>
           ))}
