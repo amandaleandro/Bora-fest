@@ -6,6 +6,7 @@ import type {
   CreateStoreVariantInput,
   UpdateStoreProductInput,
   UpdateStoreVariantInput,
+  UpdateStoreSettingsInput,
 } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 
@@ -50,6 +51,65 @@ export class StoreService {
       if (!exists) return slug;
     }
     throw new BadRequestException("Não foi possível gerar um identificador único para o produto");
+  }
+
+  async settings(organizationId: string, userId: string) {
+    await this.assertManage(organizationId, userId);
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        storePickupEnabled: true,
+        storeDeliveryEnabled: true,
+        storeFlatShippingCents: true,
+        storeDeliveryInstructions: true,
+      },
+    });
+    if (!organization) throw new NotFoundException("Casa não encontrada");
+    return {
+      pickupEnabled: organization.storePickupEnabled,
+      deliveryEnabled: organization.storeDeliveryEnabled,
+      flatShippingCents: organization.storeFlatShippingCents,
+      deliveryInstructions: organization.storeDeliveryInstructions,
+    };
+  }
+
+  async updateSettings(
+    organizationId: string,
+    userId: string,
+    input: UpdateStoreSettingsInput,
+  ) {
+    await this.assertManage(organizationId, userId);
+    const current = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { storePickupEnabled: true, storeDeliveryEnabled: true },
+    });
+    if (!current) throw new NotFoundException("Casa não encontrada");
+    const pickupEnabled = input.pickupEnabled ?? current.storePickupEnabled;
+    const deliveryEnabled = input.deliveryEnabled ?? current.storeDeliveryEnabled;
+    if (!pickupEnabled && !deliveryEnabled) {
+      throw new BadRequestException("A Loja precisa manter retirada ou entrega habilitada");
+    }
+    const updated = await prisma.organization.update({
+      where: { id: organizationId },
+      data: {
+        storePickupEnabled: input.pickupEnabled,
+        storeDeliveryEnabled: input.deliveryEnabled,
+        storeFlatShippingCents: input.flatShippingCents,
+        storeDeliveryInstructions: input.deliveryInstructions,
+      },
+      select: {
+        storePickupEnabled: true,
+        storeDeliveryEnabled: true,
+        storeFlatShippingCents: true,
+        storeDeliveryInstructions: true,
+      },
+    });
+    return {
+      pickupEnabled: updated.storePickupEnabled,
+      deliveryEnabled: updated.storeDeliveryEnabled,
+      flatShippingCents: updated.storeFlatShippingCents,
+      deliveryInstructions: updated.storeDeliveryInstructions,
+    };
   }
 
   async listManage(organizationId: string, userId: string) {
@@ -228,6 +288,10 @@ export class StoreService {
         name: true,
         displayName: true,
         logoUrl: true,
+        storePickupEnabled: true,
+        storeDeliveryEnabled: true,
+        storeFlatShippingCents: true,
+        storeDeliveryInstructions: true,
       },
     });
     if (!organization) throw new NotFoundException("Casa não encontrada");
@@ -259,8 +323,16 @@ export class StoreService {
 
     return {
       organization: {
-        ...organization,
+        id: organization.id,
+        slug: organization.slug,
         name: organization.displayName ?? organization.name,
+        logoUrl: organization.logoUrl,
+      },
+      fulfillment: {
+        pickupEnabled: organization.storePickupEnabled,
+        deliveryEnabled: organization.storeDeliveryEnabled,
+        flatShippingCents: organization.storeFlatShippingCents,
+        deliveryInstructions: organization.storeDeliveryInstructions,
       },
       products: products
         .map((product) => ({
