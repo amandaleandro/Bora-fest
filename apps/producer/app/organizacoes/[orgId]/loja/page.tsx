@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
-import { storeApi, type StoreOrderManage, type StoreProduct, type StoreRefundRequestManage, type StoreVariant } from "@/lib/api";
+import { storeApi, type StoreAnalytics, type StoreOrderManage, type StoreProduct, type StoreRefundRequestManage, type StoreSettings, type StoreVariant } from "@/lib/api";
 
 function parsePrice(value: string) {
   const normalized = Number(value.trim().replace(",", "."));
@@ -83,6 +83,8 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [orders, setOrders] = useState<StoreOrderManage[]>([]);
   const [refunds, setRefunds] = useState<StoreRefundRequestManage[]>([]);
+  const [settings, setSettings] = useState<StoreSettings | null>(null);
+  const [analytics, setAnalytics] = useState<StoreAnalytics | null>(null);
   const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -94,14 +96,18 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
 
   async function load() {
     if (!token) return;
-    const [result, orderList, refundList] = await Promise.all([
+    const [result, orderList, refundList, storeSettings, storeAnalytics] = await Promise.all([
       storeApi.list(token, params.orgId),
       storeApi.listOrders(token, params.orgId),
       storeApi.listRefundRequests(token, params.orgId),
+      storeApi.getSettings(token, params.orgId),
+      storeApi.analytics(token, params.orgId),
     ]);
     setProducts(result);
     setOrders(orderList);
     setRefunds(refundList);
+    setSettings(storeSettings);
+    setAnalytics(storeAnalytics);
   }
 
   useEffect(() => {
@@ -114,6 +120,22 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, params.orgId]);
 
+  async function saveSettings(next: StoreSettings) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const saved = await storeApi.updateSettings(token, params.orgId, next);
+      setSettings(saved);
+      setMessage("Configuração de retirada e entrega salva.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível salvar a configuração da Loja");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function markReady(order: StoreOrderManage) {
     if (!token) return;
     setBusy(true);
@@ -122,7 +144,11 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
     try {
       await storeApi.markReady(token, order.id);
       await load();
-      setMessage("Pedido marcado como pronto para retirada e cliente notificado.");
+      setMessage(
+        order.fulfillmentMethod === "DELIVERY"
+          ? "Pedido marcado como pronto para envio/entrega e cliente notificado."
+          : "Pedido marcado como pronto para retirada e cliente notificado.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível marcar o pedido como pronto");
     } finally {
@@ -191,7 +217,7 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
   async function fulfillOrder(order: StoreOrderManage) {
     if (!token) return;
     const code = (pickupCodes[order.id] ?? "").trim();
-    if (!code) {
+    if (order.fulfillmentMethod === "PICKUP" && !code) {
       setError("Digite o código mostrado pelo cliente antes de confirmar a retirada.");
       return;
     }
@@ -202,7 +228,11 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
       await storeApi.fulfillOrder(token, order.id, code);
       setPickupCodes((current) => ({ ...current, [order.id]: "" }));
       await load();
-      setMessage("Retirada confirmada. O pedido foi marcado como entregue.");
+      setMessage(
+        order.fulfillmentMethod === "DELIVERY"
+          ? "Entrega concluída."
+          : "Retirada confirmada. O pedido foi marcado como entregue.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível confirmar a retirada");
     } finally {
@@ -290,6 +320,129 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
   return (
     <GuardedPanelShell title="Loja da Casa" organizationId={params.orgId}>
       <main>
+        {settings ? (
+          <section className="mb-6 rounded-3xl border border-line bg-surface p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Entrega</p>
+                <h2 className="mt-1 text-[18px] font-black text-ink">Como a Casa entrega os produtos</h2>
+                <p className="mt-1 text-[11.5px] font-semibold text-muted">
+                  Mantenha pelo menos retirada ou entrega habilitada.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveSettings(settings)}
+                disabled={busy}
+                className="rounded-xl bg-primary px-4 py-2.5 text-[11px] font-extrabold text-white disabled:opacity-50"
+              >
+                Salvar configuração
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="flex items-center gap-3 rounded-xl border border-line bg-bg p-3">
+                <input
+                  type="checkbox"
+                  checked={settings.pickupEnabled}
+                  onChange={(e) => setSettings({ ...settings, pickupEnabled: e.target.checked })}
+                />
+                <span className="text-[12px] font-extrabold text-ink">Retirada na Casa</span>
+              </label>
+              <label className="flex items-center gap-3 rounded-xl border border-line bg-bg p-3">
+                <input
+                  type="checkbox"
+                  checked={settings.deliveryEnabled}
+                  onChange={(e) => setSettings({ ...settings, deliveryEnabled: e.target.checked })}
+                />
+                <span className="text-[12px] font-extrabold text-ink">Entrega local</span>
+              </label>
+            </div>
+            {settings.deliveryEnabled ? (
+              <div className="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+                <label className="text-[10.5px] font-bold text-muted">
+                  Frete fixo (R$)
+                  <input
+                    value={(settings.flatShippingCents / 100).toFixed(2).replace(".", ",")}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        flatShippingCents: parsePrice(e.target.value),
+                      })
+                    }
+                    className="mt-1 h-10 w-full rounded-xl border border-line-input bg-bg px-3 text-[12px] text-ink"
+                  />
+                </label>
+                <label className="text-[10.5px] font-bold text-muted">
+                  Instruções de entrega
+                  <input
+                    value={settings.deliveryInstructions ?? ""}
+                    onChange={(e) =>
+                      setSettings({ ...settings, deliveryInstructions: e.target.value })
+                    }
+                    placeholder="Ex.: Entregas em Uberlândia de segunda a sexta"
+                    className="mt-1 h-10 w-full rounded-xl border border-line-input bg-bg px-3 text-[12px] text-ink"
+                  />
+                </label>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {analytics ? (
+          <section className="mb-6">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Receita da Loja", (analytics.grossCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })],
+                ["Pedidos pagos", String(analytics.paidOrders)],
+                ["Ticket médio", (analytics.averageTicketCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })],
+                ["Clientes únicos", String(analytics.uniqueCustomers)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-line bg-surface p-4">
+                  <p className="text-[10.5px] font-bold text-muted">{label}</p>
+                  <p className="mt-1 text-[20px] font-black text-ink">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-2xl border border-line bg-surface p-4">
+                <h3 className="text-[13px] font-extrabold text-ink">Produtos mais vendidos</h3>
+                <div className="mt-3 space-y-2">
+                  {analytics.topProducts.length === 0 ? (
+                    <p className="text-[11px] font-semibold text-muted">Sem vendas ainda.</p>
+                  ) : analytics.topProducts.map((product) => (
+                    <div key={product.name} className="flex items-center justify-between gap-3 rounded-xl bg-bg px-3 py-2">
+                      <span className="text-[11px] font-bold text-ink">{product.name}</span>
+                      <span className="text-[10.5px] font-extrabold text-muted">
+                        {product.quantity} un. · {(product.revenueCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-line bg-surface p-4">
+                <h3 className="text-[13px] font-extrabold text-ink">CRM · principais clientes</h3>
+                <div className="mt-3 space-y-2">
+                  {analytics.customers.length === 0 ? (
+                    <p className="text-[11px] font-semibold text-muted">Sem clientes ainda.</p>
+                  ) : analytics.customers.slice(0, 10).map((customer) => (
+                    <div key={customer.email} className="rounded-xl bg-bg px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] font-bold text-ink">{customer.name}</span>
+                        <span className="text-[10.5px] font-extrabold text-muted">
+                          {(customer.spentCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[10px] font-semibold text-muted">
+                        {customer.email} · {customer.orders} pedido{customer.orders === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">BF-021 · catálogo permanente</p>
@@ -433,11 +586,11 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
                                   : "bg-warning/10 text-warning"
                           }`}>
                             {order.status === "FULFILLED"
-                              ? "Retirado"
+                              ? order.fulfillmentMethod === "DELIVERY" ? "Entregue" : "Retirado"
                               : order.status === "PAID"
                                 ? "Pago · em preparo"
                                 : order.status === "READY"
-                                  ? "Pronto para retirada"
+                                  ? order.fulfillmentMethod === "DELIVERY" ? "Pronto para entrega" : "Pronto para retirada"
                                 : order.status === "PAYMENT_PENDING"
                                   ? "Aguardando Pix"
                                   : order.status === "CREATED"
@@ -459,6 +612,17 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
                       </div>
                     </div>
 
+                    {order.fulfillmentMethod === "DELIVERY" && order.shippingAddress ? (
+                      <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-[10.5px] font-semibold text-muted">
+                        Entrega: {order.shippingAddress.street}, {order.shippingAddress.number}
+                        {order.shippingAddress.complement ? ` · ${order.shippingAddress.complement}` : ""}
+                        <br />
+                        {order.shippingAddress.neighborhood} · {order.shippingAddress.city}/{order.shippingAddress.state}
+                        <br />
+                        CEP {order.shippingAddress.postalCode} · frete {(order.shippingCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </div>
+                    ) : null}
+
                     <div className="mt-3 space-y-1.5">
                       {order.items.map((item) => (
                         <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-bg px-3 py-2">
@@ -478,32 +642,38 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
                           disabled={busy}
                           className="h-10 rounded-xl bg-success px-4 text-[11px] font-extrabold text-white disabled:opacity-50"
                         >
-                          Marcar pronto para retirada
+                          {order.fulfillmentMethod === "DELIVERY" ? "Marcar pronto para entrega" : "Marcar pronto para retirada"}
                         </button>
                       </div>
                     ) : null}
 
                     {canFulfill ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/15 bg-primary/5 p-3">
-                        <input
-                          value={pickupCodes[order.id] ?? ""}
-                          onChange={(e) =>
-                            setPickupCodes((current) => ({
-                              ...current,
-                              [order.id]: e.target.value.toUpperCase().slice(0, 20),
-                            }))
-                          }
-                          placeholder="Código de retirada"
-                          autoComplete="off"
-                          className="h-10 min-w-[180px] flex-1 rounded-xl border border-line-input bg-surface px-3 font-mono text-[12px] font-bold tracking-[.08em]"
-                        />
+                        {order.fulfillmentMethod === "PICKUP" ? (
+                          <input
+                            value={pickupCodes[order.id] ?? ""}
+                            onChange={(e) =>
+                              setPickupCodes((current) => ({
+                                ...current,
+                                [order.id]: e.target.value.toUpperCase().slice(0, 20),
+                              }))
+                            }
+                            placeholder="Código de retirada"
+                            autoComplete="off"
+                            className="h-10 min-w-[180px] flex-1 rounded-xl border border-line-input bg-surface px-3 font-mono text-[12px] font-bold tracking-[.08em]"
+                          />
+                        ) : (
+                          <p className="flex-1 text-[11px] font-semibold text-muted">
+                            Confirme quando a entrega estiver concluída.
+                          </p>
+                        )}
                         <button
                           type="button"
                           onClick={() => void fulfillOrder(order)}
                           disabled={busy}
                           className="h-10 rounded-xl bg-primary px-4 text-[11px] font-extrabold text-white disabled:opacity-50"
                         >
-                          Confirmar entrega
+                          {order.fulfillmentMethod === "DELIVERY" ? "Confirmar entregue" : "Confirmar retirada"}
                         </button>
                       </div>
                     ) : null}
