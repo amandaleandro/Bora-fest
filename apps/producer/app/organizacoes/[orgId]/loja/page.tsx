@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
-import { storeApi, type StoreOrderManage, type StoreProduct, type StoreVariant } from "@/lib/api";
+import { storeApi, type StoreOrderManage, type StoreProduct, type StoreRefundRequestManage, type StoreVariant } from "@/lib/api";
 
 function parsePrice(value: string) {
   const normalized = Number(value.trim().replace(",", "."));
@@ -82,7 +82,9 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
   const { token } = useAuth();
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [orders, setOrders] = useState<StoreOrderManage[]>([]);
+  const [refunds, setRefunds] = useState<StoreRefundRequestManage[]>([]);
   const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
+  const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,12 +94,14 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
 
   async function load() {
     if (!token) return;
-    const [result, orderList] = await Promise.all([
+    const [result, orderList, refundList] = await Promise.all([
       storeApi.list(token, params.orgId),
       storeApi.listOrders(token, params.orgId),
+      storeApi.listRefundRequests(token, params.orgId),
     ]);
     setProducts(result);
     setOrders(orderList);
+    setRefunds(refundList);
   }
 
   useEffect(() => {
@@ -109,6 +113,80 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, params.orgId]);
+
+  async function markReady(order: StoreOrderManage) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await storeApi.markReady(token, order.id);
+      await load();
+      setMessage("Pedido marcado como pronto para retirada e cliente notificado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível marcar o pedido como pronto");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function markReturned(request: StoreRefundRequestManage) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await storeApi.markRefundReturned(token, params.orgId, request.id);
+      await load();
+      setMessage("Devolução física confirmada. O pedido já pode ser estornado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível confirmar a devolução");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveRefund(request: StoreRefundRequestManage) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await storeApi.approveRefund(token, params.orgId, request.id);
+      await load();
+      setMessage(
+        result.gatewayStatus === "REFUNDED"
+          ? "Reembolso concluído."
+          : "Estorno enviado ao provedor e aguardando confirmação.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível aprovar o reembolso");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rejectRefund(request: StoreRefundRequestManage) {
+    if (!token) return;
+    const note = (rejectNotes[request.id] ?? "").trim();
+    if (note.length < 3) {
+      setError("Informe o motivo da rejeição.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await storeApi.rejectRefund(token, params.orgId, request.id, note);
+      setRejectNotes((current) => ({ ...current, [request.id]: "" }));
+      await load();
+      setMessage("Solicitação de reembolso rejeitada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível rejeitar o reembolso");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function fulfillOrder(order: StoreOrderManage) {
     if (!token) return;
@@ -337,6 +415,7 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
             <div className="mt-4 space-y-3">
               {orders.map((order) => {
                 const canFulfill = ["PAID", "READY"].includes(order.status);
+                const canMarkReady = order.status === "PAID";
                 const paid = ["PAID", "READY", "FULFILLED"].includes(order.status);
                 return (
                   <article key={order.id} className="rounded-2xl border border-line bg-surface p-4">
@@ -355,8 +434,10 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
                           }`}>
                             {order.status === "FULFILLED"
                               ? "Retirado"
-                              : order.status === "PAID" || order.status === "READY"
-                                ? "Pago · aguardando retirada"
+                              : order.status === "PAID"
+                                ? "Pago · em preparo"
+                                : order.status === "READY"
+                                  ? "Pronto para retirada"
                                 : order.status === "PAYMENT_PENDING"
                                   ? "Aguardando Pix"
                                   : order.status === "CREATED"
@@ -389,6 +470,19 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
                       ))}
                     </div>
 
+                    {canMarkReady ? (
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => void markReady(order)}
+                          disabled={busy}
+                          className="h-10 rounded-xl bg-success px-4 text-[11px] font-extrabold text-white disabled:opacity-50"
+                        >
+                          Marcar pronto para retirada
+                        </button>
+                      </div>
+                    ) : null}
+
                     {canFulfill ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/15 bg-primary/5 p-3">
                         <input
@@ -412,6 +506,118 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
                           Confirmar entrega
                         </button>
                       </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <div>
+            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-danger">Pós-venda</p>
+            <h2 className="mt-1 text-[20px] font-black text-ink">Reembolsos e devoluções</h2>
+            <p className="mt-1 text-[12px] font-semibold text-muted">
+              Pedido já retirado precisa voltar fisicamente antes do estorno. Pedido ainda não retirado pode ser estornado direto.
+            </p>
+          </div>
+
+          {refunds.length === 0 ? (
+            <div className="mt-4 rounded-3xl border border-line bg-surface p-8 text-center">
+              <p className="text-[13px] font-extrabold text-ink">Nenhuma solicitação pendente</p>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {refunds.map((request) => {
+                const active = ["PENDING", "AWAITING_RETURN"].includes(request.status);
+                return (
+                  <article key={request.id} className="rounded-2xl border border-line bg-surface p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[13px] font-extrabold text-ink">{request.order.contactName}</p>
+                          <span className={`rounded-full px-2.5 py-1 text-[9.5px] font-extrabold ${
+                            request.status === "AWAITING_RETURN"
+                              ? "bg-warning/10 text-warning"
+                              : request.status === "PENDING"
+                                ? "bg-primary/10 text-primary"
+                                : request.status === "APPROVED"
+                                  ? "bg-success/10 text-success"
+                                  : "bg-danger/10 text-danger"
+                          }`}>
+                            {request.status === "AWAITING_RETURN"
+                              ? "Aguardando devolução"
+                              : request.status === "PENDING"
+                                ? request.returnedAt
+                                  ? "Devolução recebida · pronto para estorno"
+                                  : "Aguardando análise"
+                                : request.status === "APPROVED"
+                                  ? "Aprovado"
+                                  : "Rejeitado"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10.5px] font-semibold text-muted">{request.order.contactEmail}</p>
+                        <p className="mt-2 text-[11px] font-semibold text-ink-soft">{request.reason}</p>
+                      </div>
+                      <p className="text-[15px] font-black text-ink">
+                        {(request.order.totalCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </p>
+                    </div>
+
+                    <div className="mt-3 space-y-1.5">
+                      {request.order.items.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-bg px-3 py-2">
+                          <p className="text-[11px] font-bold text-ink">{item.productName} · {item.variantName}</p>
+                          <p className="text-[11px] font-extrabold text-muted">{item.quantity}×</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {request.status === "AWAITING_RETURN" ? (
+                      <button
+                        type="button"
+                        onClick={() => void markReturned(request)}
+                        disabled={busy}
+                        className="mt-3 rounded-xl bg-warning px-4 py-2.5 text-[11px] font-extrabold text-white disabled:opacity-50"
+                      >
+                        Confirmar que recebi a devolução
+                      </button>
+                    ) : null}
+
+                    {request.status === "PENDING" ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void approveRefund(request)}
+                          disabled={busy}
+                          className="rounded-xl bg-success px-4 py-2.5 text-[11px] font-extrabold text-white disabled:opacity-50"
+                        >
+                          Aprovar estorno
+                        </button>
+                        <input
+                          value={rejectNotes[request.id] ?? ""}
+                          onChange={(e) =>
+                            setRejectNotes((current) => ({ ...current, [request.id]: e.target.value }))
+                          }
+                          placeholder="Motivo para rejeitar"
+                          className="h-10 min-w-[190px] flex-1 rounded-xl border border-line-input bg-bg px-3 text-[11px]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void rejectRefund(request)}
+                          disabled={busy}
+                          className="rounded-xl border border-danger/30 px-4 py-2.5 text-[11px] font-extrabold text-danger disabled:opacity-50"
+                        >
+                          Rejeitar
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {!active && request.resolutionNote ? (
+                      <p className="mt-3 rounded-xl bg-bg p-3 text-[11px] font-semibold text-muted">
+                        Observação: {request.resolutionNote}
+                      </p>
                     ) : null}
                   </article>
                 );
