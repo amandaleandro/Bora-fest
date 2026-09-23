@@ -116,8 +116,9 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySto
       update: {},
       create: { organizationId: payment.order.organizationId },
     });
+    const feeMethod = payment.method === "CARD" ? "CARD" : "PIX";
     const feeCents = computePlatformFeeCents(
-      payment.method,
+      feeMethod,
       payment.amountCents,
       payment.order.organization,
     );
