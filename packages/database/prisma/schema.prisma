@@ -662,6 +662,7 @@ model StoreOrder {
   user         User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   items        StoreOrderItem[]
   payments     StorePayment[]
+  refundRequests StoreRefundRequest[]
 
   @@index([organizationId, status])
   @@index([contactEmail])
@@ -684,6 +685,33 @@ model StoreOrderItem {
   @@index([orderId])
   @@index([variantId])
   @@map("store_order_items")
+}
+
+enum StoreRefundRequestStatus {
+  PENDING
+  AWAITING_RETURN
+  APPROVED
+  REJECTED
+}
+
+model StoreRefundRequest {
+  id               String                   @id @default(uuid()) @db.Uuid
+  storeOrderId     String                   @map("store_order_id") @db.Uuid
+  reason           String
+  status           StoreRefundRequestStatus @default(PENDING)
+  requestedAt      DateTime                 @default(now()) @map("requested_at")
+  returnedAt       DateTime?                @map("returned_at")
+  resolvedAt       DateTime?                @map("resolved_at")
+  resolvedByUserId String?                  @map("resolved_by_user_id") @db.Uuid
+  resolutionNote   String?                  @map("resolution_note")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  order StoreOrder @relation(fields: [storeOrderId], references: [id], onDelete: Cascade)
+
+  @@index([storeOrderId])
+  @@index([status])
+  @@map("store_refund_requests")
 }
 
 model StorePayment {
