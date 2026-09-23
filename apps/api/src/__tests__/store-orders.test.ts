@@ -4,6 +4,7 @@ import { prisma } from "@borafest/database";
 import { closeRedisConnection } from "@borafest/queues";
 import { applyStoreGatewayStatus } from "@borafest/payments";
 import { OrgAccessService } from "../common/org-access.service";
+import { IdempotencyService } from "../common/idempotency.service";
 import { StoreOrdersService } from "../store/store-orders.service";
 import { StoreRefundsService } from "../store/store-refunds.service";
 import { StorePaymentsService } from "../store/store-payments.service";
@@ -443,7 +444,7 @@ test("cartão da Loja cobra total com frete e persiste parcelas", async () => {
       data: { storeDeliveryEnabled: true, storeFlatShippingCents: 900 },
     });
     const orders = new StoreOrdersService(new OrgAccessService());
-    const payments = new StorePaymentsService();
+    const payments = new StorePaymentsService(new IdempotencyService());
     const order = await orders.createPublic(fixture.organization.slug, {
       items: [{ variantId: fixture.variant.id, quantity: 1 }],
       contactName: "Cliente Cartão",
