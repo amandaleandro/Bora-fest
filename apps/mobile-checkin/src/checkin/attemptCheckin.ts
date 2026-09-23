@@ -1,3 +1,4 @@
+import * as Crypto from "expo-crypto";
 import { api, type DeviceCredentials } from "../api/client";
 import type { CheckinResponse } from "../api/types";
 import {
@@ -56,11 +57,11 @@ export async function attemptCheckin(
   }
 }
 
-function attemptCheckinOffline(
+async function attemptCheckinOffline(
   scanned: { qrToken?: string; code?: string },
   checkinPointId: string | undefined,
   scannedAt: string,
-): CheckinAttemptResult {
+): Promise<CheckinAttemptResult> {
   let ticketId: string | undefined;
 
   if (scanned.qrToken && looksLikeTicketToken(scanned.qrToken)) {
@@ -90,6 +91,29 @@ function attemptCheckinOffline(
       offline: true,
       message: "Ingresso não encontrado no manifesto local — sincronize o manifesto",
     };
+  }
+
+  if (scanned.qrToken) {
+    if (!local.qr_hash) {
+      return {
+        outcome: "INVALID",
+        offline: true,
+        ticketCode: local.code,
+        message: "Manifesto antigo sem versão do QR — sincronize antes de liberar",
+      };
+    }
+    const scannedHash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      scanned.qrToken,
+    );
+    if (scannedHash.toLowerCase() !== local.qr_hash.toLowerCase()) {
+      return {
+        outcome: "INVALID",
+        offline: true,
+        ticketCode: local.code,
+        message: "QR revogado ou substituído — sincronize se a transferência foi recente",
+      };
+    }
   }
 
   if (local.status === "CHECKED_IN") {
