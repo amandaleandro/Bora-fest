@@ -28,6 +28,7 @@ interface StorePurchaseRow {
   houseSlug: string;
   itemsLabel: string;
   pickupCode: string | null;
+  fulfillmentMethod: "PICKUP" | "DELIVERY";
   refundStatus: string | null;
   owned: boolean;
 }
@@ -132,6 +133,7 @@ export default function PurchasesPage() {
               .map((item) => `${item.quantity}× ${item.productName} · ${item.variantName}`)
               .join(", "),
             pickupCode: ["PAID", "READY", "FULFILLED"].includes(order.status) ? order.pickupCode : null,
+            fulfillmentMethod: order.fulfillmentMethod,
             refundStatus: order.refundRequest?.status ?? null,
             owned: true,
           }));
@@ -162,6 +164,7 @@ export default function PurchasesPage() {
               .map((item) => `${item.quantity}× ${item.productName} · ${item.variantName}`)
               .join(", "),
             pickupCode: order.pickupCode,
+            fulfillmentMethod: order.fulfillmentMethod,
             refundStatus: null,
             owned: false,
           });
@@ -312,7 +315,15 @@ export default function PurchasesPage() {
                       ? "Aguardando devolução"
                       : row.refundStatus === "PENDING"
                         ? "Reembolso em análise"
-                        : STORE_STATUS_LABEL[row.status] ?? row.status}
+                        : row.status === "READY"
+                          ? row.fulfillmentMethod === "DELIVERY"
+                            ? "Pronto para entrega"
+                            : "Pronto para retirada"
+                          : row.status === "FULFILLED"
+                            ? row.fulfillmentMethod === "DELIVERY"
+                              ? "Entregue"
+                              : "Retirado"
+                            : STORE_STATUS_LABEL[row.status] ?? row.status}
                   </span>
                 </div>
                 <p className="mt-2 text-[15px] font-extrabold">{formatCents(row.totalCents)}</p>
