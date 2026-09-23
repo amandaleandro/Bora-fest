@@ -731,6 +731,7 @@ model StorePayment {
   amountCents   Int           @map("amount_cents")
   externalId    String?       @map("external_id")
   pixQrCodeText String?       @map("pix_qr_code_text")
+  installments  Int?
   failReason    String?       @map("fail_reason")
   expiresAt     DateTime?     @map("expires_at")
   paidAt        DateTime?     @map("paid_at")
