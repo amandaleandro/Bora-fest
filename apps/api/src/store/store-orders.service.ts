@@ -254,12 +254,16 @@ export class StoreOrdersService {
         if (canceled.count === 0) return false;
 
         for (const item of order.items) {
-          await tx.$executeRaw(Prisma.sql`
+          const released = await tx.$executeRaw(Prisma.sql`
             UPDATE store_product_variants
-            SET reserved_count = GREATEST(reserved_count - ${item.quantity}, 0),
+            SET reserved_count = reserved_count - ${item.quantity},
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ${item.variantId}::uuid
+              AND reserved_count >= ${item.quantity}
           `);
+          if (released === 0) {
+            throw new Error(`Reserva de estoque inconsistente na variação ${item.variantId}`);
+          }
         }
         return true;
       });
