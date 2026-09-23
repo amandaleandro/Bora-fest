@@ -108,6 +108,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [event, setEvent] = useState<PublicEvent | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
   const [catalogReady, setCatalogReady] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
   const [step, setStep] = useState<Step>("ident");
   const [error, setError] = useState<string | null>(null);
@@ -194,6 +195,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   useEffect(() => {
     if (!reservation) return;
     let active = true;
+    setCatalogReady(false);
+    setCatalogError(false);
     const stored = sessionStorage.getItem(`bf.slug.${reservationId}`);
     const resolve = stored ? Promise.resolve(stored) : api.resolveEventSlug(reservation.eventId);
     resolve
@@ -206,7 +209,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       .then((loaded) => {
         if (active && loaded) setEvent(loaded);
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (active) setCatalogError(true);
+      })
       .finally(() => {
         if (active) setCatalogReady(true);
       });
@@ -240,6 +245,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   }, [event]);
 
   const items = reservation?.items ?? [];
+  const hasCompleteLotMeta =
+    items.length > 0 && items.every((item) => lotMeta.has(item.ticketLotId));
 
   const lines = items.map((item) => {
     const meta = lotMeta.get(item.ticketLotId);
@@ -253,7 +260,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
   const subtotalCents = items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0);
   // feeMode PRODUCER: o produtor absorve a taxa — não entra no total do comprador
-  const feeTotalCents = catalogReady
+  const feeTotalCents = hasCompleteLotMeta
     ? items.reduce(
         (sum, item) =>
           lotMeta.get(item.ticketLotId)?.buyerPaysFee === false
@@ -305,6 +312,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       ];
 
   function attendeesError(): string | null {
+    if (!catalogReady || catalogError || !hasCompleteLotMeta) {
+      return "Não foi possível carregar os detalhes dos ingressos. Atualize a página antes de continuar.";
+    }
     for (const slot of nominalSlots) {
       const filled = attendees[slot.key];
       if (!filled || filled.name.trim().length < 2) return "Informe o nome de cada participante";
