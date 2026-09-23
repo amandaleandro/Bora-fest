@@ -91,6 +91,9 @@ test("promoterOnly exige acesso válido no catálogo, reserva e pedido", async (
   const seller = await prisma.user.create({
     data: { email: `seller-exclusive-${suffix}@borafest.dev` },
   });
+  const otherPromoter = await prisma.user.create({
+    data: { email: `other-promoter-exclusive-${suffix}@borafest.dev` },
+  });
 
   try {
     await prisma.ticketLot.update({
@@ -113,6 +116,16 @@ test("promoterOnly exige acesso válido no catálogo, reserva e pedido", async (
         sellerUserId: seller.id,
         status: "ACTIVE",
         slug: `vd-exclusive-${suffix}`,
+      },
+    });
+    const otherLink = await prisma.promoterLink.create({
+      data: {
+        organizationId: fixture.organization.id,
+        promoterUserId: otherPromoter.id,
+        eventId: fixture.event.id,
+        status: "ACTIVE",
+        commissionType: "NONE",
+        slug: `pr-other-exclusive-${suffix}`,
       },
     });
 
@@ -175,24 +188,25 @@ test("promoterOnly exige acesso válido no catálogo, reserva e pedido", async (
       promoterSlug: link.slug,
     });
 
-    await assert.rejects(
-      () =>
-        orders.createFromReservation(undefined, {
-          reservationId: reservation.id,
-          contactEmail: promoter.email,
-        }),
-      /ingresso exclusivo de promoter/i,
-      "não pode usar uma reserva exclusiva para remover a atribuição no pedido",
-    );
+    const savedReservation = await prisma.reservation.findUniqueOrThrow({
+      where: { id: reservation.id },
+    });
+    assert.equal(savedReservation.promoterLinkId, link.id, "reserva congela quem liberou o lote");
+    assert.equal(savedReservation.promoterSellerId, null);
 
     const order = await orders.createFromReservation(undefined, {
       reservationId: reservation.id,
       contactEmail: promoter.email,
-      promoterSlug: link.slug,
+      // tentativa maliciosa de trocar a atribuição depois da reserva
+      promoterSlug: otherLink.slug,
     });
-    assert.equal(order.promoterLinkId, link.id);
+    assert.equal(
+      order.promoterLinkId,
+      link.id,
+      "pedido herda a atribuição congelada e ignora tentativa de trocar para outro promoter",
+    );
   } finally {
     await cleanupFixtureEvent(fixture.organization.id);
-    await prisma.user.deleteMany({ where: { id: { in: [promoter.id, seller.id] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [promoter.id, seller.id, otherPromoter.id] } } });
   }
 });
