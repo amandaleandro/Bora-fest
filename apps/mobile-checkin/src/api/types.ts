@@ -79,3 +79,28 @@ export class ApiError extends Error {
     super(message);
   }
 }
+
+
+export interface FaceCapabilities {
+  enabled: boolean;
+  provider: string | null;
+  mode: "ONE_TO_ONE";
+  storesRawFaceImage: false;
+  offlineVerification: false;
+  fallbackMethods: readonly ["QR", "MANUAL"];
+}
+
+export interface FaceCheckinResponse extends CheckinResponse {
+  reason?:
+    | CheckinResponse["reason"]
+    | "FACE_NOT_ENROLLED"
+    | "FACE_NO_MATCH"
+    | "FACE_LIVENESS_FAILED"
+    | "FACE_TICKET_NOT_AVAILABLE";
+  score?: number | null;
+  face?: {
+    matched: boolean;
+    score: number | null;
+    liveness: boolean | null;
+  };
+}
