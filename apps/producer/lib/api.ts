@@ -267,6 +267,18 @@ export interface StoreOrderManage {
   publicToken: string;
   status: "CREATED" | "PAYMENT_PENDING" | "PAID" | "READY" | "FULFILLED" | "CANCELED" | "REFUNDED" | "CHARGEBACK";
   pickupCode: string;
+  fulfillmentMethod: "PICKUP" | "DELIVERY";
+  subtotalCents: number;
+  shippingCents: number;
+  shippingAddress?: {
+    postalCode: string;
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+  } | null;
   contactName: string;
   contactEmail: string;
   contactPhone: string | null;
@@ -311,6 +323,33 @@ export interface StoreRefundRequestManage {
       priceCents: number;
     }>;
   };
+}
+
+export interface StoreSettings {
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  flatShippingCents: number;
+  deliveryInstructions: string | null;
+}
+
+export interface StoreAnalytics {
+  grossCents: number;
+  paidOrders: number;
+  averageTicketCents: number;
+  uniqueCustomers: number;
+  pendingPreparation: number;
+  ready: number;
+  pickupOrders: number;
+  deliveryOrders: number;
+  topProducts: Array<{ name: string; quantity: number; revenueCents: number }>;
+  customers: Array<{
+    name: string;
+    email: string;
+    phone: string | null;
+    orders: number;
+    spentCents: number;
+    lastOrderAt: string;
+  }>;
 }
 
 export const storeApi = {
@@ -369,12 +408,26 @@ export const storeApi = {
     }),
   listOrders: (token: string, organizationId: string) =>
     request<StoreOrderManage[]>(`/v1/organizations/${organizationId}/store/orders`, { token }),
+  getSettings: (token: string, organizationId: string) =>
+    request<StoreSettings>(`/v1/organizations/${organizationId}/store/settings`, { token }),
+  updateSettings: (
+    token: string,
+    organizationId: string,
+    input: Partial<StoreSettings>,
+  ) =>
+    request<StoreSettings>(`/v1/organizations/${organizationId}/store/settings`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
+  analytics: (token: string, organizationId: string) =>
+    request<StoreAnalytics>(`/v1/organizations/${organizationId}/store/orders/analytics`, { token }),
   markReady: (token: string, orderId: string) =>
     request<{ ready: boolean }>(`/v1/store/orders/${orderId}/ready`, {
       method: "POST",
       token,
     }),
-  fulfillOrder: (token: string, orderId: string, pickupCode: string) =>
+  fulfillOrder: (token: string, orderId: string, pickupCode?: string) =>
     request<{ fulfilled: boolean }>(`/v1/store/orders/${orderId}/fulfill`, {
       method: "POST",
       body: { pickupCode },
