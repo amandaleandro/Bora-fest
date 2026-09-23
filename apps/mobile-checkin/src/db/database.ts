@@ -36,6 +36,11 @@ export function initDatabase(): void {
       confirmed_at TEXT NOT NULL
     );
   `);
+
+  const ticketColumns = db.getAllSync<{ name: string }>("PRAGMA table_info(tickets)");
+  if (!ticketColumns.some((column) => column.name === "qr_hash")) {
+    db.execSync("ALTER TABLE tickets ADD COLUMN qr_hash TEXT");
+  }
 }
 
 export function getMeta(key: string): string | null {
@@ -54,10 +59,11 @@ export function upsertManifest(manifest: ManifestResponse): void {
   db.withTransactionSync(() => {
     for (const ticket of manifest.tickets) {
       db.runSync(
-        `INSERT INTO tickets (id, code, status, ticket_lot_id, checked_in_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO tickets (id, code, qr_hash, status, ticket_lot_id, checked_in_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            code = excluded.code,
+           qr_hash = excluded.qr_hash,
            status = excluded.status,
            ticket_lot_id = excluded.ticket_lot_id,
            checked_in_at = excluded.checked_in_at,
@@ -65,6 +71,7 @@ export function upsertManifest(manifest: ManifestResponse): void {
         [
           ticket.id,
           ticket.code,
+          ticket.qrHash,
           ticket.status,
           ticket.ticketLotId,
           ticket.checkedInAt,
@@ -82,6 +89,7 @@ export function upsertManifest(manifest: ManifestResponse): void {
 export interface LocalTicket {
   id: string;
   code: string;
+  qr_hash: string | null;
   status: string;
   ticket_lot_id: string;
   checked_in_at: string | null;
