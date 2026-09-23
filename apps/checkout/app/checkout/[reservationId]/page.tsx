@@ -201,7 +201,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         if (!active || !found) return null;
         setSlug(found);
         sessionStorage.setItem(`bf.slug.${reservationId}`, found);
-        return api.getPublicEvent(found);
+        return api.getPublicEvent(found, getAttributedPromoterSlug(), getAttributedSellerSlug());
       })
       .then((loaded) => {
         if (active && loaded) setEvent(loaded);
@@ -253,11 +253,15 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
   const subtotalCents = items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0);
   // feeMode PRODUCER: o produtor absorve a taxa — não entra no total do comprador
-  const feeTotalCents = items.reduce(
-    (sum, item) =>
-      lotMeta.get(item.ticketLotId)?.buyerPaysFee === false ? sum : sum + item.feeCents * item.quantity,
-    0,
-  );
+  const feeTotalCents = catalogReady
+    ? items.reduce(
+        (sum, item) =>
+          lotMeta.get(item.ticketLotId)?.buyerPaysFee === false
+            ? sum
+            : sum + item.feeCents * item.quantity,
+        0,
+      )
+    : Math.max(0, (reservation?.buyerTotalCents ?? subtotalCents) - subtotalCents);
   const validCoupon = couponPreview && couponPreview.code === coupon.trim().toUpperCase() ? couponPreview : null;
   const discountCents = order ? order.discountCents ?? 0 : validCoupon?.discountCents ?? 0;
   const addOnsTotalCents = (event?.addOns ?? []).reduce(
