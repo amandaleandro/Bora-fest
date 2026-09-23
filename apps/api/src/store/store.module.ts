@@ -5,6 +5,7 @@ import {
   StoreProductController,
   StoreProductsController,
   StoreVariantController,
+  StoreSettingsController,
 } from "./store.controller";
 import { StoreService } from "./store.service";
 import { StoreOrdersService } from "./store-orders.service";
@@ -23,6 +24,7 @@ import {
     StoreProductsController,
     StoreProductController,
     StoreVariantController,
+    StoreSettingsController,
     PublicStoreController,
     PublicStoreOrdersController,
     PublicStoreOrderController,
