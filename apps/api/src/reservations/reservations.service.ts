@@ -40,8 +40,10 @@ export class ReservationsService {
     });
 
     const needsPromoterAccess = lots.some((lot) => lot.promoterOnly);
-    let promoterAccess = !needsPromoterAccess;
-    if (needsPromoterAccess && input.sellerSlug) {
+    let promoterLinkId: string | undefined;
+    let promoterSellerId: string | undefined;
+
+    if (input.sellerSlug) {
       const seller = await prisma.promoterSeller.findFirst({
         where: {
           slug: input.sellerSlug,
@@ -52,11 +54,15 @@ export class ReservationsService {
             OR: [{ eventId: null }, { eventId: event.id }],
           },
         },
-        select: { id: true },
+        select: { id: true, promoterLinkId: true },
       });
-      promoterAccess = Boolean(seller);
+      if (seller) {
+        promoterSellerId = seller.id;
+        promoterLinkId = seller.promoterLinkId;
+      }
     }
-    if (needsPromoterAccess && !promoterAccess && input.promoterSlug) {
+
+    if (!promoterLinkId && input.promoterSlug) {
       const promoter = await prisma.promoterLink.findFirst({
         where: {
           slug: input.promoterSlug,
@@ -66,8 +72,10 @@ export class ReservationsService {
         },
         select: { id: true },
       });
-      promoterAccess = Boolean(promoter);
+      promoterLinkId = promoter?.id;
     }
+
+    const promoterAccess = !needsPromoterAccess || Boolean(promoterLinkId);
 
     const now = Date.now();
     for (const item of input.items) {
@@ -126,6 +134,8 @@ export class ReservationsService {
         data: {
           eventId: input.eventId,
           userId,
+          promoterLinkId,
+          promoterSellerId,
           expiresAt,
           items: {
             create: input.items.map((item) => {
