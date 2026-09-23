@@ -729,3 +729,18 @@ Regras atuais:
 Assim, QR antigo/reemitido vira `INVALID`.
 
 Limitação de compatibilidade: versões antigas do app que não enviam `qrHash` continuam aceitas durante rollout. Após atualizar os dispositivos de portaria, essa lacuna deixa de existir no fluxo novo.
+
+
+## 46. Transferência revoga todas as credenciais antigas do ingresso
+
+Ao transferir um ingresso:
+- `ownerUserId` muda atomicamente;
+- `qrToken` é reassinado;
+- `code` curto também é regenerado;
+- audit log registra código anterior e novo;
+- notificação ao novo titular usa o código novo.
+
+Motivo: o código curto também é uma credencial de entrada. Revogar apenas o QR deixaria o antigo titular capaz de tentar entrar pela busca/manual da portaria.
+
+Teste de regressão:
+`ticket-transfer.test.ts` confirma que QR antigo e código antigo retornam inválido após a transferência.
