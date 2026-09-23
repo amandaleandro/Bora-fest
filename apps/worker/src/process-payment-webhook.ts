@@ -3,6 +3,7 @@ import { prisma, Prisma, type VipPaymentRow } from "@borafest/database";
 import {
   applyGatewayStatus,
   applyVipGatewayStatus,
+  applyStoreGatewayStatus,
   getGateway,
   stripSecretHeaders,
   WebhookVerificationError,
@@ -131,8 +132,16 @@ export async function processPaymentWebhookJob(data: PaymentWebhookProcessingJob
     where: { provider_externalId: { provider, externalId: event.externalPaymentId } },
   });
   const vipPayment = payment ? null : await findVipPayment(provider, event.externalPaymentId);
+  const storePayment =
+    payment || vipPayment
+      ? null
+      : await prisma.storePayment.findUnique({
+          where: {
+            provider_externalId: { provider, externalId: event.externalPaymentId },
+          },
+        });
 
-  if (!payment && !vipPayment) {
+  if (!payment && !vipPayment && !storePayment) {
     await prisma.webhookDelivery.update({
       where: { id: delivery.id },
       data: { status: "IGNORED", error: "Pagamento não encontrado para o evento" },
@@ -181,6 +190,91 @@ export async function processPaymentWebhookJob(data: PaymentWebhookProcessingJob
       log.info(
         { vipPaymentId: vipPayment.id, status: effectiveStatus, ...result },
         "webhook de pagamento VIP processado",
+      );
+      return;
+    } catch (error) {
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: { status: "FAILED", error: (error as Error).message },
+      });
+      throw error;
+    }
+  }
+
+  if (storePayment) {
+    try {
+      const existing = await prisma.storePaymentEvent.findUnique({
+        where: {
+          provider_externalEventId: {
+            provider,
+            externalEventId: event.externalEventId,
+          },
+        },
+        select: { processedAt: true },
+      });
+      if (existing?.processedAt) {
+        await prisma.webhookDelivery.update({
+          where: { id: delivery.id },
+          data: {
+            status: "PROCESSED",
+            processedAt: new Date(),
+            error: "Evento da Loja duplicado",
+          },
+        });
+        return;
+      }
+
+      if (!existing) {
+        await prisma.storePaymentEvent.create({
+          data: {
+            storePaymentId: storePayment.id,
+            provider,
+            externalEventId: event.externalEventId,
+            type: event.type,
+            payload: event.raw as Prisma.InputJsonValue,
+          },
+        });
+      }
+
+      let effectiveStatus = event.status;
+      if (event.resolveViaGetStatus) {
+        effectiveStatus = await gateway.getStatus(event.externalPaymentId);
+      }
+
+      const result = await applyStoreGatewayStatus(
+        storePayment.id,
+        effectiveStatus,
+        event.occurredAt,
+      );
+
+      if (isReversal(effectiveStatus) && !result.paymentChanged) {
+        const current = await prisma.storePayment.findUnique({
+          where: { id: storePayment.id },
+          select: { status: true },
+        });
+        if (current && (current.status === "PENDING" || current.status === "AUTHORIZED")) {
+          throw new Error(
+            `Reversão da Loja (${effectiveStatus}) chegou antes do PAID do pagamento ${storePayment.id}`,
+          );
+        }
+      }
+
+      await prisma.storePaymentEvent.update({
+        where: {
+          provider_externalEventId: {
+            provider,
+            externalEventId: event.externalEventId,
+          },
+        },
+        data: { processedAt: new Date() },
+      });
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: { status: "PROCESSED", processedAt: new Date() },
+      });
+      log.info(
+        { storePaymentId: storePayment.id, status: effectiveStatus, ...result },
+        "webhook de pagamento da Loja processado",
       );
       return;
     } catch (error) {
