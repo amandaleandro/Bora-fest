@@ -755,3 +755,18 @@ Nova migration:
 O pedido usa esse vínculo como autoridade e ignora tentativa de trocar o promoter depois da reserva.
 
 Teste em `lot-access-window.test.ts` tenta reservar com A e enviar B na criação do pedido; o pedido permanece atribuído a A.
+
+
+### 17.7 Checkout fail-closed
+
+A etapa web de checkout agora diferencia:
+- total financeiro base: pode usar `buyerTotalCents` da reserva;
+- regras estruturais do lote: exigem catálogo completo.
+
+Se os metadados não carregarem, o pedido não é criado.
+
+Isso evita:
+- omitir participante em ingresso nominal;
+- omitir CPF obrigatório;
+- somar taxa absorvida pelo produtor por fallback errado;
+- avançar com metadados incompletos.
