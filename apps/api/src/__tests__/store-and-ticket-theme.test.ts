@@ -165,6 +165,35 @@ describe("Loja da Casa + Ticket Studio", () => {
     );
   });
 
+  it("evento sem tema próprio herda o tema padrão da Casa na carteira", async () => {
+    const defaultTheme = {
+      template: "DARK",
+      primaryColor: "#123456",
+      secondaryColor: "#0A0B0C",
+      backgroundImageUrl: null,
+      logoUrl: null,
+      sponsorText: "Padrão da Casa",
+      showVenue: true,
+      showLot: true,
+      showAttendee: true,
+    };
+
+    await prisma.organization.update({
+      where: { id: fixture.organization.id },
+      data: { defaultTicketTheme: defaultTheme },
+    });
+    await prisma.event.update({
+      where: { id: fixture.event.id },
+      data: { ticketTheme: null },
+    });
+
+    const { order } = await paidOrder(fixture, "mock");
+    const ticketsService = new TicketsService();
+    const wallet = await ticketsService.findByOrderPublicToken(order.publicToken);
+
+    assert.deepEqual(wallet.event.ticketTheme, defaultTheme);
+  });
+
   it("não vaza loja de organização excluída do catálogo público", async () => {
     const previous = process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS;
     process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS = fixture.organization.slug;
