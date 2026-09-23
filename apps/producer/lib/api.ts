@@ -117,6 +117,7 @@ export interface Organization {
   /** nome comercial mostrado ao público; null = usa `name` */
   displayName?: string | null;
   logoUrl?: string | null;
+  defaultTicketTheme?: TicketTheme | null;
   slug: string;
   kind: string;
   status: string;
@@ -217,7 +218,11 @@ export const organizationsApi = {
     }),
   create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string; producerType: ProducerType }) =>
     request<Organization & { members: unknown[]; reused?: boolean }>("/v1/organizations", { method: "POST", body: input, token }),
-  update: (token: string, organizationId: string, input: { displayName?: string | null }) =>
+  update: (
+    token: string,
+    organizationId: string,
+    input: { displayName?: string | null; defaultTicketTheme?: TicketTheme | null },
+  ) =>
     request<Organization>(`/v1/organizations/${organizationId}`, { method: "PATCH", body: input, token }),
   inviteMember: (token: string, organizationId: string, email: string, roleKey: MemberRoleKey, partnerId?: string) =>
     request(`/v1/organizations/${organizationId}/members`, {
