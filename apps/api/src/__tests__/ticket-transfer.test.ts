@@ -14,6 +14,7 @@ import { InventoryService } from "../inventory/inventory.service";
 import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { TicketsService } from "../tickets/tickets.service";
+import { CheckinsService } from "../checkins/checkins.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
 after(async () => {
@@ -252,6 +253,55 @@ test("duas transferências concorrentes do mesmo ingresso: apenas uma vence", as
     });
     assert.equal(audits, 1, "não pode duplicar auditoria");
     assert.equal(notifications, 1, "não pode duplicar notificação");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});
+
+
+test("QR antigo é revogado após transferência e o novo continua válido", async () => {
+  const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
+
+  try {
+    const { buyerUserId, tickets } = await buildPaidOrder(event.id, lot.id);
+    const original = tickets[0];
+    const ticketsService = new TicketsService();
+
+    const recipient = await prisma.user.create({
+      data: { name: "Novo dono QR", email: `qr-new-owner-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+
+    const transferred = await ticketsService.transferTicket(original.id, buyerUserId, {
+      toEmail: recipient.email!,
+    });
+    assert.notEqual(transferred.qrToken, original.qrToken, "transferência precisa girar o QR");
+
+    const credential = await prisma.validatorCredential.create({
+      data: {
+        eventId: event.id,
+        label: "Portaria QR revogado",
+        pinHash: "n/a",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    const device = await prisma.validatorDevice.create({
+      data: {
+        credentialId: credential.id,
+        eventId: event.id,
+        name: "Scanner QR revogado",
+        tokenHash: "n/a",
+        status: "ACTIVE",
+      },
+    });
+
+    const checkins = new CheckinsService(new OrgAccessService());
+
+    const oldResult = await checkins.create(device, { qrToken: original.qrToken });
+    assert.equal(oldResult.result, "INVALID", "QR anterior não pode entrar depois da transferência");
+    assert.equal((oldResult as any).reason, "REVOKED_QR");
+
+    const newResult = await checkins.create(device, { qrToken: transferred.qrToken });
+    assert.equal(newResult.result, "VALID", "QR reassinado do novo titular continua válido");
   } finally {
     await cleanupFixtureEvent(organization.id);
   }
