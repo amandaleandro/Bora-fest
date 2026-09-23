@@ -207,6 +207,7 @@ export class OrganizationsService {
       name: membership.organization.name,
       displayName: membership.organization.displayName,
       logoUrl: membership.organization.logoUrl,
+      defaultTicketTheme: membership.organization.defaultTicketTheme,
       slug: membership.organization.slug,
       kind: membership.organization.kind,
       status: membership.organization.status,
@@ -223,8 +224,21 @@ export class OrganizationsService {
     );
     return prisma.organization.update({
       where: { id: organizationId },
-      data: { displayName: input.displayName === undefined ? undefined : input.displayName },
-      select: { id: true, name: true, displayName: true, slug: true },
+      data: {
+        displayName: input.displayName === undefined ? undefined : input.displayName,
+        defaultTicketTheme:
+          input.defaultTicketTheme === undefined
+            ? undefined
+            : input.defaultTicketTheme,
+      },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        slug: true,
+        logoUrl: true,
+        defaultTicketTheme: true,
+      },
     });
   }
 
