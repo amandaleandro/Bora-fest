@@ -15,6 +15,8 @@ export interface ValidatorSessionResponse {
 export interface ManifestTicket {
   id: string;
   code: string;
+  /** SHA-256 do QR atual; token antigo assinado não pode passar offline */
+  qrHash: string;
   status: string;
   ticketLotId: string;
   checkedInAt: string | null;
