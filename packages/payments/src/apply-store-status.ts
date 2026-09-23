@@ -55,6 +55,8 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySto
             organization: {
               select: {
                 id: true,
+                name: true,
+                displayName: true,
                 pixFeeBps: true,
                 pixFeeFloorCents: true,
                 cardFeeBps: true,
@@ -158,6 +160,27 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySto
         ],
       });
     }
+
+    await tx.notification.create({
+      data: {
+        channel: "EMAIL",
+        recipient: payment.order.contactEmail,
+        template: "store_order_paid",
+        payload: {
+          storeOrderId: payment.storeOrderId,
+          houseName: payment.order.organization.displayName ?? payment.order.organization.name,
+          customerName: payment.order.contactName,
+          pickupCode: payment.order.pickupCode,
+          totalCents: payment.amountCents,
+          orderUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/loja/pedido/${payment.order.publicToken}`,
+          items: payment.order.items.map((item) => ({
+            productName: item.productName,
+            variantName: item.variantName,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
 
     await tx.outboxEvent.create({
       data: {
