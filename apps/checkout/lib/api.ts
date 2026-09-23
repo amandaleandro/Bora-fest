@@ -177,6 +177,8 @@ export interface Reservation {
   eventId: string;
   status: string;
   expiresAt: string;
+  /** total dos ingressos para o comprador, já respeitando feeMode do lote */
+  buyerTotalCents?: number;
   items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number; halfPrice?: boolean }>;
 }
 
