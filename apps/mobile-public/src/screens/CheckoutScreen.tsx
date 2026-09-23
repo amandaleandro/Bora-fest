@@ -49,10 +49,12 @@ export function CheckoutScreen({
   const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const totalCents = reservation?.items.reduce(
-    (sum, item) => sum + item.quantity * (item.priceCents + item.feeCents),
-    0,
-  );
+  const totalCents =
+    reservation?.buyerTotalCents ??
+    reservation?.items.reduce(
+      (sum, item) => sum + item.quantity * (item.priceCents + item.feeCents),
+      0,
+    );
 
   useEffect(() => {
     api
