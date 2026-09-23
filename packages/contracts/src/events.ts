@@ -103,6 +103,7 @@ export const updateEventSchema = eventCoreSchema.partial().extend({
   /** sala de espera: admite N compradores por vez no checkout deste evento */
   waitingRoomEnabled: z.boolean().optional(),
   waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
+  faceCheckinEnabled: z.boolean().optional(),
   pixelSettings: pixelSettingsSchema.optional(),
   /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */
   // 2000: token de system user da Meta pode passar de 500 quando vem com
