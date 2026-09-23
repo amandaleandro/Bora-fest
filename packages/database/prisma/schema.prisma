@@ -62,6 +62,7 @@ model User {
   promoterLinks           PromoterLink[]        @relation("PromoterPerson")
   promoterSellers         PromoterSeller[]      @relation("SellerPerson")
   webPushSubscriptions    WebPushSubscription[]
+  storeOrders              StoreOrder[]
 
   @@map("users")
 }
@@ -216,6 +217,7 @@ model Organization {
   promoterHosts  PromoterLink[]          @relation("PromoterHost")
   followers      OrganizationFollow[]
   products       StoreProduct[]
+  storeOrders    StoreOrder[]
 
   @@map("organizations")
 }
@@ -614,12 +616,115 @@ model StoreProductVariant {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  product StoreProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product    StoreProduct      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems StoreOrderItem[]
 
   @@unique([productId, name])
   @@unique([productId, sku])
   @@index([productId, active])
   @@map("store_product_variants")
+}
+
+enum StoreOrderStatus {
+  CREATED
+  PAYMENT_PENDING
+  PAID
+  READY
+  FULFILLED
+  CANCELED
+  REFUNDED
+  CHARGEBACK
+}
+
+enum StoreFulfillmentMethod {
+  PICKUP
+}
+
+model StoreOrder {
+  id                String                 @id @default(uuid()) @db.Uuid
+  publicToken       String                 @unique @default(uuid()) @map("public_token")
+  organizationId    String                 @map("organization_id") @db.Uuid
+  userId            String?                @map("user_id") @db.Uuid
+  status            StoreOrderStatus       @default(CREATED)
+  fulfillmentMethod StoreFulfillmentMethod @default(PICKUP) @map("fulfillment_method")
+  pickupCode        String                 @unique @map("pickup_code")
+  contactName       String                 @map("contact_name")
+  contactEmail      String                 @map("contact_email")
+  contactPhone      String?                @map("contact_phone")
+  totalCents        Int                    @map("total_cents")
+  expiresAt         DateTime               @map("expires_at")
+  paidAt            DateTime?              @map("paid_at")
+  fulfilledAt       DateTime?              @map("fulfilled_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items        StoreOrderItem[]
+  payments     StorePayment[]
+
+  @@index([organizationId, status])
+  @@index([contactEmail])
+  @@index([expiresAt, status])
+  @@map("store_orders")
+}
+
+model StoreOrderItem {
+  id          String @id @default(uuid()) @db.Uuid
+  orderId     String @map("order_id") @db.Uuid
+  variantId   String @map("variant_id") @db.Uuid
+  productName String @map("product_name")
+  variantName String @map("variant_name")
+  quantity    Int
+  priceCents  Int    @map("price_cents")
+
+  order   StoreOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant StoreProductVariant @relation(fields: [variantId], references: [id])
+
+  @@index([orderId])
+  @@index([variantId])
+  @@map("store_order_items")
+}
+
+model StorePayment {
+  id            String        @id @default(uuid()) @db.Uuid
+  storeOrderId  String        @map("store_order_id") @db.Uuid
+  provider      String
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  amountCents   Int           @map("amount_cents")
+  externalId    String?       @map("external_id")
+  pixQrCodeText String?       @map("pix_qr_code_text")
+  failReason    String?       @map("fail_reason")
+  expiresAt     DateTime?     @map("expires_at")
+  paidAt        DateTime?     @map("paid_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  order  StoreOrder        @relation(fields: [storeOrderId], references: [id], onDelete: Cascade)
+  events StorePaymentEvent[]
+
+  @@unique([provider, externalId])
+  @@index([storeOrderId])
+  @@index([status, expiresAt])
+  @@map("store_payments")
+}
+
+model StorePaymentEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  storePaymentId  String   @map("store_payment_id") @db.Uuid
+  provider        String
+  externalEventId String   @map("external_event_id")
+  type            String
+  payload         Json
+  processedAt     DateTime? @map("processed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  payment StorePayment @relation(fields: [storePaymentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalEventId])
+  @@index([storePaymentId])
+  @@map("store_payment_events")
 }
 
 model EventAddOn {
