@@ -63,6 +63,7 @@ async function attemptCheckinOffline(
   scannedAt: string,
 ): Promise<CheckinAttemptResult> {
   let ticketId: string | undefined;
+  let scannedQrHash: string | undefined;
 
   if (scanned.qrToken && looksLikeTicketToken(scanned.qrToken)) {
     try {
@@ -106,7 +107,8 @@ async function attemptCheckinOffline(
       Crypto.CryptoDigestAlgorithm.SHA256,
       scanned.qrToken,
     );
-    if (scannedHash.toLowerCase() !== local.qr_hash.toLowerCase()) {
+    scannedQrHash = scannedHash.toLowerCase();
+    if (scannedQrHash !== local.qr_hash.toLowerCase()) {
       return {
         outcome: "INVALID",
         offline: true,
@@ -134,7 +136,7 @@ async function attemptCheckinOffline(
     };
   }
 
-  queuePendingCheckin(local.id, local.code, checkinPointId, scannedAt);
+  queuePendingCheckin(local.id, local.code, checkinPointId, scannedAt, scannedQrHash);
   markLocalCheckedIn(local.id);
 
   return {
