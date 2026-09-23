@@ -600,3 +600,133 @@ O helper de integração limpa explicitamente:
 - StoreOrder;
 - StoreProductVariant;
 - StoreProduct.
+
+
+---
+
+## 12. Loja comercial — cartão, entrega, frete e CRM — 23/09/2026
+
+### 12.1 Formas de recebimento
+
+A Casa configura a Loja por:
+`GET/PATCH /v1/organizations/:organizationId/store/settings`.
+
+Campos:
+- `pickupEnabled`;
+- `deliveryEnabled`;
+- `flatShippingCents`;
+- `deliveryInstructions`.
+
+Regra:
+- pelo menos retirada ou entrega precisa permanecer habilitada;
+- entrega começa desligada por padrão;
+- retirada começa ligada por padrão.
+
+A vitrine pública recebe a configuração no objeto `fulfillment`.
+
+### 12.2 Entrega local e frete
+
+O MVP de entrega suporta:
+- retirada na Casa; ou
+- entrega local com frete fixo definido pela Casa.
+
+Para DELIVERY, o pedido guarda snapshot do endereço e separa:
+- `subtotalCents`;
+- `shippingCents`;
+- `totalCents`;
+- `shippingAddress`;
+- `fulfillmentMethod`.
+
+O navegador nunca define o valor do frete. O backend lê `storeFlatShippingCents` e calcula:
+
+```
+totalCents = subtotalCents + shippingCents
+```
+
+Não aceitar:
+- frete vindo do cliente;
+- DELIVERY desabilitado;
+- DELIVERY sem endereço.
+
+Ainda não existem raio/geocoding, cotação de transportadora ou rastreio.
+
+### 12.3 Cartão
+
+A Loja reutiliza `PaymentGateway.createCardPayment`, a mesma abstração do checkout de ingressos.
+
+Rota:
+`POST /v1/public/store/orders/:publicToken/payments/card`.
+
+`StorePayment` persiste status, provider, valor, externalId e parcelas. PAN/CVV/raw card não são persistidos.
+
+Migration:
+`20260923210000_store_card_installments`.
+
+### 12.4 Idempotência
+
+Cartão exige suporte a `Idempotency-Key`.
+
+Escopo:
+`store-payments:create-card`.
+
+O registro idempotente contém apenas:
+- publicToken;
+- token do PSP ou últimos 4;
+- parcelas.
+
+Nunca PAN/CVV.
+
+No browser a chave fica em `sessionStorage`, sobrevive a timeout/retry e é removida após sucesso ou recusa explícita.
+
+### 12.5 Operação por modalidade
+
+PICKUP:
+- PAID = preparando;
+- READY = pronto para retirada;
+- FULFILLED exige código de retirada.
+
+DELIVERY:
+- PAID = preparando;
+- READY = pronto para entrega;
+- FULFILLED = entregue;
+- não usa nem expõe pickupCode.
+
+### 12.6 Comunicação
+
+Após PAID real:
+- comprador recebe `store_order_paid`;
+- owner/admin recebem `store_sale_received`.
+
+Ao marcar READY:
+- comprador recebe `store_order_ready`.
+
+Os templates distinguem retirada e entrega.
+
+### 12.7 Analytics e CRM
+
+`GET /v1/organizations/:organizationId/store/orders/analytics` exige `FINANCE_VIEW`.
+
+Retorna:
+- receita;
+- pedidos pagos;
+- ticket médio;
+- clientes únicos;
+- preparo/prontos;
+- retirada x entrega;
+- top produtos;
+- principais clientes.
+
+CRM aqui é histórico operacional. Não transforma contatos em autorização de marketing.
+
+### 12.8 Testes
+
+A suíte da Loja também cobre:
+- entrega desabilitada;
+- frete calculado no servidor;
+- endereço congelado;
+- cartão incluindo frete;
+- parcelas;
+- analytics;
+- retry idempotente do cartão.
+
+A execução automatizada continua pendente até a etapa final de CI.
