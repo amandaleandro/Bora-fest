@@ -535,6 +535,10 @@ model Event {
   metaCapiToken          String?        @map("meta_capi_token")
   /// tema visual do ingresso; não altera QR, validade ou regras de acesso.
   ticketTheme            Json?          @map("ticket_theme")
+  /// facial é opcional; QR/documento continuam como fallback.
+  faceCheckinEnabled     Boolean        @default(false) @map("face_checkin_enabled")
+  /// retenção máxima do vínculo biométrico após o término do evento.
+  faceRetentionHours     Int            @default(24) @map("face_retention_hours")
   createdAt              DateTime       @default(now()) @map("created_at")
   updatedAt              DateTime       @updatedAt @map("updated_at")
 
@@ -1089,6 +1093,7 @@ model Ticket {
   event          Event           @relation(fields: [eventId], references: [id])
   ticketLot      TicketLot       @relation(fields: [ticketLotId], references: [id])
   checkins       Checkin[]
+  faceEnrollment TicketFaceEnrollment?
   guestListEntry GuestListEntry?
 
   @@unique([orderItemId, seq])
@@ -1163,6 +1168,40 @@ enum CheckinSource {
   OFFLINE_SYNC
 }
 
+enum CheckinMethod {
+  QR
+  FACE
+  MANUAL
+}
+
+enum FaceEnrollmentStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model TicketFaceEnrollment {
+  id                String               @id @default(uuid()) @db.Uuid
+  ticketId          String               @unique @map("ticket_id") @db.Uuid
+  status            FaceEnrollmentStatus @default(PENDING)
+  /// provedor/engine usado; nunca guardar imagem facial crua neste registro.
+  provider          String
+  /// referência opaca do template no provedor seguro.
+  providerReference String?              @map("provider_reference")
+  consentVersion    String               @map("consent_version")
+  consentedAt       DateTime             @map("consented_at")
+  revokedAt         DateTime?            @map("revoked_at")
+  expiresAt         DateTime             @map("expires_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([status, expiresAt])
+  @@map("ticket_face_enrollments")
+}
+
 enum CheckinStatus {
   CONFIRMED
   CONFLICT
@@ -1176,6 +1215,7 @@ model Checkin {
   deviceId       String        @map("device_id") @db.Uuid
   checkinPointId String?       @map("checkin_point_id") @db.Uuid
   source         CheckinSource
+  method         CheckinMethod @default(QR)
   status         CheckinStatus
   localSeq       Int?          @map("local_seq")
   scannedAt      DateTime      @map("scanned_at")
