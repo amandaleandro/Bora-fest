@@ -14,6 +14,15 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
   const [order, setOrder] = useState<StoreOrderPublic | null>(null);
   const [cpf, setCpf] = useState("");
   const [phone, setPhone] = useState("");
+  const [payTab, setPayTab] = useState<"PIX" | "CARD">("PIX");
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardHolder, setCardHolder] = useState("");
+  const [cardExp, setCardExp] = useState("");
+  const [cardCvv, setCardCvv] = useState("");
+  const [cardCpf, setCardCpf] = useState("");
+  const [cardCep, setCardCep] = useState("");
+  const [cardAddressNumber, setCardAddressNumber] = useState("");
+  const [installments, setInstallments] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -87,6 +96,44 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
     }
   }
 
+  async function payCard() {
+    if (!order || busy) return;
+    const digits = cardNumber.replace(/\D/g, "");
+    const [month, yearRaw] = cardExp.split("/").map((part) => part.trim());
+    const year = yearRaw?.length === 2 ? "20" + yearRaw : yearRaw;
+    if (digits.length < 13 || !cardHolder.trim() || !month || !year || cardCvv.length < 3) {
+      setError("Confira os dados do cartão.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await storeApi.createCard(publicToken, {
+        card: {
+          number: digits,
+          holderName: cardHolder.trim(),
+          expiryMonth: month.padStart(2, "0"),
+          expiryYear: year,
+          ccv: cardCvv.trim(),
+          holderCpf: cardCpf.replace(/\D/g, ""),
+          postalCode: cardCep.replace(/\D/g, ""),
+          addressNumber: cardAddressNumber.trim() || "S/N",
+        },
+        installments,
+        payerDocument: cardCpf.replace(/\D/g, "") || undefined,
+      });
+      if (result.status === "FAILED") {
+        setError("Pagamento recusado. Revise os dados e tente novamente.");
+        return;
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível processar o cartão.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copyPix() {
     if (!payment?.pixQrCodeText) return;
     await navigator.clipboard.writeText(payment.pixQrCodeText);
@@ -121,13 +168,22 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
                 : `Seu pedido na Loja de ${order.house.name} está pago e agora está sendo preparado.`}
           </p>
 
-          <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center">
-            <p className="text-[11px] font-extrabold uppercase tracking-[.12em] text-primary">Código de retirada</p>
-            <p className="mt-2 font-mono text-[32px] font-black tracking-[.12em] text-ink">{order.pickupCode}</p>
-            <p className="mt-2 text-[11.5px] font-semibold text-muted">
-              Mostre este código na retirada. A Casa confirma a entrega no painel BoraFest.
-            </p>
-          </div>
+          {order.fulfillmentMethod === "PICKUP" ? (
+            <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center">
+              <p className="text-[11px] font-extrabold uppercase tracking-[.12em] text-primary">Código de retirada</p>
+              <p className="mt-2 font-mono text-[32px] font-black tracking-[.12em] text-ink">{order.pickupCode}</p>
+              <p className="mt-2 text-[11.5px] font-semibold text-muted">
+                Mostre este código na retirada. A Casa confirma a entrega no painel BoraFest.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-5 text-center">
+              <p className="text-[11px] font-extrabold uppercase tracking-[.12em] text-primary">Entrega</p>
+              <p className="mt-2 text-[12px] font-semibold text-muted">
+                A Casa vai preparar o pedido e atualizar o status para envio/entrega.
+              </p>
+            </div>
+          )}
 
           <div className="mt-5 space-y-2">
             {order.items.map((item) => (
@@ -199,19 +255,64 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
             ))}
           </div>
 
-          <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
-            <span className="text-[13px] font-bold text-muted">Total</span>
-            <span className="text-[21px] font-black text-ink">{money(order.totalCents)}</span>
+          <div className="mt-4 space-y-1.5 border-t border-line pt-4">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="font-semibold text-muted">Produtos</span>
+              <span className="font-bold text-ink">{money(order.subtotalCents)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="font-semibold text-muted">Frete</span>
+              <span className="font-bold text-ink">
+                {order.shippingCents > 0 ? money(order.shippingCents) : "Grátis"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[13px] font-bold text-muted">Total</span>
+              <span className="text-[21px] font-black text-ink">{money(order.totalCents)}</span>
+            </div>
           </div>
           <p className="mt-3 rounded-xl bg-primary/5 p-3 text-[11px] font-semibold leading-relaxed text-muted">
-            Retirada diretamente com {order.house.name}. Seu código de retirada aparece somente após a confirmação do pagamento.
+            {order.fulfillmentMethod === "PICKUP"
+              ? `Retirada diretamente com ${order.house.name}. O código aparece após o pagamento.`
+              : "Entrega no endereço informado. A Casa atualiza o pedido quando ele estiver pronto para envio."}
           </p>
+          {order.fulfillmentMethod === "DELIVERY" && order.shippingAddress ? (
+            <div className="mt-3 rounded-xl border border-line bg-bg p-3 text-[11px] font-semibold text-muted">
+              {order.shippingAddress.street}, {order.shippingAddress.number}
+              {order.shippingAddress.complement ? ` · ${order.shippingAddress.complement}` : ""}
+              <br />
+              {order.shippingAddress.neighborhood} · {order.shippingAddress.city}/{order.shippingAddress.state}
+              <br />
+              CEP {order.shippingAddress.postalCode}
+            </div>
+          ) : null}
         </section>
 
         <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
-          <h2 className="text-[17px] font-black text-ink">Pagamento via Pix</h2>
+          <h2 className="text-[17px] font-black text-ink">Pagamento</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-bg p-1">
+            <button
+              type="button"
+              onClick={() => setPayTab("PIX")}
+              className={`rounded-lg px-3 py-2 text-[12px] font-extrabold ${
+                payTab === "PIX" ? "bg-surface text-primary shadow-sm" : "text-muted"
+              }`}
+            >
+              Pix
+            </button>
+            <button
+              type="button"
+              onClick={() => setPayTab("CARD")}
+              className={`rounded-lg px-3 py-2 text-[12px] font-extrabold ${
+                payTab === "CARD" ? "bg-surface text-primary shadow-sm" : "text-muted"
+              }`}
+            >
+              Cartão
+            </button>
+          </div>
 
-          {payment?.pixQrCodeText ? (
+          {payTab === "PIX" ? (
+            payment?.pixQrCodeText ? (
             <>
               <div className="mx-auto mt-4 w-[220px] rounded-2xl border border-line bg-white p-3">
                 <QRCode value={payment.pixQrCodeText} size={196} className="h-auto w-full" />
@@ -257,6 +358,86 @@ export default function StoreOrderPage({ params }: { params: { publicToken: stri
                 {busy ? "Gerando Pix…" : "Gerar Pix"}
               </button>
             </>
+          )
+          ) : (
+            <div className="mt-4 space-y-3">
+              <input
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                placeholder="Número do cartão"
+                inputMode="numeric"
+                autoComplete="cc-number"
+                className="h-11 w-full rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+              />
+              <input
+                value={cardHolder}
+                onChange={(e) => setCardHolder(e.target.value)}
+                placeholder="Nome impresso no cartão"
+                autoComplete="cc-name"
+                className="h-11 w-full rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={cardExp}
+                  onChange={(e) => setCardExp(e.target.value)}
+                  placeholder="MM/AA"
+                  autoComplete="cc-exp"
+                  className="h-11 rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+                />
+                <input
+                  value={cardCvv}
+                  onChange={(e) => setCardCvv(e.target.value)}
+                  placeholder="CVV"
+                  inputMode="numeric"
+                  autoComplete="cc-csc"
+                  className="h-11 rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+                />
+              </div>
+              <input
+                value={cardCpf}
+                onChange={(e) => setCardCpf(e.target.value)}
+                placeholder="CPF/CNPJ do titular"
+                inputMode="numeric"
+                className="h-11 w-full rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={cardCep}
+                  onChange={(e) => setCardCep(e.target.value)}
+                  placeholder="CEP do titular"
+                  inputMode="numeric"
+                  className="h-11 rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+                />
+                <input
+                  value={cardAddressNumber}
+                  onChange={(e) => setCardAddressNumber(e.target.value)}
+                  placeholder="Nº do endereço"
+                  className="h-11 rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+                />
+              </div>
+              <select
+                value={installments}
+                onChange={(e) => setInstallments(Number(e.target.value))}
+                className="h-11 w-full rounded-xl border border-line-input bg-surface px-3 text-[12px] font-semibold"
+              >
+                {Array.from({ length: 12 }, (_, index) => index + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}x
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10.5px] font-semibold leading-relaxed text-muted">
+                Os dados do cartão são enviados ao provedor de pagamento por HTTPS e não são armazenados pelo BoraFest.
+              </p>
+              <button
+                type="button"
+                onClick={payCard}
+                disabled={busy || remaining <= 0}
+                className="h-12 w-full rounded-xl bg-primary text-[13px] font-extrabold text-white disabled:opacity-50"
+              >
+                {busy ? "Processando…" : `Pagar ${money(order.totalCents)}`}
+              </button>
+            </div>
           )}
 
           {error ? <p className="mt-3 text-[11.5px] font-bold text-danger">{error}</p> : null}
