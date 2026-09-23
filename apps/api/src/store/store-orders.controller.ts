@@ -83,10 +83,7 @@ export class StoreOrdersManageController {
 @Controller("v1/store/orders")
 @UseGuards(SessionGuard)
 export class StoreOrderManageController {
-  constructor(
-    private readonly orders: StoreOrdersService,
-    private readonly refunds: StoreRefundsService,
-  ) {}
+  constructor(private readonly orders: StoreOrdersService) {}
 
   @Post(":orderId/ready")
   ready(
