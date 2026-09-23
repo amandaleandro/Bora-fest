@@ -15,6 +15,7 @@ import {
   GatewayTimeoutError,
 } from "@borafest/payments";
 import type { CreateCardPaymentInput, CreateStorePixPaymentInput } from "@borafest/contracts";
+import { IdempotencyService } from "../common/idempotency.service";
 
 function assertMinimumCharge(totalCents: number): void {
   const minimum = Number(process.env.PAYMENT_MIN_CHARGE_CENTS ?? 500);
@@ -46,6 +47,8 @@ function toApiError(error: unknown): never {
 
 @Injectable()
 export class StorePaymentsService {
+  constructor(private readonly idempotency: IdempotencyService) {}
+
   async createPix(publicToken: string, input: CreateStorePixPaymentInput) {
     const order = await prisma.storeOrder.findUnique({
       where: { publicToken },
@@ -143,6 +146,23 @@ export class StorePaymentsService {
   }
 
   async createCard(
+    publicToken: string,
+    input: CreateCardPaymentInput,
+    remoteIp?: string,
+    idempotencyKey?: string,
+  ) {
+    const cardRef =
+      input.cardToken ??
+      (input.card ? `raw:${input.card.number.replace(/\D/g, "").slice(-4)}` : "card");
+    return this.idempotency.run(
+      idempotencyKey,
+      "store-payments:create-card",
+      { publicToken, cardRef, installments: input.installments },
+      () => this.createCardInner(publicToken, input, remoteIp),
+    );
+  }
+
+  private async createCardInner(
     publicToken: string,
     input: CreateCardPaymentInput,
     remoteIp?: string,
