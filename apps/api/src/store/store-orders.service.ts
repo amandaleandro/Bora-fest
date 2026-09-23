@@ -255,7 +255,8 @@ export class StoreOrdersService {
         template: "store_order_ready",
         payload: {
           storeOrderId: order.id,
-          pickupCode: order.pickupCode,
+          pickupCode: order.fulfillmentMethod === "PICKUP" ? order.pickupCode : null,
+          fulfillmentMethod: order.fulfillmentMethod,
           orderUrl: (process.env.WEB_BASE_URL ?? "https://borafest.com.br") + "/loja/pedido/" + order.publicToken,
         },
       },
@@ -272,8 +273,10 @@ export class StoreOrdersService {
     if (order.status !== "READY") {
       throw new BadRequestException("Marque o pedido como pronto antes de confirmar a retirada");
     }
-    if (order.pickupCode.toUpperCase() !== input.pickupCode.toUpperCase()) {
-      throw new ForbiddenException("Código de retirada incorreto");
+    if (order.fulfillmentMethod === "PICKUP") {
+      if (!input.pickupCode || order.pickupCode.toUpperCase() !== input.pickupCode.toUpperCase()) {
+        throw new ForbiddenException("Código de retirada incorreto");
+      }
     }
 
     const updated = await prisma.storeOrder.updateMany({
@@ -285,6 +288,70 @@ export class StoreOrdersService {
     }
 
     return { fulfilled: true };
+  }
+
+  async analytics(organizationId: string, userId: string) {
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
+    const orders = await prisma.storeOrder.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      take: 2000,
+      include: { items: true },
+    });
+    const paidOrders = orders.filter((order) =>
+      ["PAID", "READY", "FULFILLED", "REFUNDED", "CHARGEBACK"].includes(order.status),
+    );
+    const grossCents = paidOrders
+      .filter((order) => !["REFUNDED", "CHARGEBACK"].includes(order.status))
+      .reduce((sum, order) => sum + order.totalCents, 0);
+    const activePaid = paidOrders.filter(
+      (order) => !["REFUNDED", "CHARGEBACK"].includes(order.status),
+    );
+    const customers = new Map<
+      string,
+      { name: string; email: string; phone: string | null; orders: number; spentCents: number; lastOrderAt: Date }
+    >();
+    const products = new Map<string, { name: string; quantity: number; revenueCents: number }>();
+
+    for (const order of activePaid) {
+      const key = order.contactEmail.toLowerCase();
+      const current = customers.get(key);
+      customers.set(key, {
+        name: order.contactName,
+        email: order.contactEmail,
+        phone: order.contactPhone,
+        orders: (current?.orders ?? 0) + 1,
+        spentCents: (current?.spentCents ?? 0) + order.totalCents,
+        lastOrderAt:
+          !current || order.createdAt > current.lastOrderAt ? order.createdAt : current.lastOrderAt,
+      });
+      for (const item of order.items) {
+        const product = products.get(item.productName);
+        products.set(item.productName, {
+          name: item.productName,
+          quantity: (product?.quantity ?? 0) + item.quantity,
+          revenueCents: (product?.revenueCents ?? 0) + item.priceCents * item.quantity,
+        });
+      }
+    }
+
+    return {
+      grossCents,
+      paidOrders: activePaid.length,
+      averageTicketCents:
+        activePaid.length > 0 ? Math.round(grossCents / activePaid.length) : 0,
+      uniqueCustomers: customers.size,
+      pendingPreparation: orders.filter((order) => order.status === "PAID").length,
+      ready: orders.filter((order) => order.status === "READY").length,
+      pickupOrders: activePaid.filter((order) => order.fulfillmentMethod === "PICKUP").length,
+      deliveryOrders: activePaid.filter((order) => order.fulfillmentMethod === "DELIVERY").length,
+      topProducts: [...products.values()]
+        .sort((a, b) => b.quantity - a.quantity || b.revenueCents - a.revenueCents)
+        .slice(0, 10),
+      customers: [...customers.values()]
+        .sort((a, b) => b.spentCents - a.spentCents)
+        .slice(0, 100),
+    };
   }
 
   async expireOpenOrders(limit = 100) {
