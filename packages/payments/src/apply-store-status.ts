@@ -86,34 +86,6 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySto
     });
     if (changedOrder.count === 0) {
       result.orphaned = true;
-      const responsibleMembers = await tx.organizationMember.findMany({
-      where: {
-        organizationId: payment.order.organizationId,
-        status: "ACTIVE",
-        role: { key: { in: ["owner", "admin"] } },
-        user: { email: { not: null } },
-      },
-      select: { user: { select: { email: true, name: true } } },
-      take: 10,
-    });
-    for (const member of responsibleMembers) {
-      if (!member.user.email) continue;
-      await tx.notification.create({
-        data: {
-          channel: "EMAIL",
-          recipient: member.user.email,
-          template: "store_sale_received",
-          payload: {
-            recipientName: member.user.name,
-            customerName: payment.order.contactName,
-            totalCents: payment.amountCents,
-            storeOrderId: payment.storeOrderId,
-            fulfillmentMethod: payment.order.fulfillmentMethod,
-          },
-        },
-      });
-    }
-
     await tx.outboxEvent.create({
         data: {
           aggregateType: "store_payment",
@@ -209,6 +181,34 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySto
         },
       },
     });
+
+    const responsibleMembers = await tx.organizationMember.findMany({
+      where: {
+        organizationId: payment.order.organizationId,
+        status: "ACTIVE",
+        role: { key: { in: ["owner", "admin"] } },
+        user: { email: { not: null } },
+      },
+      select: { user: { select: { email: true, name: true } } },
+      take: 10,
+    });
+    for (const member of responsibleMembers) {
+      if (!member.user.email) continue;
+      await tx.notification.create({
+        data: {
+          channel: "EMAIL",
+          recipient: member.user.email,
+          template: "store_sale_received",
+          payload: {
+            recipientName: member.user.name,
+            customerName: payment.order.contactName,
+            totalCents: payment.amountCents,
+            storeOrderId: payment.storeOrderId,
+            fulfillmentMethod: payment.order.fulfillmentMethod,
+          },
+        },
+      });
+    }
 
     await tx.outboxEvent.create({
       data: {
