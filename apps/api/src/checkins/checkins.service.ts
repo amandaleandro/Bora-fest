@@ -87,6 +87,7 @@ export class CheckinsService {
       input.scannedAt ?? new Date(),
       "ONLINE",
       null,
+      input.qrToken ? "QR" : "MANUAL",
     );
 
     if (input.semConferirCpf && outcome.result === "VALID") {
@@ -169,6 +170,7 @@ export class CheckinsService {
           item.scannedAt,
           "OFFLINE_SYNC",
           item.localSeq,
+          item.qrHash ? "QR" : "MANUAL",
         );
         const status = outcome.result === "VALID" ? "CONFIRMED" : "CONFLICT";
         if (status === "CONFLICT") conflictCount++;
@@ -461,6 +463,7 @@ export class CheckinsService {
     scannedAt: Date,
     source: "ONLINE" | "OFFLINE_SYNC",
     localSeq: number | null,
+    method: "QR" | "FACE" | "MANUAL",
   ): Promise<{
     result: CheckinOutcome;
     ticketStatus: string;
@@ -485,6 +488,7 @@ export class CheckinsService {
             deviceId: device.id,
             checkinPointId,
             source,
+            method,
             status: "CONFIRMED",
             localSeq,
             scannedAt,
@@ -509,6 +513,7 @@ export class CheckinsService {
           deviceId: device.id,
           checkinPointId,
           source,
+          method,
           status: "CONFLICT",
           localSeq,
           scannedAt,
@@ -531,6 +536,48 @@ export class CheckinsService {
 
       return { result, ticketStatus: ticket.status, checkinId: conflict.id, firstCheckin };
     });
+  }
+
+  async createFace(
+    device: ValidatorDevice,
+    ticketId: string,
+    checkinPointId?: string,
+    scannedAt: Date = new Date(),
+  ) {
+    if (checkinPointId) {
+      await this.assertCheckinPoint(device.eventId, checkinPointId);
+    }
+
+    const ticket = await this.findTicket(device.eventId, ticketId);
+    if (!ticket) {
+      return { result: "INVALID" as CheckinOutcome, reason: "NOT_FOUND" as const };
+    }
+
+    const outcome = await this.attemptCheckin(
+      ticket.id,
+      device,
+      checkinPointId,
+      scannedAt,
+      "ONLINE",
+      null,
+      "FACE",
+    );
+
+    return {
+      result: outcome.result,
+      reason: outcome.result === "VALID" ? null : "FACE_TICKET_NOT_AVAILABLE",
+      ticket: {
+        id: ticket.id,
+        code: ticket.code,
+        status: outcome.ticketStatus,
+        attendeeName: ticket.attendeeName,
+        lotName: ticket.ticketLot.name,
+        typeName: ticket.ticketLot.ticketType.name,
+        tipo: ticket.order ? (origemGratis(ticket.order)?.kind ?? null) : null,
+      },
+      checkinId: outcome.checkinId,
+      firstCheckin: outcome.firstCheckin,
+    };
   }
 
   private async resolveTicketWithReason(eventId: string, input: CreateCheckinInput) {
