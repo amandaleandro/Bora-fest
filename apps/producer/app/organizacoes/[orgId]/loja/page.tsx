@@ -414,7 +414,7 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
           ) : (
             <div className="mt-4 space-y-3">
               {orders.map((order) => {
-                const canFulfill = ["PAID", "READY"].includes(order.status);
+                const canFulfill = order.status === "READY";
                 const canMarkReady = order.status === "PAID";
                 const paid = ["PAID", "READY", "FULFILLED"].includes(order.status);
                 return (
