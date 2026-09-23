@@ -36,3 +36,27 @@ export const updateStoreVariantSchema = createStoreVariantSchema.partial().exten
   active: z.boolean().optional(),
 });
 export type UpdateStoreVariantInput = z.infer<typeof updateStoreVariantSchema>;
+
+
+export const createStoreOrderSchema = z.object({
+  items: z.array(z.object({
+    variantId: z.string().uuid(),
+    quantity: z.number().int().min(1).max(20),
+  })).min(1).max(20),
+  contactName: z.string().trim().min(2).max(120),
+  contactEmail: z.string().trim().email().max(254),
+  contactPhone: z.string().trim().min(8).max(30).optional(),
+  fulfillmentMethod: z.literal("PICKUP").default("PICKUP"),
+});
+export type CreateStoreOrderInput = z.infer<typeof createStoreOrderSchema>;
+
+export const createStorePixPaymentSchema = z.object({
+  payerDocument: z.string().trim().min(11).max(18).optional(),
+  payerPhone: z.string().trim().min(8).max(30).optional(),
+});
+export type CreateStorePixPaymentInput = z.infer<typeof createStorePixPaymentSchema>;
+
+export const fulfillStoreOrderSchema = z.object({
+  pickupCode: z.string().trim().min(6).max(20),
+});
+export type FulfillStoreOrderInput = z.infer<typeof fulfillStoreOrderSchema>;
