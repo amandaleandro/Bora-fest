@@ -88,6 +88,14 @@ export class StoreOrdersManageController {
   ) {
     return this.orders.listManage(organizationId, userId);
   }
+
+  @Get("analytics")
+  analytics(
+    @Param("organizationId") organizationId: string,
+    @CurrentUserId() userId: string,
+  ) {
+    return this.orders.analytics(organizationId, userId);
+  }
 }
 
 @Controller("v1/store/orders")
