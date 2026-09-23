@@ -60,3 +60,14 @@ export const fulfillStoreOrderSchema = z.object({
   pickupCode: z.string().trim().min(6).max(20),
 });
 export type FulfillStoreOrderInput = z.infer<typeof fulfillStoreOrderSchema>;
+
+
+export const requestStoreRefundSchema = z.object({
+  reason: z.string().trim().min(3).max(1000),
+});
+export type RequestStoreRefundInput = z.infer<typeof requestStoreRefundSchema>;
+
+export const rejectStoreRefundSchema = z.object({
+  note: z.string().trim().min(3).max(1000),
+});
+export type RejectStoreRefundInput = z.infer<typeof rejectStoreRefundSchema>;
