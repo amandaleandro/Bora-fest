@@ -690,3 +690,42 @@ Se o catálogo não carregar ou não contiver todos os lotes da reserva:
 - o usuário recebe instrução para atualizar a página.
 
 Comportamento proibido: seguir para pagamento assumindo que lote desconhecido não é nominal ou que a taxa é do comprador.
+
+
+## 45. Transferência: corrida, reembolso e revogação de QR
+
+### Troca de titular é atômica
+
+A transferência usa compare-and-swap em `ownerUserId`.
+
+Se duas transferências do mesmo ingresso acontecerem ao mesmo tempo:
+- apenas uma altera o titular;
+- a perdedora falha;
+- auditoria e notificação são gravadas só pela vencedora.
+
+### Reembolso self-service com ingresso transferido
+
+O comprador não pode usar:
+- pedido de reembolso self-service;
+- proteção de reembolso self-service;
+
+enquanto houver ingresso ativo do pedido em posse de outra conta.
+
+Motivo: o comprador original não pode transferir o ingresso e depois revogá-lo da carteira do presenteado por uma ação self-service.
+
+Reembolso administrativo/cancelamento operacional continua separado e pode atingir o pedido inteiro quando a operação realmente exige.
+
+### QR antigo após transferência
+
+Reassinar o QR não basta: a assinatura antiga continua matematicamente válida.
+
+Regras atuais:
+- check-in online compara o token escaneado com `Ticket.qrToken` atual;
+- manifesto offline leva apenas `SHA-256(qrToken)`, nunca o token bruto;
+- app compara o hash antes de aceitar offline;
+- fila offline envia o hash do QR efetivamente escaneado;
+- no sync, o servidor compara esse hash com o QR atual antes de confirmar.
+
+Assim, QR antigo/reemitido vira `INVALID`.
+
+Limitação de compatibilidade: versões antigas do app que não enviam `qrHash` continuam aceitas durante rollout. Após atualizar os dispositivos de portaria, essa lacuna deixa de existir no fluxo novo.
