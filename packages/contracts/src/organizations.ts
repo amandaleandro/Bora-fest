@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+const organizationTicketThemeSchema = z.object({
+  template: z.enum(["CLASSIC", "DARK", "FESTA", "PREMIUM"]).default("CLASSIC"),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#6D28D9"),
+  secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#111827"),
+  backgroundImageUrl: z.string().url().max(500).nullable().optional(),
+  logoUrl: z.string().url().max(500).nullable().optional(),
+  sponsorText: z.string().trim().max(120).nullable().optional(),
+  showVenue: z.boolean().default(true),
+  showLot: z.boolean().default(true),
+  showAttendee: z.boolean().default(true),
+});
+
 export const producerTypeSchema = z.enum(["CASA", "ATLETICA", "PRODUTORA", "INDEPENDENTE", "OUTRO"]);
 export type ProducerTypeInput = z.infer<typeof producerTypeSchema>;
 
@@ -40,6 +52,8 @@ export type CreateBankAccountInput = z.infer<typeof createBankAccountSchema>;
 export const updateOrganizationSchema = z.object({
   /** nome mostrado ao público no lugar do nome civil/razão social */
   displayName: z.string().trim().min(2).max(80).nullable().optional(),
+  /** tema padrão herdado pelos eventos sem personalização própria */
+  defaultTicketTheme: organizationTicketThemeSchema.nullable().optional(),
 });
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 
