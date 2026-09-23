@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
-import { storeApi, type StoreProduct, type StoreVariant } from "@/lib/api";
+import { storeApi, type StoreOrderManage, type StoreProduct, type StoreVariant } from "@/lib/api";
 
 function parsePrice(value: string) {
   const normalized = Number(value.trim().replace(",", "."));
@@ -81,6 +81,8 @@ function VariantRow({
 export default function StorePage({ params }: { params: { orgId: string } }) {
   const { token } = useAuth();
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [orders, setOrders] = useState<StoreOrderManage[]>([]);
+  const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +92,12 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
 
   async function load() {
     if (!token) return;
-    const result = await storeApi.list(token, params.orgId);
+    const [result, orderList] = await Promise.all([
+      storeApi.list(token, params.orgId),
+      storeApi.listOrders(token, params.orgId),
+    ]);
     setProducts(result);
+    setOrders(orderList);
   }
 
   useEffect(() => {
@@ -103,6 +109,28 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, params.orgId]);
+
+  async function fulfillOrder(order: StoreOrderManage) {
+    if (!token) return;
+    const code = (pickupCodes[order.id] ?? "").trim();
+    if (!code) {
+      setError("Digite o código mostrado pelo cliente antes de confirmar a retirada.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await storeApi.fulfillOrder(token, order.id, code);
+      setPickupCodes((current) => ({ ...current, [order.id]: "" }));
+      await load();
+      setMessage("Retirada confirmada. O pedido foi marcado como entregue.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível confirmar a retirada");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function createProduct(event: FormEvent) {
     event.preventDefault();
@@ -284,12 +312,113 @@ export default function StorePage({ params }: { params: { orgId: string } }) {
           })}
         </div>
 
-        <div className="mt-6 rounded-3xl border border-warning/25 bg-warning/5 p-5">
-          <p className="text-[13px] font-extrabold text-ink">Venda direta da loja</p>
-          <p className="mt-1 text-[11.5px] font-semibold leading-relaxed text-muted">
-            O catálogo e o estoque já ficam permanentes na Casa. A cobrança direta sem ingresso deve reutilizar a infraestrutura financeira com uma ordem de loja própria; não vamos fingir isso usando um evento oculto.
-          </p>
-        </div>
+        <section className="mt-8">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Operação</p>
+              <h2 className="mt-1 text-[20px] font-black text-ink">Pedidos da Loja</h2>
+              <p className="mt-1 text-[12px] font-semibold text-muted">
+                Pagamentos confirmados geram um código de retirada. Confira o código antes de entregar o produto.
+              </p>
+            </div>
+            <span className="rounded-full border border-line bg-surface px-3 py-1.5 text-[10.5px] font-extrabold text-muted">
+              {orders.length} pedido{orders.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {orders.length === 0 ? (
+            <div className="mt-4 rounded-3xl border border-line bg-surface p-8 text-center">
+              <p className="text-[13px] font-extrabold text-ink">Nenhuma compra na Loja ainda</p>
+              <p className="mt-1 text-[11.5px] font-semibold text-muted">
+                Quando alguém comprar pela página pública da Casa, o pedido aparece aqui.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {orders.map((order) => {
+                const canFulfill = ["PAID", "READY"].includes(order.status);
+                const paid = ["PAID", "READY", "FULFILLED"].includes(order.status);
+                return (
+                  <article key={order.id} className="rounded-2xl border border-line bg-surface p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-[13px] font-extrabold text-ink">{order.contactName}</p>
+                          <span className={`rounded-full px-2.5 py-1 text-[9.5px] font-extrabold ${
+                            order.status === "FULFILLED"
+                              ? "bg-success/10 text-success"
+                              : paid
+                                ? "bg-primary/10 text-primary"
+                                : ["CANCELED", "REFUNDED", "CHARGEBACK"].includes(order.status)
+                                  ? "bg-danger/10 text-danger"
+                                  : "bg-warning/10 text-warning"
+                          }`}>
+                            {order.status === "FULFILLED"
+                              ? "Retirado"
+                              : order.status === "PAID" || order.status === "READY"
+                                ? "Pago · aguardando retirada"
+                                : order.status === "PAYMENT_PENDING"
+                                  ? "Aguardando Pix"
+                                  : order.status === "CREATED"
+                                    ? "Criado"
+                                    : order.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10.5px] font-semibold text-muted">
+                          {order.contactEmail}{order.contactPhone ? ` · ${order.contactPhone}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[16px] font-black text-ink">
+                          {(order.totalCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </p>
+                        <p className="text-[10px] font-semibold text-muted">
+                          {new Date(order.createdAt).toLocaleString("pt-BR")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-1.5">
+                      {order.items.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-bg px-3 py-2">
+                          <p className="text-[11px] font-bold text-ink">
+                            {item.productName} · {item.variantName}
+                          </p>
+                          <p className="text-[11px] font-extrabold text-muted">{item.quantity}×</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {canFulfill ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-primary/15 bg-primary/5 p-3">
+                        <input
+                          value={pickupCodes[order.id] ?? ""}
+                          onChange={(e) =>
+                            setPickupCodes((current) => ({
+                              ...current,
+                              [order.id]: e.target.value.toUpperCase().slice(0, 20),
+                            }))
+                          }
+                          placeholder="Código de retirada"
+                          autoComplete="off"
+                          className="h-10 min-w-[180px] flex-1 rounded-xl border border-line-input bg-surface px-3 font-mono text-[12px] font-bold tracking-[.08em]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void fulfillOrder(order)}
+                          disabled={busy}
+                          className="h-10 rounded-xl bg-primary px-4 text-[11px] font-extrabold text-white disabled:opacity-50"
+                        >
+                          Confirmar entrega
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </main>
     </GuardedPanelShell>
   );
