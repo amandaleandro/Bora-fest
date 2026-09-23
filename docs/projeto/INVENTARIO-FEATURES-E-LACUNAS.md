@@ -434,3 +434,42 @@ Não reconstruir do zero:
 - inteligência.
 
 A prioridade é evoluir e conectar esses módulos.
+
+
+---
+
+## Loja da Casa — atualização 23/09/2026
+
+Status atual: **compra real implementada em MVP operacional**.
+
+Agora existe:
+- catálogo permanente de produto/variação;
+- carrinho na página pública da Casa;
+- pedido comercial próprio (`StoreOrder`);
+- snapshot de preço;
+- reserva atômica de estoque por 15 minutos;
+- Pix com gateway/failover existente;
+- webhook e reconciliação;
+- conversão reservado → vendido no pagamento;
+- ledger e taxa da plataforma;
+- expiração com devolução de reserva;
+- pagamento órfão com estorno automático;
+- código de retirada;
+- confirmação por e-mail;
+- lista de pedidos no painel da Casa;
+- confirmação de entrega por código;
+- reversão financeira;
+- retorno de estoque em estorno antes da retirada.
+
+Não confundir com `EventAddOn`: Loja é comércio permanente da Casa.
+
+Pendências de evolução:
+- cartão;
+- entrega/frete/endereço;
+- reembolso self-service da Loja;
+- devolução física e movimento de reposição;
+- integração à carteira “Minhas compras”;
+- CRM/relatórios/push específicos da Loja.
+
+Documentação detalhada:
+`docs/projeto/LOJA-E-TICKET-STUDIO.md`.
