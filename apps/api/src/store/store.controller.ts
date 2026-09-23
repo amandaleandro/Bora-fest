@@ -1,3 +1,16 @@
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import {
+  createStoreProductSchema,
+  createStoreVariantSchema,
+  updateStoreProductSchema,
+  updateStoreVariantSchema,
+  updateStoreSettingsSchema,
+} from "@borafest/contracts";
+import { CurrentUserId } from "../common/current-user.decorator";
+import { SessionGuard } from "../common/session.guard";
+import { ZodBody } from "../common/zod-body.decorator";
+import { StoreService } from "./store.service";
+
 @Controller("v1/organizations/:organizationId/store/settings")
 @UseGuards(SessionGuard)
 export class StoreSettingsController {
@@ -17,19 +30,6 @@ export class StoreSettingsController {
     return this.store.updateSettings(organizationId, userId, body as any);
   }
 }
-
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import {
-  createStoreProductSchema,
-  createStoreVariantSchema,
-  updateStoreProductSchema,
-  updateStoreVariantSchema,
-  updateStoreSettingsSchema,
-} from "@borafest/contracts";
-import { CurrentUserId } from "../common/current-user.decorator";
-import { SessionGuard } from "../common/session.guard";
-import { ZodBody } from "../common/zod-body.decorator";
-import { StoreService } from "./store.service";
 
 @Controller("v1/organizations/:organizationId/store/products")
 @UseGuards(SessionGuard)
