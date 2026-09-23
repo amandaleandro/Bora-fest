@@ -744,3 +744,84 @@ Motivo: o código curto também é uma credencial de entrada. Revogar apenas o Q
 
 Teste de regressão:
 `ticket-transfer.test.ts` confirma que QR antigo e código antigo retornam inválido após a transferência.
+
+
+## 45. Loja da Casa — commerce order próprio
+
+A Loja não usa `Order` de evento.
+
+Domínio:
+- `StoreOrder`;
+- `StoreOrderItem`;
+- `StorePayment`;
+- `StorePaymentEvent`.
+
+Motivo: `Order` de ticketing exige evento, reserva, lote e emissão de ingresso. Produto físico não deve criar evento/lote fictícios só para reutilizar pagamento.
+
+### Ciclo de estoque
+
+Ao criar pedido:
+- backend recalcula preço;
+- reserva é atômica;
+- `reservedCount` aumenta;
+- preço/nome da variação são congelados em `StoreOrderItem`.
+
+Ao pagar:
+- somente estoque realmente reservado pode virar vendido;
+- `reservedCount -= qty`;
+- `soldCount += qty`.
+
+Ao expirar:
+- reserva é liberada;
+- inconsistência de reserved_count causa erro; não mascarar com zero artificial.
+
+Ao estornar antes da retirada:
+- sold_count volta.
+
+Depois de `FULFILLED`:
+- estorno financeiro NÃO repõe estoque automaticamente, pois isso não prova devolução física.
+
+### Pagamento
+
+Pix reutiliza o gateway da plataforma, mas persiste em `StorePayment`.
+
+Worker de webhook suporta ticketing, VIP e Store.
+
+Deduplicação:
+`StorePaymentEvent(provider, externalEventId)`.
+
+Pagamento tardio após cancelamento:
+- marca como órfão;
+- outbox solicita estorno automático.
+
+### Financeiro
+
+Venda paga cria:
+- `SALE_CREDIT`;
+- `PLATFORM_FEE`;
+- `referenceType = store_payment`.
+
+Disponibilidade do crédito usa `refundHoldDays` da organização.
+
+### Retirada
+
+O `pickupCode` é segredo operacional do pedido:
+- não aparece antes de pagamento;
+- aparece no pedido pago;
+- vai por e-mail ao comprador;
+- painel exige o código para `FULFILLED`.
+
+### Comportamentos que não podem voltar
+
+- evento escondido para vender camiseta/copo;
+- reservar estoque apenas na UI;
+- usar preço enviado pelo navegador como autoridade;
+- converter para vendido sem reserva;
+- duplicar ledger em webhook repetido;
+- expirar pedido deixando `reservedCount` preso;
+- devolver estoque automaticamente de mercadoria já retirada;
+- exibir código de retirada antes de pagamento.
+
+### Evolução prevista
+
+Cartão, frete, endereço, reembolso self-service, histórico na conta e CRM da Loja devem ampliar `StoreOrder`, não criar um terceiro modelo comercial paralelo.
