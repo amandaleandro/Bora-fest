@@ -1,9 +1,30 @@
+@Controller("v1/organizations/:organizationId/store/settings")
+@UseGuards(SessionGuard)
+export class StoreSettingsController {
+  constructor(private readonly store: StoreService) {}
+
+  @Get()
+  get(@Param("organizationId") organizationId: string, @CurrentUserId() userId: string) {
+    return this.store.settings(organizationId, userId);
+  }
+
+  @Patch()
+  update(
+    @Param("organizationId") organizationId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(updateStoreSettingsSchema)) body: unknown,
+  ) {
+    return this.store.updateSettings(organizationId, userId, body as any);
+  }
+}
+
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import {
   createStoreProductSchema,
   createStoreVariantSchema,
   updateStoreProductSchema,
   updateStoreVariantSchema,
+  updateStoreSettingsSchema,
 } from "@borafest/contracts";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { SessionGuard } from "../common/session.guard";
