@@ -7,6 +7,7 @@ import { FollowButton } from "../../../components/FollowButton";
 import { API_BASE_URL, SITE_URL } from "../../../lib/config";
 import type { EventListItem } from "../../../lib/api";
 import type { HouseStoreResponse } from "../../../lib/houses-api";
+import { StoreShop } from "../../../components/StoreShop";
 
 interface HouseProfile {
   id: string;
@@ -178,67 +179,9 @@ export default async function HousePage({ params }: { params: { slug: string } }
           </section>
 
           {store && store.products.length > 0 ? (
-            <section className="lg:col-start-1">
-              <div className="mt-8 border-t border-line pt-7">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <p className="text-[12px] font-extrabold uppercase tracking-[.08em] text-primary">Loja da Casa</p>
-                    <h2 className="mt-1 text-[20px] font-black text-ink">Produtos oficiais</h2>
-                    <p className="mt-1 text-[12.5px] font-semibold text-muted">
-                      Catálogo permanente de {house.name}. Estoque exibido por variação.
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-line bg-surface px-3 py-1.5 text-[10.5px] font-extrabold text-muted">
-                    Compra direta em preparação
-                  </span>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {store.products.map((product) => (
-                    <article key={product.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
-                      {product.imageUrl ? (
-                        <div className="relative aspect-[4/3] overflow-hidden bg-bg">
-                          {/* URL de produto pode ser externa. Não passa pelo otimizador
-                              do Next para preservar a allowlist anti-SSRF do servidor. */}
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={product.imageUrl}
-                            alt={product.name}
-                            loading="lazy"
-                            decoding="async"
-                            referrerPolicy="no-referrer"
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex aspect-[4/3] items-center justify-center bg-bg text-[36px]">🛍️</div>
-                      )}
-                      <div className="p-4">
-                        <h3 className="text-[14px] font-black text-ink">{product.name}</h3>
-                        {product.description ? (
-                          <p className="mt-1 line-clamp-2 text-[11.5px] font-semibold leading-relaxed text-muted">{product.description}</p>
-                        ) : null}
-                        <div className="mt-3 space-y-2">
-                          {product.variants.map((variant) => (
-                            <div key={variant.id} className="flex items-center justify-between gap-3 rounded-xl bg-bg px-3 py-2">
-                              <div className="min-w-0">
-                                <p className="truncate text-[11.5px] font-extrabold text-ink">{variant.name}</p>
-                                <p className={`text-[10px] font-semibold ${variant.available > 0 ? "text-muted" : "text-danger"}`}>
-                                  {variant.available > 0 ? `${variant.available} disponível${variant.available === 1 ? "" : "is"}` : "Sem estoque"}
-                                </p>
-                              </div>
-                              <p className="shrink-0 text-[12px] font-black text-ink">
-                                {(variant.priceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </section>
+            <div className="lg:col-start-1">
+              <StoreShop store={store} />
+            </div>
           ) : null}
 
           {house.recentPastEvents.length > 0 ? (
