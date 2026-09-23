@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { OrgAccessService } from "../common/org-access.service";
+import { IdempotencyService } from "../common/idempotency.service";
 import {
   PublicStoreController,
   StoreProductController,
@@ -32,7 +33,7 @@ import {
     StoreOrderManageController,
     StoreRefundRequestsController,
   ],
-  providers: [StoreService, StoreOrdersService, StorePaymentsService, StoreRefundsService, OrgAccessService],
+  providers: [StoreService, StoreOrdersService, StorePaymentsService, StoreRefundsService, OrgAccessService, IdempotencyService],
   exports: [StoreService, StoreOrdersService],
 })
 export class StoreModule {}
