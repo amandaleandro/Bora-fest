@@ -51,6 +51,7 @@ export interface CheckinResponse {
 export interface SyncCheckinItemInput {
   localSeq: number;
   ticketId: string;
+  qrHash?: string;
   checkinPointId?: string;
   scannedAt: string;
 }
