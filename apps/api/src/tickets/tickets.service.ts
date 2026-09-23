@@ -274,9 +274,18 @@ export class TicketsService {
     const toName = toUser.name ?? toUser.email ?? "Novo titular";
     const lotLabel = `${ticket.ticketLot.ticketType.name} — ${ticket.ticketLot.name}`;
 
-    const [updated] = await prisma.$transaction([
-      prisma.ticket.update({
-        where: { id: ticket.id },
+    const updated = await prisma.$transaction(async (tx) => {
+      // CAS de posse: duas transferências simultâneas podem ter lido o mesmo
+      // dono antes. Só uma altera a linha; a perdedora não cria audit/notificação.
+      const moved = await tx.ticket.updateMany({
+        where: {
+          id: ticket.id,
+          status: { in: ["ISSUED", "ACTIVE"] },
+          OR: [
+            { ownerUserId: userId },
+            { ownerUserId: null, order: { userId } },
+          ],
+        },
         data: {
           ownerUserId: toUser.id,
           // re-nomina SEMPRE (decisão 2026-08-15): o ingresso passa a ser do
@@ -286,18 +295,25 @@ export class TicketsService {
           attendeeCpf: toUser.cpf ?? null,
           qrToken,
         },
-        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
-      }),
-      prisma.auditLog.create({
+      });
+      if (moved.count === 0) {
+        throw new BadRequestException(
+          "Este ingresso mudou de titular ou estado enquanto você transferia — atualize a carteira",
+        );
+      }
+
+      await tx.auditLog.create({
         data: {
           action: "ticket.transfer",
           entityType: "ticket",
           entityId: ticket.id,
+          actorUserId: userId,
           metadata: { fromName, fromEmail, toUserId: toUser.id, toEmail: toUser.email },
         },
-      }),
+      });
+
       // aviso ao novo dono pela fila persistente (worker entrega com retry)
-      prisma.notification.create({
+      await tx.notification.create({
         data: {
           channel: "EMAIL",
           recipient: toUser.email!,
@@ -311,8 +327,13 @@ export class TicketsService {
             walletUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/perfil`,
           },
         },
-      }),
-    ]);
+      });
+
+      return tx.ticket.findUniqueOrThrow({
+        where: { id: ticket.id },
+        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
+      });
+    });
 
     return this.toPublicTicket(updated);
   }
