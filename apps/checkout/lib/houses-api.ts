@@ -54,6 +54,12 @@ export interface HouseStoreProduct {
 
 export interface HouseStoreResponse {
   organization: { id: string; slug: string; name: string; logoUrl: string | null };
+  fulfillment: {
+    pickupEnabled: boolean;
+    deliveryEnabled: boolean;
+    flatShippingCents: number;
+    deliveryInstructions: string | null;
+  };
   products: HouseStoreProduct[];
 }
 
