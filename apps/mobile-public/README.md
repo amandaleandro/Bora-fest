@@ -21,6 +21,7 @@ rede local, ou `http://10.0.2.2:3333` no emulador Android).
 - **Descoberta de eventos** (`GET /v1/public/events` — endpoint novo desta
   entrega, não existia antes; só havia busca por slug de um evento
   específico).
+- **Links rastreáveis de promoter/vendedor**: o app aceita deep link `borafest://<slug>?pr=...` / `?vd=...` e preserva a atribuição no catálogo, disponibilidade, reserva e pedido.
 - **Compra sem conta**: seleção de ingressos → reserva → dados de contato
   → escolha de Pix ou cartão de crédito → a tela avança sozinha quando o
   pagamento é aprovado (polling do status do pedido).
@@ -54,3 +55,11 @@ rede local, ou `http://10.0.2.2:3333` no emulador Android).
   contra a API local (push token registrado, cartão aprovado/recusado via
   `MockGateway`), mas nunca aberto numa tela de verdade — push em particular
   só pode ser confirmado de ponta a ponta num aparelho real.
+
+
+## Regras de preço e lote
+
+- O preço exibido respeita `feeMode`: quando o produtor absorve a taxa, ela não é somada ao comprador.
+- A API de reserva devolve `buyerTotalCents` como total autoritativo para evitar divergência entre telas.
+- Lotes `promoterOnly` só aparecem e só podem ser comprados com promoter/vendedor válido.
+- O app registra o scheme `borafest://` em `app.json`. Links HTTPS só abrem diretamente no app quando Universal Links/App Links forem configurados no domínio e nas lojas.
