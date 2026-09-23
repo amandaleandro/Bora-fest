@@ -711,6 +711,33 @@ export const api = {
       refundRequested?: boolean;
     }>>("/v1/me/orders", { token }),
 
+  myStoreOrders: (token: string) =>
+    request<Array<{
+      id: string;
+      publicToken: string;
+      status: string;
+      totalCents: number;
+      createdAt: string;
+      paidAt: string | null;
+      fulfilledAt: string | null;
+      pickupCode: string;
+      house: { slug: string; name: string; logoUrl: string | null };
+      items: Array<{
+        id: string;
+        productName: string;
+        variantName: string;
+        quantity: number;
+        priceCents: number;
+      }>;
+      refundRequest: { id: string; status: string; returnedAt: string | null } | null;
+    }>>("/v1/me/store-orders", { token }),
+
+  requestStoreRefund: (publicToken: string, reason: string, token: string) =>
+    request<{ id: string; status: string; returnRequired: boolean }>(
+      `/v1/public/store/orders/${publicToken}/refund-requests`,
+      { method: "POST", body: { reason }, token },
+    ),
+
   myDataExport: (token: string) => request<unknown>("/v1/me/data-export", { token }),
 
   deleteAccount: (token: string) =>
