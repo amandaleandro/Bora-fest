@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
+import { claimVerifiedOrders } from "../common/claim-verified-orders";
 import { origemGratis } from "../common/origem-gratis";
 import { generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
@@ -128,6 +129,7 @@ export class TicketsService {
 
   /** Carteira do usuário autenticado. */
   async findByUser(userId: string) {
+    await claimVerifiedOrders(userId);
     const tickets = await prisma.ticket.findMany({
       where: {
         status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] },
