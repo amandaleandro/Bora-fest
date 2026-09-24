@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { eventRecurrenceApi } from "@/lib/event-recurrence-api";
 import { useEventShell } from "@/lib/eventContext";
@@ -192,9 +193,9 @@ export default function EventRecurrencePage() {
         {error ? <p className="mt-4 text-[12px] font-bold text-danger">{error}</p> : null}
 
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={() => router.back()} className="h-11 rounded-xl border border-line-input px-5 text-[13px] font-extrabold text-muted">
+          <Link href={`/eventos/${event.id}/dashboard`} className="flex h-11 items-center rounded-xl border border-line-input px-5 text-[13px] font-extrabold text-muted">
             Cancelar
-          </button>
+          </Link>
           <button
             type="button"
             onClick={createEdition}
