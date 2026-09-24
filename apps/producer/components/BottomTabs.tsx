@@ -63,8 +63,17 @@ export function BottomTabs() {
   const [event, setEvent] = useState<string | null>(null);
 
   useEffect(() => {
-    setOrg(localStorage.getItem("bf.activeOrg"));
-    setEvent(localStorage.getItem("bf.activeEvent"));
+    const refresh = () => {
+      setOrg(localStorage.getItem("bf.activeOrg"));
+      setEvent(localStorage.getItem("bf.activeEvent"));
+    };
+    refresh();
+    window.addEventListener("bf.orgchange", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("bf.orgchange", refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, [pathname]);
 
   const tabs = [
@@ -77,7 +86,7 @@ export function BottomTabs() {
 
   function activeId(): string {
     if (pathname.startsWith("/resumo")) return "resumo";
-    if (pathname.startsWith("/mais") || pathname.includes("/financeiro") || pathname.includes("/reembolsos")) return "mais";
+    if (pathname.startsWith("/mais") || pathname.includes("/financeiro") || pathname.includes("/reembolsos") || pathname.startsWith("/ajuda")) return "mais";
     if (pathname.includes("/vendas")) return "vendas";
     if (pathname.includes("/portaria") || pathname.includes("/checkin-ao-vivo")) return "portaria";
     if (pathname.startsWith("/organizacoes") || pathname.startsWith("/eventos")) return "eventos";
