@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, ApiError, type Order } from "../../lib/api";
-import { storeApi } from "../../lib/store-api";
+import { api, ApiError } from "../../lib/api";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { Icon, paths } from "../../components/icons";
 
@@ -29,7 +28,6 @@ interface StorePurchaseRow {
   pickupCode: string | null;
   fulfillmentMethod: "PICKUP" | "DELIVERY";
   refundStatus: string | null;
-  owned: boolean;
 }
 
 const STORE_STATUS_LABEL: Record<string, string> = {
@@ -53,36 +51,6 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELED: "Cancelado",
 };
 
-/** Pedidos lembrados neste aparelho (compra como convidado). */
-async function loadDeviceOrders(skip: Set<string>): Promise<PurchaseRow[]> {
-  let tokens: string[] = [];
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem("bf.orders") ?? "[]");
-    tokens = Array.isArray(stored) ? [...new Set(stored.filter((item): item is string => typeof item === "string" && item.length > 0))] : [];
-  } catch {
-    return [];
-  }
-  const rows: PurchaseRow[] = [];
-  for (const token of tokens) {
-    if (skip.has(token)) continue;
-    try {
-      const order: Order = await api.getOrderStatus(token);
-      rows.push({
-        publicToken: token,
-        status: order.status,
-        totalCents: order.totalCents,
-        eventTitle: "Pedido #BF-" + token.slice(0, 8).toUpperCase(),
-        startsAt: null,
-        itemsLabel: (order.items ?? []).map((i) => `${i.quantity}× ingresso`).join(", "),
-        ended: false,
-      });
-    } catch {
-      /* pedido inacessível — ignora */
-    }
-  }
-  return rows;
-}
-
 export default function PurchasesPage() {
   const [rows, setRows] = useState<PurchaseRow[] | null>(null);
   const [storeRows, setStoreRows] = useState<StorePurchaseRow[] | null>(null);
@@ -92,16 +60,31 @@ export default function PurchasesPage() {
   const [refundOk, setRefundOk] = useState<string | null>(null);
   const [refundReviewer, setRefundReviewer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadWarning, setLoadWarning] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionRequired, setSessionRequired] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     async function load() {
+      // Migração do histórico antigo: tokens de pedidos não ficam mais no aparelho.
+      localStorage.removeItem("bf.orders");
+      localStorage.removeItem("bf.storeOrders");
       const token = localStorage.getItem("bf.token");
-      let serverRows: PurchaseRow[] = [];
-      if (token) {
-        try {
-          const orders = await api.myOrders(token);
-          serverRows = orders.map((o) => ({
+      setRows(null);
+      setStoreRows(null);
+      setLoadError(null);
+      setSessionRequired(!token);
+      if (!token) {
+        setRows([]);
+        setStoreRows([]);
+        return;
+      }
+      const [ticketResult, storeResult] = await Promise.allSettled([
+        api.myOrders(token),
+        api.myStoreOrders(token),
+      ]);
+      if (ticketResult.status === "fulfilled") {
+        setRows(ticketResult.value.map((o) => ({
             publicToken: o.publicToken,
             status: o.status,
             totalCents: o.totalCents,
@@ -110,22 +93,12 @@ export default function PurchasesPage() {
             itemsLabel: o.items.map((i) => `${i.quantity}× ${i.ticketLot.name}`).join(", "),
             ended: new Date(o.event.endsAt).getTime() < Date.now(),
             refundRequested: o.refundRequested === true,
-          }));
-        } catch {
-          setLoadWarning("Não conseguimos consultar sua conta agora. Mostrando as compras salvas neste aparelho.");
-        }
+        })));
+      } else {
+        setRows([]);
       }
-      // quem comprou como convidado e só depois entrou por OTP não aparece em
-      // /v1/me/orders — por isso o aparelho é sempre consultado e as duas
-      // fontes são unidas (sem repetir o mesmo pedido).
-      const deviceRows = await loadDeviceOrders(new Set(serverRows.map((r) => r.publicToken)));
-      setRows([...serverRows, ...deviceRows]);
-
-      let serverStoreRows: StorePurchaseRow[] = [];
-      if (token) {
-        try {
-          const orders = await api.myStoreOrders(token);
-          serverStoreRows = orders.map((order) => ({
+      if (storeResult.status === "fulfilled") {
+        setStoreRows(storeResult.value.map((order) => ({
             publicToken: order.publicToken,
             status: order.status,
             totalCents: order.totalCents,
@@ -137,48 +110,16 @@ export default function PurchasesPage() {
             pickupCode: ["PAID", "READY", "FULFILLED"].includes(order.status) ? order.pickupCode : null,
             fulfillmentMethod: order.fulfillmentMethod,
             refundStatus: order.refundRequest?.status ?? null,
-            owned: true,
-          }));
-        } catch {
-          setLoadWarning("Não conseguimos consultar sua conta agora. Mostrando as compras salvas neste aparelho.");
-        }
+        })));
+      } else {
+        setStoreRows([]);
       }
-
-      let deviceStoreTokens: string[] = [];
-      try {
-        const stored: unknown = JSON.parse(localStorage.getItem("bf.storeOrders") ?? "[]");
-        deviceStoreTokens = Array.isArray(stored) ? [...new Set(stored.filter((item): item is string => typeof item === "string" && item.length > 0))] : [];
-      } catch {
-        deviceStoreTokens = [];
+      if (ticketResult.status === "rejected" || storeResult.status === "rejected") {
+        setLoadError("Não foi possível carregar todo o histórico do banco. Tente novamente.");
       }
-      const knownStore = new Set(serverStoreRows.map((row) => row.publicToken));
-      const deviceStoreRows: StorePurchaseRow[] = [];
-      for (const publicToken of deviceStoreTokens) {
-        if (knownStore.has(publicToken)) continue;
-        try {
-          const order = await storeApi.getOrder(publicToken);
-          deviceStoreRows.push({
-            publicToken,
-            status: order.status,
-            totalCents: order.totalCents,
-            houseName: order.house.name,
-            houseSlug: order.house.slug,
-            itemsLabel: order.items
-              .map((item) => `${item.quantity}× ${item.productName} · ${item.variantName}`)
-              .join(", "),
-            pickupCode: order.pickupCode,
-            fulfillmentMethod: order.fulfillmentMethod,
-            refundStatus: null,
-            owned: false,
-          });
-        } catch {
-          // token local antigo/inválido: ignora.
-        }
-      }
-      setStoreRows([...serverStoreRows, ...deviceStoreRows]);
     }
-    load();
-  }, []);
+    void load();
+  }, [reloadKey]);
 
   async function requestRefund(token: string) {
     if (refundBusy) return;
@@ -237,11 +178,16 @@ export default function PurchasesPage() {
         </Link>
       </header>
 
-      {loadWarning ? <p role="status" className="mt-4 rounded-xl border border-warning/25 bg-warning/5 p-3 text-[12px] font-semibold text-muted">{loadWarning}</p> : null}
+      {loadError ? <p role="alert" className="mt-4 rounded-xl border border-danger/25 bg-danger/5 p-3 text-[12px] font-semibold text-danger">{loadError} <button type="button" onClick={() => setReloadKey((key) => key + 1)} className="underline">Tentar novamente</button></p> : null}
 
-      {rows === null || storeRows === null ? (
+      {sessionRequired ? (
+        <div className="mt-12 rounded-2xl border border-line bg-surface p-6 text-center">
+          <p className="text-[14px] font-semibold text-muted">Entre com o e-mail usado na compra para ver seus pedidos em qualquer aparelho.</p>
+          <Link href="/perfil" className="mt-4 inline-flex h-11 items-center rounded-xl bg-primary px-6 text-[13px] font-extrabold text-white">Entrar na minha conta</Link>
+        </div>
+      ) : rows === null || storeRows === null ? (
         <p className="mt-10 text-center text-[13px] text-muted">Carregando…</p>
-      ) : rows.length === 0 && storeRows.length === 0 ? (
+      ) : !loadError && rows.length === 0 && storeRows.length === 0 ? (
         <div className="mt-16 text-center lg:mt-10 lg:rounded-[22px] lg:border lg:border-line lg:bg-surface lg:py-16">
           <Icon d={paths.ticket} size={48} className="mx-auto text-muted-4" />
           <p className="mt-3 text-[15px] font-bold lg:text-[17px]">Nenhuma compra por aqui</p>
@@ -356,7 +302,6 @@ export default function PurchasesPage() {
                     Ver pedido
                   </Link>
                   {["PAID", "READY", "FULFILLED"].includes(row.status) && !row.refundStatus && (
-                    row.owned ? (
                       <button
                         onClick={() => void requestStoreRefund(row.publicToken)}
                         disabled={storeRefundBusy !== null}
@@ -364,14 +309,6 @@ export default function PurchasesPage() {
                       >
                         {storeRefundBusy === row.publicToken ? "Enviando…" : "Solicitar reembolso"}
                       </button>
-                    ) : (
-                      <Link
-                        href="/perfil"
-                        className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-center text-[12px] font-bold"
-                      >
-                        Entrar para solicitar
-                      </Link>
-                    )
                   )}
                 </div>
               </article>
