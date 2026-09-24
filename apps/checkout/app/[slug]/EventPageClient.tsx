@@ -232,7 +232,7 @@ export function EventPageClient({
   const timeLabel = starts.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: event.timezone });
 
   return (
-    <main className="pb-32 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8">
+    <main className={`${closed ? "pb-44" : "pb-32"} lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8`}>
       <PixelTracker
         pixelSettings={event.pixelSettings}
         viewContent={{ eventId: event.id, name: event.title, valueCents: min }}
@@ -338,7 +338,7 @@ export function EventPageClient({
       {/* ---------- mobile (como no PWA) ---------- */}
       <div className="lg:hidden">
       {/* hero */}
-      <div className="relative h-[430px] overflow-hidden bg-brand-gradient">
+      <div className="relative h-[min(430px,55dvh)] min-h-[260px] overflow-hidden bg-brand-gradient">
         {event.bannerUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" fit="poster" />
@@ -440,7 +440,7 @@ export function EventPageClient({
       </div>
 
       {/* CTA sticky */}
-      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-[430px] border-t border-line bg-surface/90 p-4 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-[430px] border-t border-line bg-surface/90 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur">
         {closed ? (
           <div className="space-y-2">
             <div className="flex h-14 items-center justify-center rounded-2xl bg-line px-4 text-center text-[14px] font-bold text-muted-3">
