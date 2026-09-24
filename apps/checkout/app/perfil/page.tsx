@@ -141,6 +141,7 @@ export default function ProfilePage() {
 
   const [tickets, setTickets] = useState<MyTicket[] | null>(null);
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
+  const [ordersError, setOrdersError] = useState(false);
   const [resentFor, setResentFor] = useState<string | null>(null);
 
   // transferência de ingresso (painel inline por cartão)
@@ -203,7 +204,7 @@ export default function ProfilePage() {
     }
     if (section === "compras" && !requested.current.has("compras")) {
       requested.current.add("compras");
-      api.myOrders(token).then(setOrders).catch(() => setOrders([]));
+      api.myOrders(token).then(setOrders).catch(() => { setOrdersError(true); setOrders([]); });
     }
   }, [token, section]);
 
@@ -265,6 +266,7 @@ export default function ProfilePage() {
     setProfile(null);
     setTickets(null);
     setOrders(null);
+    setOrdersError(false);
     requested.current.clear();
   }
 
@@ -621,21 +623,26 @@ export default function ProfilePage() {
 
           {section === "compras" && (
             <section>
-              {orders === null ? (
+              {ordersError ? (
+                <div role="alert" className="rounded-[22px] border border-danger/25 bg-danger/5 px-8 py-10 text-center">
+                  <p className="text-[14px] font-semibold text-danger">Não foi possível consultar suas compras no banco agora.</p>
+                  <Link href="/minhas-compras" className="mt-4 inline-flex h-11 items-center rounded-xl bg-primary px-5 text-[13px] font-bold text-white">Tentar novamente</Link>
+                </div>
+              ) : orders === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando suas compras…</p>
               ) : orders.length === 0 ? (
                 <div className="rounded-[22px] border border-line bg-surface px-8 py-12 text-center">
                   <Icon d={paths.ticket} size={44} className="mx-auto text-muted-4" />
                   <p className="mt-4 text-[17px] font-extrabold">Nenhuma compra nesta conta</p>
                   <p className="mx-auto mt-2 max-w-[420px] text-[13.5px] font-medium leading-relaxed text-muted">
-                    Comprou como convidado antes de entrar? As compras feitas neste aparelho continuam acessíveis.
+                    Entre com o e-mail usado na compra para acessar seus pedidos em qualquer aparelho.
                   </p>
                   <div className="mt-6 flex flex-wrap justify-center gap-2.5">
                     <Link href="/" className="flex h-[46px] items-center rounded-[13px] bg-primary px-6 text-[14px] font-extrabold text-white shadow-cta">
                       Explorar eventos
                     </Link>
                     <Link href="/minhas-compras" className="flex h-[46px] items-center rounded-[13px] border-[1.5px] border-line-input px-6 text-[14px] font-bold text-ink">
-                      Compras deste aparelho
+                      Ver minhas compras
                     </Link>
                   </div>
                 </div>
