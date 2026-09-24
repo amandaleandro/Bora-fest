@@ -623,10 +623,11 @@ export class OrdersService {
   async getPdvOrderTickets(eventId: string, orderId: string, actorUserId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    const membership = await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
     const order = await prisma.order.findFirst({
       where: { id: orderId, eventId },
       select: {
+        soldByUserId: true,
         status: true,
         tickets: {
           orderBy: { seq: "asc" },
@@ -638,6 +639,9 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado neste evento");
+    if (order.soldByUserId !== actorUserId && !roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW)) {
+      throw new ForbiddenException("Somente o vendedor do pedido ou o financeiro pode consultar estes ingressos");
+    }
     return {
       orderStatus: order.status,
       tickets: order.tickets.map((t) => ({
