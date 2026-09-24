@@ -183,7 +183,8 @@ export class FaceCheckinService {
         score: verification.score ?? null,
       };
     }
-    if (verification.liveness === false) {
+    // A missing liveness result is not proof of life; fail closed.
+    if (verification.liveness !== true) {
       return {
         result: "INVALID" as const,
         reason: "FACE_LIVENESS_FAILED" as const,
