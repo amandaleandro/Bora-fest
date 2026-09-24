@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import QRCode from "react-qr-code";
-import { storeApi, type StoreOrderPublic } from "../../../lib/store-api";
+import { storeApi, type StoreOrderPublic } from "../../../../lib/store-api";
 
 function money(cents: number) {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
