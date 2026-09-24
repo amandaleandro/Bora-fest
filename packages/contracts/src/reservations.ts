@@ -14,5 +14,8 @@ export const createReservationSchema = z.object({
     .min(1),
   /** obtido em POST /v1/public/events/:slug/waiting-room/join — exigido quando o evento tem sala de espera ativa */
   waitingRoomTicketId: z.string().uuid().optional(),
+  /** prova de acesso a lote exclusivo; slug público rastreável do promoter/vendedor */
+  promoterSlug: z.string().trim().min(1).max(120).optional(),
+  sellerSlug: z.string().trim().min(1).max(120).optional(),
 });
 export type CreateReservationInput = z.infer<typeof createReservationSchema>;

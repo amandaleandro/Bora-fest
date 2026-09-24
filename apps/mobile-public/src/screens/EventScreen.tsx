@@ -6,11 +6,13 @@ import { formatCents, formatDateTime } from "../format";
 
 interface Props {
   slug: string;
+  promoterSlug?: string;
+  sellerSlug?: string;
   onBack: () => void;
   onReserved: (reservationId: string) => void;
 }
 
-export function EventScreen({ slug, onBack, onReserved }: Props) {
+export function EventScreen({ slug, promoterSlug, sellerSlug, onBack, onReserved }: Props) {
   const [event, setEvent] = useState<PublicEvent | null>(null);
   const [availability, setAvailability] = useState<Record<string, AvailabilityItem>>({});
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -19,21 +21,30 @@ export function EventScreen({ slug, onBack, onReserved }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getEvent(slug), api.getAvailability(slug)])
+    Promise.all([
+      api.getEvent(slug, promoterSlug, sellerSlug),
+      api.getAvailability(slug, promoterSlug, sellerSlug),
+    ])
       .then(([eventData, availabilityData]) => {
         setEvent(eventData);
         setAvailability(Object.fromEntries(availabilityData.map((item) => [item.lotId, item])));
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar o evento"))
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, promoterSlug, sellerSlug]);
 
   const totalCents = useMemo(() => {
     if (!event) return 0;
     return event.ticketTypes.reduce(
       (sum, type) =>
         sum +
-        type.lots.reduce((lotSum, lot) => lotSum + (quantities[lot.id] ?? 0) * (lot.priceCents + lot.feeCents), 0),
+        type.lots.reduce(
+          (lotSum, lot) =>
+            lotSum +
+            (quantities[lot.id] ?? 0) *
+              (lot.priceCents + (lot.feeMode === "PRODUCER" ? 0 : lot.feeCents)),
+          0,
+        ),
       0,
     );
   }, [event, quantities]);
@@ -56,7 +67,7 @@ export function EventScreen({ slug, onBack, onReserved }: Props) {
     }
     setSubmitting(true);
     try {
-      const reservation = await api.createReservation(event.id, items);
+      const reservation = await api.createReservation(event.id, items, promoterSlug, sellerSlug);
       onReserved(reservation.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível reservar — tente novamente");
@@ -111,7 +122,9 @@ export function EventScreen({ slug, onBack, onReserved }: Props) {
               <View key={lot.id} style={styles.lotRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.lotName}>{lot.name}</Text>
-                  <Text style={styles.lotPrice}>{formatCents(lot.priceCents + lot.feeCents)}</Text>
+                  <Text style={styles.lotPrice}>
+                    {formatCents(lot.priceCents + (lot.feeMode === "PRODUCER" ? 0 : lot.feeCents))}
+                  </Text>
                   {soldOut ? <Text style={styles.soldOut}>esgotado</Text> : null}
                 </View>
                 <View style={styles.stepper}>

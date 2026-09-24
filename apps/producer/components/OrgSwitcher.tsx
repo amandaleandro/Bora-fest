@@ -31,8 +31,13 @@ export function OrgSwitcher({ organizationId, dark }: { organizationId?: string;
     const fora = (e: MouseEvent) => {
       if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
     };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") setAberto(false); };
     document.addEventListener("mousedown", fora);
-    return () => document.removeEventListener("mousedown", fora);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", fora);
+      document.removeEventListener("keydown", escape);
+    };
   }, [aberto]);
 
   const ativaId = organizationId ?? (typeof window !== "undefined" ? localStorage.getItem("bf.activeOrg") : null);

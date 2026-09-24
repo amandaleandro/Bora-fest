@@ -116,6 +116,8 @@ export interface Organization {
   name: string;
   /** nome comercial mostrado ao público; null = usa `name` */
   displayName?: string | null;
+  logoUrl?: string | null;
+  defaultTicketTheme?: TicketTheme | null;
   slug: string;
   kind: string;
   status: string;
@@ -216,7 +218,11 @@ export const organizationsApi = {
     }),
   create: (token: string, input: { name: string; kind: "INDIVIDUAL" | "COMPANY"; document: string; producerType: ProducerType }) =>
     request<Organization & { members: unknown[]; reused?: boolean }>("/v1/organizations", { method: "POST", body: input, token }),
-  update: (token: string, organizationId: string, input: { displayName?: string | null }) =>
+  update: (
+    token: string,
+    organizationId: string,
+    input: { displayName?: string | null; defaultTicketTheme?: TicketTheme | null },
+  ) =>
     request<Organization>(`/v1/organizations/${organizationId}`, { method: "PATCH", body: input, token }),
   inviteMember: (token: string, organizationId: string, email: string, roleKey: MemberRoleKey, partnerId?: string) =>
     request(`/v1/organizations/${organizationId}/members`, {
@@ -232,6 +238,221 @@ export const organizationsApi = {
     request<OrgMember[]>(`/v1/organizations/${organizationId}/members`, { token }),
   removeMember: (token: string, organizationId: string, memberId: string) =>
     request(`/v1/organizations/${organizationId}/members/${memberId}`, { method: "DELETE", token }),
+};
+
+export interface StoreVariant {
+  id: string;
+  name: string;
+  sku: string | null;
+  priceCents: number;
+  stockTotal: number;
+  reservedCount: number;
+  soldCount: number;
+  active: boolean;
+}
+
+export interface StoreProduct {
+  id: string;
+  organizationId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  imageUrl: string | null;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  variants: StoreVariant[];
+}
+
+export interface StoreOrderManage {
+  id: string;
+  publicToken: string;
+  status: "CREATED" | "PAYMENT_PENDING" | "PAID" | "READY" | "FULFILLED" | "CANCELED" | "REFUNDED" | "CHARGEBACK";
+  pickupCode: string;
+  fulfillmentMethod: "PICKUP" | "DELIVERY";
+  subtotalCents: number;
+  shippingCents: number;
+  shippingAddress?: {
+    postalCode: string;
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+  } | null;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string | null;
+  totalCents: number;
+  expiresAt: string;
+  paidAt: string | null;
+  fulfilledAt: string | null;
+  createdAt: string;
+  items: Array<{
+    id: string;
+    productName: string;
+    variantName: string;
+    quantity: number;
+    priceCents: number;
+  }>;
+  payments: Array<{ method: string; status: string; amountCents: number; paidAt: string | null }>;
+}
+
+export interface StoreRefundRequestManage {
+  id: string;
+  reason: string;
+  status: "PENDING" | "AWAITING_RETURN" | "APPROVED" | "REJECTED";
+  requestedAt: string;
+  returnedAt: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  order: {
+    id: string;
+    publicToken: string;
+    status: string;
+    contactName: string;
+    contactEmail: string;
+    totalCents: number;
+    pickupCode: string;
+    paidAt: string | null;
+    fulfilledAt: string | null;
+    items: Array<{
+      id: string;
+      productName: string;
+      variantName: string;
+      quantity: number;
+      priceCents: number;
+    }>;
+  };
+}
+
+export interface StoreSettings {
+  pickupEnabled: boolean;
+  deliveryEnabled: boolean;
+  flatShippingCents: number;
+  deliveryInstructions: string | null;
+}
+
+export interface StoreAnalytics {
+  grossCents: number;
+  paidOrders: number;
+  averageTicketCents: number;
+  uniqueCustomers: number;
+  pendingPreparation: number;
+  ready: number;
+  pickupOrders: number;
+  deliveryOrders: number;
+  topProducts: Array<{ name: string; quantity: number; revenueCents: number }>;
+  customers: Array<{
+    name: string;
+    email: string;
+    phone: string | null;
+    orders: number;
+    spentCents: number;
+    lastOrderAt: string;
+  }>;
+}
+
+export const storeApi = {
+  list: (token: string, organizationId: string) =>
+    request<StoreProduct[]>(`/v1/organizations/${organizationId}/store/products`, { token }),
+  create: (
+    token: string,
+    organizationId: string,
+    input: { name: string; description?: string; imageUrl?: string },
+  ) =>
+    request<StoreProduct>(`/v1/organizations/${organizationId}/store/products`, {
+      method: "POST",
+      body: input,
+      token,
+    }),
+  updateProduct: (
+    token: string,
+    productId: string,
+    input: Partial<{
+      name: string;
+      description: string;
+      imageUrl: string;
+      status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+    }>,
+  ) =>
+    request<StoreProduct>(`/v1/store/products/${productId}`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
+  createVariant: (
+    token: string,
+    productId: string,
+    input: { name: string; sku?: string; priceCents: number; stockTotal: number },
+  ) =>
+    request<StoreVariant>(`/v1/store/products/${productId}/variants`, {
+      method: "POST",
+      body: input,
+      token,
+    }),
+  updateVariant: (
+    token: string,
+    variantId: string,
+    input: Partial<{
+      name: string;
+      sku: string;
+      priceCents: number;
+      stockTotal: number;
+      active: boolean;
+    }>,
+  ) =>
+    request<StoreVariant>(`/v1/store/variants/${variantId}`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
+  listOrders: (token: string, organizationId: string) =>
+    request<StoreOrderManage[]>(`/v1/organizations/${organizationId}/store/orders`, { token }),
+  getSettings: (token: string, organizationId: string) =>
+    request<StoreSettings>(`/v1/organizations/${organizationId}/store/settings`, { token }),
+  updateSettings: (
+    token: string,
+    organizationId: string,
+    input: Partial<StoreSettings>,
+  ) =>
+    request<StoreSettings>(`/v1/organizations/${organizationId}/store/settings`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
+  analytics: (token: string, organizationId: string) =>
+    request<StoreAnalytics>(`/v1/organizations/${organizationId}/store/orders/analytics`, { token }),
+  markReady: (token: string, orderId: string) =>
+    request<{ ready: boolean }>(`/v1/store/orders/${orderId}/ready`, {
+      method: "POST",
+      token,
+    }),
+  fulfillOrder: (token: string, orderId: string, pickupCode?: string) =>
+    request<{ fulfilled: boolean }>(`/v1/store/orders/${orderId}/fulfill`, {
+      method: "POST",
+      body: { pickupCode },
+      token,
+    }),
+  listRefundRequests: (token: string, organizationId: string) =>
+    request<StoreRefundRequestManage[]>(
+      `/v1/organizations/${organizationId}/store/refund-requests`,
+      { token },
+    ),
+  markRefundReturned: (token: string, organizationId: string, requestId: string) =>
+    request<{ returned: boolean }>(
+      `/v1/organizations/${organizationId}/store/refund-requests/${requestId}/returned`,
+      { method: "POST", token },
+    ),
+  approveRefund: (token: string, organizationId: string, requestId: string) =>
+    request<{ approved: boolean; gatewayStatus: string }>(
+      `/v1/organizations/${organizationId}/store/refund-requests/${requestId}/approve`,
+      { method: "POST", token },
+    ),
+  rejectRefund: (token: string, organizationId: string, requestId: string, note: string) =>
+    request<StoreRefundRequestManage>(
+      `/v1/organizations/${organizationId}/store/refund-requests/${requestId}/reject`,
+      { method: "POST", body: { note }, token },
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -280,6 +501,7 @@ export interface EventSummary {
   bannerUrl?: string | null;
   category?: EventCategory | null;
   venue?: EventVenue | null;
+  ticketTheme?: TicketTheme | null;
 }
 
 /**
@@ -439,9 +661,13 @@ export interface Dashboard {
     slug: string;
     status: string;
     category?: EventCategory | null;
+    startsAt: string;
+    endsAt: string;
+    description?: string | null;
     bannerUrl?: string | null;
     waitingRoomEnabled: boolean;
     waitingRoomConcurrency: number;
+    faceCheckinEnabled: boolean;
     pixelSettings?: PixelSettings | null;
     venue?: EventVenue | null;
   };
@@ -461,6 +687,10 @@ export interface Dashboard {
     feeMode?: FeeMode;
     nominal?: boolean;
     requiresCpf?: boolean;
+    pdvOnly?: boolean;
+    promoterOnly?: boolean;
+    startsAt?: string | null;
+    endsAt?: string | null;
     capacity: number;
     sold: number;
     reserved: number;
@@ -724,6 +954,20 @@ export const passwordAuth = {
     }),
 };
 
+export type TicketTemplate = "CLASSIC" | "DARK" | "FESTA" | "PREMIUM";
+
+export interface TicketTheme {
+  template: TicketTemplate;
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundImageUrl?: string | null;
+  logoUrl?: string | null;
+  sponsorText?: string | null;
+  showVenue: boolean;
+  showLot: boolean;
+  showAttendee: boolean;
+}
+
 export interface UpdateEventInput {
   title?: string;
   description?: string;
@@ -741,9 +985,11 @@ export interface UpdateEventInput {
   bannerUrl?: string;
   waitingRoomEnabled?: boolean;
   waitingRoomConcurrency?: number;
+  faceCheckinEnabled?: boolean;
   pixelSettings?: PixelSettings;
   /** Token da API de Conversões da Meta; "" ou null desliga. */
   metaCapiToken?: string | null;
+  ticketTheme?: TicketTheme | null;
   /** A API cria/atualiza o local e vincula ao evento. */
   venue?: EventVenue;
 }

@@ -122,6 +122,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
     ...(organizationId
       ? [
           { href: `/organizacoes/${organizationId}/perfil-publico`, icon: icons.globe, label: "Perfil público" },
+          { href: `/organizacoes/${organizationId}/loja`, icon: icons.cart, label: "Loja da Casa" },
           { href: `/organizacoes/${organizationId}/clientes`, icon: icons.people, label: "Clientes" },
           { href: `/organizacoes/${organizationId}/financeiro`, icon: icons.card, label: "Financeiro" },
           { href: `/organizacoes/${organizationId}/reembolsos`, icon: icons.card, label: "Reembolsos" },
@@ -134,6 +135,7 @@ function useSidebarLinks(event?: SidebarEventInfo, organizationId?: string) {
     ? [
         { href: `/eventos/${event.id}/dashboard`, icon: icons.grid, label: "Geral" },
         { href: `/eventos/${event.id}`, icon: icons.ticket, label: "Ingressos" },
+        { href: `/eventos/${event.id}/ticket-studio`, icon: icons.pencil, label: "Ingresso personalizado" },
         { href: `/eventos/${event.id}/vip`, icon: icons.card, label: "Mesas e camarotes" },
         { href: `/eventos/${event.id}/editar`, icon: icons.pencil, label: "Editar evento" },
         { href: `/eventos/${event.id}/divulgue`, icon: icons.megaphone, label: "Divulgue" },
@@ -266,7 +268,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
         <OrgSwitcher organizationId={orgEmFoco} dark />
       </div>
       {daProdutora.map((link) => (
-        <Item key={link.label} {...link} active={pathname === link.href} />
+        <Item key={link.label} {...link} active={pathname === link.href || (link.href !== `/organizacoes/${orgEmFoco}` && pathname.startsWith(`${link.href}/`))} />
       ))}
 
       {/* NIVEL 2 — o evento. Continua visível mesmo nas telas da produtora

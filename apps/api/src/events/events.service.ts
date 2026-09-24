@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { prisma, Prisma } from "@borafest/database";
 import { randomBytes } from "node:crypto";
 import sharp from "sharp";
 import { unlink, writeFile } from "node:fs/promises";
@@ -28,6 +28,49 @@ function detectImageExt(head: Buffer): string | null {
     }
   }
   return null;
+}
+
+function assertManagedTicketThemeAssets(theme: UpdateEventInput["ticketTheme"]): void {
+  if (!theme) return;
+
+  const allowedHosts = new Set<string>(["borafest.com.br", "www.borafest.com.br", "localhost", "127.0.0.1"]);
+  for (const envName of ["API_PUBLIC_URL", "WEB_BASE_URL", "CHECKOUT_URL"]) {
+    const raw = process.env[envName];
+    if (!raw) continue;
+    try {
+      allowedHosts.add(new URL(raw).hostname);
+    } catch {
+      // configuração inválida será tratada no boot/deploy; não amplia a allowlist
+    }
+  }
+
+  for (const [field, value] of [
+    ["logo", theme.logoUrl],
+    ["fundo", theme.backgroundImageUrl],
+  ] as const) {
+    if (!value) continue;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new BadRequestException(`URL de ${field} inválida`);
+    }
+    const isBorafestSubdomain = url.hostname.endsWith(".borafest.com.br");
+    if (!allowedHosts.has(url.hostname) && !isBorafestSubdomain) {
+      throw new BadRequestException(
+        `A imagem de ${field} do ingresso precisa estar hospedada pelo BoraFest`,
+      );
+    }
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function slugify(title: string): string {
@@ -163,6 +206,14 @@ export class EventsService {
       venueId = input.venueId;
     }
 
+    assertManagedTicketThemeAssets(input.ticketTheme);
+
+    const startsAt = input.startsAt ? new Date(input.startsAt) : event.startsAt;
+    const endsAt = input.endsAt ? new Date(input.endsAt) : event.endsAt;
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      throw new BadRequestException("O término do evento precisa ser posterior ao início");
+    }
+
     // merge parcial: enviar só um pixel (ex. metaPixelId) não deve apagar os outros já salvos
     let pixelSettings: Record<string, string> | undefined;
     if (input.pixelSettings) {
@@ -190,6 +241,12 @@ export class EventsService {
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,
         pixelSettings,
+        ticketTheme:
+          input.ticketTheme === undefined
+            ? undefined
+            : input.ticketTheme === null
+              ? Prisma.DbNull
+              : (input.ticketTheme as Prisma.InputJsonValue),
         // token do CAPI: "" ou null desliga; undefined mantém o atual
         metaCapiToken:
           input.metaCapiToken === undefined
@@ -198,8 +255,8 @@ export class EventsService {
               ? input.metaCapiToken
               : null,
         venueId,
-        startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
-        endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
+        startsAt: input.startsAt ? startsAt : undefined,
+        endsAt: input.endsAt ? endsAt : undefined,
         timezone: input.timezone,
       },
     });
@@ -217,6 +274,10 @@ export class EventsService {
 
     if (event.status !== "DRAFT") {
       return semSegredoDoEvento(event);
+    }
+
+    if (event.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("Atualize a data do evento antes de abrir as vendas");
     }
 
     const published = await prisma.event.update({
@@ -242,14 +303,14 @@ export class EventsService {
     if (recipients.length === 0) return;
 
     const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
-    const link = `${webBaseUrl}/evento/${event.slug}`;
+    const link = `${webBaseUrl}/${event.slug}`;
     const sender = getEmailSender();
     await Promise.allSettled(
       recipients.map((to) =>
         sender.send({
           to,
           subject: `${organization?.name ?? "Um produtor que você segue"} publicou um novo evento`,
-          html: `<p>${event.title} já está com vendas abertas.</p><p><a href="${link}">${link}</a></p>`,
+          html: `<p>${escapeHtml(event.title)} já está com vendas abertas.</p><p><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>`,
           text: `${event.title} já está com vendas abertas: ${link}`,
         }),
       ),
@@ -283,6 +344,10 @@ export class EventsService {
 
     if (event.status !== "SALES_PAUSED") {
       return semSegredoDoEvento(event);
+    }
+
+    if (event.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("Atualize a data do evento antes de abrir as vendas");
     }
 
     const republicado = await prisma.event.update({

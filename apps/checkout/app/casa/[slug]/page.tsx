@@ -6,6 +6,8 @@ import { GridCard } from "../../../components/EventCards";
 import { FollowButton } from "../../../components/FollowButton";
 import { API_BASE_URL, SITE_URL } from "../../../lib/config";
 import type { EventListItem } from "../../../lib/api";
+import type { HouseStoreResponse } from "../../../lib/houses-api";
+import { StoreShop } from "../../../components/StoreShop";
 
 interface HouseProfile {
   id: string;
@@ -23,6 +25,7 @@ interface HouseProfile {
   location: { name: string; city: string; state: string } | null;
   heroImageUrl: string | null;
   events: EventListItem[];
+  recentPastEvents: EventListItem[];
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -40,6 +43,15 @@ async function getHouse(slug: string): Promise<HouseProfile | null> {
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Casa HTTP ${response.status}`);
   return (await response.json()) as HouseProfile;
+}
+
+async function getStore(slug: string): Promise<HouseStoreResponse | null> {
+  const response = await fetch(`${API_BASE_URL}/v1/public/casas/${encodeURIComponent(slug)}/store`, {
+    next: { revalidate: 30 },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) return null;
+  return (await response.json()) as HouseStoreResponse;
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
@@ -72,7 +84,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 export default async function HousePage({ params }: { params: { slug: string } }) {
-  const house = await getHouse(params.slug);
+  const [house, store] = await Promise.all([getHouse(params.slug), getStore(params.slug)]);
   if (!house) notFound();
 
   const typeLabel = TYPE_LABELS[house.producerType ?? "OUTRO"] ?? "Organizador";
@@ -166,7 +178,32 @@ export default async function HousePage({ params }: { params: { slug: string } }
             )}
           </section>
 
-          <aside className="space-y-3">
+          {store && store.products.length > 0 ? (
+            <div className="lg:col-start-1">
+              <StoreShop store={store} />
+            </div>
+          ) : null}
+
+          {house.recentPastEvents.length > 0 ? (
+            <section className="lg:col-span-1">
+              <div className="mt-8 border-t border-line pt-7">
+                <div>
+                  <p className="text-[12px] font-extrabold uppercase tracking-[.08em] text-muted-2">Histórico recente</p>
+                  <h2 className="mt-1 text-[20px] font-black text-ink">Eventos anteriores</h2>
+                  <p className="mt-1 text-[12.5px] font-semibold text-muted">
+                    Uma amostra da agenda já realizada por {house.name}.
+                  </p>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {house.recentPastEvents.map((event) => (
+                    <GridCard key={event.id} event={event} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <aside className="space-y-3 lg:col-start-2 lg:row-start-1 lg:row-span-4">
             <div className="rounded-3xl border border-line bg-surface p-5">
               <p className="text-[12px] font-extrabold uppercase tracking-[.06em] text-muted-2">Sobre</p>
               <p className="mt-3 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-ink-soft">

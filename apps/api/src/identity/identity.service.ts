@@ -129,6 +129,13 @@ export class IdentityService {
       where: { userId: null, contactEmail: input.destination },
       data: { userId: user.id },
     });
+    await prisma.storeOrder.updateMany({
+      where: {
+        userId: null,
+        contactEmail: { equals: input.destination, mode: "insensitive" },
+      },
+      data: { userId: user.id },
+    });
 
     const token = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
 
@@ -169,6 +176,13 @@ export class IdentityService {
     if (user.email) {
       await prisma.order.updateMany({
         where: { userId: null, contactEmail: user.email },
+        data: { userId: user.id },
+      });
+      await prisma.storeOrder.updateMany({
+        where: {
+          userId: null,
+          contactEmail: { equals: user.email, mode: "insensitive" },
+        },
         data: { userId: user.id },
       });
     }

@@ -229,6 +229,7 @@ function VendasContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
   const [tab, setTab] = useState<"pedidos" | "pdv" | "vendedores" | "ranking">("pedidos");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [dashboardError, setDashboardError] = useState(false);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -281,7 +282,9 @@ function VendasContent({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     if (!token) return;
-    dashboardApi.get(token, eventId).then(setDashboard).catch(() => {});
+    setDashboard(null);
+    setDashboardError(false);
+    dashboardApi.get(token, eventId).then(setDashboard).catch(() => setDashboardError(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, eventId]);
 
@@ -333,8 +336,8 @@ function VendasContent({ eventId }: { eventId: string }) {
     }
     const amountCents =
       refundType === "total" ? undefined : Math.round(Number(refundAmount.replace(",", ".")) * 100);
-    if (refundType === "partial" && (!amountCents || amountCents <= 0)) {
-      setRefundError("Informe um valor válido para o reembolso parcial");
+    if (refundType === "partial" && (!Number.isSafeInteger(amountCents) || !amountCents || amountCents <= 0 || amountCents > detail.totalCents)) {
+      setRefundError(`Informe um valor entre R$ 0,01 e ${formatCents(detail.totalCents)}.`);
       return;
     }
     setRefundLoading(true);
@@ -356,6 +359,12 @@ function VendasContent({ eventId }: { eventId: string }) {
     if (!token || !pdvLotId) return;
     setPdvError(null);
     setPdvSuccess(null);
+    const quantity = Number(pdvQty);
+    const selectedLot = dashboard?.lots.find((lot) => lot.id === pdvLotId);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || !selectedLot || quantity > selectedLot.available) {
+      setPdvError("Informe uma quantidade inteira dentro do estoque disponível.");
+      return;
+    }
     if (pdvBuyerName.trim().length < 2) {
       setPdvError("Informe o nome do comprador");
       return;
@@ -366,10 +375,10 @@ function VendasContent({ eventId }: { eventId: string }) {
         eventId,
         {
           ticketLotId: pdvLotId,
-          quantity: Number(pdvQty || "1"),
-          buyerName: pdvBuyerName,
-          buyerDocument: pdvBuyerDoc || undefined,
-          buyerEmail: pdvBuyerEmail || undefined,
+          quantity,
+          buyerName: pdvBuyerName.trim(),
+          buyerDocument: pdvBuyerDoc.trim() || undefined,
+          buyerEmail: pdvBuyerEmail.trim() || undefined,
         },
         token,
       );
@@ -378,7 +387,10 @@ function VendasContent({ eventId }: { eventId: string }) {
       setPdvBuyerDoc("");
       setPdvBuyerEmail("");
       setPdvQty("1");
-      await loadOrders();
+      await Promise.allSettled([
+        loadOrders(),
+        dashboardApi.get(token, eventId).then((result) => { setDashboard(result); setDashboardError(false); }).catch(() => setDashboardError(true)),
+      ]);
     } catch (err) {
       setPdvError(err instanceof Error ? err.message : "Não foi possível registrar a venda");
     } finally {
@@ -545,13 +557,19 @@ function VendasContent({ eventId }: { eventId: string }) {
             Venda offline (dinheiro/maquininha própria): o pedido já entra pago e os ingressos são emitidos
             imediatamente.
           </p>
+          {dashboardError ? (
+            <p role="alert" className="mt-3 text-[12px] font-semibold text-danger">
+              Não foi possível carregar os lotes. Confira a conexão antes de registrar uma venda.
+              <button type="button" onClick={() => { if (token) { setDashboardError(false); dashboardApi.get(token, eventId).then(setDashboard).catch(() => setDashboardError(true)); } }} className="ml-2 underline">Tentar novamente</button>
+            </p>
+          ) : null}
           <div className="mt-4 space-y-2">
             <select
               className="w-full rounded-lg border border-line-input px-3 py-2 text-[13px]"
               value={pdvLotId}
               onChange={(e) => setPdvLotId(e.target.value)}
             >
-              <option value="">Selecione o lote</option>
+              <option value="">{dashboard ? "Selecione o lote" : dashboardError ? "Lotes indisponíveis" : "Carregando lotes…"}</option>
               {(dashboard?.lots ?? [])
                 .filter((lot) => lot.status === "ACTIVE" && lot.available > 0)
                 .map((lot) => (
@@ -560,8 +578,16 @@ function VendasContent({ eventId }: { eventId: string }) {
                   </option>
                 ))}
             </select>
+            {dashboard && !dashboard.lots.some((lot) => lot.status === "ACTIVE" && lot.available > 0) ? (
+              <p className="text-[12px] font-semibold text-muted">Nenhum lote ativo com ingressos disponíveis para venda presencial.</p>
+            ) : null}
             <div className="flex gap-2">
               <input
+                type="number"
+                min={1}
+                max={dashboard?.lots.find((lot) => lot.id === pdvLotId)?.available}
+                step={1}
+                aria-label="Quantidade de ingressos"
                 placeholder="Qtd"
                 className="w-20 rounded-lg border border-line-input px-3 py-2 text-[13px]"
                 value={pdvQty}
@@ -569,7 +595,7 @@ function VendasContent({ eventId }: { eventId: string }) {
               />
               <input
                 placeholder="Nome do comprador"
-                className="flex-1 rounded-lg border border-line-input px-3 py-2 text-[13px]"
+                className="min-w-0 flex-1 rounded-lg border border-line-input px-3 py-2 text-[13px]"
                 value={pdvBuyerName}
                 onChange={(e) => setPdvBuyerName(e.target.value)}
               />
@@ -603,14 +629,17 @@ function VendasContent({ eventId }: { eventId: string }) {
       )}
 
       {selectedOrderId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/40" onClick={closeDetail}>
+        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/40" onClick={() => { if (!refundLoading) closeDetail(); }}>
           <div
-            className="h-full w-full max-w-md overflow-y-auto bg-surface p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-detail-title"
+            className="h-full w-full max-w-md overflow-y-auto overscroll-contain bg-surface p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-[17px] font-extrabold">Detalhe do pedido</h2>
-              <button type="button" onClick={closeDetail} className="text-[13px] font-bold text-muted">
+              <h2 id="order-detail-title" className="text-[17px] font-extrabold">Detalhe do pedido</h2>
+              <button type="button" onClick={closeDetail} disabled={refundLoading} className="text-[13px] font-bold text-muted disabled:opacity-50">
                 Fechar ✕
               </button>
             </div>

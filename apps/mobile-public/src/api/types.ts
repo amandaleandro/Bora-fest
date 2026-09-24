@@ -30,6 +30,7 @@ export interface PublicTicketLot {
   name: string;
   priceCents: number;
   feeCents: number;
+  feeMode?: "BUYER" | "PRODUCER";
   capacity: number;
   soldCount: number;
   reservedCount: number;
@@ -72,6 +73,7 @@ export interface Reservation {
   eventId: string;
   status: string;
   expiresAt: string;
+  buyerTotalCents?: number;
   items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number }>;
 }
 

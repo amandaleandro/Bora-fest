@@ -6,9 +6,20 @@ import type { PublicEvent } from "../../lib/api";
 import { EventPageClient } from "./EventPageClient";
 
 /** Fetch direto (sem passar pelo helper `request` do client) — roda no servidor, sem localStorage/window. */
-async function fetchEvent(slug: string): Promise<PublicEvent | null> {
+async function fetchEvent(
+  slug: string,
+  promoterSlug?: string,
+  sellerSlug?: string,
+): Promise<PublicEvent | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}`, { next: { revalidate: 30 } });
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    const privateCatalog = Boolean(promoterSlug || sellerSlug);
+    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}${suffix}`, privateCatalog
+      ? { cache: "no-store" }
+      : { next: { revalidate: 30 } });
     if (!res.ok) return null;
     return (await res.json()) as PublicEvent;
   } catch {
@@ -58,8 +69,16 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function EventPage({ params }: { params: { slug: string } }) {
-  const event = await fetchEvent(params.slug);
+export default async function EventPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams?: { pr?: string; vd?: string };
+}) {
+  const promoterSlug = searchParams?.pr?.trim() || undefined;
+  const sellerSlug = searchParams?.vd?.trim() || undefined;
+  const event = await fetchEvent(params.slug, promoterSlug, sellerSlug);
   if (!event) notFound();
   const hasVip = await hasVipAvailability(params.slug);
 

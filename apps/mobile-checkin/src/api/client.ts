@@ -61,6 +61,19 @@ export const api = {
       device,
     }),
 
+  faceCapabilities: () =>
+    request<import("./types").FaceCapabilities>("/v1/face-checkin/capabilities"),
+
+  faceCheckin: (
+    device: DeviceCredentials,
+    input: { ticketId: string; probeReference: string; checkinPointId?: string; scannedAt?: string },
+  ) =>
+    request<import("./types").FaceCheckinResponse>("/v1/checkins/face", {
+      method: "POST",
+      body: input,
+      device,
+    }),
+
   syncCheckins: (
     device: DeviceCredentials,
     batchKey: string,

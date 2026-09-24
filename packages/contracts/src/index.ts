@@ -22,3 +22,7 @@ export * from "./crm-reactivation";
 export * from "./vip-reservations";
 export * from "./vip-payments";
 export * from "./loyalty";
+
+export * from "./store";
+
+export * from "./face-checkin";

@@ -1,0 +1,3 @@
+-- A migration anterior (20260923140500_face_checkin_foundation) já criou
+-- os enums, a coluna e a tabela. Mantemos este identificador como no-op para
+-- preservar a sequência publicada na branch sem tentar recriar os objetos.

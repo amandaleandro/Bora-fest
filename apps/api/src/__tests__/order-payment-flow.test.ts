@@ -86,3 +86,47 @@ test("pedido pago credita o ledger (venda + comissão) e webhook duplicado é no
     await cleanupFixtureEvent(organization.id);
   }
 });
+
+
+test("feeMode PRODUCER não entra no total exibido nem cobrado do comprador", async () => {
+  const { organization, event, lot } = await createFixtureEvent({
+    lotCapacity: 5,
+    priceCents: 5000,
+    feeCents: 500,
+  });
+
+  try {
+    await prisma.ticketLot.update({
+      where: { id: lot.id },
+      data: { feeMode: "PRODUCER" },
+    });
+
+    const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
+
+    const reservation = await reservations.create(undefined, {
+      eventId: event.id,
+      items: [{ ticketLotId: lot.id, quantity: 2 }],
+    });
+    assert.equal(
+      reservation.buyerTotalCents,
+      10_000,
+      "a API da reserva não deve somar taxa absorvida pelo produtor",
+    );
+
+    const reread = await reservations.findById(reservation.id);
+    assert.equal(
+      reread.buyerTotalCents,
+      10_000,
+      "recarregar a reserva preserva o mesmo total autoritativo",
+    );
+
+    const order = await orders.createFromReservation(undefined, {
+      reservationId: reservation.id,
+      contactEmail: `producer-fee-${Date.now()}@example.com`,
+    });
+    assert.equal(order.totalCents, 10_000, "pedido cobra exatamente o valor mostrado na reserva");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});

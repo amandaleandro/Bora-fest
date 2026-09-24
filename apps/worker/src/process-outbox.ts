@@ -1,5 +1,5 @@
 import { prisma, type VipPaymentRow } from "@borafest/database";
-import { applyVipGatewayStatus, getGateway } from "@borafest/payments";
+import { applyStoreGatewayStatus, applyVipGatewayStatus, getGateway } from "@borafest/payments";
 import { withContext } from "@borafest/observability";
 import { issueTicketsForOrder } from "./issue-tickets";
 import { notifySale } from "./sale-notify";
@@ -72,6 +72,13 @@ async function handleOutboxEvent(eventType: string, payload: Record<string, stri
 
     case "vip.payment.orphaned":
       await refundOrphanedVipPayment(payload.vipPaymentId);
+      return;
+
+    case "store.payment.orphaned":
+      await refundOrphanedStorePayment(payload.storePaymentId);
+      return;
+
+    case "store.order.paid":
       return;
 
     case "order.payment_reversed":
@@ -156,6 +163,36 @@ async function refundOrphanedVipPayment(paymentId: string): Promise<void> {
   }
 
   log.info({ vipPaymentId: paymentId, result: result.status }, "estorno de pagamento VIP órfão executado");
+}
+
+async function refundOrphanedStorePayment(paymentId: string): Promise<void> {
+  const payment = await prisma.storePayment.findUnique({ where: { id: paymentId } });
+  if (!payment?.externalId) return;
+  if (payment.status === "REFUNDED" || payment.status === "REFUND_PENDING") return;
+  if (payment.status !== "PAID") return;
+
+  const gateway = getGateway(payment.provider);
+  const result = await gateway.refund({
+    externalId: payment.externalId,
+    idempotencyKey: `refund_orphan_store_${payment.id}`,
+  });
+
+  if (result.status === "FAILED") {
+    throw new Error(`Gateway recusou estorno do pagamento da Loja órfão ${payment.id}`);
+  }
+  if (result.status === "REFUNDED") {
+    await applyStoreGatewayStatus(payment.id, "REFUNDED");
+  } else {
+    await prisma.storePayment.updateMany({
+      where: { id: payment.id, status: "PAID" },
+      data: { status: "REFUND_PENDING" },
+    });
+  }
+
+  log.info(
+    { storePaymentId: payment.id, result: result.status },
+    "estorno de pagamento órfão da Loja executado",
+  );
 }
 
 async function revokeOrderTickets(orderId: string): Promise<void> {

@@ -25,12 +25,16 @@ import {
   RESERVATION_RECONCILIATION_JOB_ID,
   WAITING_ROOM_SWEEP_JOB_ID,
 } from "@borafest/queues";
+import { prisma } from "@borafest/database";
 import {
   withContext,
   startMetricsServer,
   jobsCompletedTotal,
   jobsFailedTotal,
   jobDuration,
+  paidOrdersWithoutTickets,
+  failedOutboxEvents,
+  stalePendingOutboxEvents,
 } from "@borafest/observability";
 import { expireReservation, reconcileExpiredReservations } from "./expire-reservation";
 import { processOutboxBatch } from "./process-outbox";
@@ -61,9 +65,50 @@ function assertProductionProviders(): void {
   }
 }
 
+async function refreshBusinessHealthMetrics(): Promise<void> {
+  const now = Date.now();
+  const [paidWithoutTickets, failedOutbox, staleOutbox] = await Promise.all([
+    prisma.order.count({
+      where: {
+        status: "PAID",
+        paidAt: { lt: new Date(now - 2 * 60_000) },
+        tickets: { none: {} },
+      },
+    }),
+    prisma.outboxEvent.count({ where: { status: "FAILED" } }),
+    prisma.outboxEvent.count({
+      where: {
+        status: "PENDING",
+        availableAt: { lt: new Date(now - 5 * 60_000) },
+      },
+    }),
+  ]);
+
+  paidOrdersWithoutTickets.set(paidWithoutTickets);
+  failedOutboxEvents.set(failedOutbox);
+  stalePendingOutboxEvents.set(staleOutbox);
+
+  if (paidWithoutTickets > 0 || failedOutbox > 0 || staleOutbox > 0) {
+    log.warn(
+      { paidWithoutTickets, failedOutbox, staleOutbox },
+      "integridade operacional requer atenção",
+    );
+  }
+}
+
 async function main() {
   assertProductionProviders();
   startMetricsServer(Number(process.env.WORKER_METRICS_PORT ?? 9464));
+
+  await refreshBusinessHealthMetrics().catch((error) =>
+    log.error({ error: (error as Error).message }, "falha ao atualizar métricas de integridade"),
+  );
+  const businessHealthTimer = setInterval(() => {
+    void refreshBusinessHealthMetrics().catch((error) =>
+      log.error({ error: (error as Error).message }, "falha ao atualizar métricas de integridade"),
+    );
+  }, 30_000);
+  businessHealthTimer.unref();
 
   // --- reservas: expiração pontual + reconciliação -------------------------
   const reservationWorker = createReservationExpirationWorker(async (job) => {
@@ -212,6 +257,7 @@ async function main() {
   async function shutdown(signal: string) {
     if (encerrando) return;
     encerrando = true;
+    clearInterval(businessHealthTimer);
     log.info({ signal }, "encerrando workers…");
     await Promise.allSettled(workers.map((w) => w.close()));
     process.exit(0);

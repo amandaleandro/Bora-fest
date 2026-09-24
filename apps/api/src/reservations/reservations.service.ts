@@ -22,6 +22,14 @@ export class ReservationsService {
       throw new NotFoundException("Evento não encontrado ou não publicado");
     }
 
+    // Defesa que vale no servidor: um evento pode continuar PUBLISHED por
+    // dado legado/erro operacional, mas nunca pode continuar aceitando reserva
+    // depois do próprio término. A vitrine já trata esse estado; agora a API
+    // deixa de depender da UI para bloquear a venda.
+    if (event.endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException("As vendas deste evento já foram encerradas");
+    }
+
     if (event.waitingRoomEnabled) {
       await this.waitingRoom.assertAdmitted(event.id, input.waitingRoomTicketId);
     }
@@ -31,6 +39,45 @@ export class ReservationsService {
       include: { ticketType: true },
     });
 
+    const needsPromoterAccess = lots.some((lot) => lot.promoterOnly);
+    let promoterLinkId: string | undefined;
+    let promoterSellerId: string | undefined;
+
+    if (input.sellerSlug) {
+      const seller = await prisma.promoterSeller.findFirst({
+        where: {
+          slug: input.sellerSlug,
+          status: "ACTIVE",
+          promoterLink: {
+            organizationId: event.organizationId,
+            status: "ACTIVE",
+            OR: [{ eventId: null }, { eventId: event.id }],
+          },
+        },
+        select: { id: true, promoterLinkId: true },
+      });
+      if (seller) {
+        promoterSellerId = seller.id;
+        promoterLinkId = seller.promoterLinkId;
+      }
+    }
+
+    if (!promoterLinkId && input.promoterSlug) {
+      const promoter = await prisma.promoterLink.findFirst({
+        where: {
+          slug: input.promoterSlug,
+          organizationId: event.organizationId,
+          status: "ACTIVE",
+          OR: [{ eventId: null }, { eventId: event.id }],
+        },
+        select: { id: true },
+      });
+      promoterLinkId = promoter?.id;
+    }
+
+    const promoterAccess = !needsPromoterAccess || Boolean(promoterLinkId);
+
+    const now = Date.now();
     for (const item of input.items) {
       const lot = lots.find((l) => l.id === item.ticketLotId);
       if (!lot || lot.ticketType.eventId !== input.eventId) {
@@ -40,6 +87,18 @@ export class ReservationsService {
       // descubra o id do lote, a reserva pública é recusada
       if (lot.pdvOnly) {
         throw new BadRequestException(`O lote ${lot.name} é vendido apenas no balcão do evento`);
+      }
+      if (lot.promoterOnly && !promoterAccess) {
+        throw new BadRequestException(`O lote ${lot.name} exige um link válido de promoter`);
+      }
+      if (lot.status !== "ACTIVE") {
+        throw new BadRequestException(`O lote ${lot.name} não está disponível para venda`);
+      }
+      if (lot.startsAt && lot.startsAt.getTime() > now) {
+        throw new BadRequestException(`As vendas do lote ${lot.name} ainda não começaram`);
+      }
+      if (lot.endsAt && lot.endsAt.getTime() <= now) {
+        throw new BadRequestException(`As vendas do lote ${lot.name} já foram encerradas`);
       }
       // meia-entrada é opt-in do produtor — sem a flag, ninguém compra meia
       if (item.halfPrice && !lot.halfPriceEnabled) {
@@ -75,6 +134,8 @@ export class ReservationsService {
         data: {
           eventId: input.eventId,
           userId,
+          promoterLinkId,
+          promoterSellerId,
           expiresAt,
           items: {
             create: input.items.map((item) => {
@@ -106,15 +167,42 @@ export class ReservationsService {
       { delay: RESERVATION_TTL_MINUTES * 60 * 1000, jobId: reservation.id },
     );
 
-    return reservation;
+    const feeModeByLot = new Map(lots.map((lot) => [lot.id, lot.feeMode]));
+    const buyerTotalCents = reservation.items.reduce(
+      (sum, item) =>
+        sum +
+        item.quantity *
+          (item.priceCents + (feeModeByLot.get(item.ticketLotId) === "PRODUCER" ? 0 : item.feeCents)),
+      0,
+    );
+    return { ...reservation, buyerTotalCents };
   }
 
   async findById(reservationId: string) {
     const reservation = await prisma.reservation.findUnique({
       where: { id: reservationId },
-      include: { items: true },
+      include: {
+        items: {
+          include: {
+            ticketLot: { select: { feeMode: true } },
+          },
+        },
+      },
     });
     if (!reservation) throw new NotFoundException("Reserva não encontrada");
-    return reservation;
+
+    const buyerTotalCents = reservation.items.reduce(
+      (sum, item) =>
+        sum +
+        item.quantity *
+          (item.priceCents + (item.ticketLot.feeMode === "PRODUCER" ? 0 : item.feeCents)),
+      0,
+    );
+
+    return {
+      ...reservation,
+      buyerTotalCents,
+      items: reservation.items.map(({ ticketLot: _ticketLot, ...item }) => item),
+    };
   }
 }

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
+import { claimVerifiedOrders } from "../common/claim-verified-orders";
 
 @Injectable()
 export class MeService {
@@ -91,6 +92,8 @@ export class MeService {
   }
 
   async orders(userId: string) {
+    await claimVerifiedOrders(userId);
+
     const orders = await prisma.order.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -113,17 +116,84 @@ export class MeService {
     }));
   }
 
+  async storeOrders(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, emailVerifiedAt: true },
+    });
+    if (!user) throw new NotFoundException("Usuário não encontrado");
+
+    // Só reivindica pedidos de convidado depois de posse do e-mail comprovada.
+    if (user.email && user.emailVerifiedAt) {
+      await prisma.storeOrder.updateMany({
+        where: {
+          userId: null,
+          contactEmail: { equals: user.email, mode: "insensitive" },
+        },
+        data: { userId },
+      });
+    }
+
+    const orders = await prisma.storeOrder.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        publicToken: true,
+        status: true,
+        totalCents: true,
+        createdAt: true,
+        paidAt: true,
+        fulfilledAt: true,
+        pickupCode: true,
+        fulfillmentMethod: true,
+        organization: {
+          select: { slug: true, name: true, displayName: true, logoUrl: true },
+        },
+        items: {
+          select: {
+            id: true,
+            productName: true,
+            variantName: true,
+            quantity: true,
+            priceCents: true,
+          },
+        },
+        refundRequests: {
+          where: { status: { in: ["PENDING", "AWAITING_RETURN"] } },
+          select: { id: true, status: true, returnedAt: true },
+          take: 1,
+        },
+      },
+    });
+
+    return orders.map(({ refundRequests, organization, ...order }) => ({
+      ...order,
+      house: {
+        slug: organization.slug,
+        name: organization.displayName ?? organization.name,
+        logoUrl: organization.logoUrl,
+      },
+      pickupCode:
+        order.fulfillmentMethod === "PICKUP" && ["PAID", "READY", "FULFILLED"].includes(order.status)
+          ? order.pickupCode
+          : null,
+      refundRequest: refundRequests[0] ?? null,
+    }));
+  }
+
   /** LGPD: portabilidade — tudo que temos sobre o titular, em JSON. */
   async dataExport(userId: string) {
-    const [user, orders, tickets] = await Promise.all([
+    const [user, orders, storeOrders, tickets] = await Promise.all([
       this.profile(userId),
       this.orders(userId),
+      this.storeOrders(userId),
       prisma.ticket.findMany({
         where: { order: { userId } },
         select: { id: true, code: true, status: true, issuedAt: true, attendeeName: true },
       }),
     ]);
-    return { exportedAt: new Date(), user, orders, tickets };
+    return { exportedAt: new Date(), user, orders, storeOrders, tickets };
   }
 
   /**

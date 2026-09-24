@@ -5,15 +5,26 @@ import { countConfirmedCheckins, countPendingCheckins, setMeta } from "../db/dat
 import { syncManifest } from "../sync/manifestSync";
 import { flushPendingCheckins } from "../sync/syncQueue";
 import { colors } from "../theme/colors";
+import type { FaceCapabilities } from "../api/types";
+import { isFaceBridgeAvailable } from "../face/provider";
 
 interface Props {
   onOpenScanner: () => void;
   onOpenManualSearch: () => void;
+  onOpenFace: () => void;
+  faceCapabilities: FaceCapabilities | null;
   onOpenSummary: () => void;
   onOpenPrivacy: () => void;
 }
 
-export function HomeScreen({ onOpenScanner, onOpenManualSearch, onOpenSummary, onOpenPrivacy }: Props) {
+export function HomeScreen({
+  onOpenScanner,
+  onOpenManualSearch,
+  onOpenFace,
+  faceCapabilities,
+  onOpenSummary,
+  onOpenPrivacy,
+}: Props) {
   const { session, clearSession, setCheckinPoint } = useSession();
   const [confirmed, setConfirmed] = useState(0);
   const [pending, setPending] = useState(0);
@@ -103,6 +114,25 @@ export function HomeScreen({ onOpenScanner, onOpenManualSearch, onOpenSummary, o
         <Text style={styles.secondaryButtonText}>Busca manual</Text>
       </Pressable>
 
+      <Pressable
+        style={[
+          styles.secondaryButton,
+          !(faceCapabilities?.enabled && isFaceBridgeAvailable()) && styles.disabledButton,
+        ]}
+        disabled={!(faceCapabilities?.enabled && isFaceBridgeAvailable())}
+        onPress={onOpenFace}
+      >
+        <Text style={styles.secondaryButtonText}>
+          Check-in facial
+          {faceCapabilities?.enabled && isFaceBridgeAvailable() ? "" : " · indisponível"}
+        </Text>
+        {faceCapabilities?.enabled && !isFaceBridgeAvailable() ? (
+          <Text style={styles.faceHint}>SDK biométrico não está instalado neste build.</Text>
+        ) : !faceCapabilities?.enabled ? (
+          <Text style={styles.faceHint}>Provedor facial ainda não está configurado no servidor.</Text>
+        ) : null}
+      </Pressable>
+
       <Pressable style={styles.secondaryButton} onPress={onOpenSummary}>
         <Text style={styles.secondaryButtonText}>Resumo & fila offline</Text>
       </Pressable>
@@ -170,6 +200,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   secondaryButtonText: { color: colors.text, fontWeight: "600", fontSize: 15 },
+  disabledButton: { opacity: 0.55 },
+  faceHint: { color: colors.textDim, fontSize: 11, marginTop: 4, textAlign: "center" },
   syncButton: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 14,

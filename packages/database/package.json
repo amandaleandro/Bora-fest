@@ -13,6 +13,7 @@
     "seed": "tsx src/seed.ts",
     "banco-intacto": "tsx src/banco-intacto.ts",
     "auditoria-emails": "tsx src/auditoria-emails.ts",
+    "auditoria-catalogo": "tsx src/auditoria-catalogo-producao.ts",
     "seed:dev": "tsx src/seed-dev.ts"
   },
   "dependencies": {

@@ -368,7 +368,8 @@ export function mapWebhookType(type: string, chargeStatus?: string): GatewayPaym
   switch (type) {
     case "charge.paid":
     case "order.paid":
-      return "PAID";
+      // A notificação de pedido pago não pode creditar uma cobrança incompleta.
+      return chargeStatus === "underpaid" ? "PENDING" : "PAID";
     case "charge.payment_failed":
       return "FAILED";
     case "charge.refunded":

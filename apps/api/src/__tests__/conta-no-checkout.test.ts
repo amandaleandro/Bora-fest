@@ -13,6 +13,7 @@ import { InventoryService } from "../inventory/inventory.service";
 import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { IdentityService } from "../identity/identity.service";
+import { MeService } from "../me/me.service";
 import { TicketsService } from "../tickets/tickets.service";
 import { issueTicketsForOrder } from "../../../worker/src/issue-tickets";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
@@ -93,6 +94,29 @@ test("conta invisível: compra cria conta com CPF, tranca o 1º ingresso e verif
       n2.some((n) => n.template === "ticket_delivery" && n.channel === "EMAIL"),
       "verificado recebe o ingresso por e-mail normalmente",
     );
+  } finally {
+    await cleanupFixtureEvent(f.organization.id);
+    await prisma.user.deleteMany({ where: { email } });
+  }
+});
+
+test("histórico no banco: pedido sem sessão aparece em outro aparelho após verificar o e-mail", async () => {
+  const f = await createFixtureEvent({ lotCapacity: 5, priceCents: 5000, feeCents: 0 });
+  const email = `historico-${Math.random().toString(36).slice(2, 8)}@borafest.dev`;
+  try {
+    const user = await prisma.user.create({ data: { email, emailVerifiedAt: new Date() } });
+    const order = await comprar(f.event.id, f.lot.id, email.toUpperCase(), `${Math.floor(10000000000 + Math.random() * 8e10)}`);
+    const before = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(before.userId, null, "compra sem sessão não anexa sem prova de posse");
+
+    await issueTicketsForOrder(order.id);
+    const wallet = await new TicketsService().findByUser(user.id);
+    assert.ok(wallet.some((item) => item.orderPublicToken === order.publicToken), "carteira recupera ingresso do banco sem depender do histórico local");
+
+    const history = await new MeService().orders(user.id);
+    assert.ok(history.some((item) => item.id === order.id), "histórico vem da conta verificada no banco");
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(after.userId, user.id, "associação persiste para outros aparelhos");
   } finally {
     await cleanupFixtureEvent(f.organization.id);
     await prisma.user.deleteMany({ where: { email } });

@@ -62,6 +62,8 @@ export const syncCheckinsSchema = z.object({
       z.object({
         localSeq: z.number().int().min(1),
         ticketId: z.string().uuid(),
+        /** SHA-256 do QR efetivamente escaneado no offline; permite detectar versão revogada no sync. */
+        qrHash: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
         checkinPointId: z.string().uuid().optional(),
         scannedAt: z.coerce.date(),
         /**

@@ -10,8 +10,14 @@ import { Icon, paths } from "../../components/icons";
 import { FavoriteButton } from "../../components/FavoriteButton";
 import { TicketSelector } from "../../components/TicketSelector";
 import { PixelTracker } from "../../components/PixelTracker";
-import { captureAttributionFromUrl } from "../../lib/attribution";
+import {
+  captureAttributionFromUrl,
+  getAttributedPromoterSlug,
+  getAttributedSellerSlug,
+} from "../../lib/attribution";
 import { FollowButton } from "../../components/FollowButton";
+import { EventTrustStrip } from "../../components/EventTrustStrip";
+import { ShareButton } from "../../components/ShareButton";
 
 
 /** Seções estruturadas do evento (line-up, incluso, idade) — página rica sem o produtor redigir nada. */
@@ -61,6 +67,113 @@ function EventInfoSections({ event, compact = false }: { event: PublicEvent; com
   );
 }
 
+function EventBuyerGuide({ event, compact = false }: { event: PublicEvent; compact?: boolean }) {
+  const h2 = compact ? "text-[16px] font-extrabold" : "text-[18px] font-extrabold";
+  const items = [
+    {
+      title: "Como recebo meu ingresso?",
+      body: "Depois da confirmação do pagamento, o pedido segue para emissão e o ingresso fica disponível pelos canais do BoraFest.",
+    },
+    {
+      title: "Preciso instalar aplicativo?",
+      body: "Não. O ingresso pode ser acessado pelo celular sem app obrigatório para apresentar na entrada.",
+    },
+    {
+      title: "Como funciona o QR Code?",
+      body: "Cada ingresso emitido possui identificação própria. Na portaria, apresente o QR correspondente ao seu ingresso.",
+    },
+    {
+      title: "Preciso levar documento?",
+      body:
+        event.minAge !== null && event.minAge > 0
+          ? `Sim. Este evento informa classificação ${event.minAge}+ e pode exigir documento com foto na entrada.`
+          : "Confira as regras informadas pelo organizador. Ingressos nominais, meia-entrada ou regras específicas podem exigir documento.",
+    },
+  ];
+
+  return (
+    <section className="mt-7">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[.1em] text-primary">Antes de comprar</p>
+          <h2 className={h2}>Ingresso, entrada e políticas</h2>
+        </div>
+        <Link href="/legal?aba=termos" className="text-[12.5px] font-extrabold text-primary">
+          Ver termos completos
+        </Link>
+      </div>
+
+      <div className={`mt-3 grid gap-3 ${compact ? "grid-cols-1" : "md:grid-cols-2"}`}>
+        {items.map((item) => (
+          <div key={item.title} className="rounded-2xl border border-line bg-surface p-4">
+            <p className="text-[13.5px] font-extrabold text-ink">{item.title}</p>
+            <p className="mt-1.5 text-[12.5px] font-medium leading-relaxed text-ink-soft">{item.body}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-line bg-surface p-4 text-[12.5px] font-medium leading-relaxed text-ink-soft">
+        Informações específicas de horário, atrações, local e regras de acesso são fornecidas pelo organizador do evento.
+        Para regras gerais da plataforma, consulte{" "}
+        <Link href="/legal?aba=termos" className="font-extrabold text-primary">Termos de Uso</Link>
+        {" "}e{" "}
+        <Link href="/legal?aba=privacidade" className="font-extrabold text-primary">Privacidade</Link>.
+      </div>
+    </section>
+  );
+}
+
+function publicSaleState(event: PublicEvent) {
+  const now = Date.now();
+  const startsAt = new Date(event.startsAt).getTime();
+  const endsAt = new Date(event.endsAt).getTime();
+  const lots = event.ticketTypes.flatMap((type) => type.lots);
+  const onlineLots = lots.filter((lot) => lot.status === "ACTIVE");
+  const available = onlineLots.reduce(
+    (sum, lot) => sum + Math.max(lot.capacity - lot.soldCount - lot.reservedCount, 0),
+    0,
+  );
+
+  if (event.status !== "PUBLISHED" || endsAt <= now) {
+    return {
+      key: "closed" as const,
+      label: "Vendas encerradas",
+      message: "As vendas deste evento já foram encerradas.",
+      closed: true,
+    };
+  }
+  if (lots.length === 0) {
+    return {
+      key: "unavailable" as const,
+      label: "Ingressos indisponíveis",
+      message: "Não há ingressos disponíveis para compra agora.",
+      closed: true,
+    };
+  }
+  if (available <= 0) {
+    return {
+      key: "soldout" as const,
+      label: "Esgotado",
+      message: "Os ingressos online deste evento estão esgotados.",
+      closed: true,
+    };
+  }
+  if (startsAt <= now && now < endsAt) {
+    return {
+      key: "live" as const,
+      label: "Evento em andamento",
+      message: "O evento está em andamento.",
+      closed: false,
+    };
+  }
+  return {
+    key: "open" as const,
+    label: "Vendas abertas",
+    message: "Ingressos disponíveis.",
+    closed: false,
+  };
+}
+
 function minPriceCents(event: PublicEvent): number | null {
   // preço anunciado = o que o comprador paga (com taxa quando é dele)
   const prices = event.ticketTypes.flatMap((t) =>
@@ -86,12 +199,15 @@ export function EventPageClient({
 
   useEffect(() => {
     captureAttributionFromUrl();
+    const promoterSlug = getAttributedPromoterSlug();
+    const sellerSlug = getAttributedSellerSlug();
     // sem dado do servidor (ex.: navegação client-side), busca; com dado, só
-    // revalida em segundo plano — a tela nunca fica em branco esperando
+    // revalida em segundo plano — a tela nunca fica em branco esperando.
+    // Repassar a atribuição é obrigatório para lotes promoterOnly.
     if (!initialEvent) {
-      api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
+      api.getPublicEvent(slug, promoterSlug, sellerSlug).then(setEvent).catch(() => setError(true));
     } else {
-      api.getPublicEvent(slug).then(setEvent).catch(() => undefined);
+      api.getPublicEvent(slug, promoterSlug, sellerSlug).then(setEvent).catch(() => undefined);
     }
     api.getReviews(slug).then(setReviews).catch(() => {});
   }, [slug, initialEvent]);
@@ -108,14 +224,15 @@ export function EventPageClient({
     return <main className="flex min-h-dvh items-center justify-center text-[13px] text-muted">Carregando…</main>;
   }
 
-  const closed = event.status !== "PUBLISHED" || new Date(event.endsAt).getTime() < Date.now();
+  const saleState = publicSaleState(event);
+  const closed = saleState.closed;
   const min = minPriceCents(event);
   const starts = new Date(event.startsAt);
   const dateLabel = starts.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", timeZone: event.timezone });
   const timeLabel = starts.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: event.timezone });
 
   return (
-    <main className="pb-32 lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8">
+    <main className={`${closed ? "pb-44" : "pb-32"} lg:mx-auto lg:max-w-6xl lg:px-6 lg:pb-16 lg:pt-8`}>
       <PixelTracker
         pixelSettings={event.pixelSettings}
         viewContent={{ eventId: event.id, name: event.title, valueCents: min }}
@@ -134,16 +251,37 @@ export function EventPageClient({
               e sujava a imagem */}
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <h1 className="text-[30px] font-extrabold leading-tight">{event.title}</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
-              {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${
+                saleState.key === "soldout"
+                  ? "bg-danger/10 text-danger"
+                  : saleState.key === "unavailable"
+                    ? "bg-warning/10 text-warning"
+                    : saleState.key === "closed"
+                      ? "bg-line text-muted"
+                      : saleState.key === "live"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-success/10 text-success"
+              }`}
+            >
+              {!closed ? (
+                <span className={`h-1.5 w-1.5 rounded-full ${saleState.key === "live" ? "bg-primary" : "animate-pulseDot bg-success"}`} />
+              ) : null}
+              {saleState.label}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <p className="text-[13px] font-semibold text-muted">
-              Por {event.organization.name}
+              Por{" "}
+              <Link href={`/casa/${event.organization.slug}`} className="font-extrabold text-primary hover:underline">
+                {event.organization.name}
+              </Link>
               {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
             </p>
-            <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
+            <div className="flex items-center gap-2">
+              <ShareButton title={event.title} />
+              <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
+            </div>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3">
             <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
@@ -183,12 +321,13 @@ export function EventPageClient({
             </section>
           )}
           <EventInfoSections event={event} />
+          <EventBuyerGuide event={event} />
         </div>
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-3xl border border-line bg-bg p-5 shadow-card">
             <h2 className="text-[16px] font-extrabold">Ingressos</h2>
             {closed ? (
-              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">Vendas encerradas</p>
+              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">{saleState.message}</p>
             ) : (
               <div className="mt-3"><TicketSelector event={event} compact /></div>
             )}
@@ -199,7 +338,7 @@ export function EventPageClient({
       {/* ---------- mobile (como no PWA) ---------- */}
       <div className="lg:hidden">
       {/* hero */}
-      <div className="relative h-[430px] overflow-hidden bg-brand-gradient">
+      <div className="relative h-[min(430px,55dvh)] min-h-[260px] overflow-hidden bg-brand-gradient">
         {event.bannerUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <EventImage src={event.bannerUrl} priority sizes="(min-width: 1024px) 1024px, 100vw" fit="poster" />
@@ -217,26 +356,38 @@ export function EventPageClient({
           </button>
           <div className="flex gap-2">
             <FavoriteButton eventId={event.id} />
-            <button
-              aria-label="Compartilhar"
-              onClick={() => navigator.share?.({ title: event.title, url: location.href }).catch(() => {})}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur"
-            >
-              <Icon d={paths.share} size={18} />
-            </button>
+            <ShareButton title={event.title} compact dark />
           </div>
         </div>
       </div>
 
       {/* corpo sobreposto — título aqui, não em cima da arte (2026-08-17) */}
       <div className="relative -mt-[22px] rounded-t-3xl bg-bg px-5 pt-6">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
-          {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${
+            saleState.key === "soldout"
+              ? "bg-danger/10 text-danger"
+              : saleState.key === "unavailable"
+                ? "bg-warning/10 text-warning"
+                : saleState.key === "closed"
+                  ? "bg-line text-muted"
+                  : saleState.key === "live"
+                  ? "bg-primary/10 text-primary"
+                  : "bg-success/10 text-success"
+          }`}
+        >
+          {!closed ? (
+            <span className={`h-1.5 w-1.5 rounded-full ${saleState.key === "live" ? "bg-primary" : "animate-pulseDot bg-success"}`} />
+          ) : null}
+          {saleState.label}
         </span>
         <h1 className="mt-2 text-[26px] font-extrabold leading-tight">{event.title}</h1>
         <div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="min-w-0 text-[13px] font-semibold text-muted">
-            Por {event.organization.name}
+            Por{" "}
+            <Link href={`/casa/${event.organization.slug}`} className="font-extrabold text-primary">
+              {event.organization.name}
+            </Link>
             {reviews?.count ? ` · ★ ${reviews.average?.toFixed(1)} (${reviews.count})` : ""}
           </p>
           <FollowButton organizationId={event.organizationId} organizationName={event.organization.name} />
@@ -285,14 +436,15 @@ export function EventPageClient({
           </section>
         )}
         <EventInfoSections event={event} compact />
+        <EventBuyerGuide event={event} compact />
       </div>
 
       {/* CTA sticky */}
-      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-[430px] border-t border-line bg-surface/90 p-4 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-[430px] border-t border-line bg-surface/90 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur">
         {closed ? (
           <div className="space-y-2">
-            <div className="flex h-14 items-center justify-center rounded-2xl bg-line text-[15px] font-bold text-muted-3">
-              Vendas encerradas
+            <div className="flex h-14 items-center justify-center rounded-2xl bg-line px-4 text-center text-[14px] font-bold text-muted-3">
+              {saleState.message}
             </div>
             <Link href="/" className="flex h-12 items-center justify-center rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold text-ink">
               Ver outros eventos
@@ -307,6 +459,10 @@ export function EventPageClient({
           </Link>
         )}
       </div>
+      </div>
+
+      <div className="px-5 lg:px-0">
+        <EventTrustStrip />
       </div>
     </main>
   );

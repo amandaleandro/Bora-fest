@@ -2,8 +2,9 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
+import { claimVerifiedOrders } from "../common/claim-verified-orders";
 import { origemGratis } from "../common/origem-gratis";
-import { signTicketToken } from "@borafest/tickets";
+import { generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
 import type { TransferTicketInput } from "@borafest/contracts";
@@ -36,7 +37,17 @@ export class TicketsService {
             ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
           },
         },
-        event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
+        event: {
+          select: {
+            title: true,
+            slug: true,
+            startsAt: true,
+            endsAt: true,
+            ticketTheme: true,
+            organization: { select: { defaultTicketTheme: true } },
+            venue: { select: { name: true, city: true, state: true } },
+          },
+        },
         user: { select: { emailVerifiedAt: true } },
         guestListEntries: { select: { id: true }, take: 1 },
         salesPartner: { select: { name: true } },
@@ -46,6 +57,11 @@ export class TicketsService {
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     const cortesia = origemGratis(order);
+    const { organization: eventOrganization, ...eventData } = order.event;
+    const resolvedEvent = {
+      ...eventData,
+      ticketTheme: eventData.ticketTheme ?? eventOrganization.defaultTicketTheme ?? null,
+    };
 
     // Portão do 1º ingresso: conta não verificada não vê QR — nem por link
     // encaminhado. Verificou (código ou link mágico), abre.
@@ -53,7 +69,7 @@ export class TicketsService {
       return {
         orderId: order.id,
         orderStatus: order.status,
-        event: order.event,
+        event: resolvedEvent,
         requiresVerification: true,
         contactEmail: order.contactEmail,
         cortesia,
@@ -64,7 +80,7 @@ export class TicketsService {
     return {
       orderId: order.id,
       orderStatus: order.status,
-      event: order.event,
+      event: resolvedEvent,
       requiresVerification: false,
       contactEmail: order.contactEmail,
       cortesia,
@@ -113,6 +129,7 @@ export class TicketsService {
 
   /** Carteira do usuário autenticado. */
   async findByUser(userId: string) {
+    await claimVerifiedOrders(userId);
     const tickets = await prisma.ticket.findMany({
       where: {
         status: { in: ["ISSUED", "ACTIVE", "CHECKED_IN"] },
@@ -121,7 +138,17 @@ export class TicketsService {
       orderBy: { issuedAt: "desc" },
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
-        event: { select: { title: true, slug: true, startsAt: true, endsAt: true } },
+        event: {
+          select: {
+            title: true,
+            slug: true,
+            startsAt: true,
+            endsAt: true,
+            ticketTheme: true,
+            organization: { select: { defaultTicketTheme: true } },
+            venue: { select: { name: true, city: true, state: true } },
+          },
+        },
         order: { select: { publicToken: true, userId: true, totalCents: true } },
       },
     });
@@ -135,7 +162,13 @@ export class TicketsService {
       const isBuyer = (ticket as any).order.userId === userId;
       return {
         ...this.toPublicTicket(ticket),
-        event: (ticket as any).event,
+        event: (() => {
+          const { organization, ...event } = (ticket as any).event;
+          return {
+            ...event,
+            ticketTheme: event.ticketTheme ?? organization?.defaultTicketTheme ?? null,
+          };
+        })(),
         orderPublicToken: isBuyer ? (ticket as any).order.publicToken : null,
         transferable:
           (ticket.status === "ISSUED" || ticket.status === "ACTIVE") &&
@@ -252,13 +285,24 @@ export class TicketsService {
       },
       ticket.event.signingKey.privateKeyPem,
     );
+    // O código curto também é credencial de entrada. Se ele permanecesse
+    // estável, o antigo titular poderia ignorar o QR revogado e entrar digitando
+    // o código antigo na portaria.
+    const newCode = generateTicketCode();
 
     const toName = toUser.name ?? toUser.email ?? "Novo titular";
     const lotLabel = `${ticket.ticketLot.ticketType.name} — ${ticket.ticketLot.name}`;
 
-    const [updated] = await prisma.$transaction([
-      prisma.ticket.update({
-        where: { id: ticket.id },
+    const updated = await prisma.$transaction(async (tx) => {
+      // CAS de posse: duas transferências simultâneas podem ter lido o mesmo
+      // dono antes. Só uma altera a linha; a perdedora não cria audit/notificação.
+      const moved = await tx.ticket.updateMany({
+        where: {
+          id: ticket.id,
+          status: { in: ["ISSUED", "ACTIVE"] },
+          // compare-and-swap da posse exatamente como foi lida acima
+          ownerUserId: ticket.ownerUserId,
+        },
         data: {
           ownerUserId: toUser.id,
           // re-nomina SEMPRE (decisão 2026-08-15): o ingresso passa a ser do
@@ -266,20 +310,46 @@ export class TicketsService {
           attendeeName: toName,
           attendeeEmail: toUser.email,
           attendeeCpf: toUser.cpf ?? null,
+          code: newCode,
           qrToken,
         },
-        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
-      }),
-      prisma.auditLog.create({
+      });
+      if (moved.count === 0) {
+        throw new BadRequestException(
+          "Este ingresso mudou de titular ou estado enquanto você transferia — atualize a carteira",
+        );
+      }
+
+      // Biometria pertence à PESSOA, não ao UUID eterno do ingresso.
+      // Transferiu: o enrollment anterior deixa de valer imediatamente.
+      await tx.ticketFaceEnrollment.updateMany({
+        where: { ticketId: ticket.id, status: { in: ["PENDING", "ACTIVE"] } },
+        data: {
+          status: "REVOKED",
+          revokedAt: new Date(),
+          providerReference: null,
+        },
+      });
+
+      await tx.auditLog.create({
         data: {
           action: "ticket.transfer",
           entityType: "ticket",
           entityId: ticket.id,
-          metadata: { fromName, fromEmail, toUserId: toUser.id, toEmail: toUser.email },
+          actorUserId: userId,
+          metadata: {
+            fromName,
+            fromEmail,
+            fromCode: ticket.code,
+            toUserId: toUser.id,
+            toEmail: toUser.email,
+            toCode: newCode,
+          },
         },
-      }),
+      });
+
       // aviso ao novo dono pela fila persistente (worker entrega com retry)
-      prisma.notification.create({
+      await tx.notification.create({
         data: {
           channel: "EMAIL",
           recipient: toUser.email!,
@@ -287,14 +357,19 @@ export class TicketsService {
           payload: {
             eventTitle: ticket.event.title,
             lotLabel,
-            code: ticket.code,
+            code: newCode,
             toName,
             fromEmail,
             walletUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/perfil`,
           },
         },
-      }),
-    ]);
+      });
+
+      return tx.ticket.findUniqueOrThrow({
+        where: { id: ticket.id },
+        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
+      });
+    });
 
     return this.toPublicTicket(updated);
   }

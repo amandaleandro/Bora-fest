@@ -51,13 +51,23 @@ export async function confirmSaleInventory(
   lotId: string,
   quantity: number,
 ): Promise<void> {
-  await client.$executeRaw(Prisma.sql`
+  const rows = await client.$queryRaw<{ id: string }[]>(Prisma.sql`
     UPDATE ticket_lots
-    SET reserved_count = GREATEST(reserved_count - ${quantity}, 0),
+    SET reserved_count = reserved_count - ${quantity},
         sold_count = sold_count + ${quantity},
+        status = CASE
+          WHEN sold_count + ${quantity} >= capacity THEN 'SOLD_OUT'::"LotStatus"
+          ELSE status
+        END,
         updated_at = now()
     WHERE id = ${lotId}::uuid
+      AND reserved_count >= ${quantity}
+      AND sold_count + ${quantity} <= capacity
+    RETURNING id
   `);
+  if (rows.length === 0) {
+    throw new InsufficientStockError(lotId);
+  }
 }
 
 /** Devolve unidades vendidas ao estoque disponível (estorno/chargeback). */
@@ -68,7 +78,13 @@ export async function returnSaleInventory(
 ): Promise<void> {
   await client.$executeRaw(Prisma.sql`
     UPDATE ticket_lots
-    SET sold_count = GREATEST(sold_count - ${quantity}, 0), updated_at = now()
+    SET sold_count = GREATEST(sold_count - ${quantity}, 0),
+        status = CASE
+          WHEN status = 'SOLD_OUT'::"LotStatus" AND GREATEST(sold_count - ${quantity}, 0) < capacity
+            THEN 'ACTIVE'::"LotStatus"
+          ELSE status
+        END,
+        updated_at = now()
     WHERE id = ${lotId}::uuid
   `);
 }

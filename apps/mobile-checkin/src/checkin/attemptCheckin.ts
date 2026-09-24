@@ -1,3 +1,4 @@
+import * as Crypto from "expo-crypto";
 import { api, type DeviceCredentials } from "../api/client";
 import type { CheckinResponse } from "../api/types";
 import {
@@ -49,19 +50,24 @@ export async function attemptCheckin(
       attendeeName: response.ticket?.attendeeName,
       ticketType: response.ticket?.typeName ?? response.ticket?.lotName,
       previousCheckinAt: response.firstCheckin?.at ?? null,
-      message: describeOutcome(response.result, response.firstCheckin?.deviceName),
+      message: describeOutcome(
+        response.result,
+        response.firstCheckin?.deviceName,
+        response.reason,
+      ),
     };
   } catch {
     return attemptCheckinOffline(scanned, checkinPointId, scannedAt);
   }
 }
 
-function attemptCheckinOffline(
+async function attemptCheckinOffline(
   scanned: { qrToken?: string; code?: string },
   checkinPointId: string | undefined,
   scannedAt: string,
-): CheckinAttemptResult {
+): Promise<CheckinAttemptResult> {
   let ticketId: string | undefined;
+  let scannedQrHash: string | undefined;
 
   if (scanned.qrToken && looksLikeTicketToken(scanned.qrToken)) {
     try {
@@ -92,6 +98,30 @@ function attemptCheckinOffline(
     };
   }
 
+  if (scanned.qrToken) {
+    if (!local.qr_hash) {
+      return {
+        outcome: "INVALID",
+        offline: true,
+        ticketCode: local.code,
+        message: "Manifesto antigo sem versão do QR — sincronize antes de liberar",
+      };
+    }
+    const scannedHash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      scanned.qrToken,
+    );
+    scannedQrHash = scannedHash.toLowerCase();
+    if (scannedQrHash !== local.qr_hash.toLowerCase()) {
+      return {
+        outcome: "INVALID",
+        offline: true,
+        ticketCode: local.code,
+        message: "QR revogado ou substituído — sincronize se a transferência foi recente",
+      };
+    }
+  }
+
   if (local.status === "CHECKED_IN") {
     return {
       outcome: "ALREADY_USED",
@@ -110,7 +140,7 @@ function attemptCheckinOffline(
     };
   }
 
-  queuePendingCheckin(local.id, local.code, checkinPointId, scannedAt);
+  queuePendingCheckin(local.id, local.code, checkinPointId, scannedAt, scannedQrHash);
   markLocalCheckedIn(local.id);
 
   return {
@@ -121,7 +151,11 @@ function attemptCheckinOffline(
   };
 }
 
-function describeOutcome(outcome: CheckinResponse["result"], firstDeviceName?: string): string {
+function describeOutcome(
+  outcome: CheckinResponse["result"],
+  firstDeviceName?: string,
+  reason?: CheckinResponse["reason"],
+): string {
   switch (outcome) {
     case "VALID":
       return "Entrada confirmada";
@@ -132,6 +166,15 @@ function describeOutcome(outcome: CheckinResponse["result"], firstDeviceName?: s
     case "CANCELED":
       return "Ingresso cancelado ou reembolsado";
     default:
+      if (reason === "REVOKED_QR") {
+        return "QR antigo/revogado — peça o ingresso atualizado ao titular";
+      }
+      if (reason === "BAD_SIGNATURE") {
+        return "QR adulterado ou não autêntico";
+      }
+      if (reason === "OTHER_EVENT") {
+        return "Ingresso pertence a outro evento";
+      }
       return "Ingresso inválido";
   }
 }

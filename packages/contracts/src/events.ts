@@ -1,19 +1,39 @@
 import { z } from "zod";
 
+const BRAZIL_STATES = new Set([
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+  "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+  "SP", "SE", "TO",
+]);
+
 export const eventVenueSchema = z.object({
-  name: z.string().min(2).max(120),
-  address: z.string().min(3).max(200).optional(),
+  name: z.string().trim().min(2).max(120),
+  address: z.string().trim().min(3).max(200).optional(),
   mapsUrl: z.string().url().max(500).optional(),
-  city: z.string().min(2).max(80),
-  state: z.string().length(2).transform((v) => v.toUpperCase()),
+  city: z.string().trim().min(2).max(80),
+  state: z
+    .string()
+    .trim()
+    .length(2)
+    .transform((v) => v.toUpperCase())
+    .refine((v) => BRAZIL_STATES.has(v), "UF inválida"),
 });
 export type EventVenueInput = z.infer<typeof eventVenueSchema>;
 
 export const eventCategorySchema = z.enum(["SHOWS", "FESTAS", "ESPORTES", "TEATRO"]);
+
+const httpImageUrl = z
+  .string()
+  .url()
+  .max(500)
+  .refine(
+    (value) => /^https:\/\//i.test(value) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(value),
+    "Use HTTPS (HTTP apenas em localhost)",
+  );
 export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
 
-export const createEventSchema = z.object({
-  title: z.string().min(3),
+const eventCoreSchema = z.object({
+  title: z.string().trim().min(3),
   description: z.string().optional(),
   /** atrações/line-up, um nome por linha — o hotsite monta a seção */
   lineup: z.string().max(2000).optional(),
@@ -31,6 +51,16 @@ export const createEventSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   timezone: z.string().default("America/Sao_Paulo"),
+});
+
+export const createEventSchema = eventCoreSchema.superRefine((event, ctx) => {
+  if (new Date(event.endsAt).getTime() <= new Date(event.startsAt).getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "O término do evento precisa ser depois do início",
+    });
+  }
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
@@ -53,18 +83,42 @@ export const pixelSettingsSchema = z.object({
 });
 export type PixelSettingsInput = z.infer<typeof pixelSettingsSchema>;
 
-export const updateEventSchema = createEventSchema.partial().extend({
+export const ticketThemeSchema = z.object({
+  template: z.enum(["CLASSIC", "DARK", "FESTA", "PREMIUM"]).default("CLASSIC"),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#6D28D9"),
+  secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#111827"),
+  backgroundImageUrl: httpImageUrl.nullable().optional(),
+  logoUrl: httpImageUrl.nullable().optional(),
+  sponsorText: z.string().trim().max(120).nullable().optional(),
+  showVenue: z.boolean().default(true),
+  showLot: z.boolean().default(true),
+  showAttendee: z.boolean().default(true),
+});
+export type TicketThemeInput = z.infer<typeof ticketThemeSchema>;
+
+export const updateEventSchema = eventCoreSchema.partial().extend({
   /** null limpa a categoria (a opção "Sem categoria" do painel era no-op) */
   category: eventCategorySchema.nullable().optional(),
   bannerUrl: z.string().url().optional(),
   /** sala de espera: admite N compradores por vez no checkout deste evento */
   waitingRoomEnabled: z.boolean().optional(),
   waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
+  faceCheckinEnabled: z.boolean().optional(),
   pixelSettings: pixelSettingsSchema.optional(),
   /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */
   // 2000: token de system user da Meta pode passar de 500 quando vem com
   // escopos extras (Dataset Quality API) — o limite curto barrava o salvamento
   metaCapiToken: z.string().trim().max(2000).nullable().optional(),
+  /** personalização visual do ingresso; não altera QR/código/validade */
+  ticketTheme: ticketThemeSchema.nullable().optional(),
+}).superRefine((event, ctx) => {
+  if (event.startsAt && event.endsAt && new Date(event.endsAt).getTime() <= new Date(event.startsAt).getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "O término do evento precisa ser depois do início",
+    });
+  }
 });
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 

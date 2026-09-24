@@ -4,7 +4,7 @@ import { prisma } from "@borafest/database";
 import { closeRedisConnection } from "@borafest/queues";
 import { applyGatewayStatus } from "@borafest/payments";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
-import { randomBytes, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { ReservationsService } from "../reservations/reservations.service";
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
@@ -14,6 +14,7 @@ import { InventoryService } from "../inventory/inventory.service";
 import { WaitingRoomService } from "../waiting-room/waiting-room.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { TicketsService } from "../tickets/tickets.service";
+import { CheckinsService } from "../checkins/checkins.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
 after(async () => {
@@ -100,12 +101,33 @@ test("transferência troca titular, reassina o QR e audita", async () => {
     );
 
     const toUser = await prisma.user.create({ data: { name: "Novo Titular", email } });
+
+    await prisma.ticketFaceEnrollment.create({
+      data: {
+        ticketId: ticket.id,
+        status: "ACTIVE",
+        provider: "test-provider",
+        providerReference: "face-ref-original-owner",
+        consentVersion: "face-checkin-v1",
+        consentedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+
     const result = await ticketsService.transferTicket(ticket.id, buyerUserId, { toEmail: email });
     assert.equal(result.attendeeName, "Novo Titular");
 
     const updated = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
     assert.equal(updated.ownerUserId, toUser.id, "POSSE muda para a conta destino");
     assert.notEqual(updated.qrToken, ticket.qrToken, "QR deve ser reassinado (nonce novo)");
+    assert.notEqual(updated.code, ticket.code, "código curto também precisa ser girado");
+
+    const faceEnrollment = await prisma.ticketFaceEnrollment.findUniqueOrThrow({
+      where: { ticketId: ticket.id },
+    });
+    assert.equal(faceEnrollment.status, "REVOKED", "biometria do titular anterior precisa ser revogada");
+    assert.equal(faceEnrollment.providerReference, null, "referência biométrica anterior não permanece no ingresso");
+    assert.ok(faceEnrollment.revokedAt, "revogação facial deve deixar timestamp de auditoria");
 
     const carteiraNova = await ticketsService.findByUser(toUser.id);
     assert.ok(carteiraNova.some((t: any) => t.id === ticket.id), "ingresso na carteira destino");
@@ -204,6 +226,124 @@ test("comprador NÃO reclama de volta um ingresso já presenteado", async () => 
 
     const aindaBob = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
     assert.equal(aindaBob.ownerUserId, bob.id, "posse continua com o Bob");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});
+
+
+test("duas transferências concorrentes do mesmo ingresso: apenas uma vence", async () => {
+  const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
+
+  try {
+    const { buyerUserId, tickets } = await buildPaidOrder(event.id, lot.id);
+    const ticket = tickets[0];
+    const ticketsService = new TicketsService();
+
+    const a = await prisma.user.create({
+      data: { name: "Destino A", email: `dest-a-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+    const b = await prisma.user.create({
+      data: { name: "Destino B", email: `dest-b-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+
+    const results = await Promise.allSettled([
+      ticketsService.transferTicket(ticket.id, buyerUserId, { toEmail: a.email! }),
+      ticketsService.transferTicket(ticket.id, buyerUserId, { toEmail: b.email! }),
+    ]);
+
+    assert.equal(
+      results.filter((result) => result.status === "fulfilled").length,
+      1,
+      "somente uma transferência concorrente pode concluir",
+    );
+    assert.equal(
+      results.filter((result) => result.status === "rejected").length,
+      1,
+      "a segunda precisa falhar ao perder o compare-and-swap da posse",
+    );
+
+    const finalTicket = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+    assert.ok([a.id, b.id].includes(finalTicket.ownerUserId ?? ""));
+
+    const audits = await prisma.auditLog.count({
+      where: { entityType: "ticket", entityId: ticket.id, action: "ticket.transfer" },
+    });
+    const notifications = await prisma.notification.count({
+      where: { template: "ticket_transferred", payload: { path: ["code"], equals: ticket.code } },
+    });
+    assert.equal(audits, 1, "não pode duplicar auditoria");
+    assert.equal(notifications, 1, "não pode duplicar notificação");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});
+
+
+test("QR antigo é revogado após transferência e o novo continua válido", async () => {
+  const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
+
+  try {
+    const { buyerUserId, tickets } = await buildPaidOrder(event.id, lot.id);
+    const original = tickets[0];
+    const ticketsService = new TicketsService();
+
+    const recipient = await prisma.user.create({
+      data: { name: "Novo dono QR", email: `qr-new-owner-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+
+    const transferred = await ticketsService.transferTicket(original.id, buyerUserId, {
+      toEmail: recipient.email!,
+    });
+    assert.notEqual(transferred.qrToken, original.qrToken, "transferência precisa girar o QR");
+
+    const credential = await prisma.validatorCredential.create({
+      data: {
+        eventId: event.id,
+        label: "Portaria QR revogado",
+        pinHash: "n/a",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    const device = await prisma.validatorDevice.create({
+      data: {
+        credentialId: credential.id,
+        eventId: event.id,
+        name: "Scanner QR revogado",
+        tokenHash: "n/a",
+        status: "ACTIVE",
+      },
+    });
+
+    const checkins = new CheckinsService(new OrgAccessService());
+
+    const oldResult = await checkins.create(device, { qrToken: original.qrToken });
+    assert.equal(oldResult.result, "INVALID", "QR anterior não pode entrar depois da transferência");
+    assert.equal((oldResult as any).reason, "REVOKED_QR");
+
+    const oldCodeResult = await checkins.create(device, { code: original.code });
+    assert.equal(oldCodeResult.result, "INVALID", "código curto anterior também precisa ser revogado");
+
+    const persisted = await prisma.ticket.findUniqueOrThrow({ where: { id: original.id } });
+    assert.equal(persisted.code, transferred.code);
+    assert.notEqual(persisted.code, original.code);
+
+    const offlineSync = await checkins.sync(device, {
+      batchKey: `revoked-${Math.random().toString(36).slice(2, 12)}`,
+      items: [
+        {
+          localSeq: 1,
+          ticketId: original.id,
+          qrHash: createHash("sha256").update(original.qrToken).digest("hex"),
+          scannedAt: new Date(),
+        },
+      ],
+    });
+    assert.equal(offlineSync.invalid, 1, "fila offline com QR antigo deve ser recusada no sync");
+    assert.equal(offlineSync.confirmed, 0);
+
+    const newResult = await checkins.create(device, { qrToken: transferred.qrToken });
+    assert.equal(newResult.result, "VALID", "QR reassinado do novo titular continua válido");
   } finally {
     await cleanupFixtureEvent(organization.id);
   }

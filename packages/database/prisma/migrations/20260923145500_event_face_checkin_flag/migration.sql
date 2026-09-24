@@ -1,0 +1,1 @@
+-- A flag já foi criada em 20260923140500_face_checkin_foundation.

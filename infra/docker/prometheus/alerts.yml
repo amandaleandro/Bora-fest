@@ -1,0 +1,88 @@
+groups:
+  - name: borafest-availability
+    rules:
+      - alert: BoraFestApiDown
+        expr: up{job="borafest-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API do BoraFest indisponível"
+          description: "O Prometheus não consegue coletar métricas da API há pelo menos 1 minuto."
+
+      - alert: BoraFestWorkerDown
+        expr: up{job="borafest-worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker do BoraFest indisponível"
+          description: "O Prometheus não consegue coletar métricas do worker há pelo menos 1 minuto."
+
+  - name: borafest-errors
+    rules:
+      - alert: BoraFestQueueFailures
+        expr: sum by (queue) (increase(queue_jobs_failed_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Falhas recentes na fila {{ $labels.queue }}"
+          description: "A fila registrou jobs com falha nos últimos 5 minutos. Verifique worker, gateway e integrações."
+
+      - alert: BoraFestHighHttp5xxRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taxa elevada de HTTP 5xx na API"
+          description: "Mais de 5% das requisições observadas nos últimos minutos estão retornando erro 5xx."
+
+      - alert: BoraFestSlowApiP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latência p95 da API acima de 2s"
+          description: "A latência p95 permaneceu acima de 2 segundos por 5 minutos."
+
+
+  - name: borafest-business-integrity
+    rules:
+      - alert: BoraFestPaidOrderWithoutTicket
+        expr: borafest_paid_orders_without_tickets > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pagamento confirmado sem ingresso emitido"
+          description: "Existe pelo menos um pedido PAID há mais de 2 minutos sem ingresso. Verifique outbox, worker e emissão antes de orientar o comprador a pagar novamente."
+
+      - alert: BoraFestOutboxFailed
+        expr: borafest_outbox_failed_events > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Evento de outbox falhou definitivamente"
+          description: "Há eventos de outbox em FAILED após esgotar tentativas. Pode haver emissão, notificação, fidelidade ou integração pendente."
+
+      - alert: BoraFestOutboxStale
+        expr: borafest_outbox_stale_pending_events > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox acumulando eventos pendentes"
+          description: "Existem eventos disponíveis há mais de 5 minutos ainda em PENDING. Verifique saúde do worker, Redis e banco."

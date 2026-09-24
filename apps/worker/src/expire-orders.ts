@@ -26,6 +26,22 @@ export async function expireStaleOrders(): Promise<void> {
       log.error({ orderId: id, error: (error as Error).message }, "falha ao expirar pedido");
     }
   }
+
+  const storeStale = await prisma.storeOrder.findMany({
+    where: {
+      status: { in: ["CREATED", "PAYMENT_PENDING"] },
+      expiresAt: { lt: new Date() },
+    },
+    select: { id: true },
+    take: 100,
+  });
+  for (const { id } of storeStale) {
+    try {
+      await expireStoreOrder(id);
+    } catch (error) {
+      log.error({ storeOrderId: id, error: (error as Error).message }, "falha ao expirar pedido da Loja");
+    }
+  }
 }
 
 async function expireOrder(orderId: string): Promise<void> {
@@ -61,4 +77,52 @@ async function expireOrder(orderId: string): Promise<void> {
   });
 
   log.info({ orderId }, "pedido expirado e estoque liberado");
+}
+
+
+async function expireStoreOrder(orderId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const order = await tx.storeOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true,
+        payments: { where: { status: { in: ["PENDING", "AUTHORIZED"] } } },
+      },
+    });
+    if (!order || !["CREATED", "PAYMENT_PENDING"].includes(order.status)) return;
+
+    const livePayment = order.payments.some(
+      (payment) => payment.expiresAt && payment.expiresAt.getTime() > Date.now(),
+    );
+    if (livePayment) return;
+
+    const updated = await tx.storeOrder.updateMany({
+      where: { id: orderId, status: { in: ["CREATED", "PAYMENT_PENDING"] } },
+      data: { status: "CANCELED" },
+    });
+    if (updated.count === 0) return;
+
+    for (const item of order.items) {
+      const released = await tx.$executeRaw`
+        UPDATE store_product_variants
+        SET reserved_count = reserved_count - ${item.quantity},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${item.variantId}::uuid
+          AND reserved_count >= ${item.quantity}
+      `;
+      if (released === 0) {
+        throw new Error(`Reserva de estoque inconsistente na variação ${item.variantId}`);
+      }
+    }
+
+    await tx.storePayment.updateMany({
+      where: {
+        storeOrderId: orderId,
+        status: { in: ["PENDING", "AUTHORIZED"] },
+      },
+      data: { status: "EXPIRED" },
+    });
+  });
+
+  log.info({ storeOrderId: orderId }, "pedido da Loja expirado e estoque liberado");
 }

@@ -15,6 +15,8 @@ export interface ValidatorSessionResponse {
 export interface ManifestTicket {
   id: string;
   code: string;
+  /** SHA-256 do QR atual; token antigo assinado não pode passar offline */
+  qrHash: string;
   status: string;
   ticketLotId: string;
   checkedInAt: string | null;
@@ -34,6 +36,7 @@ export type CheckinOutcome = "VALID" | "ALREADY_USED" | "INVALID" | "CANCELED";
 
 export interface CheckinResponse {
   result: CheckinOutcome;
+  reason?: "EVENT_WITHOUT_KEY" | "OTHER_EVENT" | "BAD_SIGNATURE" | "REVOKED_QR" | "NOT_FOUND" | string | null;
   ticket?: {
     id: string;
     code: string;
@@ -49,6 +52,7 @@ export interface CheckinResponse {
 export interface SyncCheckinItemInput {
   localSeq: number;
   ticketId: string;
+  qrHash?: string;
   checkinPointId?: string;
   scannedAt: string;
 }
@@ -74,4 +78,29 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+
+export interface FaceCapabilities {
+  enabled: boolean;
+  provider: string | null;
+  mode: "ONE_TO_ONE";
+  storesRawFaceImage: false;
+  offlineVerification: false;
+  fallbackMethods: readonly ["QR", "MANUAL"];
+}
+
+export interface FaceCheckinResponse extends CheckinResponse {
+  reason?:
+    | CheckinResponse["reason"]
+    | "FACE_NOT_ENROLLED"
+    | "FACE_NO_MATCH"
+    | "FACE_LIVENESS_FAILED"
+    | "FACE_TICKET_NOT_AVAILABLE";
+  score?: number | null;
+  face?: {
+    matched: boolean;
+    score: number | null;
+    liveness: boolean | null;
+  };
 }

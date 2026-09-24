@@ -77,6 +77,15 @@ export async function deliverPendingNotifications(): Promise<number> {
   return delivered;
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function send(
   channel: string,
   recipient: string,
@@ -186,6 +195,147 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para member_invited: ${channel}`);
+  }
+
+  if (template === "store_sale_received") {
+    if (channel !== "EMAIL") throw new Error(`Canal não suportado para store_sale_received: ${channel}`);
+    const p = payload as {
+      recipientName?: string | null;
+      customerName: string;
+      totalCents: number;
+      fulfillmentMethod: string;
+    };
+    const total = (p.totalCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    await getEmailSender().send({
+      to: recipient,
+      subject: "Nova venda na Loja · BoraFest",
+      text: [
+        p.recipientName ? `Olá, ${p.recipientName}!` : "Olá!",
+        "",
+        `Nova venda de ${total} para ${p.customerName}.`,
+        `Modalidade: ${p.fulfillmentMethod === "DELIVERY" ? "Entrega" : "Retirada"}.`,
+        "",
+        "Abra o painel BoraFest para preparar o pedido.",
+      ].join("\n"),
+      html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <h2>Nova venda na Loja 🎉</h2>
+  <p>${p.recipientName ? `Olá, <b>${escapeHtml(p.recipientName)}</b>!` : "Olá!"}</p>
+  <p>Entrou uma venda de <b>${escapeHtml(total)}</b> para ${escapeHtml(p.customerName)}.</p>
+  <p>Modalidade: <b>${p.fulfillmentMethod === "DELIVERY" ? "Entrega" : "Retirada"}</b>.</p>
+  <p>Abra o painel BoraFest para preparar o pedido.</p>
+</div>`.trim(),
+    });
+    return;
+  }
+
+  if (template === "store_order_ready") {
+    if (channel !== "EMAIL") {
+      throw new Error(`Canal não suportado para store_order_ready: ${channel}`);
+    }
+    const p = payload as {
+      pickupCode: string | null;
+      fulfillmentMethod?: string;
+      orderUrl: string;
+    };
+    await getEmailSender().send({
+      to: recipient,
+      subject:
+        p.fulfillmentMethod === "DELIVERY"
+          ? "Seu pedido da Loja está pronto para entrega · BoraFest"
+          : "Seu pedido da Loja está pronto para retirada · BoraFest",
+      text: [
+        p.fulfillmentMethod === "DELIVERY"
+          ? "Seu pedido está pronto para envio/entrega."
+          : "Seu pedido está pronto para retirada.",
+        "",
+        ...(p.fulfillmentMethod === "DELIVERY" ? [] : [`Código de retirada: ${p.pickupCode}`, ""]),
+        "Abra o pedido para conferir os detalhes:",
+        p.orderUrl,
+        "",
+        "Equipe BoraFest",
+      ].join("\n"),
+      html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <h2>Seu pedido está pronto 🎉</h2>
+  <p>${p.fulfillmentMethod === "DELIVERY" ? "A Casa terminou o preparo e vai seguir com a entrega." : "Agora você já pode fazer a retirada."}</p>
+  ${p.fulfillmentMethod === "DELIVERY" ? "" : `
+  <div style="margin:20px 0;padding:16px;border-radius:12px;background:#f4f1ff;text-align:center">
+    <div style="font-size:12px;color:#666">Código de retirada</div>
+    <div style="font-size:28px;font-weight:800;letter-spacing:4px">${escapeHtml(p.pickupCode)}</div>
+  </div>`}
+  <p><a href="${escapeHtml(p.orderUrl)}" style="display:inline-block;background:#6D28D9;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Ver pedido</a></p>
+  <p style="color:#666;font-size:12px">${p.fulfillmentMethod === "DELIVERY" ? "Acompanhe a entrega pelo pedido." : "Mostre o código no momento da retirada."}</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+    });
+    return;
+  }
+
+  if (template === "store_order_paid") {
+    if (channel !== "EMAIL") {
+      throw new Error(`Canal não suportado para store_order_paid: ${channel}`);
+    }
+    const p = payload as {
+      houseName: string;
+      customerName: string;
+      pickupCode: string | null;
+      fulfillmentMethod?: string;
+      totalCents: number;
+      orderUrl: string;
+      items: Array<{ productName: string; variantName: string; quantity: number }>;
+    };
+    const itemsText = p.items
+      .map((item) => `- ${item.quantity}x ${item.productName} · ${item.variantName}`)
+      .join("\n");
+    const itemsHtml = p.items
+      .map(
+        (item) =>
+          `<li>${item.quantity}x <b>${escapeHtml(item.productName)}</b> · ${escapeHtml(item.variantName)}</li>`,
+      )
+      .join("");
+    const total = (p.totalCents / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    await getEmailSender().send({
+      to: recipient,
+      subject: `Compra confirmada na Loja de ${p.houseName} · BoraFest`,
+      text: [
+        `Olá, ${p.customerName}!`,
+        "",
+        `Seu pagamento na Loja de ${p.houseName} foi confirmado.`,
+        "",
+        itemsText,
+        "",
+        `Total: ${total}`,
+        ...(p.fulfillmentMethod === "DELIVERY" ? [] : [`Código de retirada: ${p.pickupCode}`, ""]),
+        p.fulfillmentMethod === "DELIVERY"
+          ? "Acompanhe o preparo e a entrega pelo link:"
+          : "Acompanhe o pedido e mostre o código na retirada:",
+        p.orderUrl,
+        "",
+        "Equipe BoraFest",
+      ].join("\n"),
+      html: `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <h2>Compra confirmada 🎉</h2>
+  <p>Olá, <b>${escapeHtml(p.customerName)}</b>!</p>
+  <p>Seu pagamento na Loja de <b>${escapeHtml(p.houseName)}</b> foi confirmado.</p>
+  <ul>${itemsHtml}</ul>
+  <p><b>Total: ${escapeHtml(total)}</b></p>
+${p.fulfillmentMethod === "DELIVERY" ? "<p>A Casa vai preparar o pedido para entrega no endereço informado.</p>" : `
+  <div style="margin:20px 0;padding:16px;border-radius:12px;background:#f4f1ff;text-align:center">
+    <div style="font-size:12px;color:#666">Código de retirada</div>
+    <div style="font-size:28px;font-weight:800;letter-spacing:4px">${escapeHtml(p.pickupCode)}</div>
+  </div>`}
+  <p><a href="${escapeHtml(p.orderUrl)}" style="display:inline-block;background:#6D28D9;color:#fff;font-weight:700;padding:12px 22px;border-radius:12px;text-decoration:none">Acompanhar pedido</a></p>
+  <p style="color:#666;font-size:12px">${p.fulfillmentMethod === "DELIVERY" ? "Acompanhe o status da entrega pelo pedido." : "Mostre o código acima no momento da retirada."}</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim(),
+    });
+    return;
   }
 
   if (template === "cpf_defined") {

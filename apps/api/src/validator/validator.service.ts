@@ -32,6 +32,11 @@ function hashCpf(cpf: string | null): string | null {
   return createHash("sha256").update(digits).digest("hex");
 }
 
+/** Hash do QR atual: permite revogar versões antigas offline sem distribuir o segredo. */
+function hashQrToken(qrToken: string): string {
+  return createHash("sha256").update(qrToken).digest("hex");
+}
+
 @Injectable()
 export class ValidatorService {
   constructor(private readonly orgAccess: OrgAccessService) {}
@@ -326,6 +331,7 @@ export class ValidatorService {
       select: {
         id: true,
         code: true,
+        qrToken: true,
         status: true,
         ticketLotId: true,
         checkedInAt: true,
@@ -366,7 +372,7 @@ export class ValidatorService {
       ticketCount: tickets.length,
       // busca por documento na portaria compara sha256 no aparelho — o CPF cru
       // nunca sai do servidor.
-      tickets: tickets.map(({ attendeeCpf, order, ...ticket }) => {
+      tickets: tickets.map(({ attendeeCpf, qrToken, order, ...ticket }) => {
         // ETIQUETA VEM DA FONTE ÚNICA (2026-09-15). Aqui existia uma CÓPIA da
         // derivação de `common/origem-gratis.ts` — e ela já tinha divergido: não
         // olhava `promoterLinkId`, então convidado de promoter saía CONVIDADO
@@ -376,6 +382,7 @@ export class ValidatorService {
         const origem = order ? origemGratis(order) : null;
         return {
           ...ticket,
+          qrHash: hashQrToken(qrToken),
           cpfHash: hashCpf(attendeeCpf),
           tipo: origem?.kind ?? null,
           // DE QUEM É A LISTA (2026-09-15): a porta filtra por isso, offline.

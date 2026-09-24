@@ -21,6 +21,9 @@ const TITLES: Record<string, string> = {
   "checkin-ao-vivo": "Check-in ao vivo",
   "lista-convidados": "Lista de convidados",
   recorrencia: "Próxima edição",
+  vip: "Mesas e camarotes",
+  "ticket-studio": "Ingresso personalizado",
+  preview: "Prévia do evento",
 };
 
 export default function EventLayout({

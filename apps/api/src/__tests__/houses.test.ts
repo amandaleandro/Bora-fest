@@ -27,7 +27,11 @@ describe("BoraFest Casa", () => {
     });
     await prisma.event.update({
       where: { id: fixture.event.id },
-      data: { venueId: venue.id, bannerUrl: "https://example.com/banner.jpg" },
+      data: {
+        venueId: venue.id,
+        bannerUrl: "https://example.com/banner.jpg",
+        lineup: "DJ Nebula\nBanda Horizonte",
+      },
     });
 
     await prisma.ticketLot.create({
@@ -103,6 +107,9 @@ describe("BoraFest Casa", () => {
 
     const byEvent = await houses.listPublicHouses(1, 24, undefined, fixture.event.title);
     assert.equal(byEvent.houses.some((house) => house.id === fixture.organization.id), true);
+
+    const byLineup = await houses.listPublicHouses(1, 24, undefined, "DJ Nebula");
+    assert.equal(byLineup.houses.some((house) => house.id === fixture.organization.id), true);
 
     const missing = await houses.listPublicHouses(1, 24, undefined, "termo-que-nao-existe-xyz");
     assert.equal(missing.houses.some((house) => house.id === fixture.organization.id), false);
@@ -217,6 +224,93 @@ describe("BoraFest Casa", () => {
       where: { id: fixture.event.id },
       data: { endsAt: fixture.event.endsAt },
     });
+  });
+
+  it("mostra até 6 eventos anteriores no histórico da Casa", async () => {
+    const past = await prisma.event.create({
+      data: {
+        organizationId: fixture.organization.id,
+        title: "Evento histórico",
+        slug: `evento-historico-${Math.random().toString(36).slice(2, 10)}`,
+        status: "PUBLISHED",
+        startsAt: new Date(Date.now() - 3 * 86_400_000),
+        endsAt: new Date(Date.now() - 2 * 86_400_000),
+        publishedAt: new Date(Date.now() - 10 * 86_400_000),
+      },
+    });
+
+    try {
+      const profile = await houses.getPublicHouse(fixture.organization.slug);
+      assert.ok(profile.recentPastEvents.some((event) => event.id === past.id));
+      assert.ok(profile.recentPastEvents.length <= 6);
+    } finally {
+      await prisma.event.delete({ where: { id: past.id } }).catch(() => undefined);
+    }
+  });
+
+  it("não expõe organização marcada como homologação nem troca o slug por outra Casa", async () => {
+    const previous = process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS;
+    const outra = await createFixtureEvent({ lotCapacity: 10, priceCents: 1000, feeCents: 100 });
+    process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS = fixture.organization.slug;
+
+    try {
+      const list = await houses.listPublicHouses(1, 100, "Uberlândia");
+      assert.equal(list.houses.some((house) => house.id === fixture.organization.id), false);
+
+      await assert.rejects(
+        () => houses.getPublicHouse(fixture.organization.slug),
+        /Casa não encontrada/,
+        "pedir a Casa excluída precisa dar 404, nunca devolver outra organização pública",
+      );
+      await assert.rejects(() => houses.resolvePublicHouseById(fixture.organization.id), /Casa não encontrada/);
+
+      const outraCasa = await houses.getPublicHouse(outra.organization.slug);
+      assert.equal(outraCasa.id, outra.organization.id);
+
+      const followed = await houses.listFollowedHouses(followerId!);
+      assert.equal(followed.some((house) => house.id === fixture.organization.id), false);
+    } finally {
+      if (previous === undefined) delete process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS;
+      else process.env.PUBLIC_CATALOG_EXCLUDED_ORG_SLUGS = previous;
+      await cleanupFixtureEvent(outra.organization.id);
+    }
+  });
+
+  it("mantém a Casa pública pela Loja mesmo sem evento publicado", async () => {
+    const loja = await createFixtureEvent({ lotCapacity: 10, priceCents: 1200, feeCents: 100 });
+
+    try {
+      await prisma.event.update({
+        where: { id: loja.event.id },
+        data: { status: "DRAFT", publishedAt: null },
+      });
+      const product = await prisma.storeProduct.create({
+        data: {
+          organizationId: loja.organization.id,
+          name: "Camiseta oficial",
+          slug: "camiseta-oficial",
+          status: "ACTIVE",
+        },
+      });
+      await prisma.storeProductVariant.create({
+        data: {
+          productId: product.id,
+          name: "M",
+          priceCents: 3990,
+          stockTotal: 12,
+          active: true,
+        },
+      });
+
+      const profile = await houses.getPublicHouse(loja.organization.slug);
+      assert.equal(profile.id, loja.organization.id);
+      assert.equal(profile.upcomingEventsCount, 0);
+
+      const resolved = await houses.resolvePublicHouseById(loja.organization.id);
+      assert.equal(resolved.slug, loja.organization.slug);
+    } finally {
+      await cleanupFixtureEvent(loja.organization.id);
+    }
   });
 
   it("não expõe casa bloqueada", async () => {

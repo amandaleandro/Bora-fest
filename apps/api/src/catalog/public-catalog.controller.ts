@@ -19,6 +19,7 @@ export class PublicCatalogController {
     @Query("pageSize") pageSize: string | undefined,
     @Query("city") city: string | undefined,
     @Query("category") category: string | undefined,
+    @Query("q") query: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     reply.header("Cache-Control", PUBLIC_CACHE_HEADER);
@@ -29,7 +30,18 @@ export class PublicCatalogController {
       pageSize: Math.min(Math.max(1, Math.floor(Number(pageSize)) || 20), 50),
       city: city?.trim() || undefined,
       category: category?.trim() || undefined,
+      query: query?.trim().slice(0, 120) || undefined,
     });
+  }
+
+  @Get("search/suggestions")
+  searchSuggestions(
+    @Query("q") query: string | undefined,
+    @Query("city") city: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header("Cache-Control", "public, max-age=20, stale-while-revalidate=60");
+    return this.catalogService.getSearchSuggestions(query ?? "", city?.trim() || undefined);
   }
 
   @Get("cities/list")
@@ -54,15 +66,32 @@ export class PublicCatalogController {
     @Param("slug") slug: string,
     @Res({ passthrough: true }) reply: FastifyReply,
     @Query("pr") promoterSlug?: string,
+    @Query("vd") sellerSlug?: string,
   ) {
-    // com ?pr= a resposta é PESSOAL (pode conter o lote exclusivo daquele
-    // promoter), então não pode ser guardada em cache compartilhado de CDN
-    reply.header("Cache-Control", promoterSlug ? "private, no-store" : PUBLIC_CACHE_HEADER);
-    return this.catalogService.getPublicEvent(slug, promoterSlug?.trim() || undefined);
+    // com ?pr=/ ?vd= a resposta é PESSOAL (pode conter lote exclusivo), então
+    // nunca deve entrar em cache compartilhado de CDN.
+    const privateCatalog = Boolean(promoterSlug || sellerSlug);
+    reply.header("Cache-Control", privateCatalog ? "private, no-store" : PUBLIC_CACHE_HEADER);
+    return this.catalogService.getPublicEvent(
+      slug,
+      promoterSlug?.trim() || undefined,
+      sellerSlug?.trim() || undefined,
+    );
   }
 
   @Get(":slug/availability")
-  getAvailability(@Param("slug") slug: string) {
-    return this.catalogService.getPublicAvailability(slug);
+  getAvailability(
+    @Param("slug") slug: string,
+    @Query("pr") promoterSlug?: string,
+    @Query("vd") sellerSlug?: string,
+    @Res({ passthrough: true }) reply?: FastifyReply,
+  ) {
+    // disponibilidade nunca é cacheada; com atribuição o escopo ainda é privado.
+    reply?.header("Cache-Control", "private, no-store");
+    return this.catalogService.getPublicAvailability(
+      slug,
+      promoterSlug?.trim() || undefined,
+      sellerSlug?.trim() || undefined,
+    );
   }
 }

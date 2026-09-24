@@ -30,3 +30,31 @@ test("estoque atômico: N tentativas concorrentes contra lote de capacidade C nu
     await cleanupFixtureEvent(organization.id);
   }
 });
+
+
+test("confirmSale não cria venda sem estoque previamente reservado", async () => {
+  const { organization, lot } = await createFixtureEvent({ lotCapacity: 2 });
+
+  try {
+    const inventory = new InventoryService();
+
+    await assert.rejects(
+      () => inventory.confirmSale(lot.id, 1),
+      (error: unknown) => error instanceof InsufficientStockError,
+      "confirmar sem reserva precisa falhar fechado",
+    );
+
+    const unchanged = await inventory.getAvailability(lot.id);
+    assert.equal(unchanged?.sold, 0);
+    assert.equal(unchanged?.reserved, 0);
+
+    await inventory.tryReserve(lot.id, 1);
+    await inventory.confirmSale(lot.id, 1);
+
+    const confirmed = await inventory.getAvailability(lot.id);
+    assert.equal(confirmed?.sold, 1);
+    assert.equal(confirmed?.reserved, 0);
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { api, type EventListItem, type EventCategory } from "../lib/api";
+import { api, type EventListItem, type EventCategory, type SearchSuggestions } from "../lib/api";
 import { getFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { GridCard, MiniCard, priceLabel, shortDate } from "../components/EventCards";
@@ -45,6 +45,14 @@ function featureWhen(iso: string): string {
 }
 
 /** Selo do destaque: urgência REAL (fim de lote < 48h) ou "Em alta" — nunca inventado. */
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 function highlightBadge(event: EventListItem): string {
   if (event.currentLotEndsAt) {
     const diffMs = new Date(event.currentLotEndsAt).getTime() - Date.now();
@@ -62,6 +70,87 @@ function highlightBadge(event: EventListItem): string {
 
 
 
+function SearchSuggestionsPanel({
+  data,
+  query,
+}: {
+  data: SearchSuggestions | null;
+  query: string;
+}) {
+  if (query.trim().length < 2 || !data) return null;
+  const hasAny = data.events.length > 0 || data.houses.length > 0 || data.attractions.length > 0;
+
+  return (
+    <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[420px] overflow-y-auto rounded-2xl border border-line bg-surface p-3 text-ink shadow-card">
+      {!hasAny ? (
+        <p className="px-2 py-3 text-[12.5px] font-semibold text-muted">
+          Nenhuma sugestão para “{query.trim()}”.
+        </p>
+      ) : null}
+
+      {data.events.length > 0 ? (
+        <div>
+          <p className="px-2 pb-1.5 text-[10px] font-extrabold uppercase tracking-[.08em] text-muted-2">Eventos</p>
+          {data.events.map((event) => (
+            <Link
+              key={event.id}
+              href={`/${event.slug}`}
+              className="flex items-center justify-between gap-3 rounded-xl px-2 py-2.5 hover:bg-bg"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-extrabold">{event.title}</p>
+                <p className="truncate text-[11px] font-semibold text-muted">
+                  {event.venue ? `${event.venue.name} · ${event.venue.city}/${event.venue.state}` : event.organization?.name ?? "BoraFest"}
+                </p>
+              </div>
+              <span className="text-[11px] font-extrabold text-primary">Ver →</span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {data.houses.length > 0 ? (
+        <div className={data.events.length > 0 ? "mt-3 border-t border-line pt-3" : ""}>
+          <p className="px-2 pb-1.5 text-[10px] font-extrabold uppercase tracking-[.08em] text-muted-2">Casas e produtores</p>
+          {data.houses.map((house) => (
+            <Link
+              key={house.id}
+              href={`/casa/${house.slug}`}
+              className="flex items-center justify-between gap-3 rounded-xl px-2 py-2.5 hover:bg-bg"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-extrabold">{house.name}</p>
+                <p className="truncate text-[11px] font-semibold text-muted">
+                  {house.location ? `${house.location.city}/${house.location.state}` : "Perfil na BoraFest"}
+                </p>
+              </div>
+              <span className="text-[11px] font-extrabold text-primary">Casa →</span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {data.attractions.length > 0 ? (
+        <div className={data.events.length > 0 || data.houses.length > 0 ? "mt-3 border-t border-line pt-3" : ""}>
+          <p className="px-2 pb-1.5 text-[10px] font-extrabold uppercase tracking-[.08em] text-muted-2">Atrações</p>
+          {data.attractions.map((item) => (
+            <Link
+              key={`${item.name}-${item.eventSlug}`}
+              href={`/${item.eventSlug}`}
+              className="block rounded-xl px-2 py-2.5 hover:bg-bg"
+            >
+              <p className="text-[13px] font-extrabold">{item.name}</p>
+              <p className="mt-0.5 truncate text-[11px] font-semibold text-muted">
+                {item.eventTitle} · {item.houseName}
+              </p>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function HomeClient({
   initialSections,
   initialEvents,
@@ -73,6 +162,7 @@ export function HomeClient({
 }) {
   const [events, setEvents] = useState<EventListItem[] | null>(initialEvents);
   const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<SearchSuggestions | null>(null);
   const [category, setCategory] = useState<EventCategory | null>(null);
 
   const [cities, setCities] = useState<Array<{ city: string; state: string }>>([]);
@@ -92,20 +182,41 @@ export function HomeClient({
     if (saved) setCity(saved);
   }, []);
 
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setSuggestions(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      api.searchSuggestions(q, city ?? undefined).then(setSuggestions).catch(() => setSuggestions(null));
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [query, city]);
+
+
+
   // o servidor já entregou a 1ª carga (cidade/categoria padrão) — só refaz
   // quando o visitante mexe no filtro, senão duplica request e pisca a tela
   const primeiraCarga = useRef(true);
   useEffect(() => {
-    if (primeiraCarga.current && initialEvents !== null && city === null && category === null) {
+    if (primeiraCarga.current && initialEvents !== null && city === null && category === null && query.trim() === "") {
       primeiraCarga.current = false;
       return;
     }
     primeiraCarga.current = false;
-    api
-      .listPublicEventsByCity(city ?? undefined, category ?? undefined)
-      .then(setEvents)
-      .catch(() => setEvents([]));
-  }, [city, category, initialEvents]);
+
+    const timer = window.setTimeout(() => {
+      api
+        .listPublicEventsByCity(city ?? undefined, category ?? undefined, query.trim() || undefined)
+        .then(setEvents)
+        .catch(() => setEvents([]));
+    }, query.trim() ? 250 : 0);
+
+    return () => window.clearTimeout(timer);
+  }, [city, category, query, initialEvents]);
 
   // home viva: Em alta (placar de vendas) + prateleiras por categoria
   const [sections, setSections] = useState<HomeSections | null>(initialSections);
@@ -148,20 +259,35 @@ export function HomeClient({
 
   const filtered = useMemo(() => {
     if (!events) return [];
-    const q = query.trim().toLowerCase();
-    return q ? events.filter((e) => e.title.toLowerCase().includes(q)) : events;
+    const q = normalizeSearch(query);
+    if (!q) return events;
+
+    return events.filter((e) => {
+      const searchable = [
+        e.title,
+        e.venue?.name,
+        e.venue?.city,
+        e.venue?.state,
+        e.organization?.name,
+        e.lineup,
+        e.category ? CATEGORY_LABELS[e.category] ?? e.category : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return normalizeSearch(searchable).includes(q);
+    });
   }, [events, query]);
 
   const sectionsView = !browsing && sections !== null;
-  const highlight = sectionsView
-    ? sections.highlights[0] ?? sections.upcoming[0] ?? filtered[0]
-    : filtered[0];
+  // O hero de evento só existe quando o backend classificou procura real em highlights.
+  // Próximo evento não vira "destaque" automaticamente.
+  const highlight = sectionsView ? sections.highlights[0] ?? null : null;
+  const showInstitutionalHero = !browsing && !highlight;
   const emAlta = sectionsView ? sections.highlights : [];
   const shelves = sectionsView ? sections.shelves : [];
-  const upcoming = sectionsView
+  const rest = sectionsView
     ? sections.upcoming.filter((e) => e.id !== highlight?.id)
-    : filtered.slice(1);
-  const rest = upcoming;
+    : filtered;
 
   // favoritos do aparelho (bf.favs) cruzados com os eventos já carregados
   const favoritos = (() => {
@@ -179,7 +305,51 @@ export function HomeClient({
 
   return (
     <main className="px-5 pb-10 pt-6 lg:mx-auto lg:max-w-6xl lg:px-6">
-      {/* hero desktop */}
+      {/* Hero institucional: aparece quando não existe destaque real de vendas. */}
+      {showInstitutionalHero && (
+        <section className="mb-8 hidden min-h-[390px] overflow-hidden rounded-3xl bg-brand-gradient text-white lg:grid lg:grid-cols-[1.25fr_.75fr]">
+          <div className="flex flex-col justify-center p-12">
+            <span className="w-fit rounded-full bg-white/15 px-3 py-1 text-[12px] font-extrabold backdrop-blur">
+              Descubra. Compre. Entre.
+            </span>
+            <h2 className="mt-5 max-w-2xl text-[44px] font-extrabold leading-[1.04]">
+              Seu próximo rolê começa aqui.
+            </h2>
+            <p className="mt-4 max-w-xl text-[16px] font-medium leading-relaxed text-white/80">
+              Encontre eventos na sua cidade, compre sem complicação e leve seu ingresso no celular.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <Link href="/explorar" className="rounded-xl bg-white px-5 py-3 text-[13px] font-extrabold text-ink shadow-card">
+                Explorar eventos
+              </Link>
+              <Link href="/casas" className="rounded-xl border border-white/25 bg-white/10 px-5 py-3 text-[13px] font-extrabold text-white">
+                Descobrir Casas
+              </Link>
+            </div>
+            <div className="mt-4 flex items-center gap-4 text-[13px] font-bold">
+              <Link href="/para-produtores" className="text-white underline decoration-white/40 underline-offset-4">
+                Produzo eventos
+              </Link>
+              <span className="text-white/50">•</span>
+              <span className="text-white/75">{city ?? "Eventos em várias cidades"}</span>
+            </div>
+          </div>
+          <div className="relative hidden overflow-hidden lg:block">
+            <div className="absolute -right-20 -top-20 h-80 w-80 rounded-full bg-accent/45 blur-3xl" />
+            <div className="absolute bottom-8 right-8 w-[290px] rounded-3xl border border-white/15 bg-white/10 p-6 backdrop-blur">
+              <p className="text-[12px] font-extrabold uppercase tracking-[.12em] text-white/65">BoraFest</p>
+              <p className="mt-3 text-[25px] font-extrabold leading-tight">Do ingresso à entrada, sem complicação.</p>
+              <div className="mt-5 space-y-3 text-[13px] font-semibold text-white/80">
+                <p>✓ Compra rápida e transparente</p>
+                <p>✓ Ingresso com QR individual</p>
+                <p>✓ Sem app obrigatório para entrar</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* hero de evento — somente com destaque real */}
       {highlight && (
         <section className="mb-8 hidden lg:block">
           <Link href={`/${highlight.slug}`}
@@ -213,6 +383,30 @@ export function HomeClient({
           </Link>
         </section>
       )}
+
+      <div className="relative mt-5 hidden lg:block">
+        <div className="flex h-[54px] max-w-2xl items-center gap-2 rounded-2xl border border-line bg-surface px-4 shadow-sm">
+          <Icon d={paths.search} size={19} className="shrink-0 text-muted-3" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar eventos, Casas, atrações, locais ou cidades"
+            className="min-w-0 flex-1 bg-transparent px-2 text-[14px] font-semibold text-ink outline-none placeholder:text-muted-3"
+          />
+          {(query || category) ? (
+            <button
+              type="button"
+              onClick={() => { setQuery(""); setCategory(null); setSuggestions(null); }}
+              className="rounded-xl px-3 py-2 text-[12px] font-extrabold text-muted hover:bg-bg"
+            >
+              Limpar
+            </button>
+          ) : null}
+        </div>
+        <div className="max-w-2xl">
+          <SearchSuggestionsPanel data={suggestions} query={query} />
+        </div>
+      </div>
 
       {/* saudação + avatar (mobile) */}
       <header className="flex items-center justify-between lg:hidden">
@@ -270,15 +464,39 @@ export function HomeClient({
       )}
 
       {/* busca */}
-      <div className="mt-5 flex h-[50px] lg:hidden items-center gap-2 rounded-2xl border-[1.5px] border-line-input bg-surface px-4">
-        <Icon d={paths.search} size={18} className="text-muted-3" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar shows, festas, esportes..."
-          className="w-full bg-transparent text-[14px] font-medium outline-none placeholder:text-muted-3"
-        />
+      <div className="relative mt-5 lg:hidden">
+        <div className="flex h-[50px] items-center gap-2 rounded-2xl border-[1.5px] border-line-input bg-surface px-4">
+          <Icon d={paths.search} size={18} className="text-muted-3" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar eventos, Casas ou atrações..."
+            className="w-full bg-transparent text-[14px] font-medium outline-none placeholder:text-muted-3"
+          />
+        </div>
+        <SearchSuggestionsPanel data={suggestions} query={query} />
       </div>
+
+      {showInstitutionalHero && (
+        <section className="relative mt-5 overflow-hidden rounded-3xl bg-brand-gradient p-6 text-white lg:hidden">
+          <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-accent/40 blur-2xl" />
+          <div className="relative">
+            <p className="text-[11px] font-extrabold uppercase tracking-[.12em] text-white/70">BoraFest</p>
+            <h2 className="mt-2 text-[27px] font-extrabold leading-[1.05]">Seu próximo rolê começa aqui.</h2>
+            <p className="mt-3 max-w-[300px] text-[13px] font-semibold leading-relaxed text-white/80">
+              Descubra eventos, compre pelo celular e entre com seu QR.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <Link href="/explorar" className="rounded-xl bg-white px-4 py-3 text-[12.5px] font-extrabold text-ink">
+                Explorar eventos
+              </Link>
+              <Link href="/para-produtores" className="rounded-xl border border-white/25 bg-white/10 px-4 py-3 text-[12.5px] font-extrabold text-white">
+                Produzo eventos
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* chips de categoria */}
       <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
@@ -300,7 +518,19 @@ export function HomeClient({
       {events === null ? (
         <p className="mt-10 text-center text-[13px] text-muted">Carregando eventos…</p>
       ) : filtered.length === 0 ? (
-        <p className="mt-10 text-center text-[13px] text-muted">Nenhum evento encontrado.</p>
+        <div className="mt-10 rounded-2xl border border-line bg-surface p-6 text-center">
+          <p className="text-[14px] font-extrabold text-ink">Nenhum evento encontrado</p>
+          <p className="mt-1 text-[13px] font-medium text-muted">Tente outro nome, local, cidade ou categoria.</p>
+          {(query || category) && (
+            <button
+              type="button"
+              onClick={() => { setQuery(""); setCategory(null); }}
+              className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-[12.5px] font-extrabold text-white"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
       ) : (
         <>
           {/* destaque (mobile) — "O que vai rolar?" (mockup do Arthur, 2026-08-17) */}

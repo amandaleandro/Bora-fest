@@ -33,6 +33,7 @@ import { GuestListModule } from "./guest-list/guest-list.module";
 import { HousesModule } from "./houses/houses.module";
 import { VipModule } from "./vip/vip.module";
 import { LoyaltyModule } from "./loyalty/loyalty.module";
+import { StoreModule } from "./store/store.module";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
@@ -75,6 +76,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     HousesModule,
     VipModule,
     LoyaltyModule,
+    StoreModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

@@ -73,6 +73,21 @@ export class OrdersService {
     private readonly idempotency: IdempotencyService = new IdempotencyService(),
   ) {}
 
+  private async assertPdvReadPermission(organizationId: string, userId: string) {
+    const membership = await prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+      include: { role: true },
+    });
+    if (
+      !membership || membership.status !== "ACTIVE" ||
+      (!roleHasPermission(membership.role.key, PERMISSIONS.SALES_PERFORM) &&
+        !roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW))
+    ) {
+      throw new ForbiddenException("Sem permissão para consultar o PDV");
+    }
+    return membership;
+  }
+
   async createFromReservation(userId: string | undefined, input: CreateOrderInput) {
     const reservation = await prisma.reservation.findUnique({
       where: { id: input.reservationId },
@@ -97,7 +112,7 @@ export class OrdersService {
     // PRODUCER absorve — o comprador paga só o preço e o repasse é descontado.
     const lots = await prisma.ticketLot.findMany({
       where: { id: { in: reservation.items.map((i) => i.ticketLotId) } },
-      select: { id: true, feeMode: true, nominal: true, requiresCpf: true },
+      select: { id: true, feeMode: true, nominal: true, requiresCpf: true, promoterOnly: true },
     });
     const lotById = new Map(lots.map((l) => [l.id, l]));
 
@@ -166,7 +181,55 @@ export class OrdersService {
     let promoterLink:
       | { id: string; commissionType: string; commissionBps: number; commissionFixedCents: number }
       | null = null;
-    if (input.sellerSlug && eventOrg) {
+
+    const hasBoundAttribution = Boolean(reservation.promoterLinkId || reservation.promoterSellerId);
+
+    // Atribuição congelada na reserva é autoridade. Isso evita reservar lote
+    // exclusivo com A e trocar a comissão para B na criação do pedido.
+    if (reservation.promoterSellerId && eventOrg) {
+      const seller = await prisma.promoterSeller.findFirst({
+        where: {
+          id: reservation.promoterSellerId,
+          status: "ACTIVE",
+          promoterLink: {
+            id: reservation.promoterLinkId ?? undefined,
+            organizationId: eventOrg.organizationId,
+            status: "ACTIVE",
+            OR: [{ eventId: null }, { eventId: reservation.eventId }],
+          },
+        },
+        select: {
+          id: true,
+          promoterLink: {
+            select: { id: true, commissionType: true, commissionBps: true, commissionFixedCents: true },
+          },
+        },
+      });
+      if (seller) {
+        promoterSellerId = seller.id;
+        promoterLink = seller.promoterLink;
+      }
+    } else if (reservation.promoterLinkId && eventOrg) {
+      promoterLink = await prisma.promoterLink.findFirst({
+        where: {
+          id: reservation.promoterLinkId,
+          organizationId: eventOrg.organizationId,
+          status: "ACTIVE",
+          OR: [{ eventId: null }, { eventId: reservation.eventId }],
+        },
+        select: { id: true, commissionType: true, commissionBps: true, commissionFixedCents: true },
+      });
+    }
+
+    if (hasBoundAttribution && !promoterLink) {
+      throw new BadRequestException(
+        "A atribuição de promoter desta reserva não está mais ativa; refaça a reserva",
+      );
+    }
+
+    // Sem atribuição congelada, continuam valendo os canais tradicionais do
+    // checkout (link, vendedor ou código digitado).
+    if (!hasBoundAttribution && input.sellerSlug && eventOrg) {
       const seller = await prisma.promoterSeller.findFirst({
         where: {
           slug: input.sellerSlug,
@@ -174,7 +237,6 @@ export class OrdersService {
           promoterLink: {
             organizationId: eventOrg.organizationId,
             status: "ACTIVE",
-            // escopo por evento: link de outro evento NÃO atribui aqui
             OR: [{ eventId: null }, { eventId: reservation.eventId }],
           },
         },
@@ -190,23 +252,20 @@ export class OrdersService {
         promoterLink = seller.promoterLink;
       }
     }
-    if (!promoterLink && input.promoterSlug && eventOrg) {
+    if (!hasBoundAttribution && !promoterLink && input.promoterSlug && eventOrg) {
       promoterLink = await prisma.promoterLink.findFirst({
         where: {
           organizationId: eventOrg.organizationId,
           slug: input.promoterSlug,
           status: "ACTIVE",
-          // escopo por evento: ?pr= de outro evento é ignorado (sem comissão)
           OR: [{ eventId: null }, { eventId: reservation.eventId }],
         },
         select: { id: true, commissionType: true, commissionBps: true, commissionFixedCents: true },
       });
     }
-    // CÓDIGO PESSOAL (2026-09-08): salvaguarda quando o cookie some — trocou de
-    // aparelho, abriu no navegador do Instagram, limpou o histórico. O comprador
-    // digita "BIA10" no checkout e a comissão vai pro dono do mesmo jeito.
-    // Vem DEPOIS do slug: o link (last-click) continua tendo prioridade.
-    if (!promoterLink && input.promoterCode && eventOrg) {
+    // CÓDIGO PESSOAL (2026-09-08): fallback somente quando a reserva ainda não
+    // estava vinculada a outro promoter.
+    if (!hasBoundAttribution && !promoterLink && input.promoterCode && eventOrg) {
       promoterLink = await prisma.promoterLink.findFirst({
         where: {
           organizationId: eventOrg.organizationId,
@@ -229,6 +288,13 @@ export class OrdersService {
       // (cupom agressivo + comissão fixa deixavam a casa no negativo —
       // revisão adversarial 2026-08-11)
       promoterCommissionCents = Math.max(0, Math.min(promoterCommissionCents, ticketTotalCents));
+    }
+
+    const hasPromoterOnlyLot = lots.some((lot) => lot.promoterOnly);
+    if (hasPromoterOnlyLot && !promoterLinkId) {
+      throw new BadRequestException(
+        "Este pedido contém ingresso exclusivo de promoter; informe um link, vendedor ou código válido",
+      );
     }
 
     // atribuição por link público (?p=slug no hotsite) — comissão calculada igual ao PDV, só sobre ingressos
@@ -572,10 +638,11 @@ export class OrdersService {
   async getPdvOrderTickets(eventId: string, orderId: string, actorUserId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    const membership = await this.assertPdvReadPermission(event.organizationId, actorUserId);
     const order = await prisma.order.findFirst({
-      where: { id: orderId, eventId },
+      where: { id: orderId, eventId, soldByUserId: { not: null } },
       select: {
+        soldByUserId: true,
         status: true,
         tickets: {
           orderBy: { seq: "asc" },
@@ -587,6 +654,9 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado neste evento");
+    if (order.soldByUserId !== actorUserId && !roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW)) {
+      throw new ForbiddenException("Somente o vendedor do pedido ou o financeiro pode consultar estes ingressos");
+    }
     return {
       orderStatus: order.status,
       tickets: order.tickets.map((t) => ({
@@ -974,6 +1044,7 @@ export class OrdersService {
       include: {
         event: { select: { startsAt: true } },
         payments: { select: { id: true } },
+        tickets: { select: { ownerUserId: true, status: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
@@ -995,6 +1066,17 @@ export class OrdersService {
     if (order.event.startsAt.getTime() <= Date.now()) {
       throw new BadRequestException(
         "A janela do reembolso protegido fechou — ela vai até o início do evento",
+      );
+    }
+    const hasTransferredAway = order.tickets.some(
+      (ticket) =>
+        !["REFUNDED", "CANCELED"].includes(ticket.status) &&
+        ticket.ownerUserId !== null &&
+        ticket.ownerUserId !== order.userId,
+    );
+    if (hasTransferredAway) {
+      throw new BadRequestException(
+        "Este pedido tem ingresso transferido para outra pessoa. O ingresso precisa voltar ao titular do pedido antes do reembolso protegido",
       );
     }
 
@@ -1207,11 +1289,7 @@ export class OrdersService {
     });
     if (!event) throw new NotFoundException("Evento não encontrado");
 
-    const membership = await this.orgAccess.assertPermission(
-      event.organizationId,
-      actorUserId,
-      PERMISSIONS.SALES_PERFORM,
-    );
+    const membership = await this.assertPdvReadPermission(event.organizationId, actorUserId);
     const veTudo = roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW);
 
     // CONTROLE COMPLETO POR LOGIN (decisão do Arthur, 2026-09-14): não "últimas

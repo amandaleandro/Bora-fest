@@ -20,6 +20,7 @@ export class RefundRequestsService {
       where: { publicToken: orderPublicToken },
       include: {
         refundRequests: { where: { status: "PENDING" } },
+        tickets: { select: { ownerUserId: true, status: true } },
         event: { select: { organization: { select: { name: true, settlementMode: true } } } },
       },
     });
@@ -30,6 +31,18 @@ export class RefundRequestsService {
     }
     if (order.refundRequests.length > 0) {
       throw new BadRequestException("Já existe um pedido de reembolso pendente para este pedido");
+    }
+
+    const hasTransferredAway = order.tickets.some(
+      (ticket) =>
+        !["REFUNDED", "CANCELED"].includes(ticket.status) &&
+        ticket.ownerUserId !== null &&
+        ticket.ownerUserId !== order.userId,
+    );
+    if (hasTransferredAway) {
+      throw new BadRequestException(
+        "Este pedido tem ingresso transferido para outra pessoa. Para pedir reembolso, o ingresso precisa voltar ao titular do pedido primeiro",
+      );
     }
 
     const request = await prisma.refundRequest.create({

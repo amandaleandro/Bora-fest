@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { RevealQr } from "@/components/RevealQr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "../../lib/api";
+import { api, ApiError, type TicketTheme } from "../../lib/api";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { Icon, paths } from "../../components/icons";
+import { FaceEnrollmentButton } from "../../components/FaceEnrollmentButton";
 
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
 /** versão vigente do aceite de Termos/Privacidade (handoff v2) */
@@ -61,6 +62,34 @@ function shortDate(iso: string): string {
     .replace(/\./g, "");
 }
 
+const DEFAULT_TICKET_THEME: TicketTheme = {
+  template: "CLASSIC",
+  primaryColor: "#6D28D9",
+  secondaryColor: "#111827",
+  backgroundImageUrl: null,
+  logoUrl: null,
+  sponsorText: null,
+  showVenue: true,
+  showLot: true,
+  showAttendee: true,
+};
+
+function resolvedTicketTheme(theme?: TicketTheme | null): TicketTheme {
+  return { ...DEFAULT_TICKET_THEME, ...(theme ?? {}) };
+}
+
+function ticketHeaderStyle(theme: TicketTheme) {
+  return theme.backgroundImageUrl
+    ? {
+        backgroundImage: `linear-gradient(135deg, ${theme.secondaryColor}E8, ${theme.primaryColor}D5), url("${theme.backgroundImageUrl}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : {
+        background: `linear-gradient(135deg, ${theme.secondaryColor}, ${theme.primaryColor})`,
+      };
+}
+
 function initials(name: string | null, email: string | null): string {
   const parts = (name ?? email ?? "?").trim().split(/[\s@._-]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?";
@@ -111,7 +140,9 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [tickets, setTickets] = useState<MyTicket[] | null>(null);
+  const [ticketsError, setTicketsError] = useState(false);
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
+  const [ordersError, setOrdersError] = useState(false);
   const [resentFor, setResentFor] = useState<string | null>(null);
 
   // transferência de ingresso (painel inline por cartão)
@@ -169,12 +200,12 @@ export default function ProfilePage() {
     if (!token) return;
     if (section === "ingressos" && !requested.current.has("ingressos")) {
       requested.current.add("ingressos");
-      api.myTickets(token).then(setTickets).catch(() => setTickets([]));
+      api.myTickets(token).then(setTickets).catch(() => { setTicketsError(true); setTickets([]); });
       api.myProfile(token).then((pf) => setNameInput(pf?.name ?? "")).catch(() => undefined);
     }
     if (section === "compras" && !requested.current.has("compras")) {
       requested.current.add("compras");
-      api.myOrders(token).then(setOrders).catch(() => setOrders([]));
+      api.myOrders(token).then(setOrders).catch(() => { setOrdersError(true); setOrders([]); });
     }
   }, [token, section]);
 
@@ -235,7 +266,9 @@ export default function ProfilePage() {
     setToken(null);
     setProfile(null);
     setTickets(null);
+    setTicketsError(false);
     setOrders(null);
+    setOrdersError(false);
     requested.current.clear();
   }
 
@@ -314,7 +347,7 @@ export default function ProfilePage() {
       <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pt-14">
         <div className="lg:mx-auto lg:w-[440px] lg:rounded-3xl lg:border lg:border-line lg:bg-surface lg:p-8 lg:shadow-card">
           <header className="flex items-center gap-3">
-            <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+            <Link href="/" aria-label="Voltar ao início" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></Link>
             <h1 className="text-[20px] font-extrabold lg:text-[21px]">Entrar na BoraFest</h1>
           </header>
           <p className="mt-4 text-[13px] font-medium leading-relaxed text-muted lg:mt-3 lg:text-[13.5px]">
@@ -355,7 +388,7 @@ export default function ProfilePage() {
     <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pb-14 lg:pt-8">
       <header className="flex items-center gap-3 lg:mb-6 lg:justify-between lg:gap-0">
         <div className="flex items-center gap-3">
-          <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+          <Link href="/" aria-label="Voltar ao início" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></Link>
           <h1 className="text-[20px] font-extrabold lg:text-[24px]">Minha conta</h1>
         </div>
         <span className="hidden text-[12px] font-semibold text-muted-2 lg:block">Conta única · vale no site e no app</span>
@@ -442,7 +475,12 @@ export default function ProfilePage() {
                   Ingresso transferido para {transferredTo} — já está na conta dela 🎟️
                 </p>
               )}
-              {tickets === null ? (
+              {ticketsError ? (
+                <div role="alert" className="rounded-[22px] border border-danger/25 bg-danger/5 px-8 py-10 text-center">
+                  <p className="text-[14px] font-semibold text-danger">Não foi possível consultar seus ingressos agora.</p>
+                  <button type="button" onClick={() => { if (token) { setTicketsError(false); setTickets(null); api.myTickets(token).then(setTickets).catch(() => { setTicketsError(true); setTickets([]); }); } }} className="mt-4 h-11 rounded-xl bg-primary px-5 text-[13px] font-bold text-white">Tentar novamente</button>
+                </div>
+              ) : tickets === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando seus ingressos…</p>
               ) : tickets.length === 0 ? (
                 <div className="rounded-[22px] border border-line bg-surface px-8 py-14 text-center">
@@ -459,11 +497,28 @@ export default function ProfilePage() {
                 </div>
               ) : (
                 <div className="space-y-3.5">
-                  {tickets.map((ticket) => (
+                  {tickets.map((ticket) => {
+                    const theme = resolvedTicketTheme(ticket.event.ticketTheme);
+                    return (
                     <article key={ticket.id} className="overflow-hidden rounded-[22px] border border-line bg-surface lg:flex">
-                      <div className="bg-brand-gradient p-5 lg:flex lg:w-[240px] lg:shrink-0 lg:flex-col lg:justify-center">
+                      <div
+                        className="p-5 text-white lg:flex lg:w-[240px] lg:shrink-0 lg:flex-col lg:justify-center"
+                        style={ticketHeaderStyle(theme)}
+                      >
+                        {theme.logoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={theme.logoUrl} alt="" className="mb-3 h-8 max-w-[130px] object-contain object-left" />
+                        ) : null}
                         <p className="text-[16px] font-extrabold leading-tight text-white">{ticket.event.title}</p>
                         <p className="mt-1.5 text-[11.5px] font-semibold text-white/80">{formatDateTime(ticket.event.startsAt)}</p>
+                        {theme.showVenue && ticket.event.venue ? (
+                          <p className="mt-1 text-[10.5px] font-semibold text-white/70">
+                            {ticket.event.venue.name} · {ticket.event.venue.city}/{ticket.event.venue.state}
+                          </p>
+                        ) : null}
+                        {theme.sponsorText ? (
+                          <p className="mt-3 text-[10px] font-bold text-white/70">{theme.sponsorText}</p>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-center gap-4 border-t border-dashed border-line p-5 text-center lg:flex-1 lg:flex-row lg:items-center lg:gap-[18px] lg:border-l lg:border-t-0 lg:px-[22px] lg:text-left">
                         <div className={`shrink-0 rounded-xl border border-line bg-white p-2 ${
@@ -473,9 +528,14 @@ export default function ProfilePage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap justify-center gap-2 lg:justify-start">
-                            <span className="rounded-full bg-primary/[.09] px-2.5 py-1.5 text-[11px] font-bold text-primary">
-                              {ticket.typeName} · {ticket.lotName}
-                            </span>
+                            {theme.showLot ? (
+                              <span
+                                className="rounded-full px-2.5 py-1.5 text-[11px] font-bold"
+                                style={{ backgroundColor: `${theme.primaryColor}15`, color: theme.primaryColor }}
+                              >
+                                {ticket.typeName} · {ticket.lotName}
+                              </span>
+                            ) : null}
                             <span className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${
                               ticket.status === "CHECKED_IN" ? "bg-line text-muted-2" :
                               ["CANCELED", "REFUNDED"].includes(ticket.status) ? "bg-danger/10 text-danger" :
@@ -486,7 +546,9 @@ export default function ProfilePage() {
                                 ticket.status === "CANCELED" ? "Cancelado" : "Válido"}
                             </span>
                           </div>
-                          <p className="mt-2 truncate text-[15px] font-extrabold">{ticket.attendeeName ?? profile?.name ?? "Portador"}</p>
+                          {theme.showAttendee ? (
+                            <p className="mt-2 truncate text-[15px] font-extrabold">{ticket.attendeeName ?? profile?.name ?? "Portador"}</p>
+                          ) : null}
                           <p className="mt-1 text-[12px] font-medium text-muted-2">Código {ticket.code}</p>
                           {["CANCELED", "REFUNDED"].includes(ticket.status) && (
                             <p className="mt-2 text-[12px] font-semibold text-danger">
@@ -511,6 +573,9 @@ export default function ProfilePage() {
                               </button>
                             )}
                           </div>
+                          {!["CANCELED", "REFUNDED", "CHECKED_IN"].includes(ticket.status) ? (
+                            <FaceEnrollmentButton ticketId={ticket.id} />
+                          ) : null}
                           {transferFor === ticket.id && (
                             <div className="mt-3 rounded-2xl border border-line bg-[#faf9fd] p-4 text-left">
                               <p className="text-[12px] font-semibold leading-relaxed text-ink-soft">
@@ -556,7 +621,8 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -564,21 +630,26 @@ export default function ProfilePage() {
 
           {section === "compras" && (
             <section>
-              {orders === null ? (
+              {ordersError ? (
+                <div role="alert" className="rounded-[22px] border border-danger/25 bg-danger/5 px-8 py-10 text-center">
+                  <p className="text-[14px] font-semibold text-danger">Não foi possível consultar suas compras no banco agora.</p>
+                  <Link href="/minhas-compras" className="mt-4 inline-flex h-11 items-center rounded-xl bg-primary px-5 text-[13px] font-bold text-white">Tentar novamente</Link>
+                </div>
+              ) : orders === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando suas compras…</p>
               ) : orders.length === 0 ? (
                 <div className="rounded-[22px] border border-line bg-surface px-8 py-12 text-center">
                   <Icon d={paths.ticket} size={44} className="mx-auto text-muted-4" />
                   <p className="mt-4 text-[17px] font-extrabold">Nenhuma compra nesta conta</p>
                   <p className="mx-auto mt-2 max-w-[420px] text-[13.5px] font-medium leading-relaxed text-muted">
-                    Comprou como convidado antes de entrar? As compras feitas neste aparelho continuam acessíveis.
+                    Entre com o e-mail usado na compra para acessar seus pedidos em qualquer aparelho.
                   </p>
                   <div className="mt-6 flex flex-wrap justify-center gap-2.5">
                     <Link href="/" className="flex h-[46px] items-center rounded-[13px] bg-primary px-6 text-[14px] font-extrabold text-white shadow-cta">
                       Explorar eventos
                     </Link>
                     <Link href="/minhas-compras" className="flex h-[46px] items-center rounded-[13px] border-[1.5px] border-line-input px-6 text-[14px] font-bold text-ink">
-                      Compras deste aparelho
+                      Ver minhas compras
                     </Link>
                   </div>
                 </div>

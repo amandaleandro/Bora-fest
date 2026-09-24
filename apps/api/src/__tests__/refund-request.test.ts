@@ -82,3 +82,59 @@ test("pedido de reembolso é recusado se o pedido ainda não foi pago", async ()
     await cleanupFixtureEvent(organization.id);
   }
 });
+
+
+test("comprador não pede reembolso self-service enquanto ingresso estiver transferido a terceiro", async () => {
+  const { organization, event, lot } = await createFixtureEvent({ lotCapacity: 5 });
+
+  try {
+    const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
+    const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
+    const payments = new PaymentsService(new IdempotencyService());
+    const refundRequests = new RefundRequestsService(new OrgAccessService());
+
+    const reservation = await reservations.create(undefined, {
+      eventId: event.id,
+      items: [{ ticketLotId: lot.id, quantity: 1 }],
+    });
+    const order = await orders.createFromReservation(undefined, {
+      reservationId: reservation.id,
+      contactEmail: `refund-owner-${Math.random().toString(36).slice(2, 8)}@example.com`,
+      contactName: "Titular",
+    });
+    const payment = await payments.createPix(order.id, {});
+    await applyGatewayStatus(payment.id, "PAID");
+
+    const recipient = await prisma.user.create({
+      data: { email: `refund-recipient-${Math.random().toString(36).slice(2, 8)}@example.com` },
+    });
+    const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: order.id } });
+    await prisma.ticket.create({
+      data: {
+        orderId: order.id,
+        orderItemId: item.id,
+        eventId: event.id,
+        ticketLotId: lot.id,
+        seq: 1,
+        code: `RF-${Math.random().toString(36).slice(2, 10)}`,
+        qrToken: "qr-refund-transferred",
+        status: "ACTIVE",
+        ownerUserId: recipient.id,
+        attendeeEmail: recipient.email,
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        refundRequests.create(order.publicToken, {
+          reason: "Quero cancelar mesmo depois de transferir",
+        }),
+      /transferido para outra pessoa/i,
+    );
+
+    const count = await prisma.refundRequest.count({ where: { orderId: order.id } });
+    assert.equal(count, 0, "não cria solicitação que pode revogar ingresso de terceiro");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});

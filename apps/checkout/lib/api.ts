@@ -64,6 +64,18 @@ export interface PixelSettings {
   tiktokPixelId?: string;
 }
 
+export interface TicketTheme {
+  template: "CLASSIC" | "DARK" | "FESTA" | "PREMIUM";
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundImageUrl?: string | null;
+  logoUrl?: string | null;
+  sponsorText?: string | null;
+  showVenue: boolean;
+  showLot: boolean;
+  showAttendee: boolean;
+}
+
 export interface PublicEventAddOn {
   id: string;
   name: string;
@@ -95,6 +107,7 @@ export interface PublicEvent {
   addOns: PublicEventAddOn[];
   waitingRoomEnabled: boolean;
   pixelSettings: PixelSettings | null;
+  ticketTheme?: TicketTheme | null;
 }
 
 export interface ReviewSummary {
@@ -123,9 +136,28 @@ export interface EventListItem {
   startsAt: string;
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
+  organization?: { name: string; slug: string };
+  lineup?: string | null;
   fromPriceCents: number | null;
   /** fim do lote ativo mais próximo (urgência honesta na vitrine) */
   currentLotEndsAt: string | null;
+}
+
+export interface SearchSuggestions {
+  events: EventListItem[];
+  houses: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+    location: { city: string; state: string } | null;
+  }>;
+  attractions: Array<{
+    name: string;
+    eventSlug: string;
+    eventTitle: string;
+    houseName: string;
+  }>;
 }
 
 export interface AvailabilityItem {
@@ -140,11 +172,36 @@ export interface AvailabilityItem {
   halfPriceEnabled?: boolean;
 }
 
+export interface FaceCapabilities {
+  enabled: boolean;
+  provider: string | null;
+  mode: "ONE_TO_ONE";
+  storesRawFaceImage: false;
+  offlineVerification: false;
+  fallbackMethods: readonly ["QR", "MANUAL"];
+}
+
+export interface FaceEnrollmentStatus {
+  enrolled: boolean;
+  eventEnabled: boolean;
+  enrollment: {
+    status: "PENDING" | "ACTIVE" | "REVOKED" | "EXPIRED";
+    provider: string;
+    consentVersion: string;
+    consentedAt: string;
+    revokedAt: string | null;
+    expiresAt: string;
+  } | null;
+  capabilities: FaceCapabilities;
+}
+
 export interface Reservation {
   id: string;
   eventId: string;
   status: string;
   expiresAt: string;
+  /** total dos ingressos para o comprador, já respeitando feeMode do lote */
+  buyerTotalCents?: number;
   items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number; halfPrice?: boolean }>;
 }
 
@@ -217,7 +274,14 @@ export interface PdvSaleResult {
 export interface OrderTicketsResponse {
   orderId: string;
   orderStatus: string;
-  event: { title: string; slug: string; startsAt: string; endsAt: string };
+  event: {
+    title: string;
+    slug: string;
+    startsAt: string;
+    endsAt: string;
+    ticketTheme?: TicketTheme | null;
+    venue?: { name: string; city: string; state: string } | null;
+  };
   /** conta criada no checkout ainda não verificada: QR fica trancado */
   requiresVerification?: boolean;
   /** entrada grátis: CONVIDADO (lista, dourado) ou CORTESIA (balcão, sóbria) */
@@ -285,14 +349,20 @@ export interface PdvVenda {
 export const api = {
   listPublicEvents: () =>
     request<{ total: number; events: EventListItem[] }>("/v1/public/events").then((r) => r.events),
-  listPublicEventsByCity: (city?: string, category?: EventCategory) => {
+  listPublicEventsByCity: (city?: string, category?: EventCategory, query?: string) => {
     const params = new URLSearchParams();
     if (city) params.set("city", city);
     if (category) params.set("category", category);
+    if (query?.trim()) params.set("q", query.trim());
     const qs = params.toString();
     return request<{ total: number; events: EventListItem[] }>(
       `/v1/public/events${qs ? `?${qs}` : ""}`,
     ).then((r) => r.events);
+  },
+  searchSuggestions: (query: string, city?: string) => {
+    const params = new URLSearchParams({ q: query });
+    if (city) params.set("city", city);
+    return request<SearchSuggestions>(`/v1/public/events/search/suggestions?${params.toString()}`);
   },
   getHomeSections: (city?: string) => {
     const params = city ? `?city=${encodeURIComponent(city)}` : "";
@@ -308,8 +378,43 @@ export const api = {
 
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
-  getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
-  getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
+  getPublicEvent: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<PublicEvent>(`/v1/public/events/${slug}${suffix}`);
+  },
+  getFaceCapabilities: () =>
+    request<FaceCapabilities>("/v1/face-checkin/capabilities"),
+
+  getFaceEnrollment: (ticketId: string, token: string) =>
+    request<FaceEnrollmentStatus>(`/v1/tickets/${ticketId}/face-enrollment`, { token }),
+
+  enrollFace: (
+    ticketId: string,
+    body: { provider: string; providerReference: string; consentVersion: string; consent: true },
+    token: string,
+  ) =>
+    request(`/v1/tickets/${ticketId}/face-enrollment`, {
+      method: "POST",
+      body,
+      token,
+    }),
+
+  revokeFaceEnrollment: (ticketId: string, token: string) =>
+    request<{ revoked: boolean }>(`/v1/tickets/${ticketId}/face-enrollment`, {
+      method: "DELETE",
+      token,
+    }),
+
+  getAvailability: (slug: string, promoterSlug?: string, sellerSlug?: string) => {
+    const params = new URLSearchParams();
+    if (promoterSlug) params.set("pr", promoterSlug);
+    if (sellerSlug) params.set("vd", sellerSlug);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability${suffix}`);
+  },
 
   joinWaitingRoom: (slug: string) =>
     request<WaitingRoomJoinResult>(`/v1/public/events/${slug}/waiting-room/join`, { method: "POST" }),
@@ -329,10 +434,18 @@ export const api = {
     items: Array<{ ticketLotId: string; quantity: number; halfPrice?: boolean }>,
     token?: string,
     waitingRoomTicketId?: string,
+    promoterSlug?: string,
+    sellerSlug?: string,
   ) =>
     request<Reservation>("/v1/reservations", {
       method: "POST",
-      body: { eventId, items, waitingRoomTicketId: waitingRoomTicketId || undefined },
+      body: {
+        eventId,
+        items,
+        waitingRoomTicketId: waitingRoomTicketId || undefined,
+        promoterSlug,
+        sellerSlug,
+      },
       token,
     }),
 
@@ -549,8 +662,16 @@ export const api = {
 
   myTickets: (token: string) =>
     request<Array<OrderTicket & {
-      event: { title: string; slug: string; startsAt: string };
-      orderPublicToken: string;
+      event: {
+        title: string;
+        slug: string;
+        startsAt: string;
+        endsAt?: string;
+        ticketTheme?: TicketTheme | null;
+        venue?: { name: string; city: string; state: string } | null;
+      };
+      /** null quando o ingresso foi recebido por transferência; o token do pedido original nunca vaza. */
+      orderPublicToken: string | null;
       /** só ACTIVE/ISSUED de evento não-encerrado podem ser transferidos */
       transferable: boolean;
     }>>("/v1/me/tickets", { token }),
@@ -589,6 +710,34 @@ export const api = {
       /** há pedido de reembolso PENDENTE — o app mostra "em análise" e trava o botão */
       refundRequested?: boolean;
     }>>("/v1/me/orders", { token }),
+
+  myStoreOrders: (token: string) =>
+    request<Array<{
+      id: string;
+      publicToken: string;
+      status: string;
+      totalCents: number;
+      createdAt: string;
+      paidAt: string | null;
+      fulfilledAt: string | null;
+      pickupCode: string | null;
+      fulfillmentMethod: "PICKUP" | "DELIVERY";
+      house: { slug: string; name: string; logoUrl: string | null };
+      items: Array<{
+        id: string;
+        productName: string;
+        variantName: string;
+        quantity: number;
+        priceCents: number;
+      }>;
+      refundRequest: { id: string; status: string; returnedAt: string | null } | null;
+    }>>("/v1/me/store-orders", { token }),
+
+  requestStoreRefund: (publicToken: string, reason: string, token: string) =>
+    request<{ id: string; status: string; returnRequired: boolean }>(
+      `/v1/public/store/orders/${publicToken}/refund-requests`,
+      { method: "POST", body: { reason }, token },
+    ),
 
   myDataExport: (token: string) => request<unknown>("/v1/me/data-export", { token }),
 

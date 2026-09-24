@@ -372,6 +372,15 @@ async function applyPartialRefund(
           where: { id: payment.id, status: { in: ["PAID", "REFUND_PENDING"] } },
           data: { status: "REFUNDED" },
         });
+
+        // Reembolsos PARCIAIS que, somados, chegaram a 100% também precisam
+        // devolver o estoque vendido. Antes o pedido/ticket viravam REFUNDED,
+        // mas sold_count continuava alto — o lote podia ficar artificialmente
+        // esgotado. Usa a mesma operação atômica do estorno total.
+        const items = await tx.orderItem.findMany({ where: { orderId: payment.orderId } });
+        for (const item of items) {
+          await returnSaleInventory(tx, item.ticketLotId, item.quantity);
+        }
       }
     }
 
