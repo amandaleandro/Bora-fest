@@ -371,7 +371,9 @@ export class CatalogService {
 
   private async getPublicEventFresco(slug: string, promoterSlug?: string) {
     const event = await prisma.event.findFirst({
-      where: { slug, status: "PUBLISHED" },
+      // pausado continua acessível pelo link (o site mostra "Vendas pausadas");
+      // listas e home seguem só PUBLISHED. Reservar continua exigindo PUBLISHED.
+      where: { slug, status: { in: ["PUBLISHED", "SALES_PAUSED"] } },
       include: {
         venue: true,
         organization: { select: { id: true, name: true, displayName: true, slug: true } },

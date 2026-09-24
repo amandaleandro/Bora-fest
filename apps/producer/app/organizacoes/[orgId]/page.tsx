@@ -84,7 +84,7 @@ const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> =
   PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
   SALES_PAUSED: { bg: "bg-warning/10", fg: "text-warning", label: "Vendas pausadas" },
   UNPUBLISHED: { bg: "bg-line", fg: "text-muted", label: "Despublicado" },
-  CANCELLED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
+  CANCELED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
 };
 
 function formatDate(iso: string): string {

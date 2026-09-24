@@ -8,7 +8,7 @@ import { EventPageClient } from "./EventPageClient";
 /** Fetch direto (sem passar pelo helper `request` do client) — roda no servidor, sem localStorage/window. */
 async function fetchEvent(slug: string): Promise<PublicEvent | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}`, { next: { revalidate: 30 } });
+    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}`, { next: { revalidate: 10 } });
     if (!res.ok) return null;
     return (await res.json()) as PublicEvent;
   } catch {
@@ -18,7 +18,7 @@ async function fetchEvent(slug: string): Promise<PublicEvent | null> {
 
 async function hasVipAvailability(slug: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}/vip`, { next: { revalidate: 30 } });
+    const res = await fetch(`${API_BASE_URL}/v1/public/events/${slug}/vip`, { next: { revalidate: 10 } });
     if (!res.ok) return false;
     const payload = (await res.json()) as { spaces?: Array<{ availableUnits?: number }> };
     return Boolean(payload.spaces?.some((space) => (space.availableUnits ?? 0) > 0));

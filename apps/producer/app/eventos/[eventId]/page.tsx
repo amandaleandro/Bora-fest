@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn, type FeeMode } from "@/lib/api";
+import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn, type FeeMode, type CancelPreview } from "@/lib/api";
 import { FeeModeField, NominalFields } from "@/components/FeeModeField";
 
 function formatCents(cents: number): string {
@@ -37,7 +37,8 @@ const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> =
   PUBLISHED: { bg: "bg-success/10", fg: "text-success", label: "Publicado" },
   SALES_PAUSED: { bg: "bg-warning/10", fg: "text-warning", label: "Vendas pausadas" },
   UNPUBLISHED: { bg: "bg-line", fg: "text-muted", label: "Despublicado" },
-  CANCELLED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
+  // enum do banco é CANCELED (um L) — com dois L o badge ficava sem estilo
+  CANCELED: { bg: "bg-danger/10", fg: "text-danger", label: "Cancelado" },
 };
 
 interface LocalTicketType {
@@ -124,7 +125,12 @@ function EventContent({ eventId }: { eventId: string }) {
   const [lotHalf, setLotHalf] = useState(false);
   const [lotPdvOnly, setLotPdvOnly] = useState(false);
   const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
-
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelProgress, setCancelProgress] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   async function load() {
     if (!token) return;
@@ -158,6 +164,47 @@ function EventContent({ eventId }: { eventId: string }) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao alterar publicação");
+    }
+  }
+
+  async function abrirCancelamento() {
+    if (!token) return;
+    setCancelError(null);
+    setCancelProgress(null);
+    setCancelPreview(null);
+    setCancelOpen(true);
+    try {
+      setCancelPreview(await eventControls.cancelPreview(eventId, token));
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Não foi possível calcular os reembolsos");
+    }
+  }
+
+  // a API devolve um lote por chamada (o estorno passa pelo gateway, pedido a
+  // pedido); repetir até `remaining` zerar, pulando os que já falharam
+  async function confirmarCancelamento() {
+    if (!token) return;
+    setCancelBusy(true);
+    setCancelError(null);
+    const pular: string[] = [];
+    let devolvidos = 0;
+    try {
+      for (let volta = 0; volta < 200; volta += 1) {
+        const r = await eventControls.cancel(eventId, { reason: cancelReason.trim(), skipOrderIds: pular }, token);
+        devolvidos += r.refundedNow;
+        r.errors.forEach((e) => pular.push(e.orderId));
+        setCancelProgress(
+          `Evento cancelado. ${devolvidos} pedido(s) reembolsado(s)` +
+            (r.remaining ? `, ${r.remaining} na fila…` : ".") +
+            (pular.length ? ` ${pular.length} falharam — a BoraFest resolve manualmente.` : ""),
+        );
+        if (r.remaining === 0) break;
+      }
+      await load();
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Falha ao cancelar — tente de novo");
+    } finally {
+      setCancelBusy(false);
     }
   }
 
@@ -838,6 +885,58 @@ function EventContent({ eventId }: { eventId: string }) {
           )}
         </div>
 
+        {dashboard.event.status !== "CANCELED" && (
+          <div className="mt-4 border-t border-line pt-4">
+            {!cancelOpen ? (
+              <button
+                type="button"
+                onClick={abrirCancelamento}
+                className="text-[13px] font-bold text-danger underline underline-offset-2"
+              >
+                Cancelar evento…
+              </button>
+            ) : (
+              <div className="rounded-xl border border-danger/30 bg-danger/5 p-4">
+                <p className="text-[14px] font-extrabold text-danger">Cancelar o evento</p>
+                {cancelPreview ? (
+                  <p className="mt-1 text-[13px] font-medium text-ink-soft">
+                    {cancelPreview.orders === 0
+                      ? "Nenhum pedido pago — o evento sai do ar e ninguém precisa ser reembolsado."
+                      : `${cancelPreview.orders} pedido(s) serão reembolsados: ${formatCents(cancelPreview.refundTotalCents)} voltam aos compradores e ${formatCents(cancelPreview.feeBackCents)} de taxa voltam pra você. Saldo depois: ${formatCents(cancelPreview.balanceAfterCents)}.`}
+                  </p>
+                ) : (
+                  !cancelError && <p className="mt-1 text-[13px] font-medium text-muted">Calculando reembolsos…</p>
+                )}
+                <label className="mt-3 block text-[12px] font-bold text-ink-soft">Motivo — vai no aviso aos compradores</label>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  rows={2}
+                  placeholder="Ex.: problema no local, sem nova data"
+                  className="mt-1 w-full rounded-lg border border-line-input bg-surface p-2 text-sm"
+                />
+                {cancelProgress && <p className="mt-2 text-[12px] font-semibold text-ink-soft">{cancelProgress}</p>}
+                {cancelError && <p className="mt-2 text-[12px] font-semibold text-danger">{cancelError}</p>}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={cancelBusy || !cancelPreview || cancelReason.trim().length < 3}
+                    onClick={confirmarCancelamento}
+                    className="rounded-lg bg-danger px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                  >
+                    {cancelBusy ? "Cancelando…" : "Confirmar cancelamento"}
+                  </button>
+                  <button type="button" disabled={cancelBusy} onClick={() => setCancelOpen(false)} className="btn-secondary px-3 py-2">
+                    Voltar
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] font-medium text-muted">
+                  Não dá pra desfazer: o evento sai do site na hora e os reembolsos vão em lotes — o progresso aparece aqui.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </Bloco>
 
       <Bloco titulo="Arte do evento" descricao="Vertical ou horizontal — a página do evento mostra o flyer inteiro" aberto>

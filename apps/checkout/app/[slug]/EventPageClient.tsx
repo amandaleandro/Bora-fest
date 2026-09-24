@@ -109,6 +109,9 @@ export function EventPageClient({
   }
 
   const closed = event.status !== "PUBLISHED" || new Date(event.endsAt).getTime() < Date.now();
+  const paused = event.status === "SALES_PAUSED";
+  const closedLabel = paused ? "Vendas pausadas" : "Vendas encerradas";
+  const closedBadge = paused ? "bg-warning/10 text-warning" : "bg-line text-muted";
   const min = minPriceCents(event);
   const starts = new Date(event.startsAt);
   const dateLabel = starts.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", timeZone: event.timezone });
@@ -134,8 +137,8 @@ export function EventPageClient({
               e sujava a imagem */}
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <h1 className="text-[30px] font-extrabold leading-tight">{event.title}</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
-              {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? closedBadge : "bg-success/10 text-success"}`}>
+              {closed ? closedLabel : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -188,7 +191,7 @@ export function EventPageClient({
           <div className="rounded-3xl border border-line bg-bg p-5 shadow-card">
             <h2 className="text-[16px] font-extrabold">Ingressos</h2>
             {closed ? (
-              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">Vendas encerradas</p>
+              <p className="mt-4 rounded-xl bg-line p-4 text-center text-[13px] font-bold text-muted">{closedLabel}</p>
             ) : (
               <div className="mt-3"><TicketSelector event={event} compact /></div>
             )}
@@ -230,8 +233,8 @@ export function EventPageClient({
 
       {/* corpo sobreposto — título aqui, não em cima da arte (2026-08-17) */}
       <div className="relative -mt-[22px] rounded-t-3xl bg-bg px-5 pt-6">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
-          {closed ? "Vendas encerradas" : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${closed ? closedBadge : "bg-success/10 text-success"}`}>
+          {closed ? closedLabel : (<><span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-success" />Vendas abertas</>)}
         </span>
         <h1 className="mt-2 text-[26px] font-extrabold leading-tight">{event.title}</h1>
         <div className="mb-3 mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -292,7 +295,7 @@ export function EventPageClient({
         {closed ? (
           <div className="space-y-2">
             <div className="flex h-14 items-center justify-center rounded-2xl bg-line text-[15px] font-bold text-muted-3">
-              Vendas encerradas
+              {closedLabel}
             </div>
             <Link href="/" className="flex h-12 items-center justify-center rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold text-ink">
               Ver outros eventos

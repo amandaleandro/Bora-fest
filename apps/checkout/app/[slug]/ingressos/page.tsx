@@ -27,15 +27,18 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
   // botão "voltar"): não deixa reservar o que já fechou — o backend recusaria a
   // reserva com um erro genérico, então avisa aqui, claro
   const closed = event.status !== "PUBLISHED" || new Date(event.endsAt).getTime() < Date.now();
+  const paused = event.status === "SALES_PAUSED";
   if (closed) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-[430px] flex-col items-center justify-center px-8 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-line text-muted-3">
           <Icon d={paths.ticket} size={36} />
         </div>
-        <h1 className="mt-4 text-[20px] font-extrabold">Vendas encerradas</h1>
+        <h1 className="mt-4 text-[20px] font-extrabold">{paused ? "Vendas pausadas" : "Vendas encerradas"}</h1>
         <p className="mt-2 text-[13px] font-medium text-muted">
-          Os ingressos deste evento não estão mais disponíveis.
+          {paused
+            ? "O organizador pausou as vendas por enquanto — volte mais tarde."
+            : "Os ingressos deste evento não estão mais disponíveis."}
         </p>
         <Link
           href={`/${slug}`}
