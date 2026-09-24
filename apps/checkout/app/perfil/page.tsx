@@ -343,7 +343,7 @@ export default function ProfilePage() {
       <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pt-14">
         <div className="lg:mx-auto lg:w-[440px] lg:rounded-3xl lg:border lg:border-line lg:bg-surface lg:p-8 lg:shadow-card">
           <header className="flex items-center gap-3">
-            <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+            <Link href="/" aria-label="Voltar ao início" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></Link>
             <h1 className="text-[20px] font-extrabold lg:text-[21px]">Entrar na BoraFest</h1>
           </header>
           <p className="mt-4 text-[13px] font-medium leading-relaxed text-muted lg:mt-3 lg:text-[13.5px]">
@@ -384,7 +384,7 @@ export default function ProfilePage() {
     <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pb-14 lg:pt-8">
       <header className="flex items-center gap-3 lg:mb-6 lg:justify-between lg:gap-0">
         <div className="flex items-center gap-3">
-          <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+          <Link href="/" aria-label="Voltar ao início" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></Link>
           <h1 className="text-[20px] font-extrabold lg:text-[24px]">Minha conta</h1>
         </div>
         <span className="hidden text-[12px] font-semibold text-muted-2 lg:block">Conta única · vale no site e no app</span>
