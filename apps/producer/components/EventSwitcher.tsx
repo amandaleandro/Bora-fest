@@ -36,12 +36,21 @@ export function EventSwitcher({
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const [eventos, setEventos] = useState<EventSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token || !organizationId || !aberto) return;
-    eventsApi.list(token, organizationId).then(setEventos).catch(() => setEventos([]));
+    let active = true;
+    setLoading(true);
+    setLoadError(false);
+    eventsApi.list(token, organizationId)
+      .then((result) => { if (active) setEventos(result); })
+      .catch(() => { if (active) setLoadError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [token, organizationId, aberto]);
   useEffect(() => {
     setEventos([]);
@@ -52,15 +61,21 @@ export function EventSwitcher({
     const fora = (e: MouseEvent) => {
       if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
     };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") setAberto(false); };
     document.addEventListener("mousedown", fora);
-    return () => document.removeEventListener("mousedown", fora);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", fora);
+      document.removeEventListener("keydown", escape);
+    };
   }, [aberto]);
 
   function secaoAtual(): string {
     const depois = pathname.split(`/eventos/${event.id}`)[1];
     if (depois === undefined) return "/dashboard";
     const seção = depois.replace(/^\//, "").split("/")[0];
-    return seção ? `/${seção}` : "";
+    if (!seção) return "";
+    return seção === "recorrencia" ? "/dashboard" : `/${seção}`;
   }
 
   function trocar(destino: EventSummary) {
@@ -105,8 +120,10 @@ export function EventSwitcher({
           role="listbox"
           className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-[360px] overflow-y-auto rounded-xl border border-line bg-surface shadow-card"
         >
-          {eventos.length === 0 ? (
-            <p className="px-3 py-2.5 text-[12.5px] font-semibold text-muted">Carregando…</p>
+          {loading || loadError || eventos.length === 0 ? (
+            <p className="px-3 py-2.5 text-[12.5px] font-semibold text-muted">
+              {loading ? "Carregando eventos…" : loadError ? "Não foi possível carregar os eventos. Feche e tente novamente." : "Nenhum evento encontrado nesta produtora."}
+            </p>
           ) : (
             eventos.map((e) => (
               <button
