@@ -152,7 +152,8 @@ export class VipPaymentsService {
       { publicToken, ...input },
       async () => {
         const setup = await prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT id FROM vip_reservations WHERE public_token = ${publicToken}::uuid FOR UPDATE`;
+          // public_token é TEXT no banco (migration 20260914140500): o cast ::uuid dava "text = uuid" (bateria 2026-09-24)
+          await tx.$queryRaw`SELECT id FROM vip_reservations WHERE public_token = ${publicToken} FOR UPDATE`;
           const context = await this.contextByToken(publicToken, tx);
           if (!context) throw new NotFoundException("Reserva VIP não encontrada");
           if (context.status !== "CONFIRMED") {
@@ -349,7 +350,7 @@ export class VipPaymentsService {
       FROM vip_reservations vr
       JOIN vip_inventory vi ON vi.id = vr.vip_inventory_id
       JOIN events e ON e.id = vi.event_id
-      WHERE vr.public_token = ${publicToken}::uuid
+      WHERE vr.public_token = ${publicToken}
     `;
     return rows[0] ?? null;
   }

@@ -41,10 +41,21 @@ async function comprar(eventId: string, lotId: string, email: string, cpf: strin
   return order;
 }
 
+// o pedido passou a recusar CPF com dígito verificador errado (2026-09-24)
+function cpfValidoAleatorio(): string {
+  let cpf = `${Math.floor(100000000 + Math.random() * 8e8)}`;
+  for (const len of [9, 10]) {
+    let soma = 0;
+    for (let i = 0; i < len; i += 1) soma += Number(cpf[i]) * (len + 1 - i);
+    cpf += `${((soma * 10) % 11) % 10}`;
+  }
+  return cpf;
+}
+
 test("conta invisível: compra cria conta com CPF, tranca o 1º ingresso e verificação abre", async () => {
   const f = await createFixtureEvent({ lotCapacity: 5, priceCents: 5000, feeCents: 0 });
   const email = `novo-${Math.random().toString(36).slice(2, 8)}@borafest.dev`;
-  const cpf = `${Math.floor(10000000000 + Math.random() * 8e10)}`;
+  const cpf = cpfValidoAleatorio();
   try {
     const order = await comprar(f.event.id, f.lot.id, email, cpf);
 
@@ -104,7 +115,7 @@ test("corrigir e-mail digitado errado: sessão pagante troca e o aviso reenvia",
   const errado = `errado-${Math.random().toString(36).slice(2, 8)}@borafest.dev`;
   const certo = `certo-${Math.random().toString(36).slice(2, 8)}@borafest.dev`;
   try {
-    const order = await comprar(f.event.id, f.lot.id, errado, `${Math.floor(10000000000 + Math.random() * 8e10)}`);
+    const order = await comprar(f.event.id, f.lot.id, errado, cpfValidoAleatorio());
     const pedido = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
 
     const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());

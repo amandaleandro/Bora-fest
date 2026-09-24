@@ -252,6 +252,11 @@ export class OrdersService {
     // sessão, a conta nasce INVISÍVEL dos próprios dados da compra (e-mail
     // existente = pedido anexa à conta). CPF/telefone só entram se ainda
     // livres (são únicos); e-mail verificado é o portão do 1º ingresso.
+    // CPF inválido só era barrado no PDV; no site chegava até o gateway Pix
+    // (Asaas recusa) depois do aceite LGPD — falha cedo, com mensagem (bateria 2026-09-24)
+    if (input.contactCpf && !ehCpfValido(input.contactCpf)) {
+      throw new BadRequestException("CPF inválido — confira os dígitos");
+    }
     let effectiveUserId = userId;
     let accountCreatedByOrder = false;
     if (!effectiveUserId && input.contactEmail) {

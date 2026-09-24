@@ -13,6 +13,7 @@ import {
   type Reservation,
 } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
+import { ehCpfValido } from "../../../lib/cpf";
 
 /** Proteção de reembolso (upsell): mesmo valor do backend. */
 const PROTECTION_FEE_CENTS = 150;
@@ -825,11 +826,11 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       setError("Informe seu nome completo");
                       return;
                     }
-                    if (!email.includes("@")) {
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
                       setError("Informe um e-mail válido");
                       return;
                     }
-                    if (onlyDigits(buyerCpf).length !== 11) {
+                    if (!ehCpfValido(buyerCpf)) {
                       setError("Informe um CPF válido — o banco exige para emitir o pagamento");
                       return;
                     }

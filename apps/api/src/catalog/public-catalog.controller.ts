@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query, Res } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Param, Query, Res } from "@nestjs/common";
+import { eventCategorySchema } from "@borafest/contracts";
 import type { FastifyReply } from "fastify";
 import { CatalogService } from "./catalog.service";
 
@@ -22,13 +23,18 @@ export class PublicCatalogController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     reply.header("Cache-Control", PUBLIC_CACHE_HEADER);
+    // categoria fora do enum ia crua pro filtro do Prisma e virava 500 (bateria 2026-09-24)
+    const categoria = category?.trim() || undefined;
+    if (categoria && !eventCategorySchema.safeParse(categoria).success) {
+      throw new BadRequestException("Categoria inválida");
+    }
     return this.catalogService.listPublicEvents({
       // inteiros positivos (auditoria 2026-08-29): NaN/negativo iam direto pro
       // skip/take do Prisma
       page: Math.max(1, Math.floor(Number(page)) || 1),
       pageSize: Math.min(Math.max(1, Math.floor(Number(pageSize)) || 20), 50),
       city: city?.trim() || undefined,
-      category: category?.trim() || undefined,
+      category: categoria,
     });
   }
 
