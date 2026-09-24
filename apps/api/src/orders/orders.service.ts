@@ -73,6 +73,21 @@ export class OrdersService {
     private readonly idempotency: IdempotencyService = new IdempotencyService(),
   ) {}
 
+  private async assertPdvReadPermission(organizationId: string, userId: string) {
+    const membership = await prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+      include: { role: true },
+    });
+    if (
+      !membership || membership.status !== "ACTIVE" ||
+      (!roleHasPermission(membership.role.key, PERMISSIONS.SALES_PERFORM) &&
+        !roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW))
+    ) {
+      throw new ForbiddenException("Sem permissão para consultar o PDV");
+    }
+    return membership;
+  }
+
   async createFromReservation(userId: string | undefined, input: CreateOrderInput) {
     const reservation = await prisma.reservation.findUnique({
       where: { id: input.reservationId },
@@ -623,7 +638,7 @@ export class OrdersService {
   async getPdvOrderTickets(eventId: string, orderId: string, actorUserId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
     if (!event) throw new NotFoundException("Evento não encontrado");
-    const membership = await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
+    const membership = await this.assertPdvReadPermission(event.organizationId, actorUserId);
     const order = await prisma.order.findFirst({
       where: { id: orderId, eventId, soldByUserId: { not: null } },
       select: {
@@ -1274,11 +1289,7 @@ export class OrdersService {
     });
     if (!event) throw new NotFoundException("Evento não encontrado");
 
-    const membership = await this.orgAccess.assertPermission(
-      event.organizationId,
-      actorUserId,
-      PERMISSIONS.SALES_PERFORM,
-    );
+    const membership = await this.assertPdvReadPermission(event.organizationId, actorUserId);
     const veTudo = roleHasPermission(membership.role.key, PERMISSIONS.FINANCE_VIEW);
 
     // CONTROLE COMPLETO POR LOGIN (decisão do Arthur, 2026-09-14): não "últimas
