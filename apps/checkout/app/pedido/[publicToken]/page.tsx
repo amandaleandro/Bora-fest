@@ -26,15 +26,6 @@ function maskBrPhone(value: string): string {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-function rememberOrder(token: string) {
-  try {
-    const list: string[] = JSON.parse(localStorage.getItem("bf.orders") ?? "[]");
-    if (!list.includes(token)) localStorage.setItem("bf.orders", JSON.stringify([token, ...list].slice(0, 20)));
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * Card "Baixe o app": usa o prompt nativo de instalação quando o navegador
  * oferece; sem ele (Safari/iOS, ou já instalado) leva para a home do PWA.
@@ -115,7 +106,6 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       if (["PAID", "FULFILLED"].includes(o.status)) {
         const t = await api.getOrderTickets(publicToken);
         setTicketsData(t);
-        rememberOrder(publicToken);
       }
     } catch {
       setOrder(null);
