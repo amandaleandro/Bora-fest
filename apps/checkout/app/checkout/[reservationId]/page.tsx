@@ -636,7 +636,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
-                  if (step === "ident") router.back();
+                  if (step === "ident") router.push(event ? `/${event.slug}/ingressos` : "/");
                   else if (step === "participantes") setStep("ident");
                   else setStep(hasNominal ? "participantes" : "ident");
                 }}
