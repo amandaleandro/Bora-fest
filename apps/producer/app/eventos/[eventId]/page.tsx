@@ -76,9 +76,6 @@ function EventContent({ eventId }: { eventId: string }) {
   const [waitingRoomEnabled, setWaitingRoomEnabled] = useState(false);
   const [waitingRoomConcurrency, setWaitingRoomConcurrency] = useState("300");
   const [waitingRoomSaving, setWaitingRoomSaving] = useState(false);
-  const [faceCheckinEnabled, setFaceCheckinEnabled] = useState(false);
-  const [faceCheckinSaving, setFaceCheckinSaving] = useState(false);
-  const [faceCheckinError, setFaceCheckinError] = useState<string | null>(null);
   const [waitingRoomError, setWaitingRoomError] = useState<string | null>(null);
   const [metaPixelId, setMetaPixelId] = useState("");
   const [ga4MeasurementId, setGa4MeasurementId] = useState("");
@@ -140,7 +137,6 @@ function EventContent({ eventId }: { eventId: string }) {
       setBannerUrl(d.event.bannerUrl ?? "");
       setWaitingRoomEnabled(d.event.waitingRoomEnabled);
       setWaitingRoomConcurrency(String(d.event.waitingRoomConcurrency));
-      setFaceCheckinEnabled(Boolean(d.event.faceCheckinEnabled));
       setMetaPixelId(d.event.pixelSettings?.metaPixelId ?? "");
       setGa4MeasurementId(d.event.pixelSettings?.ga4MeasurementId ?? "");
       setTiktokPixelId(d.event.pixelSettings?.tiktokPixelId ?? "");
@@ -179,20 +175,6 @@ function EventContent({ eventId }: { eventId: string }) {
       setWaitingRoomError(err instanceof Error ? err.message : "Falha ao salvar a sala de espera");
     } finally {
       setWaitingRoomSaving(false);
-    }
-  }
-
-  async function saveFaceCheckin(next: boolean) {
-    if (!token || faceCheckinSaving) return;
-    setFaceCheckinSaving(true);
-    setFaceCheckinError(null);
-    try {
-      await eventControls.update(eventId, { faceCheckinEnabled: next }, token);
-      setFaceCheckinEnabled(next);
-    } catch (err) {
-      setFaceCheckinError(err instanceof Error ? err.message : "Falha ao salvar check-in facial");
-    } finally {
-      setFaceCheckinSaving(false);
     }
   }
 
@@ -603,22 +585,10 @@ function EventContent({ eventId }: { eventId: string }) {
               QR e busca manual continuam disponíveis como fallback.
             </p>
           </div>
-          <label className="flex items-center gap-3 rounded-xl border border-line bg-bg px-4 py-3">
-            <input
-              type="checkbox"
-              checked={faceCheckinEnabled}
-              disabled={faceCheckinSaving}
-              onChange={(e) => void saveFaceCheckin(e.target.checked)}
-              className="h-4 w-4 accent-primary"
-            />
-            <span className="text-[12px] font-extrabold text-ink">
-              {faceCheckinEnabled ? "Facial habilitado" : "Facial desabilitado"}
-            </span>
-          </label>
+          <span className="rounded-xl border border-line bg-bg px-4 py-3 text-[12px] font-extrabold text-muted">
+            Desativado por enquanto
+          </span>
         </div>
-        {faceCheckinError ? (
-          <p className="mt-3 text-[12px] font-bold text-danger">{faceCheckinError}</p>
-        ) : null}
       </section>
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
