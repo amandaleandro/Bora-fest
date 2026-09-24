@@ -1,2 +1,1 @@
-ALTER TABLE "events"
-ADD COLUMN "face_checkin_enabled" BOOLEAN NOT NULL DEFAULT false;
+-- A flag já foi criada em 20260923140500_face_checkin_foundation.
