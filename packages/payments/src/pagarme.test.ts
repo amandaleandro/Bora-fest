@@ -127,7 +127,8 @@ test("getStatus mapeia estados da charge", async () => {
 
 test("mapeamentos puros de status", () => {
   assert.equal(mapChargeStatus("paid"), "PAID");
-  assert.equal(mapChargeStatus("underpaid"), "PAID");
+  assert.equal(mapChargeStatus("underpaid"), "PENDING");
+  assert.equal(mapWebhookType("charge.paid", "underpaid"), "PENDING");
   assert.equal(mapChargeStatus("processing"), "PENDING");
   assert.equal(mapChargeStatus("desconhecido"), "PENDING");
   assert.equal(mapWebhookType("charge.paid"), "PAID");
