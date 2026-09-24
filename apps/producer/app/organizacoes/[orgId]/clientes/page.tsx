@@ -164,6 +164,12 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href={`/organizacoes/${params.orgId}/clientes/segmentos`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
+              Segmentos
+            </Link>
+            <Link href={`/organizacoes/${params.orgId}/clientes/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
+              LTV dos clientes
+            </Link>
             <Link href={`/organizacoes/${params.orgId}/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
               Inteligência
             </Link>
