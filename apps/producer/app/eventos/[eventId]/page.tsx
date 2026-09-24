@@ -21,12 +21,11 @@ function parsePriceCents(value: string): number {
 }
 
 /**
- * Espelho (só para exibição) da taxa calculada pelo SERVIDOR:
- * 4,99% do preço com piso de R$ 2,49; ingresso grátis = taxa 0.
+ * Espelho (só para exibição) da taxa calculada pelo SERVIDOR (fees.ts):
+ * 5% do preço com piso de R$ 1; ingresso grátis = taxa 0.
  */
 function serviceFeeCents(priceCents: number): number {
   if (priceCents <= 0) return 0;
-  // espelho da taxa REAL do servidor (fees.ts): 5% com piso de R$ 1
   return Math.max(Math.round(priceCents * 0.05), 100);
 }
 

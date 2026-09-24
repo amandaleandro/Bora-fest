@@ -12,7 +12,7 @@ export type EventVenueInput = z.infer<typeof eventVenueSchema>;
 export const eventCategorySchema = z.enum(["SHOWS", "FESTAS", "ESPORTES", "TEATRO"]);
 export type EventCategoryInput = z.infer<typeof eventCategorySchema>;
 
-export const createEventSchema = z.object({
+const createEventBaseSchema = z.object({
   title: z.string().min(3),
   description: z.string().optional(),
   /** atrações/line-up, um nome por linha — o hotsite monta a seção */
@@ -32,6 +32,16 @@ export const createEventSchema = z.object({
   endsAt: z.string().datetime(),
   timezone: z.string().default("America/Sao_Paulo"),
 });
+
+/** término antes do início passava direto e virava evento "encerrado" antes de começar (bateria 2026-09-24) */
+const terminoDepoisDoInicio = {
+  message: "O término precisa ser depois do início",
+  path: ["endsAt"],
+};
+const inicioAntesDoFim = (v: { startsAt?: string; endsAt?: string }) =>
+  !v.startsAt || !v.endsAt || new Date(v.endsAt).getTime() > new Date(v.startsAt).getTime();
+
+export const createEventSchema = createEventBaseSchema.refine(inicioAntesDoFim, terminoDepoisDoInicio);
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
 /** IDs de pixel de conversão são sempre alfanuméricos (+ "-"/"_") nos provedores suportados; restringir o
@@ -53,19 +63,24 @@ export const pixelSettingsSchema = z.object({
 });
 export type PixelSettingsInput = z.infer<typeof pixelSettingsSchema>;
 
-export const updateEventSchema = createEventSchema.partial().extend({
-  /** null limpa a categoria (a opção "Sem categoria" do painel era no-op) */
-  category: eventCategorySchema.nullable().optional(),
-  bannerUrl: z.string().url().optional(),
-  /** sala de espera: admite N compradores por vez no checkout deste evento */
-  waitingRoomEnabled: z.boolean().optional(),
-  waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
-  pixelSettings: pixelSettingsSchema.optional(),
-  /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */
-  // 2000: token de system user da Meta pode passar de 500 quando vem com
-  // escopos extras (Dataset Quality API) — o limite curto barrava o salvamento
-  metaCapiToken: z.string().trim().max(2000).nullable().optional(),
-});
+export const updateEventSchema = createEventBaseSchema
+  .partial()
+  .extend({
+    /** null limpa a categoria (a opção "Sem categoria" do painel era no-op) */
+    category: eventCategorySchema.nullable().optional(),
+    bannerUrl: z.string().url().optional(),
+    /** sala de espera: admite N compradores por vez no checkout deste evento */
+    waitingRoomEnabled: z.boolean().optional(),
+    waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
+    pixelSettings: pixelSettingsSchema.optional(),
+    /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */
+    // 2000: token de system user da Meta pode passar de 500 quando vem com
+    // escopos extras (Dataset Quality API) — o limite curto barrava o salvamento
+    metaCapiToken: z.string().trim().max(2000).nullable().optional(),
+  })
+  // só compara quando as duas datas vêm no PATCH; edição parcial de uma data
+  // continua livre (o painel manda as duas juntas)
+  .refine(inicioAntesDoFim, terminoDepoisDoInicio);
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 
 /** Cancelar o evento: o motivo vai no aviso ao comprador, então é obrigatório. */

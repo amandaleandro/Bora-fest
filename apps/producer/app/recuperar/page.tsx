@@ -31,7 +31,7 @@ function RecoverContent() {
       <p className="mt-1 text-[13px] font-medium text-muted">
         {primeiroAcesso
           ? "Sua conta BoraFest é única — para entrar no painel pela primeira vez, defina uma senha pelo link que enviaremos ao seu e-mail."
-          : "Enviamos um link de redefinição para o seu e-mail."}
+          : "Enviaremos um link de redefinição para o seu e-mail."}
       </p>
       {sent ? (
         <div className="mt-6 rounded-xl bg-success/10 p-4 text-[13px] font-bold text-success">

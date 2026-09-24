@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { OrderStatus, prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
 import { getEventNetCents } from "../common/ledger";
@@ -158,9 +158,13 @@ export class DashboardService {
   ) {
     await this.assertEventAccess(eventId, actorUserId, true);
 
+    // status fora do enum ia cru pro Prisma e virava 500 (mesmo padrão do ?category=, bateria 2026-09-24)
+    if (options.status && !(options.status in OrderStatus)) {
+      throw new BadRequestException("Status de pedido inválido");
+    }
     const where = {
       eventId,
-      ...(options.status ? { status: options.status as never } : {}),
+      ...(options.status ? { status: options.status as OrderStatus } : {}),
     };
 
     const [total, orders] = await Promise.all([
