@@ -32,6 +32,15 @@ export function PanelShell({ title, event, organizationId, actions, children }: 
     setNavOpen(false);
   }, [pathname]);
 
+  useEffect(() => {
+    if (!navOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [navOpen]);
+
   return (
     <div className="flex min-h-dvh bg-bg">
       {/* sidebar fixa no desktop (>=1024px) */}
@@ -49,6 +58,8 @@ export function PanelShell({ title, event, organizationId, actions, children }: 
           onClick={() => setNavOpen(false)}
         />
         <div
+          id="producer-mobile-menu"
+          inert={!navOpen}
           className={`absolute inset-y-0 left-0 flex shadow-2xl transition-transform duration-200 ${navOpen ? "translate-x-0" : "-translate-x-full"}`}
         >
           <Sidebar event={event} organizationId={organizationId} />
@@ -62,6 +73,8 @@ export function PanelShell({ title, event, organizationId, actions, children }: 
               type="button"
               onClick={() => setNavOpen(true)}
               aria-label="Abrir menu"
+              aria-expanded={navOpen}
+              aria-controls="producer-mobile-menu"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line text-ink transition-colors hover:bg-bg lg:hidden"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
