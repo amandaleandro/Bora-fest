@@ -33,14 +33,14 @@ export function BuyerTabs() {
     { id: "explorar", label: "Explorar", icon: icons.explorar, href: "/explorar" },
     { id: "favoritos", label: "Favoritos", icon: icons.favoritos, href: "/favoritos" },
     { id: "pontos", label: "Pontos", icon: icons.pontos, href: "/fidelidade" },
-    { id: "ingressos", label: "Ingressos", icon: icons.ingressos, href: "/perfil" },
+    { id: "ingressos", label: "Ingressos", icon: icons.ingressos, href: "/minhas-compras" },
   ];
 
   const active = pathname === "/" ? "inicio"
     : pathname.startsWith("/explorar") || pathname.startsWith("/casas") ? "explorar"
     : pathname.startsWith("/favoritos") ? "favoritos"
     : pathname.startsWith("/fidelidade") ? "pontos"
-    : "ingressos";
+    : pathname.startsWith("/minhas-compras") ? "ingressos" : "";
 
   return (
     <>
