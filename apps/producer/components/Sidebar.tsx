@@ -268,7 +268,7 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
         <OrgSwitcher organizationId={orgEmFoco} dark />
       </div>
       {daProdutora.map((link) => (
-        <Item key={link.label} {...link} active={pathname === link.href} />
+        <Item key={link.label} {...link} active={pathname === link.href || (link.href !== `/organizacoes/${orgEmFoco}` && pathname.startsWith(`${link.href}/`))} />
       ))}
 
       {/* NIVEL 2 — o evento. Continua visível mesmo nas telas da produtora
