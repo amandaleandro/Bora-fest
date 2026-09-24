@@ -109,6 +109,10 @@ test("histórico no banco: pedido sem sessão aparece em outro aparelho após ve
     const before = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
     assert.equal(before.userId, null, "compra sem sessão não anexa sem prova de posse");
 
+    await issueTicketsForOrder(order.id);
+    const wallet = await new TicketsService().findByUser(user.id);
+    assert.ok(wallet.some((item) => item.orderPublicToken === order.publicToken), "carteira recupera ingresso do banco sem depender do histórico local");
+
     const history = await new MeService().orders(user.id);
     assert.ok(history.some((item) => item.id === order.id), "histórico vem da conta verificada no banco");
     const after = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
