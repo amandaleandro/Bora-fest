@@ -543,8 +543,6 @@ model Event {
   metaCapiToken          String?        @map("meta_capi_token")
   /// tema visual do ingresso; não altera QR, validade ou regras de acesso.
   ticketTheme            Json?          @map("ticket_theme")
-  /// facial é opcional; QR/documento continuam como fallback.
-  faceCheckinEnabled     Boolean        @default(false) @map("face_checkin_enabled")
   /// retenção máxima do vínculo biométrico após o término do evento.
   faceRetentionHours     Int            @default(24) @map("face_retention_hours")
   createdAt              DateTime       @default(now()) @map("created_at")
