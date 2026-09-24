@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Icon, paths } from "../../components/icons";
 
 /** versão vigente do aceite de Termos/Privacidade (handoff v2) */
@@ -26,7 +27,6 @@ const TERMOS = [
 ];
 
 function LegalContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<"privacidade" | "termos">(
     searchParams.get("aba") === "termos" ? "termos" : "privacidade",
@@ -36,7 +36,7 @@ function LegalContent() {
   return (
     <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pb-14 lg:pt-8">
       <header className="flex items-center gap-3">
-        <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+        <Link href="/" aria-label="Voltar ao início" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></Link>
         <h1 className="text-[20px] font-extrabold lg:text-[24px]">Privacidade &amp; Termos</h1>
       </header>
 
