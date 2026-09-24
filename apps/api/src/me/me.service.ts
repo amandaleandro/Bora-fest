@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
+import { claimVerifiedOrders } from "../common/claim-verified-orders";
 
 @Injectable()
 export class MeService {
@@ -91,23 +92,7 @@ export class MeService {
   }
 
   async orders(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true, emailVerifiedAt: true },
-    });
-    if (!user) throw new NotFoundException("Usuário não encontrado");
-
-    // Pedidos antigos feitos sem sessão pertencem à conta após a prova de posse
-    // do e-mail. A vinculação fica persistida no banco, inclusive em outro aparelho.
-    if (user.email && user.emailVerifiedAt) {
-      await prisma.order.updateMany({
-        where: {
-          userId: null,
-          contactEmail: { equals: user.email, mode: "insensitive" },
-        },
-        data: { userId },
-      });
-    }
+    await claimVerifiedOrders(userId);
 
     const orders = await prisma.order.findMany({
       where: { userId },
