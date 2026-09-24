@@ -625,7 +625,7 @@ export class OrdersService {
     if (!event) throw new NotFoundException("Evento não encontrado");
     const membership = await this.orgAccess.assertPermission(event.organizationId, actorUserId, PERMISSIONS.SALES_PERFORM);
     const order = await prisma.order.findFirst({
-      where: { id: orderId, eventId },
+      where: { id: orderId, eventId, soldByUserId: { not: null } },
       select: {
         soldByUserId: true,
         status: true,
