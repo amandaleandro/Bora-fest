@@ -52,7 +52,7 @@ export class FaceCheckinService {
 
   capabilities() {
     return {
-      enabled: Boolean(this.providerName() && this.verifyUrl()),
+      enabled: process.env.FACE_CHECKIN_RELEASED === "true" && Boolean(this.providerName() && this.verifyUrl()),
       provider: this.providerName() || null,
       mode: "ONE_TO_ONE" as const,
       storesRawFaceImage: false,
@@ -62,7 +62,7 @@ export class FaceCheckinService {
   }
 
   async status(userId: string, ticketId: string) {
-    await this.ownedTicket(userId, ticketId);
+    const ticket = await this.ownedTicket(userId, ticketId);
     const enrollment = await prisma.ticketFaceEnrollment.findUnique({
       where: { ticketId },
       select: {
@@ -84,6 +84,9 @@ export class FaceCheckinService {
 
   async enroll(userId: string, ticketId: string, input: FaceEnrollmentInput) {
     const ticket = await this.ownedTicket(userId, ticketId);
+    if (process.env.FACE_CHECKIN_RELEASED !== "true") {
+      throw new ServiceUnavailableException("Check-in facial desativado por enquanto; use QR ou busca manual");
+    }
     if (!["ISSUED", "ACTIVE"].includes(ticket.status)) {
       throw new BadRequestException("Somente ingresso ativo pode cadastrar biometria facial");
     }
@@ -142,6 +145,9 @@ export class FaceCheckinService {
   }
 
   async verifyAndCheckin(device: ValidatorDevice, input: FaceVerificationInput) {
+    if (process.env.FACE_CHECKIN_RELEASED !== "true") {
+      throw new ServiceUnavailableException("Check-in facial desativado por enquanto; use QR ou busca manual");
+    }
     const enrollment = await prisma.ticketFaceEnrollment.findFirst({
       where: {
         ticketId: input.ticketId,
