@@ -294,12 +294,22 @@ export class StoreOrdersService {
 
   async analytics(organizationId: string, userId: string) {
     await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.FINANCE_VIEW);
-    const orders = await prisma.storeOrder.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: "desc" },
-      take: 2000,
-      include: { items: true },
-    });
+    // Fetch every order: a silent cap makes revenue and customer totals incorrect
+    // as soon as a Casa grows past the first page.
+    const orders: Prisma.StoreOrderGetPayload<{ include: { items: true } }>[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await prisma.storeOrder.findMany({
+        where: { organizationId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 500,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        include: { items: true },
+      });
+      orders.push(...page);
+      if (page.length < 500) break;
+      cursor = page[page.length - 1]!.id;
+    }
     const paidOrders = orders.filter((order) =>
       ["PAID", "READY", "FULFILLED", "REFUNDED", "CHARGEBACK"].includes(order.status),
     );
