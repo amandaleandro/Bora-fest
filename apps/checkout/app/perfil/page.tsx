@@ -140,6 +140,7 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [tickets, setTickets] = useState<MyTicket[] | null>(null);
+  const [ticketsError, setTicketsError] = useState(false);
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
   const [ordersError, setOrdersError] = useState(false);
   const [resentFor, setResentFor] = useState<string | null>(null);
@@ -199,7 +200,7 @@ export default function ProfilePage() {
     if (!token) return;
     if (section === "ingressos" && !requested.current.has("ingressos")) {
       requested.current.add("ingressos");
-      api.myTickets(token).then(setTickets).catch(() => setTickets([]));
+      api.myTickets(token).then(setTickets).catch(() => { setTicketsError(true); setTickets([]); });
       api.myProfile(token).then((pf) => setNameInput(pf?.name ?? "")).catch(() => undefined);
     }
     if (section === "compras" && !requested.current.has("compras")) {
@@ -265,6 +266,7 @@ export default function ProfilePage() {
     setToken(null);
     setProfile(null);
     setTickets(null);
+    setTicketsError(false);
     setOrders(null);
     setOrdersError(false);
     requested.current.clear();
@@ -473,7 +475,12 @@ export default function ProfilePage() {
                   Ingresso transferido para {transferredTo} — já está na conta dela 🎟️
                 </p>
               )}
-              {tickets === null ? (
+              {ticketsError ? (
+                <div role="alert" className="rounded-[22px] border border-danger/25 bg-danger/5 px-8 py-10 text-center">
+                  <p className="text-[14px] font-semibold text-danger">Não foi possível consultar seus ingressos agora.</p>
+                  <button type="button" onClick={() => { if (token) { setTicketsError(false); setTickets(null); api.myTickets(token).then(setTickets).catch(() => { setTicketsError(true); setTickets([]); }); } }} className="mt-4 h-11 rounded-xl bg-primary px-5 text-[13px] font-bold text-white">Tentar novamente</button>
+                </div>
+              ) : tickets === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando seus ingressos…</p>
               ) : tickets.length === 0 ? (
                 <div className="rounded-[22px] border border-line bg-surface px-8 py-14 text-center">
