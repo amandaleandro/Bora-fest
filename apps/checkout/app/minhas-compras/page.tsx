@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { api, ApiError, type Order } from "../../lib/api";
 import { storeApi } from "../../lib/store-api";
 import { formatCents, formatDateTime } from "../../lib/format";
@@ -58,7 +57,8 @@ const STATUS_LABEL: Record<string, string> = {
 async function loadDeviceOrders(skip: Set<string>): Promise<PurchaseRow[]> {
   let tokens: string[] = [];
   try {
-    tokens = JSON.parse(localStorage.getItem("bf.orders") ?? "[]");
+    const stored: unknown = JSON.parse(localStorage.getItem("bf.orders") ?? "[]");
+    tokens = Array.isArray(stored) ? [...new Set(stored.filter((item): item is string => typeof item === "string" && item.length > 0))] : [];
   } catch {
     return [];
   }
@@ -84,13 +84,15 @@ async function loadDeviceOrders(skip: Set<string>): Promise<PurchaseRow[]> {
 }
 
 export default function PurchasesPage() {
-  const router = useRouter();
   const [rows, setRows] = useState<PurchaseRow[] | null>(null);
   const [storeRows, setStoreRows] = useState<StorePurchaseRow[] | null>(null);
   const [refundFor, setRefundFor] = useState<string | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [storeRefundBusy, setStoreRefundBusy] = useState<string | null>(null);
   const [refundOk, setRefundOk] = useState<string | null>(null);
   const [refundReviewer, setRefundReviewer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -110,7 +112,7 @@ export default function PurchasesPage() {
             refundRequested: o.refundRequested === true,
           }));
         } catch {
-          /* sessão inválida ou API fora: sobra o que está no aparelho */
+          setLoadWarning("Não conseguimos consultar sua conta agora. Mostrando as compras salvas neste aparelho.");
         }
       }
       // quem comprou como convidado e só depois entrou por OTP não aparece em
@@ -138,13 +140,14 @@ export default function PurchasesPage() {
             owned: true,
           }));
         } catch {
-          // mantém histórico local se a sessão não responder.
+          setLoadWarning("Não conseguimos consultar sua conta agora. Mostrando as compras salvas neste aparelho.");
         }
       }
 
       let deviceStoreTokens: string[] = [];
       try {
-        deviceStoreTokens = JSON.parse(localStorage.getItem("bf.storeOrders") ?? "[]");
+        const stored: unknown = JSON.parse(localStorage.getItem("bf.storeOrders") ?? "[]");
+        deviceStoreTokens = Array.isArray(stored) ? [...new Set(stored.filter((item): item is string => typeof item === "string" && item.length > 0))] : [];
       } catch {
         deviceStoreTokens = [];
       }
@@ -178,7 +181,9 @@ export default function PurchasesPage() {
   }, []);
 
   async function requestRefund(token: string) {
+    if (refundBusy) return;
     setError(null);
+    setRefundBusy(true);
     try {
       const created = await api.requestRefund(token, "Solicitado pelo comprador no app");
       setRefundReviewer(created.reviewedBy ?? null);
@@ -188,16 +193,20 @@ export default function PurchasesPage() {
       setRows((prev) => prev?.map((r) => (r.publicToken === token ? { ...r, refundRequested: true } : r)) ?? prev);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível solicitar");
+    } finally {
+      setRefundBusy(false);
     }
   }
 
   async function requestStoreRefund(publicToken: string) {
+    if (storeRefundBusy) return;
     const token = localStorage.getItem("bf.token");
     if (!token) {
       setError("Entre e verifique seu e-mail para solicitar reembolso desta compra.");
       return;
     }
     setError(null);
+    setStoreRefundBusy(publicToken);
     try {
       const created = await api.requestStoreRefund(
         publicToken,
@@ -213,18 +222,22 @@ export default function PurchasesPage() {
       );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível solicitar o reembolso da Loja");
+    } finally {
+      setStoreRefundBusy(null);
     }
   }
 
   return (
     <main className="px-5 pb-16 pt-6 lg:mx-auto lg:max-w-[1160px] lg:px-6 lg:pb-14 lg:pt-8">
       <header className="flex items-center gap-3">
-        <button onClick={() => router.back()} aria-label="Voltar" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></button>
+        <Link href="/" aria-label="Voltar ao início" className="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-surface lg:hidden"><Icon d={paths.back} /></Link>
         <h1 className="text-[20px] font-extrabold lg:text-[24px]">Minhas compras</h1>
-        <Link href="/perfil" className="ml-auto hidden text-[13px] font-bold text-primary lg:block">
+        <Link href="/perfil" className="ml-auto text-[12px] font-bold text-primary lg:text-[13px]">
           Minha conta
         </Link>
       </header>
+
+      {loadWarning ? <p role="status" className="mt-4 rounded-xl border border-warning/25 bg-warning/5 p-3 text-[12px] font-semibold text-muted">{loadWarning}</p> : null}
 
       {rows === null || storeRows === null ? (
         <p className="mt-10 text-center text-[13px] text-muted">Carregando…</p>
@@ -262,18 +275,18 @@ export default function PurchasesPage() {
               )}
 
               {["PAID", "FULFILLED"].includes(row.status) && !row.ended && (
-                <div className="mt-3 flex gap-2">
-                  <Link href={`/pedido/${row.publicToken}`} className="flex-1 rounded-xl bg-primary/10 py-2.5 text-center text-[12px] font-bold text-primary">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href={`/pedido/${row.publicToken}`} className="min-w-[110px] flex-1 rounded-xl bg-primary/10 py-2.5 text-center text-[12px] font-bold text-primary">
                     Ver ingressos
                   </Link>
                   <button
                     onClick={async () => { try { await api.resendTickets(row.publicToken); alert(process.env.NEXT_PUBLIC_WA_DELIVERY === "on" ? "Ingressos reenviados por e-mail e WhatsApp." : "Ingressos reenviados por e-mail."); } catch (e) { alert(e instanceof ApiError ? e.message : "Não foi possível reenviar agora. Tente de novo em instantes."); } }}
-                    className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold"
+                    className="min-w-[110px] flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold"
                   >
                     Reenviar ingressos
                   </button>
                   {!row.refundRequested && (
-                    <button onClick={() => setRefundFor(row.publicToken)} className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
+                    <button onClick={() => { setError(null); setRefundFor(row.publicToken); }} className="min-w-[110px] flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
                       Reembolso
                     </button>
                   )}
@@ -346,13 +359,14 @@ export default function PurchasesPage() {
                     row.owned ? (
                       <button
                         onClick={() => void requestStoreRefund(row.publicToken)}
+                        disabled={storeRefundBusy !== null}
                         className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger"
                       >
-                        Solicitar reembolso
+                        {storeRefundBusy === row.publicToken ? "Enviando…" : "Solicitar reembolso"}
                       </button>
                     ) : (
                       <Link
-                        href="/entrar"
+                        href="/perfil"
                         className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-center text-[12px] font-bold"
                       >
                         Entrar para solicitar
@@ -369,17 +383,18 @@ export default function PurchasesPage() {
       {error && <p className="mt-3 text-center text-[12px] font-semibold text-danger">{error}</p>}
 
       {refundFor && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center" onClick={() => setRefundFor(null)}>
-          <div className="w-full max-w-[430px] rounded-t-3xl bg-surface p-6 lg:rounded-3xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-[18px] font-extrabold">Solicitar reembolso</h2>
+        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center" onClick={() => { if (!refundBusy) setRefundFor(null); }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="refund-title" className="max-h-[90dvh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl bg-surface p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] lg:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <h2 id="refund-title" className="text-[18px] font-extrabold">Solicitar reembolso</h2>
             <p className="mt-2 text-[13px] font-medium text-muted">
               Compras feitas há até 7 dias têm reembolso garantido (CDC art. 49). O produtor responde em
               até 5 dias úteis e os ingressos são cancelados quando o estorno for aprovado.
             </p>
-            <button onClick={() => requestRefund(refundFor)} className="mt-5 h-14 w-full rounded-2xl bg-danger text-[15px] font-extrabold text-white">
-              Confirmar solicitação
+            {error ? <p role="alert" className="mt-3 text-[12px] font-semibold text-danger">{error}</p> : null}
+            <button onClick={() => requestRefund(refundFor)} disabled={refundBusy} className="mt-5 h-14 w-full rounded-2xl bg-danger text-[15px] font-extrabold text-white disabled:opacity-50">
+              {refundBusy ? "Enviando…" : "Confirmar solicitação"}
             </button>
-            <button onClick={() => setRefundFor(null)} className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold">
+            <button onClick={() => setRefundFor(null)} disabled={refundBusy} className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold disabled:opacity-50">
               Cancelar
             </button>
           </div>
