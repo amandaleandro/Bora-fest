@@ -13,6 +13,7 @@ import { FaceCheckinService } from "../checkins/face-checkin.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
 
 after(async () => {
+  delete process.env.FACE_CHECKIN_RELEASED;
   delete process.env.FACE_PROVIDER_NAME;
   delete process.env.FACE_PROVIDER_VERIFY_URL;
   delete process.env.FACE_PROVIDER_API_KEY;
@@ -56,7 +57,19 @@ function service() {
   return new FaceCheckinService(new CheckinsService(new OrgAccessService()));
 }
 
+test("facial permanece indisponível sem liberação explícita", async () => {
+  delete process.env.FACE_CHECKIN_RELEASED;
+  process.env.FACE_PROVIDER_NAME = "test-provider";
+  process.env.FACE_PROVIDER_VERIFY_URL = "https://face.example.test/verify";
+  assert.equal(service().capabilities().enabled, false);
+  await assert.rejects(
+    () => service().verifyAndCheckin({} as any, { ticketId: "unused", probeReference: "unused" } as any),
+    /desativado por enquanto/i,
+  );
+});
+
 test("evento sem opt-in recusa cadastro facial", async () => {
+  process.env.FACE_CHECKIN_RELEASED = "true";
   const fixture = await createFixtureEvent({ lotCapacity: 2 });
   try {
     const { ticket, userId } = await buildOwnedTicket(fixture.event.id, fixture.lot.id);
@@ -79,6 +92,7 @@ test("evento sem opt-in recusa cadastro facial", async () => {
 });
 
 test("ambiente sem provedor não finge que enrollment está disponível", async () => {
+  process.env.FACE_CHECKIN_RELEASED = "true";
   const fixture = await createFixtureEvent({ lotCapacity: 2 });
   try {
     await prisma.event.update({
@@ -107,6 +121,7 @@ test("ambiente sem provedor não finge que enrollment está disponível", async 
 });
 
 test("status facial não expõe providerReference", async () => {
+  process.env.FACE_CHECKIN_RELEASED = "true";
   const fixture = await createFixtureEvent({ lotCapacity: 2 });
   try {
     await prisma.event.update({
