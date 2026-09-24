@@ -229,7 +229,9 @@ export class OrganizationsService {
         defaultTicketTheme:
           input.defaultTicketTheme === undefined
             ? undefined
-            : input.defaultTicketTheme,
+            : input.defaultTicketTheme === null
+              ? Prisma.DbNull
+              : (input.defaultTicketTheme as Prisma.InputJsonValue),
       },
       select: {
         id: true,
