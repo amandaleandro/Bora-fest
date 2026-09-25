@@ -11,12 +11,13 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string | null } = {},
+  options: { method?: string; body?: unknown; token?: string | null; idempotencyKey?: string } = {},
 ): Promise<T> {
   // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
@@ -1137,6 +1138,10 @@ export interface OrderDetail {
 }
 
 export const ordersApi = {
+  pdvLots: (eventId: string, token: string) =>
+    request<Array<{ lotId: string; ticketTypeName: string; lotName: string; priceCents: number; feeCents: number; available: number; halfPriceEnabled: boolean }>>(
+      `/v1/events/${eventId}/pdv-orders/lots`, { token },
+    ),
   list: (eventId: string, token: string, params?: { status?: string; page?: number; pageSize?: number }) => {
     const query = new URLSearchParams();
     if (params?.status) query.set("status", params.status);
@@ -1154,7 +1159,8 @@ export const ordersApi = {
     eventId: string,
     body: { ticketLotId: string; quantity: number; buyerName: string; buyerDocument?: string; buyerEmail?: string },
     token: string,
-  ) => request<{ orderId: string; publicToken: string }>(`/v1/events/${eventId}/pdv-orders`, { method: "POST", body, token }),
+    idempotencyKey: string,
+  ) => request<{ orderId: string; publicToken: string }>(`/v1/events/${eventId}/pdv-orders`, { method: "POST", body, token, idempotencyKey }),
 };
 
 // ---------------------------------------------------------------------------
