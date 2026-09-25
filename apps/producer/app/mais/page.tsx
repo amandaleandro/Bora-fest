@@ -45,9 +45,10 @@ function MaisContent() {
   const itens = [
     { label: "Carteira e financeiro", desc: "Saldo, extrato e saques", href: org ? `/organizacoes/${org}/financeiro` : "/organizacoes" },
     { label: "Reembolsos", desc: "Pedidos dos compradores", href: org ? `/organizacoes/${org}/reembolsos` : "/organizacoes" },
+    { label: "Clientes", desc: "Quem compra seus eventos, fidelidade e campanhas", href: org ? `/organizacoes/${org}/clientes` : "/organizacoes" },
     { label: "Equipe e permissões", desc: "Admin, financeiro, check-in e vendedor", href: org ? `/organizacoes/${org}` : "/organizacoes" },
     { label: "Promoters e parceiros", desc: "Comissões, links e placares", href: org ? `/organizacoes/${org}` : "/organizacoes" },
-    { label: "Perfil público", desc: "Nome que o comprador vê", href: org ? `/organizacoes/${org}` : "/organizacoes" },
+    { label: "Perfil público", desc: "Nome, logo e capa que o comprador vê", href: org ? `/organizacoes/${org}/perfil-publico` : "/organizacoes" },
     { label: "Minhas organizações", desc: "Trocar ou criar produtora", href: "/organizacoes" },
     { label: "Ajuda", desc: "Como usar cada parte do painel", href: "/ajuda" },
   ];

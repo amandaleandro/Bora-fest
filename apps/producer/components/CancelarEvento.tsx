@@ -104,7 +104,7 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
   }
 
   return (
-    <div className="mt-8 rounded-2xl border border-danger/30 bg-danger/[.04] p-4">
+    <div id="cancelar" className="mt-8 scroll-mt-24 rounded-2xl border border-danger/30 bg-danger/[.04] p-4">
       <p className="text-[13.5px] font-extrabold text-danger">Cancelar o evento</p>
       <p className="mt-1 text-[12.5px] font-semibold text-muted">
         Tira o evento do ar e devolve o dinheiro de todo mundo que comprou. Não tem como desfazer.

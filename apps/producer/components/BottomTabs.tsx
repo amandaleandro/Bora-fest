@@ -30,15 +30,10 @@ const icons = {
       <path d="M3 9h18M8 2.5v3M16 2.5v3" />
     </svg>
   ),
-  vendas: (
+  financeiro: (
     <svg {...ICON}>
-      <path d="M3 17l5-5 4 4 8-8" />
-      <path d="M14 8h6v6" />
-    </svg>
-  ),
-  portaria: (
-    <svg {...ICON}>
-      <path d="M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M20 8V6a2 2 0 0 0-2-2h-2M20 16v2a2 2 0 0 1-2 2h-2M3 12h18" />
+      <rect x="3" y="6" width="18" height="13" rx="2.5" />
+      <path d="M3 10.5h18M7 15h3" />
     </svg>
   ),
   mais: (
@@ -54,32 +49,32 @@ const icons = {
  * Redesenho mobile do painel (decisão 2026-08-15, inspiração do Arthur):
  * navegação por ABAS FIXAS no rodapé — padrão de app operacional, sempre no
  * alcance do polegar. Só existe abaixo de lg (desktop mantém a sidebar).
- * "Vendas" e "Portaria" apontam pro último EVENTO visitado (bf.activeEvent);
- * sem evento, caem no Resumo, que orienta a criar/escolher.
+ *
+ * 2026-09-25 (decisão do Arthur, com Material 3 e Apple HIG na mão): a barra
+ * só tem PÁGINAS FIXAS do produto. "Vendas" e "Portaria" apontavam pro evento
+ * em foco — repetiam as pílulas do evento e mudavam de destino conforme o
+ * contexto ("Don't disable or hide tab bar buttons"). Seção de evento é
+ * assunto das pílulas (EventTabs); o menu deslizante (☰) saiu do celular.
  */
 export function BottomTabs() {
   const pathname = usePathname() ?? "";
   const [org, setOrg] = useState<string | null>(null);
-  const [event, setEvent] = useState<string | null>(null);
 
   useEffect(() => {
     setOrg(localStorage.getItem("bf.activeOrg"));
-    setEvent(localStorage.getItem("bf.activeEvent"));
   }, [pathname]);
 
   const tabs = [
     { id: "resumo", label: "Resumo", icon: icons.resumo, href: "/resumo" },
     { id: "eventos", label: "Eventos", icon: icons.eventos, href: org ? `/organizacoes/${org}` : "/organizacoes" },
-    { id: "vendas", label: "Vendas", icon: icons.vendas, href: event ? `/eventos/${event}/vendas` : "/resumo" },
-    { id: "portaria", label: "Portaria", icon: icons.portaria, href: event ? `/eventos/${event}/portaria` : "/resumo" },
+    { id: "financeiro", label: "Financeiro", icon: icons.financeiro, href: org ? `/organizacoes/${org}/financeiro` : "/organizacoes" },
     { id: "mais", label: "Mais", icon: icons.mais, href: "/mais" },
   ];
 
   function activeId(): string {
     if (pathname.startsWith("/resumo")) return "resumo";
-    if (pathname.startsWith("/mais") || pathname.includes("/financeiro") || pathname.includes("/reembolsos")) return "mais";
-    if (pathname.includes("/vendas")) return "vendas";
-    if (pathname.includes("/portaria") || pathname.includes("/checkin-ao-vivo")) return "portaria";
+    if (pathname.includes("/financeiro")) return "financeiro";
+    if (pathname.startsWith("/mais") || pathname.includes("/reembolsos") || pathname.includes("/clientes")) return "mais";
     if (pathname.startsWith("/organizacoes") || pathname.startsWith("/eventos")) return "eventos";
     return "";
   }
