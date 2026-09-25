@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ClientesTabs } from "@/components/ClientesTabs";
 import { useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
@@ -106,17 +106,13 @@ export default function ReactivationCampaignPage({ params }: { params: { orgId: 
   return (
     <GuardedPanelShell title="Reativação" organizationId={params.orgId}>
       <main className="mx-auto max-w-5xl px-5 py-7 lg:px-8 lg:py-9">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N6 · reativação</p>
-            <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Campanha para clientes</h1>
-            <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
-              Reative públicos da sua Casa sem disparar para quem não autorizou marketing. Todo envio desta tela é limitado a clientes com opt-in de ofertas por e-mail.
-            </p>
-          </div>
-          <Link href={`/organizacoes/${params.orgId}/clientes`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
-            ← Voltar aos clientes
-          </Link>
+        <ClientesTabs orgId={params.orgId} />
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Reativação</p>
+          <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Campanha para clientes</h1>
+          <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
+            Reative públicos da sua Casa sem disparar para quem não autorizou marketing. Todo envio desta tela é limitado a clientes com opt-in de ofertas por e-mail.
+          </p>
         </div>
 
         <section className="mt-7 grid gap-5 lg:grid-cols-[1fr_320px]">

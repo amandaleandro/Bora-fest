@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ClientesTabs } from "@/components/ClientesTabs";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
@@ -154,9 +154,11 @@ export default function LoyaltyPage({ params }: { params: { orgId: string } }) {
   return (
     <GuardedPanelShell title="Fidelidade" organizationId={params.orgId}>
       <main className="mx-auto max-w-7xl px-5 py-7 lg:px-8 lg:py-9">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N9.1 · fidelidade da Casa</p><h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Pontos, recompensas e vouchers</h1><p className="mt-2 max-w-3xl text-[13px] font-semibold text-muted">Compras pagas geram pontos; o cliente troca por benefícios e recebe um voucher validado pela Casa.</p></div>
-          <Link href={`/organizacoes/${params.orgId}/clientes`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">← Clientes</Link>
+        <ClientesTabs orgId={params.orgId} />
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Fidelidade</p>
+          <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Pontos, recompensas e vouchers</h1>
+          <p className="mt-2 max-w-3xl text-[13px] font-semibold text-muted">Compras pagas geram pontos; o cliente troca por benefícios e recebe um voucher validado pela Casa.</p>
         </div>
 
         {error ? <p className="mt-5 rounded-2xl border border-danger/25 bg-danger/5 p-4 text-[12px] font-bold text-danger">{error}</p> : null}

@@ -74,7 +74,10 @@ export function BottomTabs() {
   function activeId(): string {
     if (pathname.startsWith("/resumo")) return "resumo";
     if (pathname.includes("/financeiro")) return "financeiro";
-    if (pathname.startsWith("/mais") || pathname.includes("/reembolsos") || pathname.includes("/clientes")) return "mais";
+    if (
+      pathname.startsWith("/mais") ||
+      /\/(reembolsos|clientes|inteligencia|fidelidade|perfil-publico)(\/|$)/.test(pathname)
+    ) return "mais";
     if (pathname.startsWith("/organizacoes") || pathname.startsWith("/eventos")) return "eventos";
     return "";
   }

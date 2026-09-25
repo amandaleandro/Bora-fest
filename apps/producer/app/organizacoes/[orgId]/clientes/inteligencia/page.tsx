@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ClientesTabs } from "@/components/ClientesTabs";
 import { useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
@@ -126,16 +126,11 @@ export default function CustomerIntelligencePage({ params }: { params: { orgId: 
   return (
     <GuardedPanelShell title="LTV de clientes" organizationId={params.orgId}>
       <main className="mx-auto max-w-7xl px-5 py-7 lg:px-8 lg:py-9">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N10.2 · customer intelligence</p>
-            <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Valor de cada cliente</h1>
-            <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">LTV junta ingresso, VIP e devoluções. Contribuição líquida mostra o que ficou para a Casa depois das saídas ligadas à venda.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href={`/organizacoes/${params.orgId}/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">Receita da Casa</Link>
-            <Link href={`/organizacoes/${params.orgId}/clientes`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">← Clientes</Link>
-          </div>
+        <ClientesTabs orgId={params.orgId} />
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">LTV de clientes</p>
+          <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Valor de cada cliente</h1>
+          <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">LTV junta ingresso, VIP e devoluções. Contribuição líquida mostra o que ficou para a Casa depois das saídas ligadas à venda.</p>
         </div>
 
         {error ? <p className="mt-5 rounded-2xl border border-danger/25 bg-danger/5 p-4 text-[12px] font-bold text-danger">{error}</p> : null}

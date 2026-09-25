@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ClientesTabs } from "@/components/ClientesTabs";
 import { useEffect, useMemo, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
@@ -155,28 +155,13 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
   return (
     <GuardedPanelShell title="Clientes" organizationId={params.orgId}>
       <main className="mx-auto max-w-7xl px-5 py-7 lg:px-8 lg:py-9">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">N5 · relacionamento</p>
-            <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Clientes da Casa</h1>
-            <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
-              Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Campanhas usam somente clientes com consentimento de marketing.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href={`/organizacoes/${params.orgId}/inteligencia`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
-              Inteligência
-            </Link>
-            <Link href={`/organizacoes/${params.orgId}/fidelidade`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
-              Fidelidade
-            </Link>
-            <Link href={`/organizacoes/${params.orgId}/clientes/retencao`} className="rounded-xl border border-line-input bg-surface px-4 py-2.5 text-[12px] font-extrabold text-primary">
-              Ver retenção
-            </Link>
-            <Link href={`/organizacoes/${params.orgId}/clientes/reativacao`} className="rounded-xl bg-primary px-4 py-2.5 text-[12px] font-extrabold text-white shadow-cta">
-              Criar campanha →
-            </Link>
-          </div>
+        <ClientesTabs orgId={params.orgId} />
+        <div>
+          <p className="text-[11px] font-extrabold uppercase tracking-[.08em] text-primary">Clientes</p>
+          <h1 className="mt-1 text-[27px] font-black tracking-tight text-ink">Clientes da Casa</h1>
+          <p className="mt-2 max-w-3xl text-[13px] font-semibold leading-relaxed text-muted">
+            Uma visão única de quem compra seus eventos, construída a partir de compras e presença. Campanhas usam somente clientes com consentimento de marketing.
+          </p>
         </div>
 
         {data ? (
