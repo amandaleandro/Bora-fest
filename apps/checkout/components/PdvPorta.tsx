@@ -342,7 +342,10 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       // Pix que ficou pendente segura a vaga no lote: solta antes de vender em
       // dinheiro, senão a mesma pessoa ocupa duas vagas até o Pix expirar
       if (pedido?.orderId) {
-        await api.cancelPdvPixSale(eventId, pedido.orderId, accountToken!).catch(() => undefined);
+        const cancelamento = await api.cancelPdvPixSale(eventId, pedido.orderId, accountToken!);
+        if (!cancelamento.canceled) {
+          throw new Error("Este Pix já foi pago ou não pôde ser cancelado. Confira o pagamento antes de receber em dinheiro.");
+        }
         setPedido(null);
       }
       const venda = await api.createPdvCashSale(eventId, payload(), accountToken!, chaveDaTentativa("dinheiro"));
@@ -350,7 +353,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     } catch (e) {
       // a chave da tentativa FICA: tocar de novo replica a mesma venda no
       // servidor (idempotente) em vez de criar uma segunda paga
-      setErro(e instanceof ApiError ? e.message : "Sem resposta do servidor. Toque de novo — a venda não será duplicada.");
+      setErro(e instanceof Error ? e.message : "Sem resposta do servidor. Toque de novo — a venda não será duplicada.");
       setOcupado(null);
     }
   }
