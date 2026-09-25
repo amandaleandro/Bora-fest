@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { eventControls, type CancelPreview } from "@/lib/api";
@@ -34,6 +34,13 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
   const [erro, setErro] = useState<string | null>(null);
   const [falhas, setFalhas] = useState<Array<{ orderId: string; message: string }>>([]);
   const [pronto, setPronto] = useState(false);
+  const raiz = useRef<HTMLDivElement>(null);
+
+  // o atalho "Cancelar evento…" chega por #cancelar, mas a página monta depois
+  // do hash (dados do evento carregam primeiro) e o browser já perdeu a âncora
+  useEffect(() => {
+    if (window.location.hash === "#cancelar") raiz.current?.scrollIntoView({ block: "start" });
+  }, []);
 
   async function abrir() {
     if (!token) return;
@@ -104,7 +111,7 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
   }
 
   return (
-    <div id="cancelar" className="mt-8 scroll-mt-24 rounded-2xl border border-danger/30 bg-danger/[.04] p-4">
+    <div id="cancelar" ref={raiz} className="mt-8 scroll-mt-24 rounded-2xl border border-danger/30 bg-danger/[.04] p-4">
       <p className="text-[13.5px] font-extrabold text-danger">Cancelar o evento</p>
       <p className="mt-1 text-[12.5px] font-semibold text-muted">
         Tira o evento do ar e devolve o dinheiro de todo mundo que comprou. Não tem como desfazer.
