@@ -133,8 +133,10 @@ export class IdentityService {
     const token = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
 
     // NAO devolver a User row crua (auditoria 2026-08-29): ela carrega
-    // passwordHash, cpf, telefone e platformRole. So o publico do cliente.
-    return { token, user: { id: user.id, name: user.name, email: user.email } };
+    // passwordHash, cpf e telefone. `platformRole` volta (2026-09-25): é o
+    // papel da própria pessoa logada, não é segredo — e o backoffice decide o
+    // acesso por ele; sem o campo, nenhum ADMIN conseguia entrar.
+    return { token, user: { id: user.id, name: user.name, email: user.email, platformRole: user.platformRole } };
   }
   /**
    * Link mágico do e-mail de "seu ingresso está pronto": clicar É a prova de
@@ -173,10 +175,10 @@ export class IdentityService {
       });
     }
     const session = await createSessionToken({ sub: user.id, sv: user.sessionVersion });
-    // idem verifyOtp: nada de User row crua (passwordHash/cpf/platformRole)
+    // idem verifyOtp: nada de User row crua (passwordHash/cpf/telefone)
     return {
       token: session,
-      user: { id: user.id, name: user.name, email: user.email },
+      user: { id: user.id, name: user.name, email: user.email, platformRole: user.platformRole },
       orderToken: claims.orderToken ?? null,
     };
   }
