@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
@@ -260,6 +260,31 @@ function VendasContent({ eventId }: { eventId: string }) {
   const [pdvError, setPdvError] = useState<string | null>(null);
   const [pdvSuccess, setPdvSuccess] = useState<string | null>(null);
   const [pdvLoading, setPdvLoading] = useState(false);
+  const [pdvLots, setPdvLots] = useState<Awaited<ReturnType<typeof ordersApi.pdvLots>>>([]);
+  const [pdvLotsError, setPdvLotsError] = useState(false);
+  const [pdvLotsLoading, setPdvLotsLoading] = useState(true);
+  const pdvAttempt = useRef<string | null>(null);
+
+  function resetPdvAttempt() {
+    pdvAttempt.current = null;
+    setPdvSuccess(null);
+  }
+
+  async function loadPdvLots() {
+    if (!token) return;
+    setPdvLotsLoading(true);
+    setPdvLotsError(false);
+    try {
+      const lots = await ordersApi.pdvLots(eventId, token);
+      setPdvLots(lots);
+      setPdvLotId((current) => lots.some((lot) => lot.lotId === current) ? current : "");
+    } catch {
+      setPdvLots([]);
+      setPdvLotsError(true);
+    } finally {
+      setPdvLotsLoading(false);
+    }
+  }
 
   async function loadOrders() {
     if (!token) return;
@@ -285,6 +310,7 @@ function VendasContent({ eventId }: { eventId: string }) {
     setDashboard(null);
     setDashboardError(false);
     dashboardApi.get(token, eventId).then(setDashboard).catch(() => setDashboardError(true));
+    void loadPdvLots();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, eventId]);
 
@@ -360,8 +386,8 @@ function VendasContent({ eventId }: { eventId: string }) {
     setPdvError(null);
     setPdvSuccess(null);
     const quantity = Number(pdvQty);
-    const selectedLot = dashboard?.lots.find((lot) => lot.id === pdvLotId);
-    if (!Number.isSafeInteger(quantity) || quantity < 1 || !selectedLot || quantity > selectedLot.available) {
+    const selectedLot = pdvLots.find((lot) => lot.lotId === pdvLotId);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 20 || !selectedLot || quantity > selectedLot.available) {
       setPdvError("Informe uma quantidade inteira dentro do estoque disponível.");
       return;
     }
@@ -371,7 +397,8 @@ function VendasContent({ eventId }: { eventId: string }) {
     }
     setPdvLoading(true);
     try {
-      await ordersApi.createPdvSale(
+      if (!pdvAttempt.current) pdvAttempt.current = crypto.randomUUID();
+      const sale = await ordersApi.createPdvSale(
         eventId,
         {
           ticketLotId: pdvLotId,
@@ -381,8 +408,10 @@ function VendasContent({ eventId }: { eventId: string }) {
           buyerEmail: pdvBuyerEmail.trim() || undefined,
         },
         token,
+        pdvAttempt.current,
       );
-      setPdvSuccess("Venda registrada com sucesso.");
+      pdvAttempt.current = null;
+      setPdvSuccess(`Venda registrada. Pedido ${sale.orderId}. Os ingressos são emitidos em seguida; acompanhe em Pedidos.`);
       setPdvBuyerName("");
       setPdvBuyerDoc("");
       setPdvBuyerEmail("");
@@ -390,6 +419,7 @@ function VendasContent({ eventId }: { eventId: string }) {
       await Promise.allSettled([
         loadOrders(),
         dashboardApi.get(token, eventId).then((result) => { setDashboard(result); setDashboardError(false); }).catch(() => setDashboardError(true)),
+        loadPdvLots(),
       ]);
     } catch (err) {
       setPdvError(err instanceof Error ? err.message : "Não foi possível registrar a venda");
@@ -554,50 +584,47 @@ function VendasContent({ eventId }: { eventId: string }) {
         <section className="mt-5 max-w-xl rounded-2xl border border-line bg-surface p-5">
           <h2 className="text-[15px] font-extrabold">Registrar venda presencial</h2>
           <p className="mt-1 text-[12px] font-semibold text-muted">
-            Venda offline (dinheiro/maquininha própria): o pedido já entra pago e os ingressos são emitidos
-            imediatamente.
+            Dinheiro ou maquininha própria: registre aqui somente depois de receber. O pedido entra pago; a emissão dos ingressos pode levar alguns instantes. Para Pix e entrada imediata, use a venda na portaria.
           </p>
-          {dashboardError ? (
+          {pdvLotsError ? (
             <p role="alert" className="mt-3 text-[12px] font-semibold text-danger">
               Não foi possível carregar os lotes. Confira a conexão antes de registrar uma venda.
-              <button type="button" onClick={() => { if (token) { setDashboardError(false); dashboardApi.get(token, eventId).then(setDashboard).catch(() => setDashboardError(true)); } }} className="ml-2 underline">Tentar novamente</button>
+              <button type="button" onClick={() => void loadPdvLots()} className="ml-2 underline">Tentar novamente</button>
             </p>
           ) : null}
           <div className="mt-4 space-y-2">
             <select
               className="w-full rounded-lg border border-line-input px-3 py-2 text-[13px]"
               value={pdvLotId}
-              onChange={(e) => setPdvLotId(e.target.value)}
+              onChange={(e) => { setPdvLotId(e.target.value); resetPdvAttempt(); }}
             >
-              <option value="">{dashboard ? "Selecione o lote" : dashboardError ? "Lotes indisponíveis" : "Carregando lotes…"}</option>
-              {(dashboard?.lots ?? [])
-                .filter((lot) => lot.status === "ACTIVE" && lot.available > 0)
-                .map((lot) => (
-                  <option key={lot.id} value={lot.id}>
-                    {lot.typeName} — {lot.name} ({formatCents(lot.priceCents + lot.feeCents)}) · {lot.available} disp.
+              <option value="">{pdvLotsLoading ? "Carregando lotes…" : pdvLotsError ? "Lotes indisponíveis" : "Selecione o lote"}</option>
+              {pdvLots.map((lot) => (
+                  <option key={lot.lotId} value={lot.lotId}>
+                    {lot.ticketTypeName} — {lot.lotName} ({formatCents(lot.priceCents + lot.feeCents)}) · {lot.available} disp.
                   </option>
                 ))}
             </select>
-            {dashboard && !dashboard.lots.some((lot) => lot.status === "ACTIVE" && lot.available > 0) ? (
+            {!pdvLotsLoading && !pdvLotsError && pdvLots.length === 0 ? (
               <p className="text-[12px] font-semibold text-muted">Nenhum lote ativo com ingressos disponíveis para venda presencial.</p>
             ) : null}
             <div className="flex gap-2">
               <input
                 type="number"
                 min={1}
-                max={dashboard?.lots.find((lot) => lot.id === pdvLotId)?.available}
+                max={Math.min(20, pdvLots.find((lot) => lot.lotId === pdvLotId)?.available ?? 20)}
                 step={1}
                 aria-label="Quantidade de ingressos"
                 placeholder="Qtd"
                 className="w-20 rounded-lg border border-line-input px-3 py-2 text-[13px]"
                 value={pdvQty}
-                onChange={(e) => setPdvQty(e.target.value)}
+                onChange={(e) => { setPdvQty(e.target.value); resetPdvAttempt(); }}
               />
               <input
                 placeholder="Nome do comprador"
                 className="min-w-0 flex-1 rounded-lg border border-line-input px-3 py-2 text-[13px]"
                 value={pdvBuyerName}
-                onChange={(e) => setPdvBuyerName(e.target.value)}
+                onChange={(e) => { setPdvBuyerName(e.target.value); resetPdvAttempt(); }}
               />
             </div>
             <div className="flex gap-2">
@@ -605,13 +632,13 @@ function VendasContent({ eventId }: { eventId: string }) {
                 placeholder="CPF/documento (opcional)"
                 className="flex-1 rounded-lg border border-line-input px-3 py-2 text-[13px]"
                 value={pdvBuyerDoc}
-                onChange={(e) => setPdvBuyerDoc(e.target.value)}
+                onChange={(e) => { setPdvBuyerDoc(e.target.value); resetPdvAttempt(); }}
               />
               <input
                 placeholder="E-mail (opcional)"
                 className="flex-1 rounded-lg border border-line-input px-3 py-2 text-[13px]"
                 value={pdvBuyerEmail}
-                onChange={(e) => setPdvBuyerEmail(e.target.value)}
+                onChange={(e) => { setPdvBuyerEmail(e.target.value); resetPdvAttempt(); }}
               />
             </div>
             {pdvError ? <p className="text-[13px] font-semibold text-danger">{pdvError}</p> : null}
@@ -619,7 +646,7 @@ function VendasContent({ eventId }: { eventId: string }) {
             <button
               type="button"
               onClick={submitPdvSale}
-              disabled={!pdvLotId || pdvLoading}
+              disabled={!pdvLotId || pdvLoading || pdvLotsError || pdvLotsLoading}
               className="btn-primary rounded-lg"
             >
               {pdvLoading ? "Registrando..." : "Registrar venda"}
