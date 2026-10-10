@@ -147,9 +147,15 @@ export class OrdersService {
       0,
     );
 
-    // proteção de reembolso (upsell): prêmio fixo somado ao que o comprador paga
-    const protectionFeeCents = input.purchaseProtection ? PROTECTION_FEE_CENTS : 0;
+    // proteção de reembolso (upsell): prêmio fixo somado ao que o comprador paga.
+    // Ingresso de R$ 0 não tem o que reembolsar, e o prêmio sozinho virava uma
+    // cobrança abaixo do mínimo do gateway — o pedido travava no "pagar".
+    const protectionFeeCents = input.purchaseProtection && ticketTotalCents > 0 ? PROTECTION_FEE_CENTS : 0;
     const totalCents = ticketTotalCents + addOnsTotalCents + protectionFeeCents;
+    // SEM CUSTO (lote de R$ 0 ou cupom de 100%): nada a cobrar. O pedido nasce
+    // pago e segue a mesma emissão da cortesia; antes ia para PAYMENT_PENDING e
+    // o comprador batia em "pagamento mínimo de R$ 5,00" sem saída.
+    const semCusto = totalCents === 0;
 
     // atribuição de PROMOTER/VENDEDOR (Promoter v3). Link de vendedor (?vd=)
     // implica o promoter dele; link de promoter (?pr=) atribui só o promoter.
@@ -324,12 +330,13 @@ export class OrdersService {
           contactEmail: input.contactEmail,
           contactName: input.contactName,
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
-          status: "PAYMENT_PENDING",
+          status: semCusto ? "PAID" : "PAYMENT_PENDING",
+          paidAt: semCusto ? new Date() : undefined,
           totalCents,
           protectionPurchased: protectionFeeCents > 0,
           protectionFeeCents,
           discountCents,
-          expiresAt,
+          expiresAt: semCusto ? undefined : expiresAt,
           salesPartnerId,
           partnerCommissionCents,
           promoterLinkId,
@@ -399,6 +406,22 @@ export class OrdersService {
         }
         await tx.couponRedemption.create({
           data: { couponId: coupon.id, orderId: created.id, amountCents: discountCents },
+        });
+      }
+
+      if (semCusto) {
+        // o mesmo que applyPaid faz quando o gateway confirma, menos o ledger:
+        // R$ 0 não gera SALE_CREDIT nem PLATFORM_FEE, e a comissão é zero pelo teto
+        for (const item of reservation.items) {
+          await confirmSaleInventory(tx, item.ticketLotId, item.quantity);
+        }
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: "order",
+            aggregateId: created.id,
+            eventType: "order.paid",
+            payload: { orderId: created.id, semCusto: true },
+          },
         });
       }
 

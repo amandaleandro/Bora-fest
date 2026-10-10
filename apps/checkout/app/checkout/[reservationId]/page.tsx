@@ -265,10 +265,14 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     (sum, addOn) => sum + addOn.priceCents * (addOnQty[addOn.id] ?? 0),
     0,
   );
-  const protectionCents = protection ? PROTECTION_FEE_CENTS : 0;
+  // ingresso de R$ 0 (lote gratuito ou cupom de 100%) não leva proteção: não há o que reembolsar
+  const ingressoCents = Math.max(0, subtotalCents + feeTotalCents - discountCents);
+  const protectionCents = protection && ingressoCents > 0 ? PROTECTION_FEE_CENTS : 0;
   const totalCents = order
     ? order.totalCents
-    : Math.max(0, subtotalCents + feeTotalCents - discountCents + addOnsTotalCents + protectionCents);
+    : Math.max(0, ingressoCents + addOnsTotalCents + protectionCents);
+  // nada a cobrar: o servidor já devolve o pedido pago e a tela pula a cobrança
+  const semCusto = items.length > 0 && totalCents === 0;
 
   // um formulário por ingresso nominal
   const nominalSlots = useMemo(() => {
@@ -294,11 +298,11 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     ? [
         { key: "ident", label: "Identificação" },
         { key: "participantes", label: "Participantes" },
-        { key: "pagamento", label: "Pagamento" },
+        { key: "pagamento", label: semCusto ? "Confirmação" : "Pagamento" },
       ]
     : [
         { key: "ident", label: "Identificação" },
-        { key: "pagamento", label: "Pagamento" },
+        { key: "pagamento", label: semCusto ? "Confirmação" : "Pagamento" },
       ];
 
   function attendeesError(): string | null {
@@ -434,6 +438,18 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     } finally {
       setPaying(false);
     }
+  }
+
+  /** Ingresso sem custo: cria o pedido (que já nasce pago) e leva direto aos ingressos. */
+  async function claimFree() {
+    const target = await ensureOrder();
+    if (!target) return;
+    if (["PAID", "FULFILLED"].includes(target.status)) {
+      setApproved(true);
+      setTimeout(() => router.push(`/pedido/${target.publicToken}`), 1200);
+      return;
+    }
+    setError("Não foi possível confirmar seu ingresso agora. Tente de novo em instantes.");
   }
 
   /** "Já fiz o pagamento": uma consulta e volta ao normal — nunca trava em "Verificando…". */
@@ -601,7 +617,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         <div className="flex h-[92px] w-[92px] animate-pop items-center justify-center rounded-full bg-success text-white">
           <Icon d={paths.check} size={44} stroke={2.5} />
         </div>
-        <h1 className="mt-5 text-[22px] font-extrabold">Pagamento aprovado!</h1>
+        <h1 className="mt-5 text-[22px] font-extrabold">{semCusto ? "Ingresso garantido!" : "Pagamento aprovado!"}</h1>
         <p className="mt-1 text-[13px] font-medium text-muted">Levando você para seus ingressos…</p>
       </main>
     );
@@ -680,7 +696,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                 <div className="flex justify-between gap-3 text-[12.5px] font-medium text-muted-2">
                   <span>Taxa de serviço</span>
                   <span className="shrink-0">
-                    {feeTotalCents > 0 ? formatCents(feeTotalCents) : "por conta do produtor"}
+                    {feeTotalCents > 0 ? formatCents(feeTotalCents) : subtotalCents === 0 ? "sem taxa" : "por conta do produtor"}
                   </span>
                 </div>
                 {discountCents > 0 && (
@@ -738,7 +754,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
             {/* UPSELL: proteção de reembolso — reembolso do ingresso mesmo após o
                 prazo, até o início do evento. O prêmio não volta. */}
-            {step === "ident" && (
+            {step === "ident" && ingressoCents > 0 && (
               <section className={`${cardClass} mb-4`}>
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
@@ -831,7 +847,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       return;
                     }
                     if (!ehCpfValido(buyerCpf)) {
-                      setError("Informe um CPF válido — o banco exige para emitir o pagamento");
+                      setError(semCusto ? "Informe um CPF válido" : "Informe um CPF válido — o banco exige para emitir o pagamento");
                       return;
                     }
                     if (phone.trim() !== "" && onlyDigits(phone).length < 10) {
@@ -943,7 +959,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   }}
                   className="mt-5 h-14 w-full rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
                 >
-                  Ir para pagamento
+                  {semCusto ? "Continuar" : "Ir para pagamento"}
                 </button>
               </section>
             )}
@@ -951,7 +967,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
             {/* ETAPA 3 — pagamento */}
             {step === "pagamento" && (
               <section className={cardClass}>
-                <div className="flex rounded-2xl bg-line p-1">
+                <div className={`flex rounded-2xl bg-line p-1 ${semCusto ? "hidden" : ""}`}>
                   {([["pix", "Pix"], ["cartao", "Cartão"]] as const).map(
                     ([key, labelTab]) => (
                       <button
@@ -996,14 +1012,36 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     </Link>
                     <label htmlFor="consent" className="cursor-pointer">
                       , e autorizo o tratamento dos meus dados para emissão e entrega dos ingressos e para a criação da minha conta BoraFest (LGPD).{" "}
-                      <b className="text-ink">Obrigatório para pagar.</b>
+                      <b className="text-ink">{semCusto ? "Obrigatório para continuar." : "Obrigatório para pagar."}</b>
                     </label>
                   </p>
                 </div>
 
                 {error && <p className="mt-3 text-[12px] font-semibold text-danger">{error}</p>}
 
-                {tab === "pix" && (
+                {semCusto && (
+                  <div className="mt-5">
+                    <p className="text-[13px] font-medium leading-[1.6] text-muted">
+                      Este ingresso é gratuito. Confirme e ele chega no seu e-mail na hora.
+                    </p>
+                    <button
+                      onClick={claimFree}
+                      disabled={payDisabled}
+                      className={`mt-4 h-14 w-full rounded-2xl text-[15px] font-extrabold text-white ${
+                        payDisabled ? "cursor-not-allowed bg-[#ecd6e4]" : "bg-primary shadow-cta"
+                      }`}
+                    >
+                      {creating ? "Confirmando…" : "Garantir meu ingresso grátis"}
+                    </button>
+                    {!consent && (
+                      <p className="mt-2 text-center text-[11px] font-semibold text-muted-2">
+                        Marque o aceite dos Termos e da Política de Privacidade para continuar.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {!semCusto && tab === "pix" && (
                   <div className="mt-5 text-center">
                     {!pixCode ? (
                       <div className="text-left">
@@ -1081,7 +1119,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   </div>
                 )}
 
-                {tab === "cartao" && (
+                {!semCusto && tab === "cartao" && (
                   <div className="mt-5 space-y-4">
                     {cardError && (
                       <div className="rounded-2xl border border-danger/30 bg-danger/5 p-3.5 text-[13px] font-bold text-danger">
@@ -1261,7 +1299,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                 <div className="flex justify-between gap-3 text-[13px] font-medium text-muted-2">
                   <span>Taxa de serviço</span>
                   <span className="shrink-0">
-                    {feeTotalCents > 0 ? formatCents(feeTotalCents) : "por conta do produtor"}
+                    {feeTotalCents > 0 ? formatCents(feeTotalCents) : subtotalCents === 0 ? "sem taxa" : "por conta do produtor"}
                   </span>
                 </div>
                 {discountCents > 0 && (
