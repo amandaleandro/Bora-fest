@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PERMISSIONS } from "@borafest/auth";
 import { prisma } from "@borafest/database";
@@ -81,6 +82,7 @@ export class EventRecurrenceService {
           endsAt,
           timezone: source.timezone,
           waitingRoomEnabled: source.waitingRoomEnabled,
+          isPrivate: source.isPrivate,
           waitingRoomConcurrency: source.waitingRoomConcurrency,
           ...(source.pixelSettings === null ? {} : { pixelSettings: source.pixelSettings as any }),
         },
@@ -112,6 +114,11 @@ export class EventRecurrenceService {
                 halfPriceEnabled: lot.halfPriceEnabled,
                 pdvOnly: lot.pdvOnly,
                 promoterOnly: lot.promoterOnly,
+                // a nova edição herda a restrição, mas com link NOVO: o convite
+                // da edição passada não abre a próxima
+                inviteMode: lot.inviteMode,
+                inviteToken: lot.inviteMode === "LINK" ? randomBytes(16).toString("base64url") : null,
+                limitPerCpf: lot.limitPerCpf,
                 status: "DRAFT" as const,
                 startsAt: shiftDate(lot.startsAt, deltaMs),
                 endsAt: shiftDate(lot.endsAt, deltaMs),

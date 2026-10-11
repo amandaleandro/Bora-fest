@@ -42,6 +42,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
     title: `${event.title} — BoraFest`,
     description,
     alternates: { canonical: url },
+    // evento privado: abre pelo link, mas não entra em buscador
+    robots: event.isPrivate ? { index: false, follow: false } : undefined,
     openGraph: {
       title: event.title,
       description,

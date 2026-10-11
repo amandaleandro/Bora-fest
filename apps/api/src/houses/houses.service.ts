@@ -13,7 +13,7 @@ const publicEventSelect = {
   ticketTypes: {
     select: {
       lots: {
-        where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false },
+        where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false, inviteMode: "NONE" as const },
         select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
       },
     },
@@ -119,6 +119,7 @@ export class HousesService {
     const pattern = normalizedQuery ? `%${normalizedQuery}%` : null;
     const eventWhere = {
       status: "PUBLISHED" as const,
+      isPrivate: false,
       endsAt: { gt: now },
       ...(city ? { venue: { city } } : {}),
     };
@@ -180,6 +181,7 @@ export class HousesService {
               ${eventSearchCityJoin}
               WHERE se.organization_id = o.id
                 AND se.status = 'PUBLISHED'::"EventStatus"
+                AND se.is_private = false
                 AND se.ends_at > ${now}
                 AND se.title ILIKE ${pattern}
             )
@@ -195,6 +197,7 @@ export class HousesService {
         JOIN events e
           ON e.organization_id = o.id
           AND e.status = 'PUBLISHED'::"EventStatus"
+          AND e.is_private = false
           AND e.ends_at > ${now}
         ${cityJoin}
         LEFT JOIN organization_follows f ON f.organization_id = o.id
@@ -266,6 +269,7 @@ export class HousesService {
     const now = new Date();
     const eventWhere = {
       status: "PUBLISHED" as const,
+      isPrivate: false,
       endsAt: { gt: now },
       ...(city ? { venue: { city } } : {}),
     };
@@ -366,7 +370,7 @@ export class HousesService {
           select: { name: true, city: true, state: true },
         },
         events: {
-          where: { status: "PUBLISHED", endsAt: { gt: now } },
+          where: { status: "PUBLISHED", isPrivate: false, endsAt: { gt: now } },
           orderBy: { startsAt: "asc" },
           take: 100,
           select: publicEventSelect,
@@ -377,8 +381,8 @@ export class HousesService {
     if (!house) throw new NotFoundException("Casa não encontrada");
 
     const [publishedEventsCount, upcomingEventsCount] = await Promise.all([
-      prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED" } }),
-      prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED", endsAt: { gt: now } } }),
+      prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED", isPrivate: false } }),
+      prisma.event.count({ where: { organizationId: house.id, status: "PUBLISHED", isPrivate: false, endsAt: { gt: now } } }),
     ]);
     const events = house.events.map(toEventCard);
     const eventLocation = events.find((event) => event.venue)?.venue ?? null;

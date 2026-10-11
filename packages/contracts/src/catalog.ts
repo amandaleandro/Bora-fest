@@ -18,6 +18,10 @@ export const createTicketLotSchema = z.object({
   pdvOnly: z.boolean().optional(),
   /** lote exclusivo: só aparece para quem chegou pelo link/código de um promoter */
   promoterOnly: z.boolean().optional(),
+  /** restrito a convidados: LINK some do site e só abre pelo link com o código do lote */
+  inviteMode: z.enum(["NONE", "LINK"]).optional(),
+  /** ingressos deste lote por CPF, somando todos os pedidos; ausente = sem limite */
+  limitPerCpf: z.number().int().min(1).max(20).optional(),
   name: z.string().min(2),
   priceCents: z.number().int().min(0),
   feeCents: z.number().int().min(0).default(0),

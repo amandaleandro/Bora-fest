@@ -189,6 +189,7 @@ export class EventsService {
         bannerUrl: input.bannerUrl,
         waitingRoomEnabled: input.waitingRoomEnabled,
         waitingRoomConcurrency: input.waitingRoomConcurrency,
+        isPrivate: input.isPrivate,
         pixelSettings,
         // token do CAPI: "" ou null desliga; undefined mantém o atual
         metaCapiToken:

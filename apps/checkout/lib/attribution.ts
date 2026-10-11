@@ -106,3 +106,49 @@ export function captureAttributionFromUrl() {
   capturePromoterFromUrl();
   captureSellerFromUrl();
 }
+
+const CONVITE_PREFIX = "bf.convite.";
+
+/**
+ * Link de convidado (`?convite=`) de UM evento (2026-10-10). Guardado por evento
+ * porque a navegação para /ingressos descarta a query, e o código só vale
+ * para o evento em que foi aberto.
+ */
+export function captureInviteFromUrl(slug: string) {
+  try {
+    const token = new URLSearchParams(window.location.search).get("convite");
+    if (!token) return;
+    localStorage.setItem(
+      CONVITE_PREFIX + slug,
+      JSON.stringify({ token, expiresAt: Date.now() + ATTRIBUTION_WINDOW_MS }),
+    );
+  } catch {
+    /* armazenamento bloqueado: o lote restrito só aparece nesta página */
+  }
+}
+
+export function getInviteToken(slug: string): string | undefined {
+  try {
+    const raw = localStorage.getItem(CONVITE_PREFIX + slug);
+    if (!raw) return undefined;
+    const { token, expiresAt } = JSON.parse(raw) as { token: string; expiresAt: number };
+    if (Date.now() > expiresAt) {
+      localStorage.removeItem(CONVITE_PREFIX + slug);
+      return undefined;
+    }
+    return token;
+  } catch {
+    return undefined;
+  }
+}
+
+/** O que libera lote restrito deste evento: link do promoter (?pr=) e link de convidado (?convite=). */
+export function eventAccess(slug: string): { pr?: string; convite?: string } {
+  let pr: string | undefined;
+  try {
+    pr = getAttributedPromoterSlug();
+  } catch {
+    pr = undefined;
+  }
+  return { pr, convite: getInviteToken(slug) };
+}

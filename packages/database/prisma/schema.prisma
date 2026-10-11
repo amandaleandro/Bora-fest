@@ -525,6 +525,8 @@ model Event {
   publishedAt            DateTime?      @map("published_at")
   canceledAt             DateTime?      @map("canceled_at")
   waitingRoomEnabled     Boolean        @default(false) @map("waiting_room_enabled")
+  /// evento privado: fora da vitrine, da busca, da agenda da Casa e do Google; abre só pelo link
+  isPrivate              Boolean        @default(false) @map("is_private")
   waitingRoomConcurrency Int            @default(300) @map("waiting_room_concurrency")
   pixelSettings          Json?          @map("pixel_settings")
   metaCapiToken          String?        @map("meta_capi_token")
@@ -698,6 +700,12 @@ enum FeeMode {
   PRODUCER
 }
 
+/// disponibilidade do lote para convidados (EMAIL entra com o convite por e-mail)
+enum LotInviteMode {
+  NONE
+  LINK
+}
+
 enum LotStatus {
   DRAFT
   SCHEDULED
@@ -722,6 +730,11 @@ model TicketLot {
   halfPriceEnabled Boolean   @default(false) @map("half_price_enabled")
   pdvOnly          Boolean   @default(false) @map("pdv_only")
   promoterOnly     Boolean   @default(false) @map("promoter_only")
+  /// restrito a convidados: LINK = some do site e só abre pelo link com inviteToken
+  inviteMode       LotInviteMode @default(NONE) @map("invite_mode")
+  inviteToken      String?   @unique @map("invite_token")
+  /// limite de ingressos deste lote por CPF, somando todos os pedidos (null = sem limite)
+  limitPerCpf      Int?      @map("limit_per_cpf")
   status           LotStatus @default(DRAFT)
   startsAt         DateTime? @map("starts_at")
   endsAt           DateTime? @map("ends_at")
@@ -820,6 +833,8 @@ model Order {
   contactEmail            String                  @map("contact_email")
   contactName             String?                 @map("contact_name")
   contactPhone            String?                 @map("contact_phone")
+  /// CPF do comprador no pedido — base do limite por CPF do lote
+  contactCpf              String?                 @map("contact_cpf")
   status                  OrderStatus             @default(CREATED)
   totalCents              Int                     @map("total_cents")
   protectionPurchased     Boolean                 @default(false) @map("protection_purchased")
@@ -855,6 +870,7 @@ model Order {
   @@index([status, expiresAt])
   @@index([salesPartnerId])
   @@index([contactEmail])
+  @@index([contactCpf])
   @@index([userId, createdAt])
   @@index([promoterLinkId])
   @@index([promoterSellerId])

@@ -5,6 +5,7 @@ import { EventImage } from "../../../components/EventImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../../lib/api";
+import { captureAttributionFromUrl, captureInviteFromUrl, eventAccess } from "../../../lib/attribution";
 import { formatDateTime } from "../../../lib/format";
 import { Icon, paths } from "../../../components/icons";
 import { TicketSelector } from "../../../components/TicketSelector";
@@ -16,7 +17,9 @@ export default function SelectTicketsPage({ params }: { params: { slug: string }
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getPublicEvent(slug).then(setEvent).catch(() => setError("Evento não encontrado"));
+    captureAttributionFromUrl();
+    captureInviteFromUrl(slug);
+    api.getPublicEvent(slug, eventAccess(slug)).then(setEvent).catch(() => setError("Evento não encontrado"));
   }, [slug]);
 
   if (!event) {

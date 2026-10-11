@@ -60,15 +60,20 @@ export class PublicCatalogController {
     @Param("slug") slug: string,
     @Res({ passthrough: true }) reply: FastifyReply,
     @Query("pr") promoterSlug?: string,
+    @Query("convite") inviteToken?: string,
   ) {
-    // com ?pr= a resposta é PESSOAL (pode conter o lote exclusivo daquele
-    // promoter), então não pode ser guardada em cache compartilhado de CDN
-    reply.header("Cache-Control", promoterSlug ? "private, no-store" : PUBLIC_CACHE_HEADER);
-    return this.catalogService.getPublicEvent(slug, promoterSlug?.trim() || undefined);
+    // com ?pr= ou ?convite= a resposta é PESSOAL (pode conter lote exclusivo ou
+    // restrito), então não pode ser guardada em cache compartilhado de CDN
+    reply.header("Cache-Control", promoterSlug || inviteToken ? "private, no-store" : PUBLIC_CACHE_HEADER);
+    return this.catalogService.getPublicEvent(slug, promoterSlug?.trim() || undefined, inviteToken?.trim() || undefined);
   }
 
   @Get(":slug/availability")
-  getAvailability(@Param("slug") slug: string) {
-    return this.catalogService.getPublicAvailability(slug);
+  getAvailability(
+    @Param("slug") slug: string,
+    @Query("pr") promoterSlug?: string,
+    @Query("convite") inviteToken?: string,
+  ) {
+    return this.catalogService.getPublicAvailability(slug, promoterSlug?.trim() || undefined, inviteToken?.trim() || undefined);
   }
 }

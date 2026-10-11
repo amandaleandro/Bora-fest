@@ -10,7 +10,7 @@ import { Icon, paths } from "../../components/icons";
 import { FavoriteButton } from "../../components/FavoriteButton";
 import { TicketSelector } from "../../components/TicketSelector";
 import { PixelTracker } from "../../components/PixelTracker";
-import { captureAttributionFromUrl } from "../../lib/attribution";
+import { captureAttributionFromUrl, captureInviteFromUrl, eventAccess } from "../../lib/attribution";
 import { FollowButton } from "../../components/FollowButton";
 
 
@@ -86,12 +86,15 @@ export function EventPageClient({
 
   useEffect(() => {
     captureAttributionFromUrl();
+    captureInviteFromUrl(slug);
+    // com link de promoter ou de convidado, a resposta traz o lote restrito dele
+    const access = eventAccess(slug);
     // sem dado do servidor (ex.: navegação client-side), busca; com dado, só
     // revalida em segundo plano — a tela nunca fica em branco esperando
     if (!initialEvent) {
-      api.getPublicEvent(slug).then(setEvent).catch(() => setError(true));
+      api.getPublicEvent(slug, access).then(setEvent).catch(() => setError(true));
     } else {
-      api.getPublicEvent(slug).then(setEvent).catch(() => undefined);
+      api.getPublicEvent(slug, access).then(setEvent).catch(() => undefined);
     }
     api.getReviews(slug).then(setReviews).catch(() => {});
   }, [slug, initialEvent]);

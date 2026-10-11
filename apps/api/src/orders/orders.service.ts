@@ -97,7 +97,7 @@ export class OrdersService {
     // PRODUCER absorve — o comprador paga só o preço e o repasse é descontado.
     const lots = await prisma.ticketLot.findMany({
       where: { id: { in: reservation.items.map((i) => i.ticketLotId) } },
-      select: { id: true, feeMode: true, nominal: true, requiresCpf: true },
+      select: { id: true, feeMode: true, nominal: true, requiresCpf: true, limitPerCpf: true },
     });
     const lotById = new Map(lots.map((l) => [l.id, l]));
 
@@ -263,6 +263,37 @@ export class OrdersService {
     if (input.contactCpf && !ehCpfValido(input.contactCpf)) {
       throw new BadRequestException("CPF inválido — confira os dígitos");
     }
+    // LIMITE POR CPF (2026-10-10): soma o que este CPF já tem do lote em pedidos
+    // vivos. Pendente conta também, pra ninguém abrir dois checkouts em paralelo.
+    const cpfDoPedido = input.contactCpf?.replace(/\D/g, "") || undefined;
+    const qtdPorLote = new Map<string, number>();
+    for (const item of reservation.items) {
+      qtdPorLote.set(item.ticketLotId, (qtdPorLote.get(item.ticketLotId) ?? 0) + item.quantity);
+    }
+    for (const [ticketLotId, quantidade] of qtdPorLote) {
+      const limite = lotById.get(ticketLotId)?.limitPerCpf;
+      if (!limite) continue;
+      if (!cpfDoPedido) {
+        throw new BadRequestException("Informe seu CPF para garantir este ingresso");
+      }
+      const jaTem = await prisma.orderItem.aggregate({
+        _sum: { quantity: true },
+        where: {
+          ticketLotId,
+          order: {
+            contactCpf: cpfDoPedido,
+            status: { in: ["CREATED", "PAYMENT_PENDING", "PAID", "FULFILLED", "PARTIALLY_REFUNDED"] },
+          },
+        },
+      });
+      if ((jaTem._sum.quantity ?? 0) + quantidade > limite) {
+        throw new BadRequestException(
+          limite === 1
+            ? "Este CPF já garantiu o ingresso deste lote"
+            : `Este CPF já chegou ao limite de ${limite} ingressos deste lote`,
+        );
+      }
+    }
     let effectiveUserId = userId;
     let accountCreatedByOrder = false;
     if (!effectiveUserId && input.contactEmail) {
@@ -330,6 +361,7 @@ export class OrdersService {
           contactEmail: input.contactEmail,
           contactName: input.contactName,
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
+          contactCpf: cpfDoPedido,
           status: semCusto ? "PAID" : "PAYMENT_PENDING",
           paidAt: semCusto ? new Date() : undefined,
           totalCents,

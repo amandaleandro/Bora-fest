@@ -73,6 +73,8 @@ export interface PublicEventAddOn {
 
 export interface PublicEvent {
   id: string;
+  /** evento privado: fora da vitrine e do Google; abre só pelo link */
+  isPrivate?: boolean;
   organizationId: string;
   organization: { id: string; name: string; slug: string };
   title: string;
@@ -308,8 +310,10 @@ export const api = {
 
   listPublicCities: () =>
     request<Array<{ city: string; state: string }>>("/v1/public/events/cities/list"),
-  getPublicEvent: (slug: string) => request<PublicEvent>(`/v1/public/events/${slug}`),
-  getAvailability: (slug: string) => request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability`),
+  getPublicEvent: (slug: string, access?: { pr?: string; convite?: string }) =>
+    request<PublicEvent>(`/v1/public/events/${slug}${accessQuery(access)}`),
+  getAvailability: (slug: string, access?: { pr?: string; convite?: string }) =>
+    request<AvailabilityItem[]>(`/v1/public/events/${slug}/availability${accessQuery(access)}`),
 
   joinWaitingRoom: (slug: string) =>
     request<WaitingRoomJoinResult>(`/v1/public/events/${slug}/waiting-room/join`, { method: "POST" }),
@@ -329,10 +333,17 @@ export const api = {
     items: Array<{ ticketLotId: string; quantity: number; halfPrice?: boolean }>,
     token?: string,
     waitingRoomTicketId?: string,
+    access?: { promoterSlug?: string; inviteToken?: string },
   ) =>
     request<Reservation>("/v1/reservations", {
       method: "POST",
-      body: { eventId, items, waitingRoomTicketId: waitingRoomTicketId || undefined },
+      body: {
+        eventId,
+        items,
+        waitingRoomTicketId: waitingRoomTicketId || undefined,
+        promoterSlug: access?.promoterSlug || undefined,
+        inviteToken: access?.inviteToken || undefined,
+      },
       token,
     }),
 
@@ -601,3 +612,12 @@ export const api = {
       body: { reason },
     }),
 };
+
+/** ?pr= e ?convite= da página pública: liberam lote exclusivo/restrito daquele evento. */
+function accessQuery(access?: { pr?: string; convite?: string }): string {
+  const q = new URLSearchParams();
+  if (access?.pr) q.set("pr", access.pr);
+  if (access?.convite) q.set("convite", access.convite);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}

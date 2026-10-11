@@ -28,6 +28,11 @@ export class CatalogController {
     return this.catalogService.createLot(ticketTypeId, userId, body as any);
   }
 
+  @Post("v1/ticket-lots/:lotId/invite-link/rotate")
+  rotateInviteLink(@Param("lotId") lotId: string, @CurrentUserId() userId: string) {
+    return this.catalogService.rotateInviteLink(lotId, userId);
+  }
+
   @Post("v1/ticket-lots/:lotId/activate")
   activateLot(@Param("lotId") lotId: string, @CurrentUserId() userId: string) {
     return this.catalogService.activateLot(lotId, userId);

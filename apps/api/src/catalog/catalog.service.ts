@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { computePlatformFeeCents } from "@borafest/payments";
@@ -20,7 +21,7 @@ const showcaseSelect = {
   ticketTypes: {
     select: {
       lots: {
-        where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false },
+        where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false, inviteMode: "NONE" as const },
         select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
       },
     },
@@ -136,6 +137,15 @@ export class CatalogService {
         ? 0
         : computePlatformFeeCents("PIX", input.priceCents, ticketType.event.organization);
 
+    // DISPONIBILIDADE (2026-10-10): um lote tem UM jeito de ser restrito —
+    // só balcão, exclusivo do promoter ou link de convidado. Dois ao mesmo
+    // tempo não têm leitura possível pra quem compra.
+    const inviteMode = input.inviteMode ?? "NONE";
+    const restricoes = [input.pdvOnly, input.promoterOnly, inviteMode !== "NONE"].filter(Boolean).length;
+    if (restricoes > 1) {
+      throw new BadRequestException("Escolha só uma forma de disponibilidade para o lote");
+    }
+
     return prisma.ticketLot.create({
       data: {
         ticketTypeId,
@@ -149,11 +159,33 @@ export class CatalogService {
         halfPriceEnabled: input.halfPriceEnabled ?? false,
         pdvOnly: input.pdvOnly ?? false,
         promoterOnly: input.promoterOnly ?? false,
+        inviteMode,
+        inviteToken: inviteMode === "LINK" ? novoCodigoDeConvite() : undefined,
+        limitPerCpf: input.limitPerCpf,
         requiresCpf: input.requiresCpf ?? false,
         startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
         endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
       },
     });
+  }
+
+  /** Troca o código do link de convidado: o link antigo para de abrir o lote na hora. */
+  async rotateInviteLink(lotId: string, actorUserId: string) {
+    const lot = await prisma.ticketLot.findUnique({
+      where: { id: lotId },
+      include: { ticketType: { select: { event: { select: { organizationId: true } } } } },
+    });
+    if (!lot) throw new NotFoundException("Lote não encontrado");
+    await this.orgAccess.assertPermission(lot.ticketType.event.organizationId, actorUserId, PERMISSIONS.EVENT_CREATE);
+    if (lot.inviteMode !== "LINK") {
+      throw new BadRequestException("Este lote não é restrito por link");
+    }
+    const atualizado = await prisma.ticketLot.update({
+      where: { id: lotId },
+      data: { inviteToken: novoCodigoDeConvite() },
+      select: { id: true, inviteToken: true },
+    });
+    return atualizado;
   }
 
   async activateLot(lotId: string, actorUserId: string) {
@@ -225,7 +257,7 @@ export class CatalogService {
    */
   async listPublicCities() {
     const venues = await prisma.event.findMany({
-      where: { status: "PUBLISHED", endsAt: { gt: new Date() }, venueId: { not: null } },
+      where: { status: "PUBLISHED", isPrivate: false, endsAt: { gt: new Date() }, venueId: { not: null } },
       select: { venue: { select: { city: true, state: true } } },
       distinct: ["venueId"],
     });
@@ -246,6 +278,7 @@ export class CatalogService {
   private async listPublicEventsFresco(options: { page: number; pageSize: number; city?: string; category?: string }) {
     const where = {
       status: "PUBLISHED" as const,
+      isPrivate: false,
       endsAt: { gt: new Date() },
       ...(options.city
         ? { venue: { is: { city: { equals: options.city, mode: "insensitive" as const } } } }
@@ -287,6 +320,7 @@ export class CatalogService {
   private async getHomeSectionsFresco(city?: string) {
     const where = {
       status: "PUBLISHED" as const,
+      isPrivate: false,
       endsAt: { gt: new Date() },
       ...(city
         ? { venue: { is: { city: { equals: city, mode: "insensitive" as const } } } }
@@ -360,16 +394,16 @@ export class CatalogService {
     return { highlights, shelves, upcoming };
   }
 
-  async getPublicEvent(slug: string, promoterSlug?: string) {
-    // cache por (evento + promoter): quem chega pelo link de um promoter vê uma
+  async getPublicEvent(slug: string, promoterSlug?: string, inviteToken?: string) {
+    // cache por (evento + promoter + convite): quem chega por um link vê uma
     // lista de lotes diferente, então não pode dividir cache com o público —
     // senão o lote exclusivo vazaria para quem não tem o link
-    return this.lembrado(`ev:${slug}:${promoterSlug ?? "-"}`, 5_000, () =>
-      this.getPublicEventFresco(slug, promoterSlug),
+    return this.lembrado(`ev:${slug}:${promoterSlug ?? "-"}:${inviteToken ?? "-"}`, 5_000, () =>
+      this.getPublicEventFresco(slug, promoterSlug, inviteToken),
     );
   }
 
-  private async getPublicEventFresco(slug: string, promoterSlug?: string) {
+  private async getPublicEventFresco(slug: string, promoterSlug?: string, inviteToken?: string) {
     const event = await prisma.event.findFirst({
       // pausado continua acessível pelo link (o site mostra "Vendas pausadas");
       // listas e home seguem só PUBLISHED. Reservar continua exigindo PUBLISHED.
@@ -417,6 +451,14 @@ export class CatalogService {
         lots: tt.lots.filter((l) => !l.promoterOnly),
       }));
     }
+    // LOTE RESTRITO POR LINK (2026-10-10): só aparece com o código daquele lote.
+    // O código NUNCA sai na resposta pública — senão qualquer visitante o leria.
+    event.ticketTypes = event.ticketTypes.map((tt) => ({
+      ...tt,
+      lots: tt.lots
+        .filter((l) => l.inviteMode === "NONE" || (Boolean(inviteToken) && l.inviteToken === inviteToken))
+        .map((l) => ({ ...l, inviteToken: null })),
+    }));
     // público vê o nome comercial; o nome civil/razão social nem trafega
     const { displayName, ...organization } = event.organization;
     // esta consulta usa `include`, então devolve TODOS os campos do evento —
@@ -428,11 +470,11 @@ export class CatalogService {
     };
   }
 
-  async getPublicAvailability(slug: string) {
+  async getPublicAvailability(slug: string, promoterSlug?: string, inviteToken?: string) {
     // SEM micro-cache aqui (achado 2026-09-01): esta rota é o estoque em tempo
     // real do seletor de ingressos — 5s velho perto do esgotamento mostraria
     // vaga que não existe. O ganho anti-N+1 continua (conta dos lotes abaixo).
-    const event = await this.getPublicEventFresco(slug);
+    const event = await this.getPublicEventFresco(slug, promoterSlug, inviteToken);
 
     // perf 2026-08-30: era 1 findUnique POR LOTE (N+1) rebuscando linhas que o
     // getPublicEvent JÁ trouxe — capacity/soldCount/reservedCount estão nos
@@ -450,4 +492,9 @@ export class CatalogService {
       })),
     );
   }
+}
+
+/** Código do link de convidado: 128 bits aleatórios, seguro para URL. */
+function novoCodigoDeConvite(): string {
+  return randomBytes(16).toString("base64url");
 }

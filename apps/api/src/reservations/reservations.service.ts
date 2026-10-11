@@ -31,6 +31,23 @@ export class ReservationsService {
       include: { ticketType: true },
     });
 
+    // LOTE EXCLUSIVO DO PROMOTER (2026-10-10): antes só era escondido na TELA;
+    // quem tivesse o id do lote reservava sem o link. Agora a reserva exige o
+    // link de um promoter ativo desta casa (e deste evento, se tiver escopo).
+    const precisaPromoter = lots.some((l) => l.promoterOnly);
+    const promoterValido =
+      precisaPromoter && input.promoterSlug
+        ? await prisma.promoterLink.findFirst({
+            where: {
+              slug: input.promoterSlug,
+              status: "ACTIVE",
+              organizationId: event.organizationId,
+              OR: [{ eventId: null }, { eventId: event.id }],
+            },
+            select: { id: true },
+          })
+        : null;
+
     for (const item of input.items) {
       const lot = lots.find((l) => l.id === item.ticketLotId);
       if (!lot || lot.ticketType.eventId !== input.eventId) {
@@ -40,6 +57,13 @@ export class ReservationsService {
       // descubra o id do lote, a reserva pública é recusada
       if (lot.pdvOnly) {
         throw new BadRequestException(`O lote ${lot.name} é vendido apenas no balcão do evento`);
+      }
+      if (lot.promoterOnly && !promoterValido) {
+        throw new BadRequestException("Este ingresso é exclusivo de quem chegou pelo link de um promoter");
+      }
+      // restrito por link: só com o código atual do lote (trocar o link mata o antigo)
+      if (lot.inviteMode === "LINK" && (!input.inviteToken || input.inviteToken !== lot.inviteToken)) {
+        throw new BadRequestException("Este ingresso é só para convidados. Abra o link que você recebeu.");
       }
       // meia-entrada é opt-in do produtor — sem a flag, ninguém compra meia
       if (item.halfPrice && !lot.halfPriceEnabled) {
@@ -56,6 +80,15 @@ export class ReservationsService {
     const totalPorLote = new Map<string, number>();
     for (const item of input.items) {
       totalPorLote.set(item.ticketLotId, (totalPorLote.get(item.ticketLotId) ?? 0) + item.quantity);
+    }
+    // limite por CPF: o pedido confere o CPF; aqui já barra quantidade acima do limite
+    for (const [lotId, total] of totalPorLote) {
+      const lot = lots.find((l) => l.id === lotId);
+      if (lot?.limitPerCpf && total > lot.limitPerCpf) {
+        throw new BadRequestException(
+          `Este ingresso é limitado a ${lot.limitPerCpf} por pessoa`,
+        );
+      }
     }
     for (const [lotId, total] of totalPorLote) {
       const lot = lots.find((l) => l.id === lotId)!;

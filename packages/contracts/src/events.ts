@@ -71,6 +71,8 @@ export const updateEventSchema = createEventBaseSchema
     bannerUrl: z.string().url().optional(),
     /** sala de espera: admite N compradores por vez no checkout deste evento */
     waitingRoomEnabled: z.boolean().optional(),
+    /** evento privado: fora da vitrine, da busca, da agenda da Casa e do Google */
+    isPrivate: z.boolean().optional(),
     waitingRoomConcurrency: z.number().int().min(1).max(100_000).optional(),
     pixelSettings: pixelSettingsSchema.optional(),
     /** Token da API de Conversões da Meta; "" ou null desliga o envio server-side. */

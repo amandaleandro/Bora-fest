@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type PublicEvent } from "../lib/api";
+import { eventAccess } from "../lib/attribution";
 import { formatCents } from "../lib/format";
 
 interface Selection {
@@ -153,11 +154,13 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
         }));
       // vincula a compra à conta quando a pessoa já entrou (sessão do site/app)
       const token = localStorage.getItem("bf.token") ?? undefined;
+      const access = eventAccess(event.slug);
       const reservation = await api.createReservation(
         event.id,
         items,
         token,
         waitingRoom.ticketId ?? undefined,
+        { promoterSlug: access.pr, inviteToken: access.convite },
       );
       sessionStorage.setItem(`bf.slug.${reservation.id}`, event.slug);
       router.push(`/checkout/${reservation.id}`);
