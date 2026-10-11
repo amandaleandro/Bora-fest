@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../lib/api";
 import { formatCents, formatDateTime } from "../../lib/format";
+import { pedidoGratis, precoOuGratis } from "../../lib/preco";
 import { Icon, paths } from "../../components/icons";
 
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
@@ -587,6 +588,10 @@ export default function ProfilePage() {
                   {orders.map((order) => {
                     const ended = new Date(order.event.endsAt).getTime() < Date.now();
                     const qty = order.items.reduce((sum, i) => sum + i.quantity, 0);
+                    // pedido de R$ 0 (2026-10-11): sem pagamento, sem reembolso nem texto do CDC —
+                    // grátis se cancela; aprovado vira "Ingresso garantido"
+                    const gratis = pedidoGratis(order);
+                    const emAnalise = Boolean(order.refundRequested) && APPROVED.includes(order.status) && !gratis;
                     return (
                       <article key={order.id} className={`rounded-[20px] border border-line bg-surface p-[22px] ${ended ? "opacity-85" : ""}`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -594,16 +599,18 @@ export default function ProfilePage() {
                             #BF-{order.publicToken.slice(0, 8).toUpperCase()} · {shortDate(order.createdAt)}
                           </span>
                           <span className={`rounded-full px-3 py-1.5 text-[11px] font-bold ${
-                            order.refundRequested && APPROVED.includes(order.status) ? "bg-warning/10 text-warning" :
+                            emAnalise ? "bg-warning/10 text-warning" :
                             ended ? "bg-line text-muted-2" :
                             APPROVED.includes(order.status) ? "bg-success/10 text-success" :
                             order.status === "PAYMENT_PENDING" || order.status === "CREATED" ? "bg-warning/10 text-warning" :
                             order.status === "REFUNDED" ? "bg-danger/10 text-danger" :
                             "bg-line text-muted-2"
                           }`}>
-                            {order.refundRequested && APPROVED.includes(order.status)
+                            {emAnalise
                               ? "Reembolso em análise"
-                              : ended ? "Evento encerrado" : ORDER_STATUS[order.status] ?? order.status}
+                              : ended ? "Evento encerrado"
+                              : gratis && APPROVED.includes(order.status) ? "Ingresso garantido"
+                              : ORDER_STATUS[order.status] ?? order.status}
                           </span>
                         </div>
                         <p className="mt-3 text-[16px] font-extrabold leading-tight">{order.event.title}</p>
@@ -622,7 +629,7 @@ export default function ProfilePage() {
                             </p>
                           )}
                           <p className="flex justify-between border-t border-line-divider pt-2.5 text-[15px] font-extrabold">
-                            <span>Total</span><span>{formatCents(order.totalCents)}</span>
+                            <span>Total</span><span>{precoOuGratis(order.totalCents)}</span>
                           </p>
                         </div>
                         {resentFor === order.publicToken && (
@@ -634,19 +641,24 @@ export default function ProfilePage() {
                           <Link href={`/pedido/${order.publicToken}`} className="flex h-11 items-center rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-primary">
                             Ver ingressos
                           </Link>
-                          <button onClick={() => resend(order.publicToken)} className="h-11 rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-ink">
-                            Reenviar por e-mail
-                          </button>
-                          {APPROVED.includes(order.status) && !ended && !order.refundRequested && (
+                          {/* pedido cancelado/estornado/expirado não tem ingresso a reenviar (2026-10-11) */}
+                          {!["CANCELED", "REFUNDED", "EXPIRED"].includes(order.status) && (
+                            <button onClick={() => resend(order.publicToken)} className="h-11 rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-ink">
+                              Reenviar por e-mail
+                            </button>
+                          )}
+                          {APPROVED.includes(order.status) && !ended && !order.refundRequested && !gratis && (
                             <Link href="/minhas-compras" className="flex h-11 items-center rounded-xl border-[1.5px] border-[#f5c6cf] px-[18px] text-[13px] font-bold text-danger">
                               Solicitar reembolso
                             </Link>
                           )}
                         </div>
-                        <p className="mt-3 text-[11.5px] font-medium leading-relaxed text-muted-2">
-                          Reembolso: até 7 dias após a compra e até 48h antes do evento (CDC art. 49). Cancelamento do
-                          evento = reembolso integral com taxas.
-                        </p>
+                        {!gratis && (
+                          <p className="mt-3 text-[11.5px] font-medium leading-relaxed text-muted-2">
+                            Reembolso: até 7 dias após a compra e até 48h antes do evento (CDC art. 49). Cancelamento do
+                            evento = reembolso integral com taxas.
+                          </p>
+                        )}
                       </article>
                     );
                   })}

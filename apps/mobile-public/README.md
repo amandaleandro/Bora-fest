@@ -1,5 +1,12 @@
 # BoraFest (app público do comprador)
 
+> **CONGELADO (2026-10-11, decisão do Arthur).** Nunca foi às lojas; só existiu como
+> APK de teste. O app do comprador é o site (PWA, botão "Baixe o app"). Desde então a
+> API exige o aceite dos Termos em todo pedido e este app não manda — a compra por
+> ele para com "compre pelo site". Antes de reativar: aceite LGPD no checkout, pedido
+> grátis pulando o pagamento, campo de CPF para lote com limite por pessoa e "Grátis"
+> nas telas.
+
 App do comprador: descoberta de eventos, compra (reserva → Pix → carteira)
 e "meus ingressos" opcional por login OTP. Consome a API descrita em
 `docs/projeto/API-REFERENCE.md`.

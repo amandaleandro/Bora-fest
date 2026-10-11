@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { API_BASE_URL, SITE_URL } from "../../lib/config";
 import type { PublicEvent } from "../../lib/api";
+import { loteComEstoque } from "../../lib/preco";
 import { EventPageClient } from "./EventPageClient";
 
 /** Fetch direto (sem passar pelo helper `request` do client) — roda no servidor, sem localStorage/window. */
@@ -99,7 +100,8 @@ export default async function EventPage({ params }: { params: { slug: string } }
               name: `${type.name} — ${lot.name}`,
               price: (lot.priceCents / 100).toFixed(2),
               priceCurrency: "BRL",
-              availability: "https://schema.org/InStock",
+              // lote esgotado continua ACTIVE no banco: o Google precisa saber (2026-10-11)
+              availability: loteComEstoque(lot) ? "https://schema.org/InStock" : "https://schema.org/SoldOut",
               url: `${SITE_URL}/${event.slug}`,
             })),
         ),

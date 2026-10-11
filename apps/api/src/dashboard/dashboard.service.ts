@@ -3,6 +3,7 @@ import { OrderStatus, prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
 import { getEventNetCents } from "../common/ledger";
+import { ONDE_PEDIDO_COM_VALOR, vendaDeuCerto, vendaFalhou } from "../common/conta-como-venda";
 
 const PAID_ORDER_STATUSES = ["PAID", "FULFILLED"] as const;
 
@@ -199,8 +200,12 @@ export class DashboardService {
     // sai mascarado.
     const comDinheiro = await this.podeVerDinheiro(event.organizationId, actorUserId);
 
+    // LISTA NÃO É VENDA (2026-10-11): pedido de R$ 0 (convidado da lista, lote
+    // grátis, cupom de 100%) fica fora do ranking, mesma regra do relatório de
+    // promoter. Antes, quem cadastrou 30 convidados aparecia aqui com 30 vendas
+    // e lá com zero, e cancelar convidado contava como venda que "falhou".
     const orders = await prisma.order.findMany({
-      where: { eventId, soldByUserId: { not: null } },
+      where: { eventId, soldByUserId: { not: null }, ...ONDE_PEDIDO_COM_VALOR },
       select: {
         status: true,
         totalCents: true,
@@ -211,9 +216,6 @@ export class DashboardService {
         _count: { select: { tickets: true } },
       },
     });
-
-    const OK_STATUSES = new Set(["PAID", "FULFILLED"]);
-    const FAILED_STATUSES = new Set(["REFUNDED", "PARTIALLY_REFUNDED", "CHARGEBACK", "EXPIRED", "CANCELED"]);
 
     const bySeller = new Map<
       string,
@@ -247,12 +249,12 @@ export class DashboardService {
         commissionCents: 0,
       };
 
-      if (OK_STATUSES.has(order.status)) {
+      if (vendaDeuCerto(order)) {
         entry.ordersOk += 1;
         entry.ticketsSold += order._count.tickets;
         entry.revenueCents += order.totalCents;
         entry.commissionCents += order.partnerCommissionCents;
-      } else if (FAILED_STATUSES.has(order.status)) {
+      } else if (vendaFalhou(order)) {
         entry.ordersFailed += 1;
       }
 
@@ -271,13 +273,18 @@ export class DashboardService {
   /**
    * Ranking de vendas por atlética/parceiro para competição — soma de todos os vendedores
    * vinculados a cada SalesPartner, ordenado por nº de ingressos vendidos (critério da disputa).
+   * Só ingresso pago conta ponto (2026-10-11): convidado da lista e grátis pelo link (?p=) ficam fora.
    */
   async listSalesByPartner(eventId: string, actorUserId: string) {
     const eventoP = await this.assertEventAccess(eventId, actorUserId);
     const comDinheiroP = await this.podeVerDinheiro(eventoP.organizationId, actorUserId);
 
+    // LISTA NÃO É VENDA (2026-10-11): a competição contava convidado da lista
+    // como ingresso vendido. A atlética subia no ranking enchendo a lista (o
+    // vendedor dela cadastra sem cota) ou com lote grátis/cupom de 100% pelo
+    // link dela. Mesma regra do relatório de promoter.
     const orders = await prisma.order.findMany({
-      where: { eventId, salesPartnerId: { not: null } },
+      where: { eventId, salesPartnerId: { not: null }, ...ONDE_PEDIDO_COM_VALOR },
       select: {
         status: true,
         totalCents: true,
@@ -287,9 +294,6 @@ export class DashboardService {
         _count: { select: { tickets: true } },
       },
     });
-
-    const OK_STATUSES = new Set(["PAID", "FULFILLED"]);
-    const FAILED_STATUSES = new Set(["REFUNDED", "PARTIALLY_REFUNDED", "CHARGEBACK", "EXPIRED", "CANCELED"]);
 
     const byPartner = new Map<
       string,
@@ -318,12 +322,12 @@ export class DashboardService {
         commissionCents: 0,
       };
 
-      if (OK_STATUSES.has(order.status)) {
+      if (vendaDeuCerto(order)) {
         entry.ordersOk += 1;
         entry.ticketsSold += order._count.tickets;
         entry.revenueCents += order.totalCents;
         entry.commissionCents += order.partnerCommissionCents;
-      } else if (FAILED_STATUSES.has(order.status)) {
+      } else if (vendaFalhou(order)) {
         entry.ordersFailed += 1;
       }
 

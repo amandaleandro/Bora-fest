@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PERMISSIONS } from "@borafest/auth";
 import { Prisma, prisma } from "@borafest/database";
 import { OrgAccessService } from "../common/org-access.service";
+import { SQL_PEDIDO_COM_VALOR } from "../common/conta-como-venda";
 
 type AggregateRow = {
   promoterLinkId: string;
@@ -93,14 +94,19 @@ export class PromoterPerformanceService {
               o.promoter_commission_cents,
               (o.total_cents = 0 AND EXISTS (
                 SELECT 1 FROM guest_list_entries g WHERE g.order_id = o.id
-              )) AS is_guest
+              )) AS is_guest,
+              -- É VENDA (2026-10-11): regra única em common/conta-como-venda.ts,
+              -- a mesma de "Por vendedor" e da competição de atléticas
+              (${SQL_PEDIDO_COM_VALOR}) AS is_sale
             FROM orders o
             WHERE o.event_id = ${eventId}::uuid
               AND o.promoter_link_id IN (${Prisma.join(linkIds.map((id) => Prisma.sql`${id}::uuid`))})
               AND o.status IN ('PAID', 'FULFILLED')
           ),
+          -- equivale ao antigo "is_guest = false AND total_cents > 0": pedido de
+          -- lista sempre tem total_cents = 0
           paid_orders AS (
-            SELECT * FROM attributed WHERE is_guest = false AND total_cents > 0
+            SELECT * FROM attributed WHERE is_sale
           ),
           money_stats AS (
             SELECT
@@ -125,10 +131,15 @@ export class PromoterPerformanceService {
           -- ingresso na mão. "Cadastrou" da lista vem de guest_list_entries (é
           -- literalmente o que o promoter colocou lá); "entrou" vem do ticket,
           -- que é o que a porta carimba.
+          --
+          -- "Vendidos que entraram" usa a mesma base de "vendidos" (2026-10-11):
+          -- com "is_guest = false", o lote grátis do link do promoter e o cupom de
+          -- 100% entravam aqui sem entrar em ticketsSold, e o promoter podia ter
+          -- mais vendidos que entraram do que vendidos.
           presence AS (
             SELECT
               a.promoter_link_id,
-              COUNT(*) FILTER (WHERE a.is_guest = false AND t.status = 'CHECKED_IN')::int AS sold_checked_in,
+              COUNT(*) FILTER (WHERE a.is_sale AND t.status = 'CHECKED_IN')::int AS sold_checked_in,
               COUNT(*) FILTER (WHERE a.is_guest = true AND t.status = 'CHECKED_IN')::int AS guests_checked_in
             FROM attributed a
             INNER JOIN tickets t ON t.order_id = a.id

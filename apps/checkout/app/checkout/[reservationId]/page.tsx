@@ -13,6 +13,7 @@ import {
   type Reservation,
 } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
+import { precoOuGratis } from "../../../lib/preco";
 import { ehCpfValido } from "../../../lib/cpf";
 
 /** Proteção de reembolso (upsell): mesmo valor do backend. */
@@ -684,7 +685,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   {lines.reduce((s, l) => s + l.quantity, 0)} ingresso
                   {lines.reduce((s, l) => s + l.quantity, 0) === 1 ? "" : "s"}
                 </p>
-                <p className="text-[16px] font-extrabold">{formatCents(totalCents)}</p>
+                {/* "Grátis" quando zero (2026-10-11): chip do celular igual ao Total do resumo */}
+                <p className="text-[16px] font-extrabold">{precoOuGratis(totalCents)}</p>
               </div>
             </div>
             {summaryOpen && (
@@ -692,7 +694,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                 {lines.map((line) => (
                   <div key={line.key} className="flex justify-between gap-3 text-[12.5px] font-semibold text-ink-soft">
                     <span>{line.quantity}× {line.label}</span>
-                    <span className="shrink-0">{formatCents(line.priceTotalCents)}</span>
+                    <span className="shrink-0">{precoOuGratis(line.priceTotalCents)}</span>
                   </div>
                 ))}
                 <div className="flex justify-between gap-3 text-[12.5px] font-medium text-muted-2">
@@ -1287,7 +1289,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     <span>
                       {line.quantity}× {line.label}
                     </span>
-                    <span className="shrink-0">{formatCents(line.priceTotalCents)}</span>
+                    <span className="shrink-0">{precoOuGratis(line.priceTotalCents)}</span>
                   </div>
                 ))}
                 {(event?.addOns ?? [])
@@ -1314,7 +1316,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                 )}
                 <div className="flex justify-between gap-3 border-t border-line pt-3 text-[17px] font-extrabold">
                   <span>Total</span>
-                  <span className="shrink-0">{formatCents(totalCents)}</span>
+                  {/* "Total Grátis" (2026-10-11): lote grátis ou cupom de 100% — a linha de desconto segue visível */}
+                  <span className="shrink-0">{precoOuGratis(totalCents)}</span>
                 </div>
               </div>
 

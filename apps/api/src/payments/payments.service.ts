@@ -10,6 +10,7 @@ import {
   GatewayTimeoutError,
 } from "@borafest/payments";
 import type { CreateCardPaymentInput, CreatePixPaymentInput } from "@borafest/contracts";
+import { emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 import { IdempotencyService } from "../common/idempotency.service";
 
 /**
@@ -18,14 +19,11 @@ import { IdempotencyService } from "../common/idempotency.service";
  * comprador chegar no "pagar" e tomar erro do banco.
  */
 function assertMinimumCharge(totalCents: number): void {
-  const minimo = Number(process.env.PAYMENT_MIN_CHARGE_CENTS ?? 500);
+  // fonte única do mínimo (2026-10-11): o lote e o pedido já barram antes, com a mesma regra
+  const minimo = minimoDaCobrancaCents();
   if (totalCents < minimo) {
-    const formatado = (minimo / 100).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
     throw new BadRequestException(
-      `O pagamento mínimo é de ${formatado} — adicione mais um ingresso ao pedido`,
+      `O pagamento mínimo é de ${emReais(minimo)} — adicione mais um ingresso ao pedido`,
     );
   }
 }

@@ -527,6 +527,9 @@ model Event {
   waitingRoomEnabled     Boolean        @default(false) @map("waiting_room_enabled")
   /// evento privado: fora da vitrine, da busca, da agenda da Casa e do Google; abre só pelo link
   isPrivate              Boolean        @default(false) @map("is_private")
+  /// quando os seguidores da Casa receberam o aviso de "novo evento" (2026-10-11); vazio = ainda não anunciado.
+  /// Garante anúncio uma vez só, mesmo se o evento for de privado para público várias vezes
+  followersNotifiedAt    DateTime?      @map("followers_notified_at")
   waitingRoomConcurrency Int            @default(300) @map("waiting_room_concurrency")
   pixelSettings          Json?          @map("pixel_settings")
   metaCapiToken          String?        @map("meta_capi_token")

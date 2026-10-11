@@ -1,15 +1,20 @@
 import { Body, Controller, Get, Headers, Param, Post, UseGuards } from "@nestjs/common";
-import { createOrderSchema, pdvOrderSchema, refundOrderSchema } from "@borafest/contracts";
+import { cancelFreeOrderSchema, createOrderSchema, pdvOrderSchema, refundOrderSchema } from "@borafest/contracts";
+import type { CancelFreeOrderInput } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { OptionalUserId } from "../common/optional-user.decorator";
 import { RateLimit } from "../common/rate-limit.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { OrdersService } from "./orders.service";
+import { CancelamentoGratisService } from "./cancelamento-gratis.service";
 
 @Controller("v1/orders")
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly cancelamentoGratis: CancelamentoGratisService,
+  ) {}
 
   @Post(":publicToken/correct-email")
   correctEmail(@Param("publicToken") publicToken: string, @Body() body: { email?: string }) {
@@ -71,6 +76,21 @@ export class OrdersController {
     @Body(ZodBody(refundOrderSchema)) body: unknown,
   ) {
     return this.ordersService.refundOrder(orderId, userId, body as any);
+  }
+
+  /**
+   * "Cancelar ingresso" de pedido grátis (2026-10-11): R$ 0 não se reembolsa,
+   * se cancela — o QR deixa de valer, a vaga volta e a pessoa recebe e-mail.
+   * Mesma permissão do estorno (ORDER_REFUND), checada no serviço.
+   */
+  @Post(":orderId/cancel-free")
+  @UseGuards(SessionGuard)
+  cancelFree(
+    @Param("orderId") orderId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(cancelFreeOrderSchema)) body: unknown,
+  ) {
+    return this.cancelamentoGratis.cancelarPeloProdutor(orderId, userId, body as CancelFreeOrderInput);
   }
 }
 

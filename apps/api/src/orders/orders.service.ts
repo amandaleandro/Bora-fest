@@ -10,6 +10,7 @@ import {
   returnSaleInventory,
   InsufficientStockError,
   prisma,
+  Prisma,
 } from "@borafest/database";
 import { createReservationExpirationQueue } from "@borafest/queues";
 import { applyGatewayStatus, computePlatformFeeCents, getGateway, getGatewayForMethod } from "@borafest/payments";
@@ -19,6 +20,7 @@ import { ehCpfValido, emailSinteticoPdv, PROTECTION_FEE_CENTS, sugerirCorrecaoEm
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { IdempotencyService } from "../common/idempotency.service";
+import { abaixoDoMinimoOnline, emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 
 /**
  * Janela para pagar depois de criar o pedido. O estoque permanece em
@@ -59,6 +61,35 @@ function rotuloDaPorta(): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `Porta · ${hh}:${mm}`;
+}
+
+/**
+ * Quantos ingressos do lote este CPF já tem em pedidos vivos. Pendente conta
+ * também, pra ninguém abrir dois checkouts em paralelo. Recebe o cliente de
+ * fora (checagem rápida) ou o `tx` (checagem que vale, depois da trava).
+ */
+async function ingressosDoCpfNoLote(
+  db: Pick<typeof prisma, "orderItem">,
+  ticketLotId: string,
+  cpf: string,
+): Promise<number> {
+  const jaTem = await db.orderItem.aggregate({
+    _sum: { quantity: true },
+    where: {
+      ticketLotId,
+      order: {
+        contactCpf: cpf,
+        status: { in: ["CREATED", "PAYMENT_PENDING", "PAID", "FULFILLED", "PARTIALLY_REFUNDED"] },
+      },
+    },
+  });
+  return jaTem._sum.quantity ?? 0;
+}
+
+function mensagemDoLimitePorCpf(limite: number): string {
+  return limite === 1
+    ? "Este CPF já garantiu o ingresso deste lote"
+    : `Este CPF já chegou ao limite de ${limite} ingressos deste lote`;
 }
 
 @Injectable()
@@ -157,6 +188,19 @@ export class OrdersService {
     // pago e segue a mesma emissão da cortesia; antes ia para PAYMENT_PENDING e
     // o comprador batia em "pagamento mínimo de R$ 5,00" sem saída.
     const semCusto = totalCents === 0;
+    // MÍNIMO DO PAGAMENTO ONLINE (2026-10-11): entre R$ 0,01 e o mínimo o
+    // pedido nascia PAYMENT_PENDING e só batia na trava no "Gerar Pix", sem
+    // saída — estoque e cupom presos 30 min, CPF travado no limite e e-mail de
+    // "seu Pix expira" de um Pix que nunca existiu. Recusa aqui, antes de gravar
+    // qualquer coisa (conta, cupom, pedido). Meia e cupom são o caso comum.
+    if (abaixoDoMinimoOnline(totalCents)) {
+      throw new BadRequestException(
+        ticketTotalCents === 0
+          ? // ingresso grátis + item pago barato: mais ingresso grátis não resolve
+            `Itens adicionais pagos começam em ${emReais(minimoDaCobrancaCents())}. Tire o item ou adicione mais unidades dele.`
+          : `O pagamento online começa em ${emReais(minimoDaCobrancaCents())}. Volte e aumente a quantidade de ingressos.`,
+      );
+    }
 
     // atribuição de PROMOTER/VENDEDOR (Promoter v3). Link de vendedor (?vd=)
     // implica o promoter dele; link de promoter (?pr=) atribui só o promoter.
@@ -276,30 +320,24 @@ export class OrdersService {
     for (const item of reservation.items) {
       qtdPorLote.set(item.ticketLotId, (qtdPorLote.get(item.ticketLotId) ?? 0) + item.quantity);
     }
+    // Esta soma é só a recusa RÁPIDA, antes de criar conta: roda fora da
+    // transação e não segura corrida. A que vale é refeita dentro dela, com trava.
     for (const [ticketLotId, quantidade] of qtdPorLote) {
       const limite = lotById.get(ticketLotId)?.limitPerCpf;
       if (!limite) continue;
       if (!cpfDoPedido) {
         throw new BadRequestException("Informe seu CPF para garantir este ingresso");
       }
-      const jaTem = await prisma.orderItem.aggregate({
-        _sum: { quantity: true },
-        where: {
-          ticketLotId,
-          order: {
-            contactCpf: cpfDoPedido,
-            status: { in: ["CREATED", "PAYMENT_PENDING", "PAID", "FULFILLED", "PARTIALLY_REFUNDED"] },
-          },
-        },
-      });
-      if ((jaTem._sum.quantity ?? 0) + quantidade > limite) {
-        throw new BadRequestException(
-          limite === 1
-            ? "Este CPF já garantiu o ingresso deste lote"
-            : `Este CPF já chegou ao limite de ${limite} ingressos deste lote`,
-        );
+      if ((await ingressosDoCpfNoLote(prisma, ticketLotId, cpfDoPedido)) + quantidade > limite) {
+        throw new BadRequestException(mensagemDoLimitePorCpf(limite));
       }
     }
+    // lotes com limite, em ordem FIXA (por id): dois pedidos que travam os mesmos
+    // lotes sempre pedem as travas na mesma sequência e nunca esperam um pelo
+    // outro em cruz
+    const lotesComLimite = [...qtdPorLote.keys()]
+      .filter((ticketLotId) => lotById.get(ticketLotId)?.limitPerCpf)
+      .sort();
     let effectiveUserId = userId;
     let accountCreatedByOrder = false;
     if (!effectiveUserId && input.contactEmail) {
@@ -318,17 +356,33 @@ export class OrdersService {
           cpf ? prisma.user.findUnique({ where: { cpf } }).then((u) => !u) : Promise.resolve(false),
           phone ? prisma.user.findUnique({ where: { phone } }).then((u) => !u) : Promise.resolve(false),
         ]);
-        const created = await prisma.user.create({
-          data: {
-            email,
-            name: input.contactName ?? undefined,
-            ...(cpf && cpfLivre ? { cpf } : {}),
-            ...(phone && phoneLivre ? { phone } : {}),
-            termsAcceptedAt: new Date(),
-          },
-        });
-        effectiveUserId = created.id;
-        accountCreatedByOrder = true;
+        const criarConta = (comDocumentos: boolean) =>
+          prisma.user.create({
+            data: {
+              email,
+              name: input.contactName ?? undefined,
+              ...(comDocumentos && cpf && cpfLivre ? { cpf } : {}),
+              ...(comDocumentos && phone && phoneLivre ? { phone } : {}),
+              termsAcceptedAt: new Date(),
+            },
+          });
+        // CORRIDA (2026-10-11): dois checkouts ao mesmo tempo podem ver o mesmo
+        // e-mail/CPF/celular "livre" e o 2º create estourava como erro 500. Se o
+        // e-mail ganhou conta nesse meio-tempo, segue a regra de e-mail existente
+        // (pedido sem dono); se foi CPF/celular, a conta nasce sem eles — como
+        // quando já estavam em uso.
+        let created: { id: string } | null = null;
+        try {
+          created = await criarConta(true);
+        } catch (erro) {
+          if (!(erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === "P2002")) throw erro;
+          const jaTemConta = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+          created = jaTemConta ? null : await criarConta(false);
+        }
+        if (created) {
+          effectiveUserId = created.id;
+          accountCreatedByOrder = true;
+        }
       }
     }
     // CPF na conta só quando a sessão é do próprio dono ou a conta nasceu
@@ -347,6 +401,25 @@ export class OrdersService {
     const expiresAt = new Date(Date.now() + ORDER_PAYMENT_WINDOW_MINUTES * 60 * 1000);
 
     const order = await prisma.$transaction(async (tx) => {
+      // LIMITE POR CPF À PROVA DE CORRIDA (2026-10-11): a soma lá de cima roda
+      // fora da transação — dois pedidos do mesmo CPF disparados juntos viam os
+      // dois "0 ingressos" e passavam os dois. Aqui cada par lote+CPF pega uma
+      // trava do Postgres (solta sozinha no fim da transação) e a soma é refeita
+      // com tx: o segundo pedido espera o primeiro gravar, já o enxerga e é
+      // recusado. Só espera quem usa o MESMO CPF no MESMO lote. $executeRaw, não
+      // $queryRaw: a função devolve void e o $queryRaw não sabe ler esse tipo.
+      if (cpfDoPedido) {
+        for (const ticketLotId of lotesComLimite) {
+          const limite = lotById.get(ticketLotId)!.limitPerCpf!;
+          const chave = `${ticketLotId}:${cpfDoPedido}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${chave}::text, 0))`;
+          const jaTem = await ingressosDoCpfNoLote(tx, ticketLotId, cpfDoPedido);
+          if (jaTem + (qtdPorLote.get(ticketLotId) ?? 0) > limite) {
+            throw new BadRequestException(mensagemDoLimitePorCpf(limite));
+          }
+        }
+      }
+
       // guarda de corrida contra o worker de expiração: só converte se ainda ACTIVE
       const converted = await tx.reservation.updateMany({
         where: { id: reservation.id, status: "ACTIVE" },
@@ -908,6 +981,13 @@ export class OrdersService {
     if (totalCents === 0) {
       throw new BadRequestException(
         "Lote gratuito não gera Pix — use o botão de cortesia (emite na hora)",
+      );
+    }
+    // mesmo mínimo do Pix online (2026-10-11): antes o pedido nascia pendente,
+    // segurava o estoque 30 min e só o QR falhava. Na porta tem saída: dinheiro.
+    if (abaixoDoMinimoOnline(totalCents)) {
+      throw new BadRequestException(
+        `O Pix começa em ${emReais(minimoDaCobrancaCents())}. Receba em dinheiro ou some mais ingressos na venda.`,
       );
     }
     // CPF do pagador: exigência do GATEWAY, não do Pix (2026-09-11).

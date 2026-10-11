@@ -25,6 +25,14 @@ export class RefundRequestsService {
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
 
+    // INGRESSO GRÁTIS NÃO TEM REEMBOLSO (2026-10-11): antes o pedido entrava na
+    // fila da casa/BoraFest, o comprador via "Reembolso em análise" e o
+    // "Aprovar" falhava ("não tem pagamento aprovado") — só dava para recusar.
+    // Vem antes da checagem de status para a mensagem dizer o motivo real.
+    if (order.totalCents === 0) {
+      throw new BadRequestException("Ingresso grátis não tem reembolso.");
+    }
+
     if (!["PAID", "FULFILLED"].includes(order.status)) {
       throw new BadRequestException("Este pedido não tem pagamento aprovado para reembolsar");
     }

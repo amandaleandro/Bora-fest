@@ -98,6 +98,8 @@ test("taxa real ponta a ponta: servidor calcula a taxa do lote e o ledger lança
 });
 
 test("pagamento abaixo do mínimo do provedor é barrado com mensagem clara", async () => {
+  // Desde 2026-10-11 a trava vem ANTES: o lote barato nem é criado, e um lote
+  // antigo nessa faixa é recusado na criação do pedido, sem gravar nada.
   const fixture = await createFixtureEvent({ lotCapacity: 5, priceCents: 250, feeCents: 0 });
   try {
     const member = await prisma.user.create({
@@ -112,36 +114,32 @@ test("pagamento abaixo do mínimo do provedor é barrado com mensagem clara", as
       },
     });
     const catalog = new CatalogService(new OrgAccessService(), new InventoryService());
-    const lot = await catalog.createLot(fixture.ticketType.id, member.id, {
-      name: "Barato demais",
-      priceCents: 250,
-      feeCents: 0,
-      capacity: 5,
-      maxPerOrder: 4,
-    } as any);
-    await catalog.activateLot(lot.id, member.id);
+    await assert.rejects(
+      () =>
+        catalog.createLot(fixture.ticketType.id, member.id, {
+          name: "Barato demais",
+          priceCents: 250,
+          feeCents: 0,
+          capacity: 5,
+          maxPerOrder: 4,
+        } as any),
+      /pelo menos R\$\s?5,00/,
+    );
 
+    // lote antigo de R$ 2,50 (criado direto no banco pelo fixture, já ACTIVE)
     const reservations = new ReservationsService(new InventoryService(), new WaitingRoomService());
     const orders = new OrdersService(new CouponsService(new OrgAccessService()), new OrgAccessService());
-    const payments = new PaymentsService(new IdempotencyService());
     const reservation = await reservations.create(undefined, {
       eventId: fixture.event.id,
-      items: [{ ticketLotId: lot.id, quantity: 1 }],
+      items: [{ ticketLotId: fixture.lot.id, quantity: 1 }],
     });
-    const order = await orders.createFromReservation(undefined, {
-      reservationId: reservation.id,
-      contactEmail: "minimo@borafest.dev",
-    });
-    // preço + taxa fica abaixo do mínimo que o provedor aceita cobrar
-    const TAXA_MIN = computePlatformFeeCents("PIX", 250, {} as never);
-    assert.equal(order.totalCents, 250 + TAXA_MIN);
-    assert.ok(order.totalCents < 500, "o cenário só vale se ficar abaixo do mínimo do provedor");
-
     await assert.rejects(
-      () => payments.createPix(order.id, {}),
-      /pagamento mínimo é de R\$\s?5,00/,
+      () => orders.createFromReservation(undefined, { reservationId: reservation.id, contactEmail: "minimo@borafest.dev" }),
+      /pagamento online começa em R\$\s?5,00/,
     );
+    assert.equal(await prisma.order.count({ where: { eventId: fixture.event.id } }), 0, "nenhum pedido nasce");
   } finally {
+    await prisma.reservationItem.deleteMany({ where: { reservation: { eventId: fixture.event.id } } });
     await cleanupFixtureEvent(fixture.organization.id);
   }
 });

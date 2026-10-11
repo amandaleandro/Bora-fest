@@ -59,7 +59,19 @@ export const createOrderSchema = z.object({
       privacy: z.literal(true),
     })
     .optional(),
-});
+})
+  // aceite obrigatório em TODO pedido (decisão do Arthur, 2026-10-11): o site sempre
+  // manda; o app nativo do comprador (APK de teste, nunca foi às lojas) foi congelado
+  // e não manda — quem estiver nele é mandado para o site. Erro na raiz (sem o prefixo
+  // "consent:") para a mensagem sair limpa.
+  .superRefine((pedido, ctx) => {
+    if (!pedido.consent) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Aceite os Termos de Uso e a Política de Privacidade para continuar — compre pelo site borafest.com.br",
+      });
+    }
+  });
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
 /** "Receber meus ingressos no WhatsApp" — corpo opcional; sem phone usa o contato do pedido. */

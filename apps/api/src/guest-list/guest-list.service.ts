@@ -4,6 +4,7 @@ import { PERMISSIONS } from "@borafest/auth";
 import type { CreateGuestListEntryInput } from "@borafest/contracts";
 import { emailSinteticoLista } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
+import { cancelarPedidoGratis } from "../common/cancelar-pedido-gratis";
 import { InventoryService, InsufficientStockError } from "../inventory/inventory.service";
 
 @Injectable()
@@ -237,6 +238,36 @@ export class GuestListService {
     if (!entry) throw new NotFoundException("Entrada não encontrada");
     if (entry.status === "CANCELED") return entry;
 
+    // COM PEDIDO: a mesma operação do "Cancelar ingresso" do painel (2026-10-11).
+    // Ela troca o status de forma atômica — dois cliques (ou a Lista e a tela de
+    // Vendas ao mesmo tempo) não devolvem a vaga em dobro, como acontecia aqui —
+    // e já cancela a entrada da lista (o que devolve a cota do promoter).
+    if (entry.orderId) {
+      try {
+        await cancelarPedidoGratis(entry.orderId, userId, "Cancelado na lista de convidados", {
+          origem: "produtor",
+          aviso: { tipo: "nenhum" }, // convidado de lista não tem e-mail real
+        });
+      } catch (erro) {
+        if (erro instanceof BadRequestException && /usados na entrada/.test(erro.message)) {
+          throw new BadRequestException("Convidado já entrou na festa — a vaga dele não volta para o lote");
+        }
+        throw erro;
+      }
+      await prisma.auditLog.create({
+        data: {
+          actorUserId: userId,
+          organizationId: event.organizationId,
+          action: "guest_list.cancel",
+          entityType: "guest_list_entry",
+          entityId: entry.id,
+          metadata: { ticketLotId: entry.ticketLotId },
+        },
+      });
+      return prisma.guestListEntry.findUniqueOrThrow({ where: { id: entry.id } });
+    }
+
+    // SEM PEDIDO (entrada antiga): fluxo de antes
     await prisma.$transaction(async (tx) => {
       let ticketId = entry.ticketId;
       if (!ticketId && entry.orderId) {

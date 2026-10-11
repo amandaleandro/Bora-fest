@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type Order } from "../../lib/api";
-import { formatCents, formatDateTime } from "../../lib/format";
+import { formatDateTime } from "../../lib/format";
+import { pedidoGratis, precoOuGratis } from "../../lib/preco";
 import { Icon, paths } from "../../components/icons";
 
 interface PurchaseRow {
@@ -28,6 +29,19 @@ const STATUS_LABEL: Record<string, string> = {
   PARTIALLY_REFUNDED: "Parcialmente reembolsado",
   CANCELED: "Cancelado",
 };
+
+/**
+ * Selo do pedido (2026-10-11). Pedido de R$ 0 não teve pagamento: aprovado vira
+ * "Ingresso garantido", e um pedido de reembolso antigo não vira "Reembolso em
+ * análise" — grátis se cancela, não se reembolsa (cancelado já é "Cancelado").
+ */
+function statusLabel(row: PurchaseRow): string {
+  const aprovado = ["PAID", "FULFILLED"].includes(row.status);
+  if (aprovado && row.refundRequested && !pedidoGratis(row)) return "Reembolso em análise";
+  if (row.ended) return "Evento encerrado";
+  if (aprovado && pedidoGratis(row)) return "Ingresso garantido";
+  return STATUS_LABEL[row.status] ?? row.status;
+}
 
 /** Pedidos lembrados neste aparelho (compra como convidado). */
 async function loadDeviceOrders(skip: Set<string>): Promise<PurchaseRow[]> {
@@ -135,18 +149,16 @@ export default function PurchasesPage() {
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[14px] font-extrabold lg:text-[15px]">{row.eventTitle}</p>
                 <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                  row.refundRequested && ["PAID", "FULFILLED"].includes(row.status) ? "bg-warning/10 text-warning" :
+                  row.refundRequested && ["PAID", "FULFILLED"].includes(row.status) && !pedidoGratis(row) ? "bg-warning/10 text-warning" :
                   ["PAID", "FULFILLED"].includes(row.status) ? "bg-success/10 text-success" :
                   row.status === "PAYMENT_PENDING" ? "bg-warning/10 text-warning" : "bg-line text-muted"
                 }`}>
-                  {row.refundRequested && ["PAID", "FULFILLED"].includes(row.status)
-                    ? "Reembolso em análise"
-                    : row.ended ? "Evento encerrado" : STATUS_LABEL[row.status] ?? row.status}
+                  {statusLabel(row)}
                 </span>
               </div>
               {row.startsAt && <p className="mt-0.5 text-[12px] font-medium text-muted">{formatDateTime(row.startsAt)}</p>}
               <p className="mt-1 text-[12px] font-semibold text-ink-soft">{row.itemsLabel}</p>
-              <p className="mt-1 text-[15px] font-extrabold">{formatCents(row.totalCents)}</p>
+              <p className="mt-1 text-[15px] font-extrabold">{precoOuGratis(row.totalCents)}</p>
 
               {refundOk === row.publicToken && (
                 <div className="mt-3 rounded-xl bg-success/10 p-3 text-[12px] font-bold text-success">
@@ -166,7 +178,8 @@ export default function PurchasesPage() {
                   >
                     Reenviar ingressos
                   </button>
-                  {!row.refundRequested && (
+                  {/* pedido de R$ 0 não tem reembolso nem prazo do CDC: não houve pagamento (2026-10-11) */}
+                  {!row.refundRequested && !pedidoGratis(row) && (
                     <button onClick={() => setRefundFor(row.publicToken)} className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
                       Reembolso
                     </button>

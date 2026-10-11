@@ -6,6 +6,7 @@ import { PERMISSIONS } from "@borafest/auth";
 import type { CreateTicketLotInput, CreateTicketTypeInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { InventoryService } from "../inventory/inventory.service";
+import { abaixoDoMinimoOnline, emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 
 
 /** Campos do cartão de vitrine (home/listas) — um só select para lista e home. */
@@ -22,11 +23,29 @@ const showcaseSelect = {
     select: {
       lots: {
         where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false, inviteMode: "NONE" as const },
-        select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
+        select: {
+          priceCents: true,
+          feeCents: true,
+          feeMode: true,
+          endsAt: true,
+          // estoque (2026-10-11): o card só anuncia lote que ainda dá pra pegar
+          capacity: true,
+          soldCount: true,
+          reservedCount: true,
+        },
       },
     },
   },
 } as const;
+
+/**
+ * Lote que ainda dá pra pegar (2026-10-11): nada no sistema passa o lote para
+ * "esgotado" — ele segue ACTIVE com o estoque zerado. Mesma conta da reserva
+ * (InventoryService) e do "Esgotado" do seletor: o reservado também ocupa vaga.
+ */
+function loteComEstoque(lot: { capacity: number; soldCount: number; reservedCount: number }): boolean {
+  return lot.capacity - lot.soldCount - lot.reservedCount > 0;
+}
 
 type ShowcaseRow = {
   id: string;
@@ -38,13 +57,25 @@ type ShowcaseRow = {
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
   ticketTypes: Array<{
-    lots: Array<{ priceCents: number; feeCents: number; feeMode: string; endsAt: Date | null }>;
+    lots: Array<{
+      priceCents: number;
+      feeCents: number;
+      feeMode: string;
+      endsAt: Date | null;
+      capacity: number;
+      soldCount: number;
+      reservedCount: number;
+    }>;
   }>;
 };
 
 /** preço honesto (o que o comprador paga) + urgência real (fim do lote ativo). */
 function toShowcaseCard(event: ShowcaseRow) {
-  const lots = event.ticketTypes.flatMap((type) => type.lots);
+  // ESGOTADO FORA DO CARD (2026-10-11): o card seguia dizendo "Grátis" (ou "a
+  // partir de R$ 20") depois que aquele lote acabava. Só lote com estoque entra
+  // no preço e no "lote atual termina em". Tudo esgotado = sem preço (null),
+  // que o site já mostra como card sem preço.
+  const lots = event.ticketTypes.flatMap((type) => type.lots).filter(loteComEstoque);
   const totals = lots.map(
     (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
   );
@@ -146,6 +177,29 @@ export class CatalogService {
       throw new BadRequestException("Escolha só uma forma de disponibilidade para o lote");
     }
 
+    // MÍNIMO DO PAGAMENTO ONLINE (2026-10-11): o painel aceitava lote de R$ 3 e
+    // ninguém conseguia comprar — o pedido travava no "Gerar Pix". Barra na
+    // origem o que o comprador paga por 1 ingresso (preço + taxa se ele paga a
+    // taxa; só o preço se o produtor absorve) e, com meia, a meia também. Lote
+    // só de balcão fica de fora: na porta tem dinheiro, sem banco no meio.
+    if (input.priceCents > 0 && !input.pdvOnly) {
+      const minimo = minimoDaCobrancaCents();
+      const taxaDoComprador = (input.feeMode ?? "BUYER") === "PRODUCER" ? 0 : feeCents;
+      const inteira = input.priceCents + taxaDoComprador;
+      if (abaixoDoMinimoOnline(inteira)) {
+        throw new BadRequestException(
+          `Ingresso pago precisa sair por pelo menos ${emReais(minimo)} para o comprador (mínimo que o banco aceita) — este sairia por ${emReais(inteira)}. Para dar de graça, use R$ 0.`,
+        );
+      }
+      // meia = metade do preço com a taxa cheia, a mesma conta da reserva
+      const meia = Math.round(input.priceCents / 2) + taxaDoComprador;
+      if (input.halfPriceEnabled && abaixoDoMinimoOnline(meia)) {
+        throw new BadRequestException(
+          `A meia-entrada sairia por ${emReais(meia)} para o comprador, abaixo do mínimo de ${emReais(minimo)} que o banco aceita. Aumente o preço do lote ou desmarque a meia-entrada.`,
+        );
+      }
+    }
+
     return prisma.ticketLot.create({
       data: {
         ticketTypeId,
@@ -156,7 +210,8 @@ export class CatalogService {
         maxPerOrder: input.maxPerOrder,
         feeMode: input.feeMode ?? "BUYER",
         nominal: input.nominal ?? false,
-        halfPriceEnabled: input.halfPriceEnabled ?? false,
+        // lote grátis não tem meia (2026-10-11): metade de zero só faria a porta pedir documento à toa
+        halfPriceEnabled: input.priceCents > 0 ? (input.halfPriceEnabled ?? false) : false,
         pdvOnly: input.pdvOnly ?? false,
         promoterOnly: input.promoterOnly ?? false,
         inviteMode,

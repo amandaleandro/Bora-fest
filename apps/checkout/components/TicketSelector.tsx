@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError, type PublicEvent } from "../lib/api";
 import { eventAccess } from "../lib/attribution";
 import { formatCents } from "../lib/format";
+import { precoDoLote, precoOuGratis } from "../lib/preco";
 
 interface Selection {
   qty: number;
@@ -119,6 +120,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
             countdownLabel: lotCountdownLabel(lot.endsAt),
             // feeMode PRODUCER: o produtor absorve a taxa — o comprador paga só o preço
             buyerPaysFee: lot.feeMode !== "PRODUCER",
+            // lote grátis (2026-10-11): o comprador não paga nada — "Grátis", "sem taxa", sem meia
+            gratis: precoDoLote(lot) === 0,
           };
         }),
       ),
@@ -133,7 +136,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
   }, 0);
   const count = Object.values(selection).reduce((s, x) => s + x.qty, 0);
   const selectedLots = lots.filter((lot) => selection[lot.id]?.qty);
-  const anyBuyerFee = selectedLots.some((lot) => lot.buyerPaysFee);
+  // lote grátis não tem taxa: só ele selecionado não é "inclui taxas" (2026-10-11)
+  const anyBuyerFee = selectedLots.some((lot) => lot.buyerPaysFee && !lot.gratis);
 
   function bump(lotId: string, delta: number, max: number) {
     setSelection((prev) => {
@@ -239,8 +243,18 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
                       Nominal
                     </span>
                   )}
-                  <p className={`mt-1.5 font-extrabold ${compact ? "text-[17px]" : "text-[20px]"}`}>{formatCents(unitPrice)}</p>
-                  {lot.buyerPaysFee ? (
+                  {/* limite por CPF (2026-10-11): antes o "+" só apagava, sem dizer por quê */}
+                  {lot.limitPerCpf && !lot.soldOut ? (
+                    <span className="mt-1 ml-1 inline-block rounded-full bg-line px-2.5 py-0.5 text-[10px] font-bold text-muted">
+                      até {lot.limitPerCpf} por pessoa
+                    </span>
+                  ) : null}
+                  <p className={`mt-1.5 font-extrabold ${compact ? "text-[17px]" : "text-[20px]"} ${unitPrice === 0 ? "text-success" : ""}`}>
+                    {precoOuGratis(unitPrice)}
+                  </p>
+                  {lot.gratis ? (
+                    <p className="text-[11px] font-semibold text-muted">sem taxa</p>
+                  ) : lot.buyerPaysFee ? (
                     <p className="text-[11px] font-semibold text-muted">+ {formatCents(lot.feeCents)} taxa de serviço</p>
                   ) : (
                     <p className="text-[11px] font-semibold text-success">taxa por conta do produtor</p>
@@ -258,7 +272,13 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
                   </div>
                 )}
               </div>
-              {!lot.soldOut && (lot as { halfPriceEnabled?: boolean }).halfPriceEnabled === true && (
+              {lot.gratis && lot.limitPerCpf && sel.qty >= lot.limitPerCpf ? (
+                <p className="mt-2 text-[11px] font-semibold text-muted">
+                  Você chegou ao limite de ingressos grátis por pessoa.
+                </p>
+              ) : null}
+              {/* meia de R$ 0 não existe (2026-10-11): em lote grátis a opção some — e a portaria não pede documento à toa */}
+              {!lot.soldOut && !lot.gratis && (lot as { halfPriceEnabled?: boolean }).halfPriceEnabled === true && (
                 <label className="mt-2.5 flex items-center gap-2 border-t border-line-divider pt-2.5 text-[12px] font-semibold text-ink-soft">
                   <input type="checkbox" checked={sel.half}
                     onChange={(e) => setSelection((prev) => ({ ...prev, [lot.id]: { ...sel, half: e.target.checked } }))}
@@ -283,13 +303,15 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
         <div>
           <p className="text-[12px] font-semibold text-muted">
             {count} ingresso{count === 1 ? "" : "s"}
-            {count > 0 ? (anyBuyerFee ? " · inclui taxas" : " · taxa por conta do produtor") : ""}
+            {/* total zero (2026-10-11): sem "inclui taxas" — não há taxa nem pagamento */}
+            {count > 0 && totalCents > 0 ? (anyBuyerFee ? " · inclui taxas" : " · taxa por conta do produtor") : ""}
           </p>
-          <p className="text-[20px] font-extrabold whitespace-nowrap">{formatCents(totalCents)}</p>
+          {/* nada escolhido segue "R$ 0,00": "Grátis" só quando há ingresso grátis na seleção */}
+          <p className="text-[20px] font-extrabold whitespace-nowrap">{count > 0 ? precoOuGratis(totalCents) : formatCents(0)}</p>
         </div>
         <button onClick={submit} disabled={count === 0 || submitting}
           className={`h-12 rounded-2xl px-6 text-[14px] font-extrabold text-white ${count === 0 || submitting ? "bg-[#ecd6e4]" : "bg-primary shadow-cta"}`}>
-          {submitting ? "Reservando…" : "Continuar para pagamento"}
+          {submitting ? "Reservando…" : totalCents > 0 ? "Continuar para pagamento" : "Continuar"}
         </button>
       </div>
     </div>

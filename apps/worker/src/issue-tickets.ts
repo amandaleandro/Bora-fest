@@ -42,6 +42,9 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
           : ("GRATIS" as const) // lote grátis pego no site (2026-10-10): não é "compra"
       : null;
   if (order.status !== "PAID") {
+    // reprocesso depois de um cancelamento que pegou a emissão no meio: o que
+    // nasceu valendo num pedido cancelado é anulado (ver corrida abaixo)
+    if (order.status === "CANCELED") await anularIngressosDePedidoCancelado(prisma, orderId);
     log.warn({ orderId, status: order.status }, "pedido não está PAID; emissão ignorada");
     return;
   }
@@ -115,7 +118,14 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       where: { id: orderId, status: "PAID" },
       data: { status: "FULFILLED" },
     });
-    if (fulfilled.count === 0) return;
+    if (fulfilled.count === 0) {
+      // CORRIDA COM O CANCELAMENTO DO GRÁTIS (2026-10-11): se o produtor cancelou
+      // enquanto este laço criava os ingressos, os criados depois nasceram ACTIVE
+      // num pedido CANCELED. O cancelamento já devolveu a vaga deles (contou como
+      // "ainda não emitido") — então aqui só se anula o QR, sem mexer no estoque.
+      await anularIngressosDePedidoCancelado(tx, orderId);
+      return;
+    }
     justFulfilled = true;
 
     // Portão do 1º ingresso (decisão 2026-08-10): conta ainda não verificada
@@ -256,4 +266,13 @@ function randomUuid(): string {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Ingresso ACTIVE de pedido CANCELED não vale na porta (corrida emissão × cancelamento do grátis). */
+async function anularIngressosDePedidoCancelado(db: Pick<typeof prisma, "ticket">, orderId: string) {
+  const anulados = await db.ticket.updateMany({
+    where: { orderId, status: { in: ["ISSUED", "ACTIVE"] }, order: { status: "CANCELED" } },
+    data: { status: "CANCELED", canceledAt: new Date() },
+  });
+  if (anulados.count > 0) log.warn({ orderId, anulados: anulados.count }, "ingressos emitidos depois do cancelamento foram anulados");
 }

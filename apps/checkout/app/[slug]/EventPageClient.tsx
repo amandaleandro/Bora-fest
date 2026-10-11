@@ -5,7 +5,7 @@ import { EventImage } from "../../components/EventImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type PublicEvent } from "../../lib/api";
-import { formatCents } from "../../lib/format";
+import { menorPrecoDisponivel, textoBotaoEvento } from "../../lib/preco";
 import { Icon, paths } from "../../components/icons";
 import { FavoriteButton } from "../../components/FavoriteButton";
 import { TicketSelector } from "../../components/TicketSelector";
@@ -61,16 +61,6 @@ function EventInfoSections({ event, compact = false }: { event: PublicEvent; com
   );
 }
 
-function minPriceCents(event: PublicEvent): number | null {
-  // preço anunciado = o que o comprador paga (com taxa quando é dele)
-  const prices = event.ticketTypes.flatMap((t) =>
-    t.lots
-      .filter((l) => l.status === "ACTIVE")
-      .map((l) => l.priceCents + (l.feeMode !== "PRODUCER" ? l.feeCents : 0)),
-  );
-  return prices.length ? Math.min(...prices) : null;
-}
-
 export function EventPageClient({
   slug,
   initialEvent = null,
@@ -115,7 +105,9 @@ export function EventPageClient({
   const paused = event.status === "SALES_PAUSED";
   const closedLabel = paused ? "Vendas pausadas" : "Vendas encerradas";
   const closedBadge = paused ? "bg-warning/10 text-warning" : "bg-line text-muted";
-  const min = minPriceCents(event);
+  // preço anunciado = o que o comprador paga (com taxa quando é dele), só de
+  // lote com estoque — esgotado não vira "a partir de" (2026-10-11)
+  const min = menorPrecoDisponivel(event);
   const starts = new Date(event.startsAt);
   const dateLabel = starts.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", timeZone: event.timezone });
   const timeLabel = starts.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: event.timezone });
@@ -314,7 +306,7 @@ export function EventPageClient({
             href={`/${event.slug}/ingressos`}
             className="flex h-14 items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
           >
-            Comprar ingressos{min !== null ? ` · a partir de ${formatCents(min)}` : ""}
+            {textoBotaoEvento(min)}
           </Link>
         )}
       </div>

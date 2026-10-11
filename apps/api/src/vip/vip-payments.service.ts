@@ -20,6 +20,7 @@ import {
 } from "@borafest/payments";
 import type { ConfigureVipDepositInput, CreatePixPaymentInput } from "@borafest/contracts";
 import { IdempotencyService } from "../common/idempotency.service";
+import { emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 import { OrgAccessService } from "../common/org-access.service";
 
 type QueryDb = Pick<Prisma.TransactionClient, "$queryRaw">;
@@ -41,10 +42,9 @@ type VipPayableContext = {
 };
 
 function assertMinimumCharge(amountCents: number): void {
-  const minimum = Number(process.env.PAYMENT_MIN_CHARGE_CENTS ?? 500);
+  const minimum = minimoDaCobrancaCents(); // fonte única (common/minimo-cobranca.ts)
   if (amountCents < minimum) {
-    const formatted = (minimum / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    throw new BadRequestException(`O sinal mínimo para pagamento online é ${formatted}`);
+    throw new BadRequestException(`O sinal mínimo para pagamento online é ${emReais(minimum)}`);
   }
 }
 

@@ -14,11 +14,29 @@ const publicEventSelect = {
     select: {
       lots: {
         where: { status: "ACTIVE" as const, pdvOnly: false, promoterOnly: false, inviteMode: "NONE" as const },
-        select: { priceCents: true, feeCents: true, feeMode: true, endsAt: true },
+        select: {
+          priceCents: true,
+          feeCents: true,
+          feeMode: true,
+          endsAt: true,
+          // estoque (2026-10-11): o card só anuncia lote que ainda dá pra pegar
+          capacity: true,
+          soldCount: true,
+          reservedCount: true,
+        },
       },
     },
   },
 } as const;
+
+/**
+ * Lote que ainda dá pra pegar (2026-10-11): nada no sistema passa o lote para
+ * "esgotado" — ele segue ACTIVE com o estoque zerado. Mesma conta da reserva
+ * (InventoryService) e da vitrine (catalog.service): o reservado também ocupa vaga.
+ */
+function loteComEstoque(lot: { capacity: number; soldCount: number; reservedCount: number }): boolean {
+  return lot.capacity - lot.soldCount - lot.reservedCount > 0;
+}
 
 function toEventCard(event: {
   id: string;
@@ -30,13 +48,25 @@ function toEventCard(event: {
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
   ticketTypes: Array<{
-    lots: Array<{ priceCents: number; feeCents: number; feeMode: string; endsAt: Date | null }>;
+    lots: Array<{
+      priceCents: number;
+      feeCents: number;
+      feeMode: string;
+      endsAt: Date | null;
+      capacity: number;
+      soldCount: number;
+      reservedCount: number;
+    }>;
   }>;
 }) {
   const now = Date.now();
+  // ESGOTADO FORA DO CARD (2026-10-11): o "Grátis"/"a partir de" da Casa
+  // seguia anunciando lote que já tinha acabado. Tudo esgotado = sem preço
+  // (null), que o site já mostra como card sem preço.
   const lots = event.ticketTypes
     .flatMap((type) => type.lots)
-    .filter((lot) => lot.endsAt === null || lot.endsAt.getTime() > now);
+    .filter((lot) => lot.endsAt === null || lot.endsAt.getTime() > now)
+    .filter(loteComEstoque);
   const totals = lots.map((lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0));
   const futureLotEnds = lots
     .map((lot) => lot.endsAt)

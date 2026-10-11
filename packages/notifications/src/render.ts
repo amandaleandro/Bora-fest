@@ -248,3 +248,87 @@ export function renderAccountClaimEmail(to: string, payload: AccountClaimPayload
   const text = `${saudacao}\n\n${abertura} ${payload.eventTitle} está na sua conta BoraFest.\nAcesse: ${payload.claimUrl}`;
   return { to, subject, html, text };
 }
+
+/*
+ * INGRESSO GRÁTIS CANCELADO (2026-10-11). Pedido de R$ 0 não se reembolsa, se
+ * cancela — então estes dois e-mails NÃO falam de dinheiro, estorno nem prazo
+ * de banco: a pessoa não pagou nada. Antes, no cancelamento do evento, quem
+ * tinha ingresso grátis recebia "seu dinheiro está voltando". Só o que importa:
+ * o ingresso não vale mais e a pessoa não precisa fazer nada.
+ */
+
+export interface FreeTicketCanceledPayload {
+  contactName?: string | null;
+  eventTitle: string;
+  /** data já formatada no fuso do evento; null quando não deu para formatar */
+  eventStartsAt?: string | null;
+  /** nome público da casa (displayName ?? name) */
+  casa: string;
+  quantidade: number;
+  /** "Não vou mais": foi a própria pessoa que cancelou */
+  pedidoPeloComprador?: boolean;
+}
+
+/** "Seu ingresso foi cancelado" — o produtor cancelou (ou o comprador desistiu). */
+export function renderFreeTicketCanceledEmail(
+  to: string,
+  payload: FreeTicketCanceledPayload,
+): EmailMessage {
+  const saudacao = payload.contactName ? `Olá, ${payload.contactName}!` : "Olá!";
+  const plural = payload.quantidade > 1;
+  const seuIngresso = plural ? "Seus ingressos" : "Seu ingresso";
+  const foiCancelado = plural ? "foram cancelados" : "foi cancelado";
+  const quando = payload.eventStartsAt ? ` (${payload.eventStartsAt})` : "";
+  const abertura = payload.pedidoPeloComprador
+    ? `Pronto: ${seuIngresso.toLowerCase()} para ${payload.eventTitle}${quando} ${foiCancelado}, como você pediu.`
+    : `${seuIngresso} para ${payload.eventTitle}${quando} ${foiCancelado} por ${payload.casa}.`;
+  const qr = plural ? "Os QR codes não valem mais na entrada." : "O QR code não vale mais na entrada.";
+  const fecho = payload.pedidoPeloComprador
+    ? "Obrigado por avisar: a vaga fica livre para outra pessoa."
+    : `Se você acha que foi engano, fale com ${payload.casa}.`;
+
+  const text = [saudacao, "", abertura, qr, "", fecho, "", "Equipe BoraFest"].join("\n");
+  const html = `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p>${escapeHtml(saudacao)}</p>
+  <p>${escapeHtml(abertura)}</p>
+  <p>${escapeHtml(qr)}</p>
+  <p style="color:#666;font-size:13px">${escapeHtml(fecho)}</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim();
+
+  return { to, subject: `${seuIngresso} ${foiCancelado} — ${payload.eventTitle}`, html, text };
+}
+
+export interface FreeEventCanceledPayload {
+  contactName?: string | null;
+  eventTitle: string;
+  /** nome público da casa (displayName ?? name) */
+  casa: string;
+  /** o motivo que o produtor escreveu ao cancelar o evento */
+  motivo?: string | null;
+}
+
+/** "O evento X foi cancelado" — para quem tinha ingresso grátis (sem "seu dinheiro está voltando"). */
+export function renderFreeEventCanceledEmail(
+  to: string,
+  payload: FreeEventCanceledPayload,
+): EmailMessage {
+  const saudacao = payload.contactName ? `Olá, ${payload.contactName}!` : "Olá!";
+  const cancelado = `${payload.eventTitle} foi cancelado por ${payload.casa}.`;
+  const motivoLimpo = payload.motivo?.trim();
+  const motivo = motivoLimpo ? `Motivo: ${motivoLimpo}` : null;
+  const ingresso = "Seu ingresso foi cancelado junto e o QR code não vale mais na entrada. Você não precisa fazer nada.";
+
+  const text = [saudacao, "", cancelado, ...(motivo ? [motivo] : []), "", ingresso, "", "Equipe BoraFest"].join("\n");
+  const html = `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p>${escapeHtml(saudacao)}</p>
+  <p>${escapeHtml(cancelado)}</p>
+  ${motivo ? `<p>${escapeHtml(motivo)}</p>` : ""}
+  <p>${escapeHtml(ingresso)}</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim();
+
+  return { to, subject: `O evento ${payload.eventTitle} foi cancelado`, html, text };
+}

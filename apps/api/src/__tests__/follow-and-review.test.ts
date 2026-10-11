@@ -83,6 +83,8 @@ test("seguir produtor: toggle e notificação por e-mail ao publicar evento", as
 
     await prisma.event.delete({ where: { id: draft.id } });
   } finally {
+    // publicar grava o anúncio no histórico (2026-10-11)
+    await prisma.auditLog.deleteMany({ where: { organizationId: fixture.organization.id } });
     await cleanupFixtureEvent(fixture.organization.id);
   }
 });

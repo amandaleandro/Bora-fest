@@ -12,6 +12,18 @@ export const rejectRefundRequestSchema = z.object({
 });
 export type RejectRefundRequestInput = z.infer<typeof rejectRefundRequestSchema>;
 
+/**
+ * "Cancelar ingresso" do produtor num pedido de R$ 0 (2026-10-11): grátis não se
+ * reembolsa, se cancela. O motivo é opcional e fica só na auditoria — não vai
+ * para o comprador. Corpo inteiro opcional: o botão pode mandar só o POST.
+ */
+export const cancelFreeOrderSchema = z
+  .object({
+    reason: z.string().trim().max(500).optional(),
+  })
+  .optional();
+export type CancelFreeOrderInput = z.infer<typeof cancelFreeOrderSchema>;
+
 /** Aprovação: dispara o estorno de verdade no gateway (mesmo fluxo do admin refund manual). */
 export const approveRefundRequestSchema = z.object({
   amountCents: z.number().int().min(1).optional(),

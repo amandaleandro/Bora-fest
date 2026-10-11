@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError, type Order, type OrderTicketsResponse, type PixelSettings } from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
+import { pedidoGratis, precoOuGratis } from "../../../lib/preco";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
 import { RevealQr } from "../../../components/RevealQr";
@@ -409,21 +410,32 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
   // --- confirmação (aprovado) ---
   // ingresso grátis: não é compra — nem "pagamento aprovado", nem Purchase de R$ 0 no pixel do produtor
-  const gratis = order.totalCents === 0;
+  const gratis = pedidoGratis(order);
+  // pedido grátis cancelado (2026-10-11): grátis se CANCELA, não se reembolsa —
+  // quem abre o link vê "Cancelado", não "Ingresso garantido!"
+  const gratisCancelado = gratis && order.status === "CANCELED";
   return (
-    <main className="flex min-h-dvh flex-col bg-gradient-to-b from-emerald-50 to-bg px-6 pb-10 pt-16 text-center lg:mx-auto lg:max-w-[660px] lg:px-7 lg:pb-16 lg:pt-12">
+    <main className={`flex min-h-dvh flex-col bg-gradient-to-b ${gratisCancelado ? "from-bg" : "from-emerald-50"} to-bg px-6 pb-10 pt-16 text-center lg:mx-auto lg:max-w-[660px] lg:px-7 lg:pb-16 lg:pt-12`}>
       <PixelTracker pixelSettings={pixelSettings} purchase={gratis ? undefined : { orderId: order.id, valueCents: order.totalCents }} />
-      <div className="mx-auto flex h-[92px] w-[92px] animate-pop items-center justify-center rounded-full bg-success text-white">
-        <Icon d={paths.check} size={44} stroke={2.5} />
+      <div className={`mx-auto flex h-[92px] w-[92px] animate-pop items-center justify-center rounded-full ${gratisCancelado ? "bg-line text-muted" : "bg-success text-white"}`}>
+        <Icon d={gratisCancelado ? paths.x : paths.check} size={44} stroke={2.5} />
       </div>
-      <h1 className="mt-5 text-[24px] font-extrabold">{gratis ? "Ingresso garantido!" : "Pagamento aprovado!"}</h1>
-      <span className="mx-auto mt-2 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-bold text-success">
-        {gratis ? "Ingresso gratuito" : "Pagamento confirmado"}
+      <h1 className="mt-5 text-[24px] font-extrabold">
+        {gratisCancelado ? "Pedido cancelado" : gratis ? "Ingresso garantido!" : "Pagamento aprovado!"}
+      </h1>
+      <span className={`mx-auto mt-2 rounded-full px-3 py-1.5 text-[12px] font-bold ${gratisCancelado ? "bg-line text-muted" : "bg-success/10 text-success"}`}>
+        {gratisCancelado ? "Cancelado" : gratis ? "Ingresso gratuito" : "Pagamento confirmado"}
       </span>
-      <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
-        Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b>{WA_ON ? " e pelo WhatsApp" : ""} — e eles já
-        estão na sua conta, que vale aqui no site e no app BoraFest.
-      </p>
+      {gratisCancelado ? (
+        <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
+          Ingresso cancelado. Este QR não vale mais.
+        </p>
+      ) : (
+        <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
+          Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b>{WA_ON ? " e pelo WhatsApp" : ""} — e eles já
+          estão na sua conta, que vale aqui no site e no app BoraFest.
+        </p>
+      )}
 
       <div className="mt-6 rounded-2xl border border-line bg-surface p-4 text-left">
         <p className="text-[12px] font-bold text-muted">Pedido {shortId}</p>
@@ -431,7 +443,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
           {(order.items ?? []).map((item, i) => (
             <p key={i} className="flex justify-between text-[13px] font-semibold text-ink-soft">
               <span>{item.quantity}× ingresso</span>
-              <span>{formatCents((item.priceCents + item.feeCents) * item.quantity)}</span>
+              <span>{precoOuGratis((item.priceCents + item.feeCents) * item.quantity)}</span>
             </p>
           ))}
           {(order.discountCents ?? 0) > 0 && (
@@ -440,13 +452,13 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
             </p>
           )}
           <p className="flex justify-between border-t border-line-divider pt-2 text-[15px] font-extrabold">
-            <span>Total</span><span>{formatCents(order.totalCents)}</span>
+            <span>Total</span><span>{precoOuGratis(order.totalCents)}</span>
           </p>
         </div>
       </div>
 
       {/* entrega por WhatsApp: texto + QR de cada ingresso, direto no celular */}
-      {WA_ON && (
+      {WA_ON && !gratisCancelado && (
       <div className="mt-6 text-left">
         {whatsState === "ok" ? (
           <p className="flex h-14 items-center justify-center rounded-2xl bg-success/10 text-[14px] font-extrabold text-success">
@@ -494,12 +506,15 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         >
           Ver meus ingressos
         </Link>
-        <button
-          onClick={() => setView("carteira")}
-          className="h-14 rounded-2xl border-[1.5px] border-line-input bg-surface px-6 text-[14px] font-bold text-ink lg:h-[52px] lg:rounded-[14px]"
-        >
-          Ingressos deste pedido
-        </button>
+        {/* cancelado não tem ingresso válido pra abrir (2026-10-11) */}
+        {!gratisCancelado && (
+          <button
+            onClick={() => setView("carteira")}
+            className="h-14 rounded-2xl border-[1.5px] border-line-input bg-surface px-6 text-[14px] font-bold text-ink lg:h-[52px] lg:rounded-[14px]"
+          >
+            Ingressos deste pedido
+          </button>
+        )}
       </div>
       {order?.protection?.canRefund && (
         <div className="mt-4 w-full rounded-2xl border-[1.5px] border-line bg-surface p-4 text-left">
@@ -561,7 +576,8 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 
       <Link href="/" className="mt-4 text-[13px] font-bold text-primary">Explorar mais eventos</Link>
 
-      <InstallAppCard />
+      {/* pedido cancelado não tem ingresso "pronto para a portaria" (2026-10-11) */}
+      {!gratisCancelado && <InstallAppCard />}
     </main>
   );
 }

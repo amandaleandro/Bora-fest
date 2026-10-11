@@ -16,6 +16,10 @@ import {
   type PasswordResetPayload,
   renderTicketDeliveryWhatsApp,
   type TicketDeliveryPayload,
+  renderFreeTicketCanceledEmail,
+  type FreeTicketCanceledPayload,
+  renderFreeEventCanceledEmail,
+  type FreeEventCanceledPayload,
 } from "@borafest/notifications";
 import { withContext } from "@borafest/observability";
 
@@ -121,6 +125,24 @@ async function send(
       return;
     }
     throw new Error(`Canal não suportado para ticket_transferred: ${channel}`);
+  }
+
+  // pedido grátis cancelado (2026-10-11): sai de cancelarPedidoGratis (API),
+  // na mesma transação do cancelamento — sem texto de dinheiro
+  if (template === "free_ticket_canceled") {
+    if (channel === "EMAIL") {
+      await getEmailSender().send(renderFreeTicketCanceledEmail(recipient, payload as FreeTicketCanceledPayload));
+      return;
+    }
+    throw new Error(`Canal não suportado para free_ticket_canceled: ${channel}`);
+  }
+
+  if (template === "free_event_canceled") {
+    if (channel === "EMAIL") {
+      await getEmailSender().send(renderFreeEventCanceledEmail(recipient, payload as FreeEventCanceledPayload));
+      return;
+    }
+    throw new Error(`Canal não suportado para free_event_canceled: ${channel}`);
   }
 
   if (template === "crm_reactivation") {

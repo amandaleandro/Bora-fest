@@ -10,6 +10,8 @@ import type { CreateEventInput, UpdateEventInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { semSegredoDoEvento } from "../common/event-public";
 import { estornarTaxaDaPlataforma, executarReembolso } from "../common/refund-order";
+import { cancelarPedidoGratis } from "../common/cancelar-pedido-gratis";
+import { semEmailReal } from "@borafest/contracts";
 import { getOrganizationBalanceCents } from "../common/ledger";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
 
@@ -204,10 +206,22 @@ export class EventsService {
         timezone: input.timezone,
       },
     });
+
+    // privado → público (2026-10-11): é a primeira vez que quem segue a Casa
+    // pode saber do evento, então anuncia — se estiver à venda, não encerrado
+    // e ainda sem a marca de "já avisado". Ligar e desligar a chave de novo
+    // nunca reenvia.
+    let followersNotifiedAt = atualizado.followersNotifiedAt;
+    if (event.isPrivate && input.isPrivate === false) {
+      followersNotifiedAt =
+        (await this.anunciarAosSeguidoresUmaVez(eventId, actorUserId, "abriu_ao_publico")) ??
+        followersNotifiedAt;
+    }
+
     // NUNCA devolver o metaCapiToken na resposta (auditoria 2026-08-30): o
     // painel só precisa saber se está configurado. Mesmo padrão do dashboard.
     const { metaCapiToken: _segredo, ...publico } = atualizado;
-    return publico;
+    return { ...publico, followersNotifiedAt };
   }
 
   async publish(eventId: string, actorUserId: string) {
@@ -226,10 +240,76 @@ export class EventsService {
     });
 
     // melhor esforço — não bloqueia a publicação se o envio falhar.
-    // Evento privado não é anunciado: abre só por link (revisão pré-deploy 2026-10-11)
-    if (!published.isPrivate) this.notifyFollowers(published).catch(() => undefined);
+    // Evento privado não é anunciado: abre só por link (revisão pré-deploy 2026-10-11);
+    // se ele virar público depois, o update() anuncia. A marca de "já avisado"
+    // impede que dois cliques em Publicar mandem o e-mail duas vezes.
+    const followersNotifiedAt =
+      (await this.anunciarAosSeguidoresUmaVez(eventId, actorUserId, "publicou")) ??
+      published.followersNotifiedAt;
 
-    return semSegredoDoEvento(published);
+    return semSegredoDoEvento({ ...published, followersNotifiedAt });
+  }
+
+  /**
+   * Anuncia o evento aos seguidores da Casa UMA vez só (2026-10-11).
+   *
+   * Primeiro reserva a marca `followersNotifiedAt` numa escrita condicional:
+   * só grava se ela estiver vazia e o evento estiver público, à venda e não
+   * encerrado — conferido no banco na hora, não no que a tela mandou. Só quem
+   * consegue gravar manda o e-mail. Assim dois salvamentos ao mesmo tempo,
+   * Publicar duas vezes ou ligar/desligar a chave "privado" nunca reenviam.
+   *
+   * Devolve a data gravada, ou null quando não anunciou. Melhor esforço:
+   * falha aqui nunca derruba a publicação nem o salvamento.
+   */
+  private async anunciarAosSeguidoresUmaVez(
+    eventId: string,
+    actorUserId: string,
+    motivo: "publicou" | "abriu_ao_publico" | "reabriu_vendas",
+  ): Promise<Date | null> {
+    try {
+      const agora = new Date();
+      const reserva = await prisma.event.updateMany({
+        where: {
+          id: eventId,
+          followersNotifiedAt: null,
+          isPrivate: false,
+          status: "PUBLISHED",
+          endsAt: { gt: agora },
+        },
+        data: { followersNotifiedAt: agora },
+      });
+      if (reserva.count === 0) return null;
+
+      // lido DEPOIS da reserva: se o mesmo salvamento trocou nome ou link, o
+      // e-mail sai com o atual
+      const evento = await prisma.event.findUnique({
+        where: { id: eventId },
+        select: { id: true, organizationId: true, title: true, slug: true },
+      });
+      if (!evento) return agora;
+
+      // envio fora do caminho da requisição: e-mail lento não segura a tela
+      this.notifyFollowers(evento).catch(() => undefined);
+
+      await prisma.auditLog
+        .create({
+          data: {
+            actorUserId,
+            organizationId: evento.organizationId,
+            action: "event.followers_notified",
+            entityType: "event",
+            entityId: eventId,
+            metadata: { motivo },
+          },
+        })
+        .catch(() => undefined);
+
+      return agora;
+    } catch {
+      // anunciar é bom, mas nunca ao ponto de travar a publicação
+      return null;
+    }
   }
 
   private async notifyFollowers(event: { id: string; organizationId: string; title: string; slug: string }) {
@@ -291,7 +371,15 @@ export class EventsService {
       where: { id: eventId },
       data: { status: "PUBLISHED" },
     });
-    return semSegredoDoEvento(republicado);
+
+    // reabrir vendas de evento que nunca foi anunciado (ex.: virou público
+    // enquanto estava pausado) anuncia agora — mesma regra de uma vez só
+    // (2026-10-11). Evento que já foi anunciado não manda de novo.
+    const followersNotifiedAt =
+      (await this.anunciarAosSeguidoresUmaVez(eventId, actorUserId, "reabriu_vendas")) ??
+      republicado.followersNotifiedAt;
+
+    return semSegredoDoEvento({ ...republicado, followersNotifiedAt });
   }
 
   /**
@@ -386,6 +474,37 @@ export class EventsService {
   /** Pedidos que ainda têm dinheiro do comprador para devolver. */
   private static readonly A_REEMBOLSAR = ["PAID", "FULFILLED", "PARTIALLY_REFUNDED"] as const;
 
+  /**
+   * Pedidos grátis cancelados por chamada. Não passam pelo gateway (é só banco),
+   * então cabem mais que os reembolsos — mas uma lista com milhares de nomes
+   * ainda estouraria o tempo de uma requisição só.
+   */
+  private static readonly LOTE_GRATIS = 50;
+
+  /**
+   * Pedidos de R$ 0 ainda valendo (2026-10-11): lote grátis, cupom de 100%,
+   * cortesia e lista. Não têm dinheiro a devolver, então ficavam fora de
+   * `restantePorPedido` — o ingresso seguia "Válido" na carteira de um evento
+   * cancelado. Pedido em que todo mundo já entrou fica de fora: não há o que
+   * cancelar (cancelarPedidoGratis recusaria).
+   */
+  private async pedidosGratisACancelar(eventId: string): Promise<string[]> {
+    const pedidos = await prisma.order.findMany({
+      where: {
+        eventId,
+        totalCents: 0,
+        status: { in: ["PAID", "FULFILLED"] },
+        OR: [
+          { tickets: { none: {} } },
+          { tickets: { some: { status: { in: ["ISSUED", "ACTIVE"] } } } },
+        ],
+      },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return pedidos.map((p) => p.id);
+  }
+
   private async assertPodeCancelar(eventId: string, actorUserId: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
@@ -472,12 +591,16 @@ export class EventsService {
 
     const idsDePedido = [...restante.keys()];
     const balanceCents = await getOrganizationBalanceCents(event.organizationId);
+    // ingressos grátis que serão cancelados junto (2026-10-11) — sem dinheiro,
+    // por isso fora de `orders`, que conta quem recebe de volta
+    const freeOrders = (await this.pedidosGratisACancelar(eventId)).length;
 
     if (idsDePedido.length === 0) {
       return {
         eventId,
         alreadyCanceled: event.status === "CANCELED",
         orders: 0,
+        freeOrders,
         refundTotalCents: 0,
         feeBackCents: 0,
         balanceCents,
@@ -526,6 +649,7 @@ export class EventsService {
       eventId,
       alreadyCanceled: event.status === "CANCELED",
       orders: restante.size,
+      freeOrders,
       refundTotalCents,
       feeBackCents,
       balanceCents,
@@ -549,13 +673,22 @@ export class EventsService {
   ): Promise<void> {
     try {
       const pedidos = await prisma.order.findMany({
-        where: { eventId: event.id, status: { in: [...EventsService.A_REEMBOLSAR] } },
-        select: { contactEmail: true },
+        // só quem PAGOU (2026-10-11): o pedido de R$ 0 recebia "seu dinheiro está
+        // voltando" sem ter pago nada. Ele ganha o e-mail próprio ("O evento X foi
+        // cancelado") quando é cancelado no laço do cancel(), por cancelarPedidoGratis
+        where: { eventId: event.id, totalCents: { gt: 0 }, status: { in: [...EventsService.A_REEMBOLSAR] } },
+        select: { contactEmail: true, soldByUserId: true },
       });
-      const destinatarios = [
-        ...new Set(pedidos.map((p) => p.contactEmail).filter((e): e is string => !!e)),
+      // e-mail sintético (porta, lista) não tem caixa: enviar é bounce garantido
+      const reais = (lista: typeof pedidos) => [
+        ...new Set(lista.map((p) => p.contactEmail).filter((e): e is string => !semEmailReal(e))),
       ];
-      if (destinatarios.length === 0) return;
+      // VENDA DE PORTA (revisão 2026-10-11): o laço do cancel() não estorna venda
+      // de porta (restantePorPedido exclui soldByUserId) — prometer "seu dinheiro
+      // está voltando" a ela era falso. Ela recebe o aviso sem essa promessa.
+      const destinatarios = reais(pedidos.filter((p) => !p.soldByUserId));
+      const daPorta = reais(pedidos.filter((p) => p.soldByUserId)).filter((e) => !destinatarios.includes(e));
+      if (destinatarios.length === 0 && daPorta.length === 0) return;
 
       const organization = await prisma.organization.findUnique({
         where: { id: event.organizationId },
@@ -565,6 +698,21 @@ export class EventsService {
       const sender = getEmailSender();
       const motivo = reason.trim();
 
+      await Promise.allSettled(
+        daPorta.map((to) =>
+          sender.send({
+            to,
+            subject: `${event.title} foi cancelado`,
+            html:
+              `<p><strong>${event.title}</strong> foi cancelado por ${casa}.</p>` +
+              `<p>Motivo: ${motivo}</p>` +
+              `<p>Seu ingresso foi comprado na porta: para o valor pago, fale direto com a produção do evento.</p>`,
+            text:
+              `${event.title} foi cancelado por ${casa}. Motivo: ${motivo}. ` +
+              `Seu ingresso foi comprado na porta: para o valor pago, fale direto com a produção do evento.`,
+          }),
+        ),
+      );
       await Promise.allSettled(
         destinatarios.map((to) =>
           sender.send({
@@ -657,14 +805,42 @@ export class EventsService {
         errors.push({ orderId, message: (error as Error).message });
       }
     }
+    const refundedNow = lote.length - errors.length;
+
+    /*
+     * INGRESSOS GRÁTIS (2026-10-11): sem dinheiro a devolver, ficavam fora da
+     * fila acima — seguiam "Válidos" na carteira de um evento cancelado e
+     * levavam o e-mail "seu dinheiro está voltando". Agora são CANCELADOS pela
+     * mesma operação do "Cancelar ingresso" do painel: QR deixa de valer, vaga
+     * e cupom voltam, lista sincroniza, e a pessoa recebe "O evento X foi
+     * cancelado" com o motivo — sem falar de dinheiro. Falha vai para `errors`
+     * e entra no `pular` da tela, como os reembolsos.
+     */
+    const filaGratis = (await this.pedidosGratisACancelar(eventId)).filter((id) => !pular.has(id));
+    const loteGratis = filaGratis.slice(0, EventsService.LOTE_GRATIS);
+    let freeCanceledNow = 0;
+    for (const orderId of loteGratis) {
+      try {
+        await cancelarPedidoGratis(orderId, actorUserId, `Evento cancelado — ${input.reason}`, {
+          origem: "evento_cancelado",
+          aviso: { tipo: "evento", motivo: input.reason },
+        });
+        freeCanceledNow++;
+      } catch (error) {
+        errors.push({ orderId, message: (error as Error).message });
+      }
+    }
 
     return {
       canceled: true,
-      refundedNow: lote.length - errors.length,
+      refundedNow,
       refundedCents,
       feeBackCents,
-      /** ainda por tentar, já sem os que a tela mandou pular */
-      remaining: Math.max(fila.length - lote.length, 0),
+      /** ingressos grátis cancelados nesta chamada (não entram em refundedNow: não houve dinheiro) */
+      freeCanceledNow,
+      /** ainda por tentar (reembolsos + grátis), já sem os que a tela mandou pular */
+      remaining:
+        Math.max(fila.length - lote.length, 0) + Math.max(filaGratis.length - loteGratis.length, 0),
       errors,
     };
   }

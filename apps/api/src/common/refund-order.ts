@@ -31,6 +31,16 @@ export async function executarReembolso(
   });
   if (!order) throw new NotFoundException("Pedido não encontrado");
 
+  // PEDIDO GRÁTIS NÃO SE REEMBOLSA, SE CANCELA (decisão do Arthur, 2026-10-11).
+  // Sem esta trava o R$ 0 caía em mensagens erradas — "Valor do estorno
+  // inválido" (Total), "excede o saldo… R$ 0,00" (Parcial) ou "venda de porta
+  // não tem reembolso" (lista) — e nada mudava: vaga presa, ingresso valendo.
+  // Vem ANTES da trava da porta porque pedido de lista também tem soldByUserId.
+  // O caminho certo é cancelarPedidoGratis (cancelar-pedido-gratis.ts).
+  if (order.totalCents === 0) {
+    throw new BadRequestException("Ingresso grátis não tem valor a devolver — use Cancelar ingresso.");
+  }
+
   // VENDA DE PORTA NÃO TEM REEMBOLSO (decisão do Arthur, 2026-09-14): entrou
   // no evento, o ingresso foi consumido — não existe estorno, nem em dinheiro,
   // nem em Pix, nem parcial, nem no cancelamento do evento (o cancelamento
