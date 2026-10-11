@@ -44,7 +44,7 @@ export class CancelamentoGratisService {
           orderBy: { createdAt: "desc" },
           select: { id: true, provider: true, method: true, status: true, amountCents: true, createdAt: true, paidAt: true },
         },
-        tickets: { select: { id: true, code: true, status: true, attendeeName: true } },
+        tickets: { select: { id: true, code: true, status: true, attendeeName: true, ticketLotId: true } },
       },
     });
     const { contactCpf: _cpf, ...semCpf } = cancelado;

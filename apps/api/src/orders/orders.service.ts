@@ -20,6 +20,7 @@ import { ehCpfValido, emailSinteticoPdv, PROTECTION_FEE_CENTS, sugerirCorrecaoEm
 import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { IdempotencyService } from "../common/idempotency.service";
+import { semEmailReal } from "@borafest/contracts";
 import { abaixoDoMinimoOnline, emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 
 /**
@@ -623,7 +624,7 @@ export class OrdersService {
             amountCents: true, createdAt: true, paidAt: true,
           },
         },
-        tickets: { select: { id: true, code: true, status: true, attendeeName: true } },
+        tickets: { select: { id: true, code: true, status: true, attendeeName: true, ticketLotId: true } },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
@@ -634,6 +635,9 @@ export class OrdersService {
     const { contactCpf: _cpf, items, ...semCpf } = order;
     return {
       ...semCpf,
+      // o painel diz "a pessoa recebe um e-mail" só quando há caixa de verdade
+      // (lista e porta usam endereço sintético) — a regra mora em contracts
+      contactEmailReal: !semEmailReal(order.contactEmail),
       items: items.map(({ ticketLot: { inviteToken: _convite, ...lote }, ...item }) => ({ ...item, ticketLot: lote })),
     };
   }

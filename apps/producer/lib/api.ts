@@ -753,6 +753,8 @@ export interface CancelPreview {
   alreadyCanceled: boolean;
   /** quantos pedidos ainda têm dinheiro a devolver */
   orders: number;
+  /** pedidos de R$ 0 ainda valendo (lote grátis, cupom 100%, cortesia, lista) — são cancelados junto */
+  freeOrders?: number;
   refundTotalCents: number;
   /** taxa da plataforma que volta pro produtor */
   feeBackCents: number;
@@ -765,6 +767,8 @@ export interface CancelResult {
   refundedNow: number;
   refundedCents: number;
   feeBackCents: number;
+  /** ingressos grátis cancelados nesta volta (não entram em refundedNow: não houve dinheiro) */
+  freeCanceledNow?: number;
   remaining: number;
   errors: Array<{ orderId: string; message: string }>;
 }
@@ -878,16 +882,19 @@ export interface OrderDetail {
   discountCents: number;
   createdAt: string;
   paidAt: string | null;
+  /** false para lista/porta (endereço sintético): ninguém lê esse e-mail */
+  contactEmailReal?: boolean;
   event: { id: string; title: string };
   items: Array<{
     id: string;
     quantity: number;
     priceCents: number;
     feeCents: number;
+    ticketLotId: string;
     ticketLot: { name: string; ticketType: { name: string } };
   }>;
   payments: Array<{ id: string; method: string; status: string; amountCents: number; provider: string; paidAt: string | null }>;
-  tickets: Array<{ id: string; code: string; status: string; attendeeName: string | null }>;
+  tickets: Array<{ id: string; code: string; status: string; attendeeName: string | null; ticketLotId?: string }>;
 }
 
 export const ordersApi = {
@@ -904,6 +911,9 @@ export const ordersApi = {
   detail: (orderId: string, token: string) => request<OrderDetail>(`/v1/orders/${orderId}/detail`, { token }),
   refund: (orderId: string, body: { amountCents?: number; reason: string }, token: string) =>
     request(`/v1/orders/${orderId}/refund`, { method: "POST", body, token }),
+  /** Pedido de R$ 0 não se reembolsa, se cancela (2026-10-11): QR para de valer, vaga volta, pessoa avisada. */
+  cancelFree: (orderId: string, body: { reason?: string }, token: string) =>
+    request<Pick<OrderDetail, "status" | "tickets">>(`/v1/orders/${orderId}/cancel-free`, { method: "POST", body, token }),
   createPdvSale: (
     eventId: string,
     body: { ticketLotId: string; quantity: number; buyerName: string; buyerDocument?: string; buyerEmail?: string },

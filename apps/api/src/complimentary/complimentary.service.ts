@@ -26,6 +26,9 @@ export class ComplimentaryService {
   async issue(userId: string, eventId: string, input: IssueComplimentaryInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
+    // evento cancelado não ganha cortesia nova: o ingresso nasceria valendo
+    // num evento que não vai acontecer (revisão 2026-10-11)
+    if (event.status === "CANCELED") throw new BadRequestException("Este evento foi cancelado.");
     await this.orgAccess.assertPermission(event.organizationId, userId, PERMISSIONS.EVENT_CREATE);
 
     const lot = await prisma.ticketLot.findFirst({

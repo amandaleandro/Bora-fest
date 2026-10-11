@@ -5,6 +5,7 @@ import { closeRedisConnection } from "@borafest/queues";
 import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { randomBytes, randomUUID } from "crypto";
 import { GuestListService } from "../guest-list/guest-list.service";
+import { ComplimentaryService } from "../complimentary/complimentary.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { InventoryService } from "../inventory/inventory.service";
 import { createFixtureEvent, cleanupFixtureEvent } from "./helpers";
@@ -171,6 +172,32 @@ test("lista de convidados: cancelar devolve a capacidade do lote e revoga o tick
     // capacidade liberada permite novo cadastro
     const secondEntry = await service.create(user.id, event.id, { ticketLotId: lot.id, guestName: "Convidado B" });
     assert.equal(secondEntry.status, "CONFIRMED");
+  } finally {
+    await cleanupFixtureEvent(organization.id);
+  }
+});
+
+test("evento cancelado não ganha convidado nem cortesia novos (2026-10-11)", async () => {
+  const { organization, event, lot, ownerRoleId } = await createFixtureEvent({ lotCapacity: 5 });
+  try {
+    const user = await prisma.user.create({ data: { name: "Produtor", email: `dono-${randomUUID()}@example.com` } });
+    await addOwnerMembership(organization.id, user.id, ownerRoleId);
+    await prisma.event.update({ where: { id: event.id }, data: { status: "CANCELED" } });
+
+    await assert.rejects(
+      buildService().create(user.id, event.id, { ticketLotId: lot.id, guestName: "Convidado Atrasado" }),
+      /evento foi cancelado/,
+    );
+    await assert.rejects(
+      new ComplimentaryService(new OrgAccessService()).issue(user.id, event.id, {
+        ticketLotId: lot.id,
+        quantity: 1,
+        attendeeName: "Cortesia Atrasada",
+        attendeeEmail: `cortesia-${randomUUID()}@example.com`,
+      }),
+      /evento foi cancelado/,
+    );
+    assert.equal((await prisma.ticketLot.findUniqueOrThrow({ where: { id: lot.id } })).soldCount, 0, "nada foi reservado");
   } finally {
     await cleanupFixtureEvent(organization.id);
   }

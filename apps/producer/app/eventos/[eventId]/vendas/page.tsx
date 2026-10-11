@@ -35,6 +35,22 @@ const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> =
   CANCELED: { bg: "bg-line", fg: "text-muted", label: "Cancelado" },
 };
 
+// status do INGRESSO em português (2026-10-11): o resultado do "Cancelar ingresso"
+// precisa ser legível — antes a lista mostrava ACTIVE/CANCELED crus
+const TICKET_STATUS: Record<string, { cls: string; label: string }> = {
+  ISSUED: { cls: "bg-success/10 text-success", label: "Válido" },
+  ACTIVE: { cls: "bg-success/10 text-success", label: "Válido" },
+  CHECKED_IN: { cls: "bg-line text-ink", label: "Usado na entrada" },
+  TRANSFERRED: { cls: "bg-line text-muted", label: "Transferido" },
+  CANCELED: { cls: "bg-danger/10 text-danger", label: "Cancelado" },
+  REFUNDED: { cls: "bg-danger/10 text-danger", label: "Reembolsado" },
+};
+
+function TicketStatus({ status }: { status: string }) {
+  const s = TICKET_STATUS[status] ?? { cls: "bg-line text-muted", label: status };
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.cls}`}>{s.label}</span>;
+}
+
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? { bg: "bg-line", fg: "text-muted", label: status };
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${s.bg} ${s.fg}`}>{s.label}</span>;
@@ -248,6 +264,14 @@ function VendasContent({ eventId }: { eventId: string }) {
   const [refundError, setRefundError] = useState<string | null>(null);
   const [refundLoading, setRefundLoading] = useState(false);
 
+  // pedido de R$ 0 se CANCELA, não se reembolsa (protótipo aprovado 2026-10-11)
+  const [showCancelFree, setShowCancelFree] = useState(false);
+  const [cancelFreeReason, setCancelFreeReason] = useState("");
+  const [cancelFreeError, setCancelFreeError] = useState<string | null>(null);
+  const [cancelFreeLoading, setCancelFreeLoading] = useState(false);
+  // preso ao pedido: se a recarga do detalhe falhar, o aviso não aparece em outro pedido
+  const [cancelFreeOk, setCancelFreeOk] = useState<{ orderId: string; texto: string } | null>(null);
+
   const pageSize = 20;
 
   // PDV
@@ -322,6 +346,51 @@ function VendasContent({ eventId }: { eventId: string }) {
     setRefundAmount("");
     setRefundReason("");
     setRefundError(null);
+    setShowCancelFree(false);
+    setCancelFreeReason("");
+    setCancelFreeError(null);
+    setCancelFreeOk(null);
+  }
+
+  async function submitCancelFree() {
+    if (!token || !selectedOrderId || !detail) return;
+    const pedidoId = selectedOrderId;
+    const antes = detail;
+    setCancelFreeError(null);
+    setCancelFreeLoading(true);
+    try {
+      const depois = await ordersApi.cancelFree(pedidoId, { reason: cancelFreeReason.trim() || undefined }, token);
+      // a mensagem sai do que o SERVIDOR fez: se alguém passou pela porta no meio
+      // do caminho, o check-in vence e cai menos ingresso do que a tela previa
+      const valiaAntes = new Set(antes.tickets.filter((t) => t.status === "ISSUED" || t.status === "ACTIVE").map((t) => t.id));
+      const caidos = depois.tickets.filter((t) => t.status === "CANCELED" && valiaAntes.has(t.id));
+      const naoEmitidos = depois.status === "CANCELED" ? Math.max(antes.items.reduce((s, i) => s + i.quantity, 0) - antes.tickets.length, 0) : 0;
+      const total = caidos.length + naoEmitidos;
+      const nomeDoLote = new Map(antes.items.map((i) => [i.ticketLotId, `${i.ticketLot.ticketType.name} — ${i.ticketLot.name}`]));
+      const lotesComVaga = [
+        ...new Set([
+          ...caidos.map((t) => (t.ticketLotId ? nomeDoLote.get(t.ticketLotId) : undefined)).filter((n): n is string => Boolean(n)),
+          ...(naoEmitidos > 0
+            ? antes.items
+                .filter((i) => i.quantity > antes.tickets.filter((t) => t.ticketLotId === i.ticketLotId).length)
+                .map((i) => nomeDoLote.get(i.ticketLotId)!)
+            : []),
+        ]),
+      ];
+      const nome = (antes.contactName ?? "").trim().split(/\s+/)[0] || "a pessoa";
+      const texto = `${total === 1 ? "Ingresso cancelado. A vaga voltou" : `${total} ingressos cancelados. As vagas voltaram`} para ${
+        lotesComVaga.length > 1 ? "os lotes" : "o lote"
+      } ${lotesComVaga.join(", ")}${antes.contactEmailReal !== false ? ` e ${nome} vai receber o aviso por e-mail` : ""}.`;
+      await openDetail(pedidoId);
+      setShowCancelFree(false);
+      setCancelFreeReason("");
+      setCancelFreeOk({ orderId: pedidoId, texto });
+      await loadOrders();
+    } catch (err) {
+      setCancelFreeError(err instanceof Error ? err.message : "Não foi possível cancelar o ingresso");
+    } finally {
+      setCancelFreeLoading(false);
+    }
   }
 
   async function submitRefund() {
@@ -387,7 +456,34 @@ function VendasContent({ eventId }: { eventId: string }) {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const canRefund = detail && ["PAID", "FULFILLED", "PARTIALLY_REFUNDED"].includes(detail.status);
+  // R$ 0 (lote grátis, cupom 100%, cortesia, lista): sem dinheiro a devolver — o
+  // "Reembolsar" vira "Cancelar ingresso" (2026-10-11)
+  const isFree = detail?.totalCents === 0;
+  const canRefund = detail && !isFree && ["PAID", "FULFILLED", "PARTIALLY_REFUNDED"].includes(detail.status);
+  const canCancelFree = detail && isFree && ["PAID", "FULFILLED"].includes(detail.status);
+  const quantidadeNoPedido = detail?.items.reduce((soma, i) => soma + i.quantity, 0) ?? 0;
+  const ingressosUsados = detail?.tickets.filter((t) => t.status === "CHECKED_IN").length ?? 0;
+  // valendo + ainda não emitidos: é o que o cancelamento derruba (quem entrou fica)
+  const ingressosCancelaveis =
+    (detail?.tickets.filter((t) => t.status === "ISSUED" || t.status === "ACTIVE").length ?? 0) +
+    Math.max(quantidadeNoPedido - (detail?.tickets.length ?? 0), 0);
+  // só os lotes que de fato recebem vaga (ingresso valendo ou ainda não emitido),
+  // com o tipo junto — "1º lote" de Pista e de VIP não podem virar um nome só
+  const nomeDoLote = new Map(detail?.items.map((i) => [i.ticketLotId, `${i.ticketLot.ticketType.name} — ${i.ticketLot.name}`]) ?? []);
+  const lotesComVaga = [
+    ...new Set([
+      ...(detail?.tickets ?? [])
+        .filter((t) => (t.status === "ISSUED" || t.status === "ACTIVE") && t.ticketLotId)
+        .map((t) => nomeDoLote.get(t.ticketLotId!))
+        .filter((n): n is string => Boolean(n)),
+      ...(detail?.items ?? [])
+        .filter((i) => i.quantity > (detail?.tickets.filter((t) => t.ticketLotId === i.ticketLotId).length ?? 0))
+        .map((i) => nomeDoLote.get(i.ticketLotId)!),
+    ]),
+  ];
+  const lotesDoPedido = lotesComVaga.join(", ");
+  const primeiroNome = (detail?.contactName ?? "").trim().split(/\s+/)[0] || "";
+  const avisaPorEmail = detail?.contactEmailReal !== false;
 
   return (
     <main>
@@ -499,7 +595,9 @@ function VendasContent({ eventId }: { eventId: string }) {
                         <td className="px-5 py-3.5">
                           <StatusBadge status={order.status} />
                         </td>
-                        <td className="px-5 py-3.5 font-bold">{formatCents(order.totalCents)}</td>
+                        <td className="px-5 py-3.5 font-bold">
+                          {order.totalCents === 0 ? <span className="text-success">Grátis</span> : formatCents(order.totalCents)}
+                        </td>
                         <td className="px-5 py-3.5 text-muted">{formatDate(order.createdAt)}</td>
                         <td className="px-5 py-3.5 text-muted">{formatDate(order.paidAt)}</td>
                       </tr>
@@ -620,7 +718,11 @@ function VendasContent({ eventId }: { eventId: string }) {
             ) : (
               <>
                 <div className="mt-4">
-                  <StatusBadge status={detail.status} />
+                  {canCancelFree ? (
+                    <span className="rounded-full bg-success/10 px-2.5 py-1 text-[11px] font-bold text-success">Ingresso grátis</span>
+                  ) : (
+                    <StatusBadge status={detail.status} />
+                  )}
                   <p className="mt-2 text-[15px] font-extrabold">{detail.contactName ?? "—"}</p>
                   <p className="text-[13px] text-muted">{detail.contactEmail}</p>
                   <p className="mt-1 text-[12px] text-muted">
@@ -636,7 +738,7 @@ function VendasContent({ eventId }: { eventId: string }) {
                         {item.ticketLot.ticketType.name} — {item.ticketLot.name}
                       </p>
                       <p className="text-muted">
-                        {item.quantity}× {formatCents(item.priceCents + item.feeCents)}
+                        {item.quantity}× {item.priceCents + item.feeCents === 0 ? "Grátis" : formatCents(item.priceCents + item.feeCents)}
                       </p>
                     </div>
                   ))}
@@ -648,13 +750,15 @@ function VendasContent({ eventId }: { eventId: string }) {
                 </div>
                 <div className="mt-1 flex justify-between text-[15px] font-extrabold">
                   <span>Total</span>
-                  <span>{formatCents(detail.totalCents)}</span>
+                  {isFree ? <span className="text-success">Grátis</span> : <span>{formatCents(detail.totalCents)}</span>}
                 </div>
 
                 <h3 className="mt-5 text-[13px] font-extrabold text-muted">Pagamento</h3>
                 <div className="mt-2 space-y-2">
                   {detail.payments.length === 0 ? (
-                    <p className="text-[13px] text-muted">Sem registro de pagamento (venda PDV).</p>
+                    <p className="text-[13px] text-muted">
+                      {isFree ? "Ingresso grátis: não há valor a devolver." : "Sem registro de pagamento (venda PDV)."}
+                    </p>
                   ) : (
                     detail.payments.map((p) => (
                       <div key={p.id} className="flex justify-between rounded-lg bg-bg px-3 py-2.5 text-[13px]">
@@ -672,10 +776,87 @@ function VendasContent({ eventId }: { eventId: string }) {
                     <p key={t.id} className="flex justify-between text-[13px]">
                       <span className="font-mono text-muted">{t.code}</span>
                       <span>{t.attendeeName ?? "—"}</span>
-                      <span className="text-muted">{t.status}</span>
+                      <TicketStatus status={t.status} />
                     </p>
                   ))}
                 </div>
+
+                {cancelFreeOk && cancelFreeOk.orderId === detail.id ? (
+                  <p className="mt-6 rounded-lg bg-success/10 px-3 py-2.5 text-[13px] font-bold text-success">{cancelFreeOk.texto}</p>
+                ) : null}
+
+                {canCancelFree ? (
+                  <div className="mt-6 border-t border-line pt-4">
+                    {ingressosCancelaveis === 0 ? (
+                      <p className="text-[13px] font-semibold text-muted">
+                        {detail.tickets.some((t) => t.status === "CANCELED")
+                          ? `Não há mais o que cancelar: ${ingressosUsados === 1 ? "o ingresso que sobrou já foi usado" : "os ingressos que sobraram já foram usados"} na entrada.`
+                          : "Todos os ingressos deste pedido já foram usados na entrada — não há o que cancelar."}
+                      </p>
+                    ) : !showCancelFree ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCancelFreeOk(null);
+                          setShowCancelFree(true);
+                        }}
+                        className="w-full rounded-lg bg-danger px-4 py-2.5 text-[13px] font-bold text-white"
+                      >
+                        Cancelar ingresso
+                      </button>
+                    ) : (
+                      <div className="space-y-2 rounded-xl border-[1.5px] border-danger/35 bg-danger/[.06] p-3.5">
+                        <h3 className="text-[14px] font-extrabold">
+                          {ingressosCancelaveis === 1 ? "Cancelar o ingresso" : `Cancelar ${ingressosCancelaveis} ingressos`}
+                          {detail.contactName ? ` de ${detail.contactName}` : ""}?
+                        </h3>
+                        <ul className="list-disc space-y-1 pl-5 text-[13px] text-ink-soft">
+                          <li>O QR deixa de valer na portaria.</li>
+                          <li>
+                            {ingressosCancelaveis === 1 ? "A vaga volta" : "As vagas voltam"} para{" "}
+                            {lotesComVaga.length > 1 ? "os lotes" : "o lote"} <b>{lotesDoPedido}</b>.
+                          </li>
+                          {avisaPorEmail ? <li>{primeiroNome || "A pessoa"} recebe um e-mail avisando.</li> : null}
+                        </ul>
+                        {ingressosUsados > 0 ? (
+                          <p className="rounded-lg bg-warning/10 px-2.5 py-2 text-[12.5px] font-bold text-warning">
+                            {ingressosUsados === 1
+                              ? "1 ingresso já foi usado na portaria e continua registrado."
+                              : `${ingressosUsados} ingressos já foram usados na portaria e continuam registrados.`}{" "}
+                            {ingressosCancelaveis === 1
+                              ? "Só o outro é cancelado e volta para o lote."
+                              : `Só os outros ${ingressosCancelaveis} são cancelados e voltam para o lote.`}
+                          </p>
+                        ) : null}
+                        <textarea
+                          placeholder={`Motivo (opcional) — fica no histórico, não vai para ${primeiroNome || "a pessoa"}`}
+                          className="w-full rounded-lg border border-line-input bg-surface px-3 py-2 text-[13px]"
+                          value={cancelFreeReason}
+                          maxLength={500}
+                          onChange={(e) => setCancelFreeReason(e.target.value)}
+                        />
+                        {cancelFreeError ? <p className="text-[13px] font-semibold text-danger">{cancelFreeError}</p> : null}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCancelFree(false)}
+                            className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] font-bold text-muted"
+                          >
+                            Voltar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={submitCancelFree}
+                            disabled={cancelFreeLoading}
+                            className="flex-1 rounded-lg bg-danger px-3 py-2 text-[13px] font-bold text-white disabled:opacity-40"
+                          >
+                            {cancelFreeLoading ? "Cancelando..." : "Confirmar cancelamento"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
                 {canRefund ? (
                   <div className="mt-6 border-t border-line pt-4">

@@ -57,8 +57,11 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
     setRodando(true);
     setErro(null);
     setFalhas([]);
-    const total = previa.orders;
+    // grátis entram na conta (2026-10-11): o servidor cancela os pedidos de R$ 0
+    // no mesmo laço — QR deixa de valer, vaga volta, pessoa avisada
+    let total = previa.orders + (previa.freeOrders ?? 0);
     let feitos = 0;
+    let falharam = 0;
     setProgresso({ feitos, total });
 
     try {
@@ -75,7 +78,12 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
           { reason: motivo.trim(), skipOrderIds: pular },
           token,
         );
-        feitos += r.refundedNow;
+        feitos += r.refundedNow + (r.freeCanceledNow ?? 0);
+        falharam += r.errors.length;
+        // a prévia pode ter ficado velha (convidado entrou na lista enquanto o
+        // produtor digitava, ou uma volta anterior caiu): o servidor diz o que
+        // falta, e a barra segue ele — nunca passa de 100% nem para antes
+        total = r.remaining === 0 ? feitos + falharam : Math.max(total, feitos + falharam + r.remaining);
         setProgresso({ feitos, total });
         if (r.errors.length > 0) {
           pular.push(...r.errors.map((e) => e.orderId));
@@ -110,11 +118,16 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
     );
   }
 
+  const gratis = previa?.freeOrders ?? 0;
+  // evento já cancelado ainda pode ter grátis valendo (cancelado antes de 2026-10-11,
+  // ou uma volta que caiu no meio): a tela tem de deixar terminar
+  const temAlgoAFazer = Boolean(previa && (previa.orders > 0 || gratis > 0 || !previa.alreadyCanceled));
+
   return (
     <div id="cancelar" ref={raiz} className="mt-8 scroll-mt-24 rounded-2xl border border-danger/30 bg-danger/[.04] p-4">
       <p className="text-[13.5px] font-extrabold text-danger">Cancelar o evento</p>
       <p className="mt-1 text-[12.5px] font-semibold text-muted">
-        Tira o evento do ar e devolve o dinheiro de todo mundo que comprou. Não tem como desfazer.
+        Tira o evento do ar, devolve o dinheiro de todo mundo que comprou e cancela os ingressos grátis. Não tem como desfazer.
       </p>
 
       {!previa ? (
@@ -129,9 +142,11 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
         <div className="mt-4 rounded-xl border border-line bg-surface p-4">
           {previa.orders === 0 ? (
             <p className="text-[13px] font-bold">
-              {previa.alreadyCanceled
-                ? "Todo mundo já recebeu de volta. Não ficou ninguém para trás."
-                : "Ninguém comprou ainda — cancelar só tira o evento do ar."}
+              {gratis > 0
+                ? `${gratis === 1 ? "1 pedido grátis é cancelado" : `${gratis} pedidos grátis são cancelados`} — o QR deixa de valer e quem tem e-mail recebe o aviso.`
+                : previa.alreadyCanceled
+                  ? "Todo mundo já recebeu de volta. Não ficou ninguém para trás."
+                  : "Ninguém comprou ainda — cancelar só tira o evento do ar."}
             </p>
           ) : (
             <>
@@ -164,6 +179,11 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
                   </dd>
                 </div>
               </dl>
+              {gratis > 0 && (
+                <p className="mt-3 text-[12.5px] font-bold">
+                  {gratis === 1 ? "1 pedido grátis também é cancelado" : `${gratis} pedidos grátis também são cancelados`} — o QR deixa de valer e quem tem e-mail recebe o aviso.
+                </p>
+              )}
               {previa.balanceAfterCents < 0 && (
                 <p className="mt-3 rounded-lg bg-warning/10 p-2.5 text-[12px] font-bold text-warning">
                   Seu saldo fica negativo em {brl(Math.abs(previa.balanceAfterCents))} porque parte
@@ -177,10 +197,10 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
           {/* Um evento sem venda nenhuma TAMBÉM precisa poder ser cancelado —
               antes o botão vivia atrás de orders > 0 e o produtor ficava sem
               caminho nenhum, com o evento publicado e vendendo. */}
-          {(previa.orders > 0 || !previa.alreadyCanceled) && (
+          {temAlgoAFazer && (
             <>
               <label className="mt-4 mb-1.5 block text-[12px] font-bold text-muted">
-                Por que está cancelando?{previa.orders > 0 ? " O comprador vai ler isso." : ""}
+                Por que está cancelando?{previa.orders + gratis > 0 ? " Quem tem ingresso vai ler isso." : ""}
               </label>
               <input
                 value={motivo}
@@ -212,7 +232,7 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
                 />
               </div>
               <p className="mt-1.5 text-[12px] font-bold text-muted">
-                {progresso.feitos} de {progresso.total} reembolsados
+                {progresso.feitos} de {progresso.total} {gratis > 0 ? "resolvidos" : "reembolsados"}
               </p>
             </div>
           )}
@@ -220,7 +240,7 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
           {falhas.length > 0 && (
             <div className="mt-3 rounded-lg bg-danger/10 p-2.5">
               <p className="text-[12px] font-extrabold text-danger">
-                {falhas.length} não deu para devolver automaticamente:
+                {falhas.length} não deu para resolver automaticamente:
               </p>
               <ul className="mt-1 space-y-0.5">
                 {falhas.slice(0, 5).map((f) => (
@@ -238,12 +258,20 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
           {erro && <p className="mt-3 text-[12.5px] font-bold text-danger">{erro}</p>}
           {pronto && falhas.length === 0 && (
             <p className="mt-3 text-[12.5px] font-bold text-success">
-              Evento cancelado e todo mundo reembolsado.
+              {previa.orders > 0 && gratis > 0
+                ? "Evento cancelado: todo mundo reembolsado e os ingressos grátis cancelados."
+                : gratis > 0
+                  ? previa.alreadyCanceled
+                    ? "Ingressos grátis cancelados."
+                    : "Evento cancelado e ingressos grátis cancelados."
+                  : previa.orders === 0
+                    ? "Evento cancelado. Ele saiu do ar e não vende mais."
+                    : "Evento cancelado e todo mundo reembolsado."}
             </p>
           )}
 
           <div className="mt-4 flex gap-2.5">
-            {(previa.orders > 0 || !previa.alreadyCanceled) && (
+            {temAlgoAFazer && (
               <button
                 type="button"
                 onClick={cancelar}
@@ -255,10 +283,14 @@ export function CancelarEvento({ eventId, jaCancelado }: { eventId: string; jaCa
                 }`}
               >
                 {rodando
-                  ? "Devolvendo…"
+                  ? previa.orders > 0
+                    ? "Devolvendo…"
+                    : "Cancelando…"
                   : previa.orders > 0
                     ? "Cancelar e devolver tudo"
-                    : "Cancelar evento"}
+                    : gratis > 0 && previa.alreadyCanceled
+                      ? "Cancelar os ingressos grátis"
+                      : "Cancelar evento"}
               </button>
             )}
             <button

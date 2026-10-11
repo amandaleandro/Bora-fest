@@ -24,6 +24,9 @@ export class GuestListService {
   async create(userId: string, eventId: string, input: CreateGuestListEntryInput) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException("Evento não encontrado");
+    // evento cancelado não ganha convidado novo: o ingresso nasceria valendo
+    // num evento que não vai acontecer (revisão 2026-10-11)
+    if (event.status === "CANCELED") throw new BadRequestException("Este evento foi cancelado.");
 
     // QUEM PODE CADASTRAR CONVIDADO (2026-09-08). Dois perfis, regras diferentes
     // — antes só o primeiro existia, e o promoter (que NÃO é membro da
