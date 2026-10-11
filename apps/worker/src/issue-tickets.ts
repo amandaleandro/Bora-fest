@@ -39,7 +39,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
         ? ("CONVIDADO" as const)
         : order.soldByUserId
           ? ("CORTESIA" as const)
-          : null
+          : ("GRATIS" as const) // lote grátis pego no site (2026-10-10): não é "compra"
       : null;
   if (order.status !== "PAID") {
     log.warn({ orderId, status: order.status }, "pedido não está PAID; emissão ignorada");
@@ -207,7 +207,7 @@ export function buildDeliveryPayload(
     code: string;
     ticketLot: { name: string; ticketType: { name: string } };
   }>,
-  cortesia: "CONVIDADO" | "CORTESIA" | null = null,
+  cortesia: "CONVIDADO" | "CORTESIA" | "GRATIS" | null = null,
 ) {
   const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
   return {

@@ -408,15 +408,17 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   }
 
   // --- confirmação (aprovado) ---
+  // ingresso grátis: não é compra — nem "pagamento aprovado", nem Purchase de R$ 0 no pixel do produtor
+  const gratis = order.totalCents === 0;
   return (
     <main className="flex min-h-dvh flex-col bg-gradient-to-b from-emerald-50 to-bg px-6 pb-10 pt-16 text-center lg:mx-auto lg:max-w-[660px] lg:px-7 lg:pb-16 lg:pt-12">
-      <PixelTracker pixelSettings={pixelSettings} purchase={{ orderId: order.id, valueCents: order.totalCents }} />
+      <PixelTracker pixelSettings={pixelSettings} purchase={gratis ? undefined : { orderId: order.id, valueCents: order.totalCents }} />
       <div className="mx-auto flex h-[92px] w-[92px] animate-pop items-center justify-center rounded-full bg-success text-white">
         <Icon d={paths.check} size={44} stroke={2.5} />
       </div>
-      <h1 className="mt-5 text-[24px] font-extrabold">Pagamento aprovado!</h1>
+      <h1 className="mt-5 text-[24px] font-extrabold">{gratis ? "Ingresso garantido!" : "Pagamento aprovado!"}</h1>
       <span className="mx-auto mt-2 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-bold text-success">
-        Pagamento confirmado
+        {gratis ? "Ingresso gratuito" : "Pagamento confirmado"}
       </span>
       <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
         Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b>{WA_ON ? " e pelo WhatsApp" : ""} — e eles já

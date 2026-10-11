@@ -112,6 +112,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
             ...lot,
             typeName: type.name,
             available,
+            // teto do "+": estoque, máximo por pedido e limite por pessoa — o mesmo que a reserva cobra
+            maxQty: Math.min(available, 6, lot.maxPerOrder ?? 6, lot.limitPerCpf ?? 6),
             soldOut: lot.status !== "ACTIVE" || available <= 0,
             few: lot.status === "ACTIVE" && available > 0 && available <= Math.max(3, lot.capacity * 0.1),
             countdownLabel: lotCountdownLabel(lot.endsAt),
@@ -251,8 +253,8 @@ export function TicketSelector({ event, compact = false }: { event: PublicEvent;
                     <button onClick={() => bump(lot.id, -1, lot.available)} disabled={!sel.qty} aria-label="Remover"
                       className="flex h-9 w-9 items-center justify-center rounded-xl border-[1.5px] border-line-input text-lg font-bold disabled:opacity-40">−</button>
                     <span className="w-5 text-center text-[15px] font-extrabold">{sel.qty}</span>
-                    <button onClick={() => bump(lot.id, 1, Math.min(lot.available, 6))} aria-label="Adicionar"
-                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-lg font-bold text-white shadow-cta">+</button>
+                    <button onClick={() => bump(lot.id, 1, lot.maxQty)} disabled={sel.qty >= lot.maxQty} aria-label="Adicionar"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-lg font-bold text-white shadow-cta disabled:opacity-40">+</button>
                   </div>
                 )}
               </div>

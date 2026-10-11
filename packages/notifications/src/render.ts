@@ -11,8 +11,8 @@ export interface TicketDeliveryPayload {
   eventStartsAt: string;
   orderUrl: string;
   tickets: Array<{ code: string; typeName: string; lotName: string }>;
-  /** entrada grátis: CONVIDADO (lista, com charme) ou CORTESIA (balcão, sóbria) */
-  cortesia?: "CONVIDADO" | "CORTESIA" | null;
+  /** entrada grátis: CONVIDADO (lista, com charme), CORTESIA (balcão, sóbria) ou GRATIS (lote grátis no site) */
+  cortesia?: "CONVIDADO" | "CORTESIA" | "GRATIS" | null;
 }
 
 export function renderTicketDeliveryEmail(
@@ -205,7 +205,7 @@ export interface AccountClaimPayload {
   /** link mágico: clicar prova a posse do e-mail, loga e abre o ingresso */
   claimUrl: string;
   /** entrada grátis: muda assunto/abertura (convite tem charme, cortesia é sóbria) */
-  cortesia?: "CONVIDADO" | "CORTESIA" | null;
+  cortesia?: "CONVIDADO" | "CORTESIA" | "GRATIS" | null;
 }
 
 /**
@@ -220,19 +220,23 @@ export function renderAccountClaimEmail(to: string, payload: AccountClaimPayload
       ? `Você é convidado: ${payload.eventTitle} ✨`
       : payload.cortesia === "CORTESIA"
         ? `Sua cortesia para ${payload.eventTitle} 🎟️`
-        : `Compra confirmada — seu ingresso para ${payload.eventTitle} 🎟️`;
+        : payload.cortesia === "GRATIS"
+          ? `Ingresso garantido — ${payload.eventTitle} 🎟️`
+          : `Compra confirmada — seu ingresso para ${payload.eventTitle} 🎟️`;
   const abertura =
     payload.cortesia === "CONVIDADO"
       ? "Você foi convidado! Seu ingresso para"
       : payload.cortesia === "CORTESIA"
         ? "Cortesia garantida! Seu ingresso para"
-        : "Compra confirmada! Seu ingresso para";
+        : payload.cortesia === "GRATIS"
+          ? "Ingresso garantido! Seu ingresso para"
+          : "Compra confirmada! Seu ingresso para";
   const html = `
   <div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">
     <p style="font-size:16px;font-weight:700">${escapeHtml(saudacao)}</p>
     <p style="font-size:14px;line-height:1.6">${abertura}
       <b>${escapeHtml(payload.eventTitle)}</b> está guardado na sua conta BoraFest —
-      criada agora com os dados da compra.</p>
+      criada agora com ${payload.cortesia ? "os seus dados" : "os dados da compra"}.</p>
     <p style="font-size:14px;line-height:1.6">Toque no botão para acessar (isso confirma que este
       e-mail é seu e abre o ingresso na hora):</p>
     <p style="text-align:center;margin:28px 0">

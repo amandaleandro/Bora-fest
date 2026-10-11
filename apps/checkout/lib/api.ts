@@ -42,6 +42,10 @@ export interface PublicTicketLot {
   soldCount: number;
   reservedCount: number;
   status: string;
+  /** máximo por pedido (a reserva recusa acima disso) */
+  maxPerOrder?: number;
+  /** ingresso limitado por pessoa (CPF) — o seletor não deixa passar disso */
+  limitPerCpf?: number | null;
   /** BUYER: comprador paga a taxa. PRODUCER: o produtor absorve (total = preço). */
   feeMode: "BUYER" | "PRODUCER";
   /** exige nome (e CPF quando requiresCpf) de cada participante no checkout */

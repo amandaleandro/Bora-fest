@@ -17,7 +17,7 @@ import { ehCpfValido } from "../../../lib/cpf";
 
 /** Proteção de reembolso (upsell): mesmo valor do backend. */
 const PROTECTION_FEE_CENTS = 150;
-import { getAttributedPartnerSlug, getAttributedPromoterSlug, getAttributedSellerSlug } from "../../../lib/attribution";
+import { eventAccess, getAttributedPartnerSlug, getAttributedPromoterSlug, getAttributedSellerSlug } from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
 
@@ -202,7 +202,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         if (!active || !found) return null;
         setSlug(found);
         sessionStorage.setItem(`bf.slug.${reservationId}`, found);
-        return api.getPublicEvent(found);
+        // com o código do convite/promoter: lote restrito só vem (com nominal/CPF) para quem tem o link
+        return api.getPublicEvent(found, eventAccess(found));
       })
       .then((loaded) => {
         if (active && loaded) setEvent(loaded);
@@ -784,7 +785,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
               <section className={cardClass}>
                 <h2 className="text-[22px] font-extrabold lg:text-[18px]">Quase lá! Seus dados</h2>
                 <p className="mt-1 text-[13px] font-medium text-muted">
-                  Sem senha, sem baixar app — sua conta BoraFest nasce junto com a compra.
+                  Sem senha, sem baixar app — sua conta BoraFest nasce junto com {semCusto ? "o seu ingresso" : "a compra"}.
                 </p>
 
                 <div className="mt-5 space-y-4">
@@ -818,7 +819,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       className={inputClass}
                     />
                     <p className="mt-1 text-[11.5px] font-semibold text-muted-2">
-                      Exigido pelo banco para emitir o Pix e a nota do pagamento.
+                      {semCusto
+                        ? "O ingresso fica no seu CPF — é ele que identifica você na entrada."
+                        : "Exigido pelo banco para emitir o Pix e a nota do pagamento."}
                     </p>
                   </div>
 

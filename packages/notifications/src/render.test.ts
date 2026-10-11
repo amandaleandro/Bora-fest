@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderTicketDeliveryEmail, renderTicketDeliveryWhatsApp } from "./render";
+import { renderTicketDeliveryEmail, renderTicketDeliveryWhatsApp, renderAccountClaimEmail } from "./render";
 
 const payload = {
   contactName: "Ana",
@@ -38,4 +38,13 @@ test("whatsapp de entrega: template e variáveis", () => {
   assert.equal(message.template, "ticket_delivery");
   assert.equal(message.variables.ticket_count, "2");
   assert.equal(message.variables.order_url, payload.orderUrl);
+});
+
+test("e-mail de acesso: lote grátis não fala em compra", () => {
+  const base = { contactName: "Ana", eventTitle: "Noite Livre", claimUrl: "https://borafest.com.br/acesso?token=x" };
+  const gratis = renderAccountClaimEmail("ana@test.dev", { ...base, cortesia: "GRATIS" });
+  assert.match(gratis.subject, /^Ingresso garantido — Noite Livre/);
+  assert.ok(!/compra/i.test(gratis.subject + gratis.text + gratis.html), "grátis não diz compra");
+  const pago = renderAccountClaimEmail("ana@test.dev", base);
+  assert.match(pago.subject, /^Compra confirmada/);
 });
