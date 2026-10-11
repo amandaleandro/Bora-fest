@@ -632,7 +632,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           (ic-<pedido>) para a Meta não contar duas vezes */}
       <PixelTracker
         pixelSettings={event?.pixelSettings ?? null}
-        initiateCheckout={order ? { orderId: order.id, valueCents: order.totalCents } : undefined}
+        // R$ 0 não é checkout pro pixel (2026-10-11): mesma regra do Purchase em /pedido e do CAPI
+        initiateCheckout={order && order.totalCents > 0 ? { orderId: order.id, valueCents: order.totalCents } : undefined}
       />
       <header className="sticky top-0 z-10 border-b border-line bg-bg/85 backdrop-blur">
         <div className="mx-auto max-w-[1160px] px-5 lg:px-7">

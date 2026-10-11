@@ -225,8 +225,9 @@ export class EventsService {
       data: { status: "PUBLISHED", publishedAt: new Date() },
     });
 
-    // melhor esforço — não bloqueia a publicação se o envio falhar
-    this.notifyFollowers(published).catch(() => undefined);
+    // melhor esforço — não bloqueia a publicação se o envio falhar.
+    // Evento privado não é anunciado: abre só por link (revisão pré-deploy 2026-10-11)
+    if (!published.isPrivate) this.notifyFollowers(published).catch(() => undefined);
 
     return semSegredoDoEvento(published);
   }

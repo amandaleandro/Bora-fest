@@ -190,6 +190,13 @@ test("limite por CPF: um por pessoa, conta criada com CPF e consentimento", asyn
     assert.equal(p1.status, "PAID");
     const salvo = await prisma.order.findUniqueOrThrow({ where: { id: p1.id } });
     assert.equal(salvo.contactCpf, cpfA, "o CPF fica no pedido");
+    const pelaRotaPublica = (await ctx.orders.findByPublicToken(salvo.publicToken)) as Record<string, unknown>;
+    assert.ok(!("contactCpf" in pelaRotaPublica), "o link público do pedido nunca devolve o CPF");
+    const noPainel = (await ctx.orders.getOrderDetailForProducer(p1.id, ctx.dono.id)) as {
+      items: Array<{ ticketLot: Record<string, unknown> }>;
+    } & Record<string, unknown>;
+    assert.ok(!("contactCpf" in noPainel), "o detalhe do pedido no painel não traz o CPF");
+    assert.ok(noPainel.items.every((i) => !("inviteToken" in i.ticketLot)), "nem o código do convite");
     assert.equal(salvo.accountCreatedByOrder, true, "quem não tinha conta ganha uma");
     const conta = await prisma.user.findUniqueOrThrow({ where: { email: emailA } });
     assert.equal(conta.cpf, cpfA, "a conta nasce com o CPF do resgate");
@@ -216,6 +223,22 @@ test("limite por CPF: um por pessoa, conta criada com CPF e consentimento", asyn
       ctx.orders.createFromReservation(undefined, { reservationId: r4.id, contactEmail: `sem-cpf-${rand()}@example.com` }),
       /Informe seu CPF/,
     );
+
+    // lote SEM limite: o CPF não é guardado no pedido (LGPD, 2026-10-11)
+    const emailC = `restrito-c-${rand()}@example.com`;
+    ctx.emails.push(emailC);
+    const rAberto = await ctx.reservations.create(undefined, {
+      eventId: ctx.fx.event.id,
+      items: [{ ticketLotId: ctx.fx.lot.id, quantity: 1 }],
+    });
+    const pAberto = await ctx.orders.createFromReservation(undefined, {
+      reservationId: rAberto.id,
+      contactEmail: emailC,
+      contactCpf: geraCpf(),
+      consent,
+    });
+    const salvoAberto = await prisma.order.findUniqueOrThrow({ where: { id: pAberto.id } });
+    assert.equal(salvoAberto.contactCpf, null, "lote sem limite não guarda CPF no pedido");
   } finally {
     await desmontar(ctx);
   }

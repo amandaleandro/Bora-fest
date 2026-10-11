@@ -706,6 +706,8 @@ export class OrganizationsService {
           where: {
             organizationId: { in: semEscopo },
             status: "PUBLISHED",
+            // privado só por link do produtor (2026-10-11); promoter de evento privado = vínculo com escopo
+            isPrivate: false,
             endsAt: { gte: new Date() },
           },
           select: { id: true, title: true, slug: true, startsAt: true, organizationId: true },

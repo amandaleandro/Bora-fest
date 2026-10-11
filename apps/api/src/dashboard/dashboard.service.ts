@@ -393,9 +393,10 @@ export class DashboardService {
       "pedido,data,comprador,email,itens,valor_bruto,taxa_servico,valor_liquido,desconto,status,meio_pagamento";
     const rows = orders.map((o) => {
       const itemCount = o.items.reduce((sum, i) => sum + i.quantity, 0);
-      const feeCents = o.items.reduce((sum, i) => sum + i.feeCents * i.quantity, 0);
+      // pedido de R$ 0 (lote grátis, cupom 100%) não teve taxa cobrada: taxa e líquido zerados
+      const feeCents = o.totalCents === 0 ? 0 : o.items.reduce((sum, i) => sum + i.feeCents * i.quantity, 0);
       const grossCents = o.totalCents + o.discountCents; // bruto antes do desconto do cupom
-      const netCents = grossCents - feeCents - o.discountCents;
+      const netCents = o.totalCents === 0 ? 0 : grossCents - feeCents - o.discountCents;
       return [
         o.publicToken,
         o.createdAt.toISOString(),

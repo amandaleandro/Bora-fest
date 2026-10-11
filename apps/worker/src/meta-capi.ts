@@ -71,6 +71,10 @@ async function sendEventToMeta(orderId: string, nome: EventoMeta): Promise<void>
       },
     });
     if (!order) return;
+    // R$ 0 (lote grátis, cupom 100%, cortesia, lista) não é compra nem checkout:
+    // Purchase de valor 0 ensina a campanha errado (revisão pré-deploy 2026-10-11).
+    // Inscrição grátis vira evento próprio (Lead) quando for decidido.
+    if (order.totalCents === 0) return;
 
     const token = order.event.metaCapiToken;
     const pixelId = (order.event.pixelSettings as { metaPixelId?: string } | null)?.metaPixelId;

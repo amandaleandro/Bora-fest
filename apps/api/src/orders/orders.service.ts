@@ -1,6 +1,7 @@
 import { createSessionToken, roleHasPermission } from "@borafest/auth";
 import { addBusinessDays } from "@borafest/payments";
 import { executarReembolso } from "../common/refund-order";
+import { rotuloDoEmailGratis } from "../common/origem-gratis";
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   confirmSaleInventory,
@@ -266,6 +267,11 @@ export class OrdersService {
     // LIMITE POR CPF (2026-10-10): soma o que este CPF já tem do lote em pedidos
     // vivos. Pendente conta também, pra ninguém abrir dois checkouts em paralelo.
     const cpfDoPedido = input.contactCpf?.replace(/\D/g, "") || undefined;
+    // LGPD (revisão pré-deploy 2026-10-11): o CPF só fica no pedido quando serve
+    // pra trava — lote com limite por pessoa. Nos demais, não guarda.
+    const cpfParaGuardar = reservation.items.some((i) => lotById.get(i.ticketLotId)?.limitPerCpf)
+      ? cpfDoPedido
+      : undefined;
     const qtdPorLote = new Map<string, number>();
     for (const item of reservation.items) {
       qtdPorLote.set(item.ticketLotId, (qtdPorLote.get(item.ticketLotId) ?? 0) + item.quantity);
@@ -361,7 +367,7 @@ export class OrdersService {
           contactEmail: input.contactEmail,
           contactName: input.contactName,
           contactPhone: input.contactPhone?.replace(/\D/g, ""),
-          contactCpf: cpfDoPedido,
+          contactCpf: cpfParaGuardar,
           status: semCusto ? "PAID" : "PAYMENT_PENDING",
           paidAt: semCusto ? new Date() : undefined,
           totalCents,
@@ -513,7 +519,9 @@ export class OrdersService {
       order.status !== "REFUNDED" &&
       ["PAID", "FULFILLED", "PARTIALLY_REFUNDED"].includes(order.status) &&
       order.event.startsAt.getTime() > Date.now();
-    const { user: _user, event: _event, ...rest } = order;
+    // contactCpf nunca sai (revisão pré-deploy 2026-10-11): este link anda por
+    // e-mail, WhatsApp e pixel — quem tem o link não pode ler o CPF de ninguém
+    const { user: _user, event: _event, contactCpf: _cpf, ...rest } = order;
     return {
       ...rest,
       tickets: locked ? [] : order.tickets,
@@ -547,7 +555,14 @@ export class OrdersService {
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
     await this.orgAccess.assertPermission(order.event.organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
-    return order;
+    // sem CPF do comprador (mesma regra da auditoria 2026-08-29 sobre o pagador)
+    // e sem o código do link de convidado: quem vê vendas (finance) não troca nem
+    // distribui o link — isso exige EVENT_CREATE (revisão pré-deploy 2026-10-11)
+    const { contactCpf: _cpf, items, ...semCpf } = order;
+    return {
+      ...semCpf,
+      items: items.map(({ ticketLot: { inviteToken: _convite, ...lote }, ...item }) => ({ ...item, ticketLot: lote })),
+    };
   }
 
   /**
@@ -1010,7 +1025,7 @@ export class OrdersService {
     await executarReembolso(order.id, actorUserId, input);
     // não devolver o Payment cru (auditoria 2026-08-30): traz CPF do pagador em
     // metadata, pixQrCodeText e ids do gateway. Só o resumo que a tela usa.
-    return prisma.order.findUniqueOrThrow({
+    const estornado = await prisma.order.findUniqueOrThrow({
       where: { id: order.id },
       include: {
         payments: {
@@ -1019,6 +1034,8 @@ export class OrdersService {
         },
       },
     });
+    const { contactCpf: _cpf, ...semCpf } = estornado;
+    return semCpf;
   }
 
   /**
@@ -1096,6 +1113,7 @@ export class OrdersService {
       include: {
         user: { select: { id: true, emailVerifiedAt: true, passwordHash: true, sessionVersion: true } },
         event: { select: { title: true } },
+        guestListEntries: { select: { id: true }, take: 1 },
       },
     });
     if (!order) throw new NotFoundException("Pedido não encontrado");
@@ -1138,6 +1156,7 @@ export class OrdersService {
           contactName: order.contactName,
           eventTitle: order.event.title,
           claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+          cortesia: rotuloDoEmailGratis(order),
         },
         orderId: order.id,
       },

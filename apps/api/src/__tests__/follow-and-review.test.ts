@@ -64,6 +64,20 @@ test("seguir produtor: toggle e notificação por e-mail ao publicar evento", as
     assert.ok(sentEmails.length > before, "e-mail de novo evento foi enviado ao seguidor");
     assert.equal(sentEmails[sentEmails.length - 1].to, follower.email);
 
+    // evento PRIVADO (2026-10-11): publicar não anuncia aos seguidores — abre só por link
+    const privado = await events.create(fixture.organization.id, owner.id, {
+      title: "Festa Fechada",
+      startsAt: new Date(Date.now() + 86_400_000).toISOString(),
+      endsAt: new Date(Date.now() + 90_000_000).toISOString(),
+      timezone: "America/Sao_Paulo",
+    } as any);
+    await prisma.event.update({ where: { id: privado.id }, data: { isPrivate: true } });
+    const antesDoPrivado = sentEmails.length;
+    await events.publish(privado.id, owner.id);
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(sentEmails.length, antesDoPrivado, "evento privado não manda e-mail aos seguidores");
+    await prisma.event.delete({ where: { id: privado.id } });
+
     await organizations.unfollow(fixture.organization.id, follower.id);
     assert.equal((await organizations.isFollowing(fixture.organization.id, follower.id)).following, false);
 

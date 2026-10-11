@@ -17,6 +17,8 @@ export const createReservationSchema = z.object({
   /** link do promoter (?pr=): exigido para reservar lote exclusivo do promoter */
   promoterSlug: z.string().trim().min(1).max(80).optional(),
   /** código do link de convidado (?convite=): exigido para reservar lote restrito por link */
-  inviteToken: z.string().trim().min(8).max(80).optional(),
+  // sem mínimo de tamanho: convite cortado/errado não pode barrar a reserva de lote
+  // aberto — quem confere o código é o serviço, só nos lotes por link (2026-10-11)
+  inviteToken: z.string().trim().max(80).optional(),
 });
 export type CreateReservationInput = z.infer<typeof createReservationSchema>;

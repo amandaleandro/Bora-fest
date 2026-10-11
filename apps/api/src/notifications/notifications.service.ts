@@ -8,6 +8,7 @@ import {
 import { prisma } from "@borafest/database";
 import { createSessionToken } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
+import { rotuloDoEmailGratis } from "../common/origem-gratis";
 import { getWhatsAppSender } from "@borafest/notifications";
 import type { OrderWhatsAppInput, RegisterPushTokenInput } from "@borafest/contracts";
 
@@ -71,14 +72,7 @@ export class NotificationsService {
         "7d",
       );
       const base = process.env.WEB_BASE_URL ?? "http://localhost:3000";
-      const cortesia =
-        order.totalCents === 0
-          ? order.guestListEntries.length > 0
-            ? ("CONVIDADO" as const)
-            : order.soldByUserId
-              ? ("CORTESIA" as const)
-              : null
-          : null;
+      const cortesia = rotuloDoEmailGratis(order);
       await prisma.notification.create({
         data: {
           channel: "EMAIL",

@@ -425,7 +425,7 @@ export class AdminService {
       },
     });
 
-    return prisma.order.findUniqueOrThrow({
+    const estornado = await prisma.order.findUniqueOrThrow({
       where: { id: order.id },
       include: {
         payments: {
@@ -434,6 +434,9 @@ export class AdminService {
         },
       },
     });
+    // sem o CPF do comprador, como no estorno do painel (2026-10-11)
+    const { contactCpf: _cpf, ...semCpf } = estornado;
+    return semCpf;
   }
 
   async listRefundRequests(userId: string, filters: { status?: string }) {

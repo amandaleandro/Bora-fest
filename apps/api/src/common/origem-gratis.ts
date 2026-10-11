@@ -81,3 +81,20 @@ export function origemGratis(order: PedidoParaOrigem): OrigemGratis {
   }
   return null;
 }
+
+/**
+ * Rótulo do e-mail de acesso (account_claim) de pedido R$ 0 — mesma regra do
+ * worker (issue-tickets.ts). Lista → CONVIDADO, balcão histórico → CORTESIA,
+ * o resto (lote grátis no site, cupom 100%, cortesia do painel) → GRATIS, que
+ * não fala em "compra" (2026-10-11). Pedido pago → null ("Compra confirmada").
+ */
+export function rotuloDoEmailGratis(order: {
+  totalCents: number;
+  soldByUserId?: string | null;
+  guestListEntries?: Array<{ id: string }>;
+}): "CONVIDADO" | "CORTESIA" | "GRATIS" | null {
+  if (order.totalCents !== 0) return null;
+  if ((order.guestListEntries?.length ?? 0) > 0) return "CONVIDADO";
+  if (order.soldByUserId) return "CORTESIA";
+  return "GRATIS";
+}

@@ -116,8 +116,10 @@ const CONVITE_PREFIX = "bf.convite.";
  */
 export function captureInviteFromUrl(slug: string) {
   try {
-    const token = new URLSearchParams(window.location.search).get("convite");
-    if (!token) return;
+    const token = new URLSearchParams(window.location.search).get("convite")?.trim();
+    // só guarda o que tem cara de código (base64url); link cortado/editado não
+    // fica 7 dias grudado nas reservas deste evento
+    if (!token || !/^[A-Za-z0-9_-]{8,80}$/.test(token)) return;
     localStorage.setItem(
       CONVITE_PREFIX + slug,
       JSON.stringify({ token, expiresAt: Date.now() + ATTRIBUTION_WINDOW_MS }),

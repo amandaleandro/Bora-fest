@@ -132,6 +132,9 @@ export class MeService {
    * (política pública: remoção completa em até 30 dias).
    */
   async deleteAccount(userId: string) {
+    // pedido feito sem login com o e-mail da conta nasce sem dono (userId null)
+    // e também guarda o CPF — o e-mail original é lido antes de anonimizar
+    const conta = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     await prisma.$transaction([
       prisma.user.update({
         where: { id: userId },
@@ -145,6 +148,11 @@ export class MeService {
           // da conta apagada continuava valendo até expirar
           sessionVersion: { increment: 1 },
         },
+      }),
+      // o CPF também fica no pedido (lote com limite por pessoa, 2026-10-10)
+      prisma.order.updateMany({
+        where: conta?.email ? { OR: [{ userId }, { userId: null, contactEmail: conta.email }] } : { userId },
+        data: { contactCpf: null },
       }),
       prisma.auditLog.create({
         data: {

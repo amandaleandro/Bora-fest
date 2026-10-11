@@ -225,7 +225,12 @@ export function EventPageClient({
             <FavoriteButton eventId={event.id} />
             <button
               aria-label="Compartilhar"
-              onClick={() => navigator.share?.({ title: event.title, url: location.href }).catch(() => {})}
+              onClick={() => {
+                // compartilha o EVENTO, não o convite: o ?convite= abre lote restrito
+                const url = new URL(location.href);
+                url.searchParams.delete("convite");
+                navigator.share?.({ title: event.title, url: url.toString() }).catch(() => {});
+              }}
               className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur"
             >
               <Icon d={paths.share} size={18} />

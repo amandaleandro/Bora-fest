@@ -122,7 +122,9 @@ export class ComplimentaryService {
     await this.orgAccess.assertPermission(event.organizationId, userId, PERMISSIONS.EVENT_CREATE);
 
     return prisma.order.findMany({
-      where: { eventId, totalCents: 0, status: { in: ["PAID", "FULFILLED"] } },
+      // pedido grátis do site (lote R$ 0, cupom 100%) não é cortesia: quem passou
+      // pelo checkout aceitou os termos; cortesia e lista nunca têm consentimento
+      where: { eventId, totalCents: 0, status: { in: ["PAID", "FULFILLED"] }, consents: { none: {} } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
