@@ -14,10 +14,15 @@ function PortariaContent({ eventId }: { eventId: string }) {
   const [credentialLabel, setCredentialLabel] = useState("");
   const [generatedPin, setGeneratedPin] = useState<{ label: string; pin: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): a falha ao carregar não tinha catch — a tela
+  // ficava sem portões e com "Nenhum aparelho registrado ainda", e o produtor
+  // recriava portão que já existia. Agora o erro aparece com "Tentar novamente".
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function load() {
     if (!token) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const [pointsList, devicesList] = await Promise.all([
         validatorConfigApi.listCheckinPoints(token, eventId),
@@ -25,6 +30,10 @@ function PortariaContent({ eventId }: { eventId: string }) {
       ]);
       setPoints(pointsList);
       setDevices(devicesList);
+    } catch (err) {
+      setLoadError(
+        err instanceof Error && err.message ? err.message : "Não foi possível carregar os portões e aparelhos",
+      );
     } finally {
       setLoading(false);
     }
@@ -61,8 +70,14 @@ function PortariaContent({ eventId }: { eventId: string }) {
 
   async function handleBlockDevice(deviceId: string) {
     if (!token) return;
-    await validatorConfigApi.blockDevice(token, eventId, deviceId);
-    await load();
+    setError(null);
+    try {
+      await validatorConfigApi.blockDevice(token, eventId, deviceId);
+      await load();
+    } catch (err) {
+      // bloquear aparelho falhava em silêncio — o produtor achava que bloqueou (2026-10-12)
+      setError(err instanceof Error ? err.message : "Não foi possível bloquear o aparelho");
+    }
   }
 
   return (
@@ -70,6 +85,20 @@ function PortariaContent({ eventId }: { eventId: string }) {
       <h1 className="mt-2 text-xl font-extrabold">Portaria e validadores</h1>
 
       {error ? <p className="mt-4 text-sm font-semibold text-danger">{error}</p> : null}
+      {loadError ? (
+        <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/5 p-4 text-center">
+          <p className="text-[13px] font-bold text-danger">
+            Não deu para carregar os portões e aparelhos ({loadError}) — confira antes de cadastrar de novo.
+          </p>
+          <button
+            type="button"
+            onClick={load}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
 
       <section className="mt-6">
         <h2 className="text-sm font-bold">Portões</h2>
@@ -152,7 +181,7 @@ function PortariaContent({ eventId }: { eventId: string }) {
             </table>
           </div>
         )}
-        {!loading && devices.length === 0 ? (
+        {!loading && !loadError && devices.length === 0 ? (
           <p className="mt-2 text-sm font-semibold text-muted">Nenhum aparelho registrado ainda.</p>
         ) : null}
       </section>

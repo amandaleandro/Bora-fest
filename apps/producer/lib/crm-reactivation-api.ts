@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "./api";
 import type { CustomerSegment } from "./customer-crm-api";
 
 export interface ReactivationPreview {
@@ -45,6 +46,8 @@ export async function previewReactivation(
       body: JSON.stringify({ segment }),
     },
   );
+  // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   if (!response.ok) throw new Error(await parseError(response, "Não foi possível calcular o público"));
   return (await response.json()) as ReactivationPreview;
 }
@@ -73,6 +76,7 @@ export async function sendReactivation(
       body: JSON.stringify(input),
     },
   );
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   if (!response.ok) throw new Error(await parseError(response, "Não foi possível enviar a campanha"));
   return (await response.json()) as ReactivationSendResult;
 }

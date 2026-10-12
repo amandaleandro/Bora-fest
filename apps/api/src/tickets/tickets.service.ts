@@ -56,6 +56,10 @@ export class TicketsService {
         event: order.event,
         requiresVerification: true,
         contactEmail: order.contactEmail,
+        // o link de acesso só vai para o e-mail de contato quando a conta nasceu
+        // deste pedido; senão foi para o e-mail DA CONTA (2026-10-12) — a tela não
+        // pode afirmar "enviamos para <contato>" nem oferecer código para ele
+        linkNoContato: Boolean(order.accountCreatedByOrder),
         cortesia,
         tickets: [],
       };

@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "./api";
 
 export interface DuplicatedEventResult {
   id: string;
@@ -22,6 +23,8 @@ async function post<T>(token: string, path: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   });
+  // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   if (!response.ok) {
     let message = "Não foi possível criar a próxima edição";
     try {

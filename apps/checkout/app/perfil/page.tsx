@@ -5,6 +5,7 @@ import { RevealQr } from "@/components/RevealQr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../lib/api";
+import { ehCpfValido } from "../../lib/cpf";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { pedidoGratis, precoOuGratis } from "../../lib/preco";
 import { Icon, paths } from "../../components/icons";
@@ -12,23 +13,17 @@ import { Icon, paths } from "../../components/icons";
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
 /** versão vigente do aceite de Termos/Privacidade (handoff v2) */
 const CONSENT_VERSION = "v2026-07";
+// 2026-10-12: mesma chave de /minhas-compras e /pedido — com o WhatsApp
+// desligado, o aviso de reenvio não pode dizer que foi pelo WhatsApp
+const WA_ON = process.env.NEXT_PUBLIC_WA_DELIVERY === "on";
 
 type Section = "ingressos" | "compras" | "dados" | "legal";
 type MyTicket = Awaited<ReturnType<typeof api.myTickets>>[number];
 type MyOrder = Awaited<ReturnType<typeof api.myOrders>>[number];
 type Profile = Awaited<ReturnType<typeof api.myProfile>>;
 
-/** dígitos verificadores do CPF — barra typo antes de ir ao servidor */
-function isValidCpf(raw: string): boolean {
-  const cpf = raw.replace(/\D/g, "");
-  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
-  for (const len of [9, 10]) {
-    let sum = 0;
-    for (let i = 0; i < len; i += 1) sum += Number(cpf[i]) * (len + 1 - i);
-    if (((sum * 10) % 11) % 10 !== Number(cpf[len])) return false;
-  }
-  return true;
-}
+// 2026-10-12: o validador de CPF que morava aqui virou o de lib/cpf.ts
+// (ehCpfValido) — uma regra só no site do comprador, igual à da API.
 
 const MENU: Array<{ id: Section; label: string }> = [
   { id: "ingressos", label: "Meus ingressos" },
@@ -263,7 +258,7 @@ export default function ProfilePage() {
       setTransferError("Informe o CPF da conta destino (11 dígitos)");
       return;
     }
-    if (!isValidCpf(toCpf)) {
+    if (!ehCpfValido(toCpf)) {
       setTransferError("CPF inválido — confira os números digitados");
       return;
     }
@@ -634,7 +629,7 @@ export default function ProfilePage() {
                         </div>
                         {resentFor === order.publicToken && (
                           <p className="mt-3 rounded-xl bg-success/10 p-3 text-[12px] font-bold text-success">
-                            Ingressos reenviados por e-mail e WhatsApp ✅
+                            {WA_ON ? "Ingressos reenviados por e-mail e WhatsApp ✅" : "Ingressos reenviados por e-mail ✅"}
                           </p>
                         )}
                         <div className="mt-4 flex flex-wrap gap-2.5">
@@ -703,7 +698,7 @@ export default function ProfilePage() {
                           onClick={async () => {
                             if (!token) return;
                             setCpfMsg(null);
-                            if (!isValidCpf(cpfInput)) {
+                            if (!ehCpfValido(cpfInput)) {
                               setCpfMsg("CPF inválido — confira os números digitados");
                               return;
                             }

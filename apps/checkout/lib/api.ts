@@ -229,6 +229,8 @@ export interface OrderTicketsResponse {
   /** entrada grátis: CONVIDADO (lista, dourado) ou CORTESIA (balcão, sóbria) */
   cortesia?: { kind: "CONVIDADO" | "CORTESIA"; por: string } | null;
   contactEmail?: string;
+  /** false: o link de acesso foi para o e-mail da conta, não para o de contato */
+  linkNoContato?: boolean;
   tickets: OrderTicket[];
 }
 

@@ -6,7 +6,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
 import { CHECKOUT_URL } from "@/lib/config";
 import { useEventShell } from "@/lib/eventContext";
-import { dashboardApi, type Dashboard } from "@/lib/api";
+import { ApiError, dashboardApi, type Dashboard } from "@/lib/api";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -65,6 +65,12 @@ function DashboardContent({ eventId }: { eventId: string }) {
 
   // check-in ao vivo (polling 10s — §13 checkin-live)
   const [live, setLive] = useState<{ totalTickets: number; checkedIn: number; perMinute: number } | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): a falha do ao vivo caía num .catch(() => {})
+  // e a tela dizia "Sem dados de portaria ainda" com a portaria rodando. Agora a
+  // falha aparece com "Tentar novamente"; 403 (papel Financeiro) é aviso neutro.
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [liveForbidden, setLiveForbidden] = useState(false);
+  const [liveAttempt, setLiveAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -75,17 +81,34 @@ function DashboardContent({ eventId }: { eventId: string }) {
       .then(setDashboard)
       .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar o dashboard"))
       .finally(() => setLoading(false));
+  }, [token, eventId, attempt]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setLiveError(null);
+    setLiveForbidden(false);
+    // pelo request de lib/api.ts (era fetch próprio): 401 vira sessão vencida
     const fetchLive = () =>
-      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333"}/v1/events/${eventId}/checkin-live`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => d && setLive(d))
-        .catch(() => {});
+      dashboardApi
+        .checkinLive(token, eventId)
+        .then((d) => {
+          if (cancelled) return;
+          setLive(d);
+          setLiveError(null);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (err instanceof ApiError && err.status === 403) setLiveForbidden(true);
+          else setLiveError(err instanceof Error && err.message ? err.message : "Não foi possível carregar o check-in ao vivo");
+        });
     fetchLive();
     const id = setInterval(fetchLive, 10_000);
-    return () => clearInterval(id);
-  }, [token, eventId, attempt]);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [token, eventId, attempt, liveAttempt]);
 
   if (error) {
     return (
@@ -242,9 +265,28 @@ function DashboardContent({ eventId }: { eventId: string }) {
                 />
               </div>
               <p className="mt-2 text-[12px] font-bold text-muted">+{live.perMinute} no último minuto</p>
+              {liveError ? (
+                <p className="mt-2 text-[12px] font-semibold text-warning">
+                  Não deu para atualizar ({liveError}) — os números acima podem estar desatualizados.{" "}
+                  <button type="button" onClick={() => setLiveAttempt((a) => a + 1)} className="font-extrabold underline">
+                    Tentar novamente
+                  </button>
+                </p>
+              ) : null}
             </>
+          ) : liveForbidden ? (
+            <p className="mt-4 text-[13px] font-semibold text-muted">
+              Seu papel na equipe não acompanha o check-in ao vivo.
+            </p>
+          ) : liveError ? (
+            <div className="mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[13px] font-semibold text-danger">
+              {liveError}{" "}
+              <button type="button" onClick={() => setLiveAttempt((a) => a + 1)} className="font-extrabold underline">
+                Tentar novamente
+              </button>
+            </div>
           ) : (
-            <p className="mt-4 text-[13px] font-semibold text-muted">Sem dados de portaria ainda.</p>
+            <p className="mt-4 text-[13px] font-semibold text-muted">Carregando…</p>
           )}
         </section>
       </div>

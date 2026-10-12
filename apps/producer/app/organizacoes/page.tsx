@@ -5,7 +5,18 @@ import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { SalesPushButton } from "@/components/SalesPushButton";
 import { useAuth } from "@/lib/auth";
-import { organizationsApi, type Organization, type ProducerType, type PromoterEngagement, type PromoterInvite } from "@/lib/api";
+import {
+  organizationsApi,
+  type Organization,
+  type ProducerType,
+  type PromoterEngagement,
+  type PromoterInvite,
+  type PromoterWallet,
+} from "@/lib/api";
+
+function brl(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 const PRODUCER_TYPES: Array<{ value: ProducerType; label: string }> = [
   { value: "CASA", label: "Casa de shows / balada" },
@@ -21,28 +32,50 @@ const inputCls =
  * Multi-produtora fica para a v2 (decisão #6) — o login já cai em "Meus eventos".
  * Esta tela continua acessível para quem administra mais de uma organização.
  */
-function PromoterInbox() {
+/**
+ * `ownedOrg`: a produtora de que a pessoa é DONA — é para o caixa dela que vão
+ * as comissões de promoter (resolvePromoterWallet em packages/payments).
+ * undefined = ainda não sabemos (lista carregando ou com erro); null = não tem.
+ */
+function PromoterInbox({ ownedOrg }: { ownedOrg: (Organization & { roleKey: string }) | null | undefined }) {
   const { token } = useAuth();
   const [invites, setInvites] = useState<PromoterInvite[]>([]);
   const [engagements, setEngagements] = useState<PromoterEngagement[]>([]);
   const [sellerInvites, setSellerInvites] = useState<Awaited<ReturnType<typeof organizationsApi.mySellerInvites>>>([]);
   const [sellerEngagements, setSellerEngagements] = useState<Awaited<ReturnType<typeof organizationsApi.mySellerEngagements>>>([]);
+  const [wallet, setWallet] = useState<PromoterWallet | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sellerEmail, setSellerEmail] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   async function load() {
     if (!token) return;
-    const [inv, eng, sInv, sEng] = await Promise.all([
-      organizationsApi.myPromoterInvites(token).catch(() => []),
-      organizationsApi.myPromoterEngagements(token).catch(() => []),
-      organizationsApi.mySellerInvites(token).catch(() => []),
-      organizationsApi.mySellerEngagements(token).catch(() => []),
+    setLoadError(null);
+    // ERRO NÃO VIRA "ZERO" (2026-10-12): cada lista caía num .catch(() => []) e
+    // uma falha sumia com os convites e links do promoter sem aviso nenhum. O
+    // que carregou aparece; o que falhou vira erro com "Tentar novamente".
+    const resultados = await Promise.allSettled([
+      organizationsApi.myPromoterInvites(token),
+      organizationsApi.myPromoterEngagements(token),
+      organizationsApi.mySellerInvites(token),
+      organizationsApi.mySellerEngagements(token),
+      organizationsApi.myWallet(token),
     ]);
-    setInvites(inv);
-    setEngagements(eng);
-    setSellerInvites(sInv);
-    setSellerEngagements(sEng);
+    const [inv, eng, sInv, sEng, carteira] = resultados;
+    if (inv.status === "fulfilled") setInvites(inv.value);
+    if (eng.status === "fulfilled") setEngagements(eng.value);
+    if (sInv.status === "fulfilled") setSellerInvites(sInv.value);
+    if (sEng.status === "fulfilled") setSellerEngagements(sEng.value);
+    if (carteira.status === "fulfilled") setWallet(carteira.value);
+    const falha = resultados.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (falha) {
+      setLoadError(
+        falha.reason instanceof Error && falha.reason.message
+          ? falha.reason.message
+          : "Não foi possível carregar seus convites e links",
+      );
+    }
   }
 
   useEffect(() => {
@@ -113,11 +146,17 @@ function PromoterInbox() {
     setTimeout(() => setCopied(null), 2000);
   }
 
+  // carteira com dinheiro aparece mesmo sem vínculo ativo (link revogado ainda
+  // tem comissão a receber)
+  const walletComSaldo = wallet !== null && (wallet.balanceCents !== 0 || wallet.availableCents > 0);
+
   if (
     invites.length === 0 &&
     engagements.length === 0 &&
     sellerInvites.length === 0 &&
     sellerEngagements.length === 0 &&
+    !walletComSaldo &&
+    !loadError &&
     !message
   )
     return null;
@@ -125,6 +164,68 @@ function PromoterInbox() {
   return (
     <section className="mb-6 space-y-4">
       {message ? <p className="text-[13px] font-bold text-brand">{message}</p> : null}
+
+      {loadError ? (
+        <div className="rounded-[18px] border border-danger/30 bg-danger/5 p-5 text-center">
+          <p className="text-[13px] font-bold text-danger">
+            Não foi possível carregar seus convites, links e carteira de promoter: {loadError}
+          </p>
+          <button
+            type="button"
+            onClick={load}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
+
+      {/* CARTEIRA DO PROMOTER (2026-10-12): a tela só dizia "R$ X na sua carteira"
+          por vínculo — sem dizer quanto já liberou nem como sacar. GET wallet/mine
+          existia e ninguém usava. */}
+      {/* ownedOrg undefined = lista de produtoras ainda não respondeu: sem chute de R$ 0,00 */}
+      {(engagements.length > 0 || walletComSaldo) && ownedOrg !== undefined && (ownedOrg || wallet) ? (
+        <div className="rounded-[18px] border border-line bg-surface p-5">
+          <h2 className="text-[15px] font-extrabold">Minhas comissões</h2>
+          {ownedOrg ? (
+            <>
+              <p className="mt-1 text-[12.5px] font-semibold text-muted">
+                Suas comissões entram no caixa de {ownedOrg.displayName ?? ownedOrg.name} e liberam 2 dias úteis
+                após o fim de cada evento, como as vendas. O saldo e o saque ficam no Financeiro.
+              </p>
+              <Link
+                href={`/organizacoes/${ownedOrg.id}/financeiro`}
+                className="mt-3 inline-flex h-10 items-center rounded-xl border border-line px-4 text-[13px] font-bold text-primary"
+              >
+                Ver no Financeiro →
+              </Link>
+            </>
+          ) : wallet ? (
+            <>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-bg px-4 py-3">
+                  <p className="text-[12px] font-bold text-muted">Na sua carteira</p>
+                  <p className="mt-0.5 text-[18px] font-extrabold">{brl(wallet.balanceCents)}</p>
+                </div>
+                <div className="rounded-xl bg-bg px-4 py-3">
+                  <p className="text-[12px] font-bold text-muted">Já liberado</p>
+                  <p className="mt-0.5 text-[18px] font-extrabold text-success">{brl(wallet.availableCents)}</p>
+                </div>
+              </div>
+              <p className="mt-2 text-[12px] font-semibold text-muted">
+                Cada comissão libera 2 dias úteis após o fim do evento em que a venda aconteceu.
+              </p>
+              {wallet.needsProducerAccount && ownedOrg === null ? (
+                <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12.5px] font-semibold text-warning">
+                  Para sacar, complete seu cadastro de produtor: toque em “Nova organização” e informe seu CPF ou
+                  CNPJ. A carteira passa para a sua produtora, e o saque sai pelo Financeiro dela depois que a
+                  BoraFest aprovar o cadastro e você cadastrar uma conta bancária.
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {invites.length > 0 ? (
         <div className="rounded-[18px] border border-brand/30 bg-brand/5 p-5">
@@ -189,10 +290,12 @@ function PromoterInbox() {
                   <p className="text-[13.5px] font-extrabold">{eng.hostName}</p>
                   <p className="text-[12px] font-semibold text-muted">
                     {eng.paidOrders} venda{eng.paidOrders === 1 ? "" : "s"}
+                    {/* "em comissões" (2026-10-12): é o total desta casa, não o saldo —
+                        o saldo e o liberado estão em "Minhas comissões" acima */}
                     {eng.commissionType === "PERCENT"
-                      ? ` · ${((eng.commissionBps ?? 0) / 100).toFixed(1).replace(".", ",")}% · ${((eng.commissionCents ?? 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} na sua carteira`
+                      ? ` · ${((eng.commissionBps ?? 0) / 100).toFixed(1).replace(".", ",")}% · ${brl(eng.commissionCents ?? 0)} em comissões`
                       : eng.commissionType === "FIXED"
-                        ? ` · ${((eng.commissionFixedCents ?? 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/ingresso · ${((eng.commissionCents ?? 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} na sua carteira`
+                        ? ` · ${brl(eng.commissionFixedCents ?? 0)}/ingresso · ${brl(eng.commissionCents ?? 0)} em comissões`
                         : ""}
                   </p>
                 </div>
@@ -310,16 +413,26 @@ function OrganizationsContent() {
   const [kind, setKind] = useState<"INDIVIDUAL" | "COMPANY">("COMPANY");
   const [producerType, setProducerType] = useState<ProducerType | "">("");
   const [error, setError] = useState<string | null>(null);
+  // falha ao listar mostrava "Nenhuma organização ainda — crie a primeira"
+  // (2026-10-12): mesmo erro-que-vira-zero do laço da Marcela, agora com aviso
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function load() {
     if (!token) return;
     setLoading(true);
+    setLoadError(null);
     try {
       setOrgs(await organizationsApi.list(token));
+    } catch (err) {
+      setLoadError(err instanceof Error && err.message ? err.message : "Não foi possível carregar suas produtoras");
     } finally {
       setLoading(false);
     }
   }
+
+  // dona de qual produtora? — é lá que caem as comissões de promoter.
+  // undefined enquanto a lista não chegou (ou falhou): a carteira não chuta.
+  const ownedOrg = loading || loadError ? undefined : (orgs.find((o) => o.roleKey === "owner") ?? null);
 
   useEffect(() => {
     load();
@@ -367,7 +480,7 @@ function OrganizationsContent() {
         </button>
       </div>
 
-      <PromoterInbox />
+      <PromoterInbox ownedOrg={ownedOrg} />
       {showForm ? (
         <div className="mb-4 space-y-3 rounded-[18px] border border-line bg-surface p-5">
           <input placeholder="Nome" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
@@ -408,6 +521,17 @@ function OrganizationsContent() {
 
       {loading ? (
         <p className="text-[13px] font-semibold text-muted">Carregando…</p>
+      ) : loadError ? (
+        <div className="rounded-[18px] border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{loadError}</p>
+          <button
+            type="button"
+            onClick={load}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
       ) : orgs.length === 0 ? (
         <div className="rounded-[18px] border border-line bg-surface p-10 text-center">
           <p className="text-[15px] font-extrabold">Nenhuma organização ainda</p>

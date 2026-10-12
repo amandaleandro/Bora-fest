@@ -13,10 +13,24 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // 2026-10-12: a falha ao listar os portões caía num .catch(() => {}) e todo
+  // portão aparecia como "Sem portão" — parecia check-in fora de portão.
+  const [pointsError, setPointsError] = useState<string | null>(null);
+
+  function loadPoints() {
+    if (!token) return;
+    setPointsError(null);
+    validatorConfigApi
+      .listCheckinPoints(token, eventId)
+      .then(setPoints)
+      .catch((err) =>
+        setPointsError(err instanceof Error && err.message ? err.message : "Não foi possível carregar os portões"),
+      );
+  }
 
   useEffect(() => {
     if (!token) return;
-    validatorConfigApi.listCheckinPoints(token, eventId).then(setPoints).catch(() => {});
+    loadPoints();
     const fetchLive = () =>
       dashboardApi
         .checkinLive(token, eventId)
@@ -29,9 +43,11 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
     fetchLive();
     const id = setInterval(fetchLive, 10_000);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, eventId, attempt]);
 
-  const pointName = (id: string | null) => points.find((p) => p.id === id)?.name ?? "Sem portão";
+  const pointName = (id: string | null) =>
+    points.find((p) => p.id === id)?.name ?? (id && pointsError ? "Portão (nome não carregou)" : "Sem portão");
 
   if (error && !live) {
     return (
@@ -108,6 +124,14 @@ function CheckinLiveContent({ eventId }: { eventId: string }) {
 
       <section className="mt-5 rounded-2xl border border-line bg-surface p-5">
         <h2 className="text-[15px] font-extrabold">Check-ins por portão</h2>
+        {pointsError ? (
+          <p className="mt-2 text-[12px] font-semibold text-danger">
+            Não deu para carregar os nomes dos portões ({pointsError}).{" "}
+            <button type="button" onClick={loadPoints} className="font-extrabold underline">
+              Tentar novamente
+            </button>
+          </p>
+        ) : null}
         {live.byCheckinPoint.length === 0 ? (
           <p className="mt-4 text-[13px] font-semibold text-muted">Nenhum check-in registrado ainda.</p>
         ) : (

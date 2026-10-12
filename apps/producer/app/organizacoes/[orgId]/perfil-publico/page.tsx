@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { API_BASE_URL, CHECKOUT_URL } from "@/lib/config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "@/lib/api";
 
 interface PublicProfile {
   id: string;
@@ -18,7 +19,9 @@ interface PublicProfile {
   websiteUrl: string | null;
 }
 
-async function parseResponse<T>(response: Response): Promise<T> {
+async function parseResponse<T>(response: Response, token: string): Promise<T> {
+  // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   const text = await response.text();
   const data = text ? JSON.parse(text) : undefined;
   if (!response.ok) throw new Error(data?.message ?? "Não foi possível concluir a operação");
@@ -104,7 +107,7 @@ function ProfileEditor({ orgId }: { orgId: string }) {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     })
-      .then((response) => parseResponse<PublicProfile>(response))
+      .then((response) => parseResponse<PublicProfile>(response, token))
       .then(applyProfile)
       .catch((err) => setError(err instanceof Error ? err.message : "Não foi possível carregar o perfil"))
       .finally(() => setLoading(false));
@@ -129,7 +132,7 @@ function ProfileEditor({ orgId }: { orgId: string }) {
           websiteUrl: websiteUrl.trim() || null,
         }),
       });
-      const updated = await parseResponse<PublicProfile>(response);
+      const updated = await parseResponse<PublicProfile>(response, token);
       applyProfile(updated);
       setSaved(true);
     } catch (err) {
@@ -156,7 +159,7 @@ function ProfileEditor({ orgId }: { orgId: string }) {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const updated = await parseResponse<PublicProfile>(response);
+      const updated = await parseResponse<PublicProfile>(response, token);
       applyProfile(updated);
       setSaved(true);
     } catch (err) {

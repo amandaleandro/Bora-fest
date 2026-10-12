@@ -79,6 +79,11 @@ export default function PurchasesPage() {
   const [refundOk, setRefundOk] = useState<string | null>(null);
   const [refundReviewer, setRefundReviewer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 2026-10-12: sem sessão, a lista vazia convida a entrar — quem comprou com
+  // a conta não via as compras e não sabia que era só fazer login
+  const [logado, setLogado] = useState(false);
+  // API falhou com sessão válida: a lista pode estar incompleta
+  const [falhou, setFalhou] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -97,8 +102,11 @@ export default function PurchasesPage() {
             ended: new Date(o.event.endsAt).getTime() < Date.now(),
             refundRequested: o.refundRequested === true,
           }));
-        } catch {
-          /* sessão inválida ou API fora: sobra o que está no aparelho */
+          setLogado(true);
+        } catch (e) {
+          // sessão inválida (401): o convite para entrar está certo. API fora com
+          // sessão válida NÃO é "nenhuma compra" (2026-10-12): avisa e deixa tentar
+          if (!(e instanceof ApiError && e.status === 401)) setFalhou(true);
         }
       }
       // quem comprou como convidado e só depois entrou por OTP não aparece em
@@ -134,13 +142,41 @@ export default function PurchasesPage() {
         </Link>
       </header>
 
+      {falhou ? (
+        <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/5 p-4 text-center">
+          <p className="text-[13px] font-bold text-danger">
+            Não deu para carregar suas compras agora{rows && rows.length > 0 ? " — algumas podem não aparecer" : ""}.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-2 rounded-xl border border-line bg-surface px-4 py-2 text-[12.5px] font-bold text-ink"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
+
       {rows === null ? (
         <p className="mt-10 text-center text-[13px] text-muted">Carregando…</p>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && falhou ? null : rows.length === 0 ? (
         <div className="mt-16 text-center lg:mt-10 lg:rounded-[22px] lg:border lg:border-line lg:bg-surface lg:py-16">
           <Icon d={paths.ticket} size={48} className="mx-auto text-muted-4" />
           <p className="mt-3 text-[15px] font-bold lg:text-[17px]">Nenhuma compra por aqui</p>
-          <Link href="/" className="mt-2 inline-block text-[13px] font-bold text-primary">Explorar eventos</Link>
+          {logado ? (
+            <Link href="/" className="mt-2 inline-block text-[13px] font-bold text-primary">Explorar eventos</Link>
+          ) : (
+            <>
+              {/* /perfil é o login do site (código por e-mail) */}
+              <p className="mx-auto mt-2 max-w-[360px] text-[13px] font-medium leading-relaxed text-muted">
+                Comprou com sua conta BoraFest? Entre para ver suas compras e ingressos.
+              </p>
+              <Link href="/perfil" className="mt-4 inline-flex h-[46px] items-center rounded-[13px] bg-primary px-6 text-[14px] font-extrabold text-white shadow-cta">
+                Entrar na minha conta
+              </Link>
+              <Link href="/" className="mt-3 block text-[13px] font-bold text-primary">Explorar eventos</Link>
+            </>
+          )}
         </div>
       ) : (
         <div className="mt-5 space-y-4 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">

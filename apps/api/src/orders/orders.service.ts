@@ -1240,6 +1240,7 @@ export class OrdersService {
           contactName: order.contactName,
           eventTitle: order.event.title,
           claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+          contaNova: true, // correção de e-mail só existe para conta nascida do pedido
           cortesia: rotuloDoEmailGratis(order),
         },
         orderId: order.id,

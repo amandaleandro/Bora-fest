@@ -268,6 +268,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         <VerificationGate
           publicToken={publicToken}
           contactEmail={ticketsData.contactEmail ?? order?.contactEmail ?? ""}
+          linkNoContato={ticketsData.linkNoContato !== false}
           onVerified={() => {
             api.getOrderTickets(publicToken).then(setTicketsData).catch(() => undefined);
           }}
@@ -432,8 +433,15 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         </p>
       ) : (
         <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
-          Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b>{WA_ON ? " e pelo WhatsApp" : ""} — e eles já
-          estão na sua conta, que vale aqui no site e no app BoraFest.
+          {ticketsData?.requiresVerification && ticketsData.linkNoContato === false ? (
+            // a conta já existia: o acesso foi para o e-mail DELA, não para o de contato (2026-10-12)
+            <>O acesso aos seus ingressos foi para o e-mail da conta que fez esta compra — eles já estão nela.</>
+          ) : (
+            <>
+              Enviamos seus ingressos para <b className="text-ink">{order.contactEmail}</b>{WA_ON ? " e pelo WhatsApp" : ""} — e eles já
+              estão na sua conta, que vale aqui no site e no app BoraFest.
+            </>
+          )}
         </p>
       )}
 
@@ -532,6 +540,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
               <VerificationGate
                 publicToken={publicToken}
                 contactEmail={ticketsData?.contactEmail ?? order?.contactEmail ?? ""}
+                linkNoContato={ticketsData?.linkNoContato !== false}
                 onVerified={() => {
                   const t = typeof window !== "undefined" ? localStorage.getItem("bf.token") : null;
                   if (t) executarReembolsoComToken(t);
@@ -588,10 +597,13 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
 function VerificationGate({
   publicToken,
   contactEmail,
+  linkNoContato = true,
   onVerified,
 }: {
   publicToken: string;
   contactEmail: string;
+  /** false: a conta já existia e o link foi para o e-mail DELA (2026-10-12) */
+  linkNoContato?: boolean;
   onVerified: () => void;
 }) {
   const [codeSent, setCodeSent] = useState(false);
@@ -679,6 +691,21 @@ function VerificationGate({
     <div className="rounded-3xl border border-line bg-surface p-6 text-center">
       <p className="text-[34px]">🎟️</p>
       <h1 className="mt-2 text-[20px] font-extrabold leading-tight">Seu ingresso está guardado na sua conta</h1>
+      {!linkNoContato ? (
+        <>
+          <p className="mt-2 break-words text-[13.5px] font-medium leading-relaxed text-muted">
+            Enviamos um <b>link de acesso</b> para o e-mail da conta que fez esta compra — tocar nele abre o
+            ingresso na hora. Ou entre na conta por aqui:
+          </p>
+          <a
+            href="/perfil"
+            className="mt-4 flex h-14 w-full items-center justify-center rounded-2xl bg-primary text-[15px] font-extrabold text-white shadow-cta"
+          >
+            Entrar na minha conta
+          </a>
+        </>
+      ) : (
+      <>
       <p className="mt-2 break-words text-[13.5px] font-medium leading-relaxed text-muted">
         Enviamos um <b>link de acesso</b> para <b className="text-ink">{email}</b> — tocar nele abre o
         ingresso na hora. Se preferir, valide por código aqui:
@@ -742,6 +769,8 @@ function VerificationGate({
         >
           Não recebeu? Digitou o e-mail errado? Corrija aqui
         </button>
+      )}
+      </>
       )}
 
       {logado ? (

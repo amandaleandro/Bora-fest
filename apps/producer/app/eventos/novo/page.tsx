@@ -1,6 +1,6 @@
 "use client";
 
-import { CHECKOUT_URL } from "@/lib/config";
+import { hotsiteUrl } from "@/lib/config";
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -308,7 +308,8 @@ function NewEventContent() {
     }
   }
 
-  const publicUrl = slug ? `${CHECKOUT_URL}/evento/${slug}` : "";
+  // link curto (2026-10-12): /evento/<slug> só redirecionava para /<slug>
+  const publicUrl = slug ? hotsiteUrl(slug) : "";
 
   return (
     <PanelShell title="Criar evento" organizationId={orgId || undefined}>

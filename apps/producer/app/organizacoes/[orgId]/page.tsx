@@ -15,9 +15,17 @@ function PublicProfile({ orgId }: { orgId: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 2026-10-12: a falha ao carregar era engolida (.catch(() => undefined)) e o
+  // campo ficava vazio — "Salvar" então APAGAVA o nome comercial que já existia.
+  // Agora o erro aparece e o salvar só libera depois de carregar.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) return;
+    setLoadError(null);
+    setLoaded(false);
     organizationsApi
       .list(token)
       .then((orgs) => {
@@ -26,12 +34,15 @@ function PublicProfile({ orgId }: { orgId: string }) {
           setLegalName(org.name);
           setDisplayName(org.displayName ?? "");
         }
+        setLoaded(true);
       })
-      .catch(() => undefined);
-  }, [token, orgId]);
+      .catch((err) =>
+        setLoadError(err instanceof Error && err.message ? err.message : "Não foi possível carregar o perfil público"),
+      );
+  }, [token, orgId, attempt]);
 
   async function save() {
-    if (!token || saving) return;
+    if (!token || saving || !loaded) return;
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -67,12 +78,20 @@ function PublicProfile({ orgId }: { orgId: string }) {
         <button
           type="button"
           onClick={save}
-          disabled={saving}
+          disabled={saving || !loaded}
           className="h-11 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white disabled:opacity-50"
         >
           {saving ? "Salvando…" : "Salvar"}
         </button>
       </div>
+      {loadError ? (
+        <p className="mt-2 text-[12px] font-bold text-danger">
+          {loadError}{" "}
+          <button type="button" onClick={() => setAttempt((a) => a + 1)} className="font-extrabold underline">
+            Tentar novamente
+          </button>
+        </p>
+      ) : null}
       {saved ? <p className="mt-2 text-[12px] font-bold text-success">Salvo — já vale para todos os seus eventos.</p> : null}
       {error ? <p className="mt-2 text-[12px] font-bold text-danger">{error}</p> : null}
     </section>
@@ -322,11 +341,27 @@ function Promoters({ orgId }: { orgId: string }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [aberto, setAberto] = useState<string | null>(null);
   const [sellers, setSellers] = useState<Record<string, Array<{ id: string; sellerName: string; status: string; paidOrders: number; soldCents: number }>>>({});
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): promoters, eventos do escopo e vendedores
+  // caíam num .catch(() => []) — a casa via "nenhum promoter" / "nenhum vendedor"
+  // quando na verdade a lista só não tinha carregado.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sellersError, setSellersError] = useState<Record<string, string>>({});
 
   async function load() {
     if (!token) return;
-    setPromoters(await organizationsApi.listPromoters(token, orgId).catch(() => []));
-    setEventos(await eventsApi.list(token, orgId).catch(() => []));
+    setLoadError(null);
+    const [lista, evs] = await Promise.allSettled([
+      organizationsApi.listPromoters(token, orgId),
+      eventsApi.list(token, orgId),
+    ]);
+    if (lista.status === "fulfilled") setPromoters(lista.value);
+    if (evs.status === "fulfilled") setEventos(evs.value);
+    const falha = lista.status === "rejected" ? lista.reason : evs.status === "rejected" ? evs.reason : null;
+    if (falha) {
+      setLoadError(
+        falha instanceof Error && falha.message ? falha.message : "Não foi possível carregar os promoters",
+      );
+    }
   }
 
   useEffect(() => {
@@ -366,8 +401,25 @@ function Promoters({ orgId }: { orgId: string }) {
       return;
     }
     setAberto(linkId);
-    const lista = await organizationsApi.listSellersOfPromoter(token, linkId).catch(() => []);
-    setSellers((prev) => ({ ...prev, [linkId]: lista }));
+    await carregarVendedores(linkId);
+  }
+
+  async function carregarVendedores(linkId: string) {
+    if (!token) return;
+    setSellersError((prev) => {
+      const next = { ...prev };
+      delete next[linkId];
+      return next;
+    });
+    try {
+      const lista = await organizationsApi.listSellersOfPromoter(token, linkId);
+      setSellers((prev) => ({ ...prev, [linkId]: lista }));
+    } catch (err) {
+      setSellersError((prev) => ({
+        ...prev,
+        [linkId]: err instanceof Error && err.message ? err.message : "Não foi possível carregar os vendedores",
+      }));
+    }
   }
 
   function copyLink(slug: string, id: string) {
@@ -444,6 +496,19 @@ function Promoters({ orgId }: { orgId: string }) {
         {message ? <p className="mt-2 text-[12px] font-bold text-brand">{message}</p> : null}
       </div>
 
+      {loadError ? (
+        <div className="mt-3 rounded-[16px] border border-danger/30 bg-danger/5 p-4 text-center">
+          <p className="text-[13px] font-bold text-danger">{loadError}</p>
+          <button
+            type="button"
+            onClick={load}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
+
       {promoters.length > 0 ? (
         <div className="mt-3 space-y-2">
           {promoters.map((p) => (
@@ -496,7 +561,20 @@ function Promoters({ orgId }: { orgId: string }) {
               </div>
               {aberto === p.id ? (
                 <div className="mt-3 border-t border-line-divider pt-3">
-                  {(sellers[p.id] ?? []).length === 0 ? (
+                  {sellersError[p.id] ? (
+                    <p className="text-[12px] font-bold text-danger">
+                      {sellersError[p.id]}{" "}
+                      <button
+                        type="button"
+                        onClick={() => carregarVendedores(p.id)}
+                        className="font-extrabold underline"
+                      >
+                        Tentar novamente
+                      </button>
+                    </p>
+                  ) : !sellers[p.id] ? (
+                    <p className="text-[12px] font-semibold text-muted">Carregando…</p>
+                  ) : sellers[p.id].length === 0 ? (
                     <p className="text-[12px] font-semibold text-muted">
                       Nenhum vendedor ainda — quem cadastra é o próprio promoter, no painel dele.
                     </p>
@@ -653,10 +731,12 @@ function Team({ orgId }: { orgId: string }) {
   return (
     <section>
       <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* 2026-10-12: dizia "administrador: tudo, menos check-in no app" — não há app
+            e o administrador valida na portaria (EVENT_CREATE, validator.service) */}
         <p className="max-w-xl text-[12px] font-semibold text-muted">
           Convide pessoas para ajudar a tocar seus eventos. Cada papel dá acesso só ao que
-          precisa — administrador (tudo, menos check-in no app), financeiro (pedidos, reembolsos
-          e saque), check-in (só valida) ou vendedor (vende na porta e valida).
+          precisa — administrador (eventos, vendas, financeiro e equipe), financeiro (pedidos,
+          reembolsos e saque), check-in (só valida na portaria) ou vendedor (vende na porta e valida).
         </p>
         <button
           type="button"
@@ -698,13 +778,26 @@ function ActiveOrgTracker({ orgId }: { orgId: string }) {
 function ConvitesPendentesBanner() {
   const { token } = useAuth();
   const [total, setTotal] = useState(0);
+  // 2026-10-12: falha ao conferir virava "0 convites" e o banner sumia calado
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!token) return;
-    Promise.all([
-      organizationsApi.myPromoterInvites(token).catch(() => []),
-      organizationsApi.mySellerInvites(token).catch(() => []),
-    ]).then(([p, s]) => setTotal(p.length + s.length));
-  }, [token]);
+    setFailed(false);
+    Promise.all([organizationsApi.myPromoterInvites(token), organizationsApi.mySellerInvites(token)])
+      .then(([p, s]) => setTotal(p.length + s.length))
+      .catch(() => setFailed(true));
+  }, [token, attempt]);
+  if (failed) {
+    return (
+      <p className="mb-4 rounded-2xl border border-danger/30 bg-danger/5 px-4 py-3 text-[12.5px] font-semibold text-danger">
+        Não foi possível conferir se você tem convites de promoter/vendedor.{" "}
+        <button type="button" onClick={() => setAttempt((a) => a + 1)} className="font-extrabold underline">
+          Tentar novamente
+        </button>
+      </p>
+    );
+  }
   if (total === 0) return null;
   return (
     <Link

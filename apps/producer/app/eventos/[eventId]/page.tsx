@@ -52,6 +52,13 @@ function EventContent({ eventId }: { eventId: string }) {
   const [sessionTypes, setSessionTypes] = useState<LocalTicketType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): falha ao carregar o evento deixava a tela
+  // em "Carregando..." para sempre, e cupons/cortesias/adicionais caíam num
+  // .catch(() => {}) que mostrava "Nenhum cupom ainda" mesmo com cupom ativo.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [couponsError, setCouponsError] = useState<string | null>(null);
+  const [courtesiesError, setCourtesiesError] = useState<string | null>(null);
+  const [addOnsError, setAddOnsError] = useState<string | null>(null);
 
   // Form unificado de ingresso (decisão 2026-08-13: criar tipo + 1º lote numa
   // tacada só, padrão de mercado): null = fechado; {} = ingresso novo;
@@ -126,9 +133,41 @@ function EventContent({ eventId }: { eventId: string }) {
   const [lotPdvOnly, setLotPdvOnly] = useState(false);
   const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
 
+  function listError(err: unknown, fallback: string): string {
+    return err instanceof Error && err.message ? err.message : fallback;
+  }
+
+  function loadCoupons() {
+    if (!token) return;
+    setCouponsError(null);
+    couponsApi
+      .list(eventId, token)
+      .then(setCoupons)
+      .catch((err) => setCouponsError(listError(err, "Não foi possível carregar os cupons")));
+  }
+
+  function loadCourtesies() {
+    if (!token) return;
+    setCourtesiesError(null);
+    complimentaryApi
+      .list(eventId, token)
+      .then(setCourtesies)
+      .catch((err) => setCourtesiesError(listError(err, "Não foi possível carregar as cortesias")));
+  }
+
+  function loadAddOns() {
+    if (!token) return;
+    setAddOnsError(null);
+    addOnsApi
+      .list(token, eventId)
+      .then(setAddOns)
+      .catch((err) => setAddOnsError(listError(err, "Não foi possível carregar os itens extras")));
+  }
+
   async function load() {
     if (!token) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const d = await dashboardApi.get(token, eventId);
       setDashboard(d);
@@ -141,9 +180,11 @@ function EventContent({ eventId }: { eventId: string }) {
       setCapiConfigured(Boolean((d.event as { metaCapiConfigured?: boolean }).metaCapiConfigured));
       setVenue(d.event.venue ?? null);
       setCategory(d.event.category ?? "");
-      couponsApi.list(eventId, token).then(setCoupons).catch(() => {});
-      complimentaryApi.list(eventId, token).then(setCourtesies).catch(() => {});
-      addOnsApi.list(token, eventId).then(setAddOns).catch(() => {});
+      loadCoupons();
+      loadCourtesies();
+      loadAddOns();
+    } catch (err) {
+      setLoadError(listError(err, "Não foi possível carregar o evento"));
     } finally {
       setLoading(false);
     }
@@ -244,6 +285,8 @@ function EventContent({ eventId }: { eventId: string }) {
       const priceCents = Math.round(Number(addOnPrice.replace(",", ".")) * 100) || 0;
       const created = await addOnsApi.create(token, eventId, { name: addOnName.trim(), priceCents });
       setAddOns((prev) => [...prev, created]);
+      // a lista estava com erro: recarrega em vez de mostrar só o item novo
+      if (addOnsError) loadAddOns();
       setAddOnName("");
       setAddOnPrice("");
     } catch (err) {
@@ -331,6 +374,7 @@ function EventContent({ eventId }: { eventId: string }) {
       }, token);
       setCouponCode(""); setCouponValue(""); setCouponMax("");
       setCoupons(await couponsApi.list(eventId, token));
+      setCouponsError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar cupom");
     }
@@ -445,6 +489,23 @@ function EventContent({ eventId }: { eventId: string }) {
     }
   }
 
+  if (!loading && !dashboard && loadError) {
+    return (
+      <main>
+        <div className="mt-6 rounded-2xl border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => load()}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (loading || !dashboard) {
     return (
       <main>
@@ -488,6 +549,14 @@ function EventContent({ eventId }: { eventId: string }) {
       </div>
 
       {error ? <p className="mt-4 text-sm font-semibold text-danger">{error}</p> : null}
+      {loadError ? (
+        <div className="mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[13px] font-semibold text-danger">
+          Não deu para atualizar os dados do evento ({loadError}) — o que aparece abaixo pode estar desatualizado.{" "}
+          <button type="button" onClick={() => load()} className="font-extrabold underline">
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-extrabold">Ingressos</h2>
@@ -585,14 +654,27 @@ function EventContent({ eventId }: { eventId: string }) {
               onChange={(e) => setLotPdvOnly(e.target.checked)}
               className="h-4 w-4 accent-primary"
             />
+            {/* 2026-10-12: prometia "com R$ 0 vira lote de cortesia" — desde 07/09
+                cortesia não sai na porta (o balcão esconde lote grátis e o servidor
+                recusa R$ 0 só de balcão). Entrada grátis = Lista de convidados ou Cortesias. */}
             <span>
               Só balcão — não aparece no site
               <span className="block text-[11.5px] font-medium text-muted">
-                Sua equipe (promoters com permissão de venda) emite pela portaria. Com preço R$ 0, vira lote de cortesia
-                controlado por capacidade — ideal pra novatos.
+                Sua equipe com permissão de venda vende pela portaria, na hora do evento. Precisa ter preço: cortesia
+                não sai na porta. Para entrada grátis, use a Lista de convidados ou as Cortesias.
               </span>
             </span>
           </label>
+          {lotPdvOnly && lotPrice.trim() !== "" && parsePriceCents(lotPrice) === 0 ? (
+            <p className="rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] font-semibold text-warning">
+              Lote só de balcão com preço R$ 0 não pode ser criado: o balcão não emite cortesia. Para dar entrada
+              grátis, cadastre a pessoa na{" "}
+              <Link href={`/eventos/${eventId}/lista-convidados`} className="font-extrabold underline">
+                Lista de convidados
+              </Link>{" "}
+              ou emita uma Cortesia (mais abaixo nesta página).
+            </p>
+          ) : null}
           <div className="flex gap-2 pt-1">
             <button
               type="button"
@@ -603,7 +685,9 @@ function EventContent({ eventId }: { eventId: string }) {
                 (!ticketForm.typeId && typeName.trim().length < 2) ||
                 !lotName ||
                 !lotPrice ||
-                !lotCapacity
+                !lotCapacity ||
+                // só balcão exige preço (2026-10-12): o servidor recusa R$ 0 nesse lote
+                (lotPdvOnly && parsePriceCents(lotPrice) === 0)
               }
             >
               {savingTicket ? "Criando…" : ticketForm.typeId ? "Criar lote" : "Criar ingresso e começar a vender"}
@@ -1045,7 +1129,15 @@ function EventContent({ eventId }: { eventId: string }) {
             Itens opcionais que o comprador soma ao ingresso no checkout — ex.: camiseta do evento.
           </p>
           <div className="mt-3 space-y-2">
-            {addOns.map((addOn) => (
+            {addOnsError ? (
+              <div className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2.5 text-[13px] font-semibold text-danger">
+                {addOnsError}{" "}
+                <button type="button" onClick={loadAddOns} className="font-extrabold underline">
+                  Tentar novamente
+                </button>
+              </div>
+            ) : null}
+            {!addOnsError && addOns.map((addOn) => (
               <div key={addOn.id} className="flex items-center justify-between gap-2 rounded-lg border border-line-input px-3 py-2">
                 <div>
                   <p className="text-[13px] font-bold">{addOn.name}</p>
@@ -1060,7 +1152,7 @@ function EventContent({ eventId }: { eventId: string }) {
                 </button>
               </div>
             ))}
-            {addOns.length === 0 ? <p className="text-[12px] font-semibold text-muted">Nenhum item cadastrado ainda.</p> : null}
+            {!addOnsError && addOns.length === 0 ? <p className="text-[12px] font-semibold text-muted">Nenhum item cadastrado ainda.</p> : null}
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
             <input
@@ -1102,8 +1194,16 @@ function EventContent({ eventId }: { eventId: string }) {
           </button>
         </div>
         <div className="mt-4 space-y-2">
-          {coupons.length === 0 && <p className="text-sm text-muted">Nenhum cupom ainda.</p>}
-          {coupons.map((c) => (
+          {couponsError ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm font-semibold text-danger">
+              {couponsError}{" "}
+              <button type="button" onClick={loadCoupons} className="font-extrabold underline">
+                Tentar novamente
+              </button>
+            </div>
+          ) : null}
+          {!couponsError && coupons.length === 0 && <p className="text-sm text-muted">Nenhum cupom ainda.</p>}
+          {!couponsError && coupons.map((c) => (
             <div key={c.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-bg px-4 py-2.5 text-sm">
               <span className="font-bold">{c.code}</span>
               <span>{c.discountType === "PERCENT" ? `−${c.discountValue}%` : `−${formatCents(c.discountValue)}`}</span>
@@ -1137,8 +1237,16 @@ function EventContent({ eventId }: { eventId: string }) {
           </button>
         </div>
         <div className="mt-4 space-y-2">
-          {courtesies.length === 0 && <p className="text-sm text-muted">Nenhuma cortesia emitida.</p>}
-          {courtesies.map((c) => (
+          {courtesiesError ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm font-semibold text-danger">
+              {courtesiesError}{" "}
+              <button type="button" onClick={loadCourtesies} className="font-extrabold underline">
+                Tentar novamente
+              </button>
+            </div>
+          ) : null}
+          {!courtesiesError && courtesies.length === 0 && <p className="text-sm text-muted">Nenhuma cortesia emitida.</p>}
+          {!courtesiesError && courtesies.map((c) => (
             <div key={c.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-bg px-4 py-2.5 text-sm">
               <span className="font-semibold">{c.contactName ?? c.contactEmail}</span>
               <span className="text-muted">{c.items.map((i) => `${i.quantity}× ${i.ticketLot.name}`).join(", ")}</span>

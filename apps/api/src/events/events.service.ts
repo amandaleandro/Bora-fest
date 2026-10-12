@@ -14,6 +14,7 @@ import { cancelarPedidoGratis } from "../common/cancelar-pedido-gratis";
 import { semEmailReal } from "@borafest/contracts";
 import { getOrganizationBalanceCents } from "../common/ledger";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
+import { SLUGS_RESERVADOS } from "../common/slugs-reservados";
 
 /** Assinatura (magic bytes) dos formatos aceitos — mimetype do multipart é só o que o cliente alegou. */
 const MAGIC_BYTES: Record<string, { ext: string; signature: number[]; offset?: number }> = {
@@ -46,11 +47,6 @@ function slugify(title: string): string {
  * Caminhos que já existem no site — um evento com esse slug sequestraria a
  * página (o link curto mora na raiz: borafest.com.br/nome-do-evento).
  */
-const SLUGS_RESERVADOS = new Set([
-  "acesso", "checkout", "evento", "explorar", "favoritos", "legal",
-  "minhas-compras", "offline", "pedido", "perfil", "portaria",
-  "api", "admin", "painel", "sitemap.xml", "robots.txt", "_next",
-]);
 
 /**
  * Slug curto e legível (2026-08-19): antes todo evento nascia com um sufixo
@@ -323,8 +319,12 @@ export class EventsService {
     const recipients = followers.map((f) => f.user.email).filter((email): email is string => !!email);
     if (recipients.length === 0) return;
 
-    const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
-    const link = `${webBaseUrl}/evento/${event.slug}`;
+    // 2026-10-12: link curto /<slug> (o /evento/<slug> antigo só redirecionava)
+    // e, sem WEB_BASE_URL, produção cai no domínio real — localhost só em dev
+    const webBaseUrl =
+      process.env.WEB_BASE_URL ??
+      (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
+    const link = `${webBaseUrl}/${event.slug}`;
     const sender = getEmailSender();
     await Promise.allSettled(
       recipients.map((to) =>

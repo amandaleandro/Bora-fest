@@ -177,6 +177,16 @@ export class CatalogService {
       throw new BadRequestException("Escolha só uma forma de disponibilidade para o lote");
     }
 
+    // SÓ BALCÃO PRECISA DE PREÇO (2026-10-12): desde 07/09 cortesia não sai na
+    // porta — o balcão (listPdvLots) esconde lote grátis e a venda recusa R$ 0.
+    // Um lote R$ 0 só de balcão nascia morto: some do site e não aparece na
+    // porta. Entrada grátis se cadastra antes, na lista de convidados.
+    if (input.pdvOnly && input.priceCents === 0) {
+      throw new BadRequestException(
+        "Lote só de balcão precisa ter preço — a porta não emite cortesia. Para entrada grátis, cadastre a pessoa na Lista de convidados do evento (ou emita uma Cortesia).",
+      );
+    }
+
     // MÍNIMO DO PAGAMENTO ONLINE (2026-10-11): o painel aceitava lote de R$ 3 e
     // ninguém conseguia comprar — o pedido travava no "Gerar Pix". Barra na
     // origem o que o comprador paga por 1 ingresso (preço + taxa se ele paga a

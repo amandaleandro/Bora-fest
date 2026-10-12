@@ -86,9 +86,16 @@ function ResumoContent() {
   const [vendidos, setVendidos] = useState<number | null>(null);
   const [disponiveis, setDisponiveis] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): falha ao listar as produtoras ou ao pegar
+  // o resumo caía num .catch e a tela dizia "Nenhum evento ainda — crie o
+  // primeiro": o produtor podia recriar evento que já existe. Agora: erro + retry.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || activeOrg) return;
+    setLoading(true);
+    setLoadError(null);
     organizationsApi
       .list(token)
       .then((list: Array<Organization & { roleKey: string }>) => {
@@ -101,9 +108,12 @@ function ResumoContent() {
         localStorage.setItem("bf.activeOrg", escolhida);
         setActiveOrg(escolhida);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        setLoadError(err instanceof Error && err.message ? err.message : "Não foi possível carregar suas produtoras");
+        setLoading(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, attempt]);
 
   // troca de produtora sem sair da tela: o /resumo não remonta quando já está
   // aberto, então a mudança chega por evento (2026-08-19)
@@ -120,6 +130,7 @@ function ResumoContent() {
     if (!token || !activeOrg) return;
     let atual = true;
     setLoading(true);
+    setLoadError(null);
     // limpa o que era da produtora ANTERIOR: sem isso a tela mostrava o
     // dinheiro e os eventos da outra casa até a resposta chegar
     setEvents([]);
@@ -142,7 +153,9 @@ function ResumoContent() {
         if (preferido) localStorage.setItem("bf.activeEvent", preferido.id);
         else localStorage.removeItem("bf.activeEvent");
       })
-      .catch(() => undefined)
+      .catch((err) => {
+        if (atual) setLoadError(err instanceof Error && err.message ? err.message : "Não foi possível carregar o resumo");
+      })
       .finally(() => {
         if (atual) setLoading(false);
       });
@@ -150,7 +163,7 @@ function ResumoContent() {
     return () => {
       atual = false;
     };
-  }, [token, activeOrg]);
+  }, [token, activeOrg, attempt]);
 
   const primeiroNome = (user?.name ?? "").split(" ")[0];
   const hora = new Date().getHours();
@@ -167,6 +180,19 @@ function ResumoContent() {
       <div className="mt-4 lg:hidden">
         <OrgSwitcher organizationId={activeOrg ?? undefined} />
       </div>
+
+      {loadError ? (
+        <div className="mt-4 rounded-[18px] border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => setAttempt((a) => a + 1)}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
 
       {semFinanceiro ? (
         <div className="mt-4 rounded-[20px] border border-line bg-surface p-4">
@@ -255,6 +281,10 @@ function ResumoContent() {
       </div>
       {loading ? (
         <p className="mt-3 text-[13px] font-semibold text-muted">Carregando…</p>
+      ) : loadError ? (
+        <p className="mt-3 text-[13px] font-semibold text-muted">
+          Seus eventos aparecem aqui quando o resumo carregar.
+        </p>
       ) : events.length === 0 ? (
         <div className="mt-3 rounded-[18px] border border-line bg-surface p-6 text-center">
           <p className="text-[14px] font-extrabold">Nenhum evento ainda</p>

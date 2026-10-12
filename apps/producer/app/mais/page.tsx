@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { CHECKOUT_URL } from "@/lib/config";
-import { financeApi, organizationsApi, type Balance } from "@/lib/api";
+import { ApiError, financeApi, organizationsApi, type Balance } from "@/lib/api";
 
 function brl(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -18,6 +18,12 @@ function MaisContent() {
   const router = useRouter();
   const [org, setOrg] = useState<string | null>(null);
   const [balance, setBalance] = useState<Balance | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): a falha ao achar a produtora ou o saldo
+  // caía num .catch(() => undefined) e o card ficava em "…" para sempre, sem
+  // dizer que o saldo não carregou. 403 (papel sem financeiro) é aviso neutro.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [balanceForbidden, setBalanceForbidden] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -26,6 +32,7 @@ function MaisContent() {
       setOrg(salvo);
       return;
     }
+    setLoadError(null);
     organizationsApi
       .list(token)
       .then((list) => {
@@ -34,13 +41,23 @@ function MaisContent() {
           setOrg(list[0].id);
         }
       })
-      .catch(() => undefined);
-  }, [token]);
+      .catch((err) =>
+        setLoadError(err instanceof Error && err.message ? err.message : "Não foi possível carregar sua produtora"),
+      );
+  }, [token, attempt]);
 
   useEffect(() => {
     if (!token || !org) return;
-    financeApi.getBalance(token, org).then(setBalance).catch(() => undefined);
-  }, [token, org]);
+    setLoadError(null);
+    setBalanceForbidden(false);
+    financeApi
+      .getBalance(token, org)
+      .then(setBalance)
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 403) setBalanceForbidden(true);
+        else setLoadError(err instanceof Error && err.message ? err.message : "Não foi possível carregar o saldo");
+      });
+  }, [token, org, attempt]);
 
   const itens = [
     { label: "Carteira e financeiro", desc: "Saldo, extrato e saques", href: org ? `/organizacoes/${org}/financeiro` : "/organizacoes" },
@@ -58,8 +75,18 @@ function MaisContent() {
       <div className="rounded-[20px] bg-brand-gradient p-5 text-white">
         <p className="text-[10.5px] font-extrabold uppercase tracking-[.06em] text-white/80">Saldo disponível para saque</p>
         <p className="mt-1 text-[26px] font-extrabold">
-          {balance ? brl(balance.availableForPayoutCents) : "…"}
+          {balance ? brl(balance.availableForPayoutCents) : loadError || balanceForbidden ? "—" : "…"}
         </p>
+        {loadError ? (
+          <p className="mt-1 text-[12px] font-semibold text-white">
+            Não deu para carregar o saldo ({loadError}).{" "}
+            <button type="button" onClick={() => setAttempt((a) => a + 1)} className="font-extrabold underline">
+              Tentar novamente
+            </button>
+          </p>
+        ) : balanceForbidden ? (
+          <p className="mt-0.5 text-[11.5px] font-semibold text-white/75">Seu papel na equipe não vê o saldo.</p>
+        ) : null}
         {balance && balance.balanceCents !== balance.availableForPayoutCents && (
           <p className="mt-0.5 text-[11.5px] font-semibold text-white/75">
             Saldo total {brl(balance.balanceCents)} — o restante libera após os eventos

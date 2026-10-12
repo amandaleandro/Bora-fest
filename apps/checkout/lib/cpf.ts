@@ -3,6 +3,10 @@
  * @borafest/contracts (a imagem Docker dele não builda os pacotes). Se a
  * regra mudar lá, mudar aqui. Normaliza ANTES de validar: o CPF entra por
  * teclado de celular com ponto, hífen e espaço.
+ *
+ * 2026-10-12: é o ÚNICO validador de CPF do checkout — pagamento, perfil
+ * (CPF da conta e transferência) e PDV da porta importam daqui. Não copiar
+ * a conta para dentro de tela de novo.
  */
 
 export function normalizarCpf(raw: string | null | undefined): string {

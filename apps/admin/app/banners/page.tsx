@@ -5,6 +5,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { Nav } from "@/components/Nav";
 import { useAuth } from "@/lib/auth";
 import { API_BASE_URL } from "@/lib/config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "@/lib/api";
 
 type Banners = { desktopUrl: string | null; mobileUrl: string | null };
 
@@ -46,6 +47,8 @@ function BannersContent() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
+      // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+      if (avisarSessaoVencida(resp.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
       if (!resp.ok) throw new Error(String(resp.status));
       setBanners(await resp.json());
       setMsg(`Banner ${slot} atualizado ✓ — já está no ar no site.`);
@@ -65,6 +68,7 @@ function BannersContent() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (avisarSessaoVencida(resp.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
       if (!resp.ok) throw new Error(String(resp.status));
       setBanners(await resp.json());
       setMsg(`Banner ${slot} removido — o site voltou pro banner padrão da marca.`);

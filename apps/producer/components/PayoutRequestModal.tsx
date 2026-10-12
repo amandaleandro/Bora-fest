@@ -67,8 +67,10 @@ export function PayoutRequestModal({
       title="Solicitar saque"
       subtitle={
         <>
-          Saldo disponível: <b className="text-ink">{brl(availableCents)}</b> · repasses ficam disponíveis em D+2
-          após o evento.
+          Saldo disponível: <b className="text-ink">{brl(availableCents)}</b>
+          {settlementMode === "INSTANT"
+            ? " · repasse instantâneo ativo na sua casa."
+            : " · as vendas liberam 2 dias úteis após o fim do evento."}
         </>
       }
       onClose={onClose}
@@ -91,9 +93,11 @@ export function PayoutRequestModal({
     >
       {done ? (
         <p className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3.5 text-[13px] font-bold text-success">
+          {/* texto honesto (2026-10-12): o repasse é feito pela equipe — não há
+              comprovante nem e-mail; o que o produtor vê é o status virar Pago aqui */}
           {done.needsApproval
-            ? `✓ Saque em análise — você recebe assim que a BoraFest aprovar${done.feeCents > 0 ? ` (taxa de antecipação: ${brl(done.feeCents)})` : ""}`
-            : "✓ Saque aprovado — o Pix está a caminho da sua conta"}
+            ? `✓ Saque em análise — depois da aprovação, a equipe BoraFest faz o Pix e o repasse aparece como Pago aqui no Financeiro${done.feeCents > 0 ? ` (taxa de antecipação: ${brl(done.feeCents)})` : ""}`
+            : `✓ Saque aprovado — a equipe BoraFest faz o Pix para a sua conta e o repasse aparece como Pago aqui no Financeiro${done.feeCents > 0 ? ` (taxa de antecipação: ${brl(done.feeCents)})` : ""}`}
         </p>
       ) : (
         <>
@@ -145,9 +149,12 @@ export function PayoutRequestModal({
             </p>
           )}
 
+          {/* 2026-10-12: prometia "cai em até 1 dia útil" e "comprovante aqui" — nenhum
+              dos dois existe. O repasse é manual, pela equipe; o sinal é o status Pago. */}
           <p className="mt-4 rounded-xl border border-line bg-[#faf9fc] px-3.5 py-3 text-[12px] font-medium leading-relaxed text-muted">
-            Repasse em D+2 do evento, via Pix e sem tarifa. Cai em até 1 dia útil. Comprovante disponível aqui no
-            Financeiro.
+            O saque é feito por Pix pela equipe BoraFest, para a conta acima, sem tarifa (só a antecipação tem
+            taxa). O primeiro saque da casa passa por análise. Quando o dinheiro for enviado, o repasse aparece como
+            Pago na lista de Repasses aqui no Financeiro.
           </p>
           {error ? <p className="mt-3 text-[12px] font-semibold text-danger">{error}</p> : null}
         </>

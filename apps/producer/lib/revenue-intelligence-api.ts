@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "./api";
 
 export interface RevenueIntelligenceResponse {
   summary: {
@@ -43,6 +44,8 @@ export async function getRevenueIntelligence(token: string, organizationId: stri
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
+  // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   if (!response.ok) {
     let message = "Não foi possível carregar a inteligência de receita";
     try {

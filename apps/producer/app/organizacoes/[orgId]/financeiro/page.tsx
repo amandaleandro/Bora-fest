@@ -43,12 +43,23 @@ const STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> =
   PAID: { bg: "bg-success/10", fg: "text-success", label: "Pago" },
 };
 
+/**
+ * Status do REPASSE (2026-10-12): usava o mesmo mapa da solicitação, e o repasse
+ * criado e ainda não enviado aparecia como "Em análise" — ele já foi aprovado,
+ * só falta a equipe fazer o Pix. FAILED nem tinha rótulo.
+ */
+const PAYOUT_STATUS_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
+  PENDING: { bg: "bg-warning/10", fg: "text-warning", label: "Aguardando envio" },
+  PAID: { bg: "bg-success/10", fg: "text-success", label: "Pago" },
+  FAILED: { bg: "bg-danger/10", fg: "text-danger", label: "Falhou — fale com o suporte" },
+};
+
 const inputCls =
   "h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
 const labelCls = "mb-1 block text-[12px] font-bold text-ink-soft";
 
-function StatusChip({ status }: { status: string }) {
-  const s = STATUS_STYLES[status] ?? { bg: "bg-line", fg: "text-muted", label: status };
+function StatusChip({ status, styles = STATUS_STYLES }: { status: string; styles?: typeof STATUS_STYLES }) {
+  const s = styles[status] ?? { bg: "bg-line", fg: "text-muted", label: status };
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${s.bg} ${s.fg}`}>{s.label}</span>;
 }
 
@@ -61,6 +72,11 @@ function FinanceContent({ orgId }: { orgId: string }) {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): falha ao carregar mostrava saldo R$ 0,00 e
+  // listas vazias; e as solicitações caíam num .catch(() => []), o que zerava o
+  // "já solicitados" e liberava o botão de saque com um saque ainda em andamento.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
   const [showWithdraw, setShowWithdraw] = useState(false);
 
   const [showAccountForm, setShowAccountForm] = useState(false);
@@ -77,6 +93,8 @@ function FinanceContent({ orgId }: { orgId: string }) {
     if (!token) return;
     setLoading(true);
     setError(null);
+    setLoadError(null);
+    setRequestsError(null);
     try {
       const [b, e, p, a] = await Promise.all([
         financeApi.getBalance(token, orgId),
@@ -88,10 +106,15 @@ function FinanceContent({ orgId }: { orgId: string }) {
       setEntries(e);
       setPayouts(p);
       setAccounts(a);
-      // rota nova: se ainda não estiver publicada, o resto da tela continua de pé
-      setRequests(await payoutsApi.listRequests(orgId, token).catch(() => []));
+      // falhou só a lista de solicitações: o resto da tela fica de pé, mas com o
+      // erro à vista e o saque travado até saber se já há um em andamento
+      try {
+        setRequests(await payoutsApi.listRequests(orgId, token));
+      } catch (err) {
+        setRequestsError(err instanceof Error ? err.message : "Não foi possível carregar as solicitações de saque");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar o financeiro");
+      setLoadError(err instanceof Error ? err.message : "Falha ao carregar o financeiro");
     } finally {
       setLoading(false);
     }
@@ -153,7 +176,8 @@ function FinanceContent({ orgId }: { orgId: string }) {
     balance?.settlementMode === "INSTANT" ? 0 : Math.floor((balance?.heldCents ?? 0) * 0.8);
   // 1 saque em andamento por vez (regra do backend): com pendência, o modal só
   // levaria a um 400 — melhor manter travado e mostrar o aviso de andamento.
-  const canWithdraw = pendingCents === 0 && withdrawableCents + anticipatableCents >= 100;
+  // sem a lista de solicitações não dá para saber se já há saque em andamento
+  const canWithdraw = !requestsError && pendingCents === 0 && withdrawableCents + anticipatableCents >= 100;
   const lastRequest = requests[0] ?? null;
 
   return (
@@ -162,6 +186,17 @@ function FinanceContent({ orgId }: { orgId: string }) {
 
       {loading ? (
         <p className="text-[13px] font-semibold text-muted">Carregando…</p>
+      ) : loadError ? (
+        <div className="rounded-[18px] border border-danger/30 bg-danger/5 p-6 text-center">
+          <p className="text-[13px] font-bold text-danger">{loadError}</p>
+          <button
+            type="button"
+            onClick={load}
+            className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+          >
+            Tentar novamente
+          </button>
+        </div>
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -193,8 +228,12 @@ function FinanceContent({ orgId }: { orgId: string }) {
             </div>
             <div className="rounded-[18px] border border-line bg-surface p-5">
               <p className="text-[12px] font-bold text-muted">Repasse</p>
+              {/* 2026-10-12: o Pix é feito pela equipe; o sinal de enviado é o status Pago abaixo */}
               <p className="mt-1 text-[13px] font-semibold leading-snug text-ink-soft">
-                D+2 do evento, via Pix e sem tarifa.
+                {balance?.settlementMode === "INSTANT"
+                  ? "Repasse instantâneo: dá para sacar antes da liberação, com taxa de antecipação."
+                  : "Vendas liberam 2 dias úteis após o fim do evento."}{" "}
+                A equipe BoraFest faz o Pix, sem tarifa.
               </p>
               <button
                 type="button"
@@ -209,13 +248,29 @@ function FinanceContent({ orgId }: { orgId: string }) {
                   ✓ Saque em andamento — acompanhe abaixo
                 </p>
               ) : null}
+              {requestsError ? (
+                <p className="mt-2.5 text-[12px] font-semibold text-warning">
+                  Não deu para conferir seus saques em andamento — o botão volta quando a lista carregar.
+                </p>
+              ) : null}
             </div>
           </div>
 
           {/* Solicitações de saque */}
           <section className="mt-5 rounded-[18px] border border-line bg-surface p-5">
             <h2 className="text-[15px] font-extrabold">Solicitações de saque</h2>
-            {requests.length === 0 ? (
+            {requestsError ? (
+              <div className="mt-3 rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
+                <p className="text-[13px] font-bold text-danger">{requestsError}</p>
+                <button
+                  type="button"
+                  onClick={load}
+                  className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            ) : requests.length === 0 ? (
               <p className="mt-3 text-[13px] font-semibold text-muted">Nenhuma solicitação ainda.</p>
             ) : (
               <div className="mt-3 overflow-x-auto rounded-xl border border-line">
@@ -247,7 +302,7 @@ function FinanceContent({ orgId }: { orgId: string }) {
           <section className="mt-5 rounded-[18px] border border-line bg-surface p-5">
             <h2 className="text-[15px] font-extrabold">Repasses</h2>
             <p className="mt-1 text-[12px] font-semibold text-muted">
-              Transferências já enviadas para a sua conta bancária.
+              Repasses para a sua conta bancária. “Pago” quer dizer que a equipe BoraFest já enviou o Pix.
             </p>
             {payouts.length === 0 ? (
               <p className="mt-3 text-[13px] font-semibold text-muted">Nenhum repasse realizado ainda.</p>
@@ -266,7 +321,7 @@ function FinanceContent({ orgId }: { orgId: string }) {
                     {payouts.map((payout) => (
                       <tr key={payout.id} className="border-b border-line-divider last:border-0">
                         <td className="px-4 py-2.5 font-bold">{formatCents(payout.amountCents)}</td>
-                        <td className="px-4 py-2.5"><StatusChip status={payout.status} /></td>
+                        <td className="px-4 py-2.5"><StatusChip status={payout.status} styles={PAYOUT_STATUS_STYLES} /></td>
                         <td className="px-4 py-2.5 text-muted">{formatDate(payout.requestedAt)}</td>
                         <td className="px-4 py-2.5 text-muted">{formatDate(payout.paidAt)}</td>
                       </tr>

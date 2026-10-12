@@ -17,6 +17,9 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(
     searchParams.get("erro") === "sem-acesso" ? "Sua conta não tem acesso ao backoffice." : null,
   );
+  // aviso da sessão vencida (2026-10-12): o AuthGuard manda pra cá com ?sessao=expirada
+  const sessionNotice =
+    searchParams.get("sessao") === "expirada" ? "Sua sessão expirou — entre de novo." : null;
 
   async function handleRequestCode() {
     setError(null);
@@ -83,6 +86,12 @@ function LoginForm() {
               maxLength={6}
               className="text-center text-lg tracking-widest font-mono"
             />
+          )}
+
+          {sessionNotice && !error && step === "email" && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 font-medium">
+              {sessionNotice}
+            </div>
           )}
 
           {error && (

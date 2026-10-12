@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 import { api, ApiError, type AvailabilityItem, type OrderTicket, type PdvSaleResult } from "../lib/api";
+import { ehCpfValido } from "../lib/cpf";
 import { portariaApi } from "../lib/portaria/api";
 import type { Session } from "../lib/portaria/types";
 
@@ -59,6 +60,11 @@ interface Resultado {
    * e NÃO QUEIMADO, com QR vivo.
    */
   motivoFalha?: string;
+  /**
+   * Recado ao operador que não é falha de entrada (2026-10-12): hoje, só o
+   * "este Pix já tinha sido pago" quando ele tocou Dinheiro com Pix pendente.
+   */
+  aviso?: string;
 }
 
 /**
@@ -82,16 +88,8 @@ function reais(cents: number): string {
 function soDigitos(v: string): string {
   return v.replace(/\D/g, "");
 }
-function cpfValido(raw: string): boolean {
-  const cpf = soDigitos(raw);
-  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
-  for (const len of [9, 10]) {
-    let soma = 0;
-    for (let i = 0; i < len; i += 1) soma += Number(cpf[i]) * (len + 1 - i);
-    if (((soma * 10) % 11) % 10 !== Number(cpf[len])) return false;
-  }
-  return true;
-}
+// CPF: a regra é a de lib/cpf.ts (2026-10-12). Esta tela tinha uma cópia
+// própria; duas cópias divergem em silêncio quando a regra muda.
 
 export default function PdvPorta({ eventId, accountToken, session, gateId, gateName, online, onCheckedIn }: Props) {
   const chaveLote = `bf.pdv.lote.${eventId}`;
@@ -110,12 +108,27 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   const [opcaoKey, setOpcaoKey] = useState<string>(() =>
     typeof localStorage !== "undefined" ? localStorage.getItem(chaveLote) ?? "" : "",
   );
+  // LOTE ESGOTADO NÃO TROCA SOZINHO (2026-10-12): antes a tela pulava para o
+  // primeiro lote disponível e o PREÇO mudava sem o operador perceber — ele
+  // cobrava o valor de cabeça. Agora desmarca e diz por quê; o próximo lote
+  // exige um toque consciente.
+  const [avisoLote, setAvisoLote] = useState<string | null>(null);
+  // a carga é assíncrona: lê a escolha ATUAL e os lotes da carga anterior
+  // (para dar nome ao que sumiu — o servidor já não devolve lote esgotado)
+  const opcaoKeyRef = useRef(opcaoKey);
+  const lotsAnterioresRef = useRef<AvailabilityItem[]>([]);
+  const jaCarregouRef = useRef(false);
   const [qtd, setQtd] = useState(1);
   const [nome, setNome] = useState("");
   const [cpf, setCpf] = useState("");
 
   const [fase, setFase] = useState<Fase>("venda");
   const [ocupado, setOcupado] = useState<null | "registrando" | "gerando-pix" | "liberando">(null);
+  // lido pela carga de lotes (useCallback): com venda em andamento ela não mexe na seleção
+  const vendaEmAndamentoRef = useRef(false);
+  useEffect(() => {
+    vendaEmAndamentoRef.current = Boolean(ocupado) || fase !== "venda";
+  }, [ocupado, fase]);
   const [erro, setErro] = useState<string | null>(null);
   const [pedido, setPedido] = useState<PdvSaleResult | null>(null);
   const [pixCode, setPixCode] = useState<string | null>(null);
@@ -162,15 +175,36 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
           // Pix passava a ser recusado com 400 sem a tela ter como pedir o CPF
           setCfgErro(true);
         }
-        // opção lembrada: se o lote sumiu, ou era meia num lote que deixou de
-        // permitir, cai na inteira do primeiro lote disponível
-        setOpcaoKey((atual) => {
-          const [lid, half] = atual.split(":");
-          const l = vendaveis.find((x) => x.lotId === lid);
-          if (l && (half !== "1" || l.halfPriceEnabled)) return atual;
-          const primeiro = vendaveis[0];
-          return primeiro ? `${primeiro.lotId}:0` : "";
-        });
+        const anteriores = lotsAnterioresRef.current;
+        lotsAnterioresRef.current = vendaveis;
+        const primeiraCarga = !jaCarregouRef.current;
+        jaCarregouRef.current = true;
+        // venda em andamento (gerando Pix, liberando, QR na tela): a carga só
+        // atualiza a grade — mexer na seleção zerava o pedido do Pix no meio do
+        // caminho (revisão 2026-10-12). A conferência fica para a próxima venda.
+        if (vendaEmAndamentoRef.current) return;
+        const atual = opcaoKeyRef.current;
+        if (!atual) {
+          // nada escolhido nem lembrado: só na ABERTURA do PDV o primeiro lote
+          // vem marcado (como sempre foi). Depois de um "esgotou", não — senão
+          // a troca silenciosa volta pela porta dos fundos.
+          if (primeiraCarga && vendaveis[0]) setOpcaoKey(`${vendaveis[0].lotId}:0`);
+          return;
+        }
+        // opção lembrada que sumiu (esgotou/fechou) ou era meia num lote que
+        // deixou de permitir: DESMARCA e avisa (2026-10-12). Trocar sozinho
+        // mudava o preço sem o operador ver.
+        const [lid, half] = atual.split(":");
+        const l = vendaveis.find((x) => x.lotId === lid);
+        if (l && (half !== "1" || l.halfPriceEnabled)) return;
+        const conhecido = l ?? anteriores.find((x) => x.lotId === lid);
+        const nomeLote = conhecido ? `${conhecido.ticketTypeName} · ${conhecido.lotName}` : "O ingresso que estava escolhido";
+        setOpcaoKey("");
+        setAvisoLote(
+          l
+            ? `${nomeLote} não aceita mais meia-entrada — escolha outro.`
+            : `${nomeLote} esgotou ou foi fechado${vendaveis.length > 0 ? " — escolha outro" : ""}.`,
+        );
       })
       .catch(() => setLotsErro(true))
       .finally(() => setCarregando(false));
@@ -183,6 +217,10 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   useEffect(() => {
     if (opcaoKey && typeof localStorage !== "undefined") localStorage.setItem(chaveLote, opcaoKey);
   }, [opcaoKey, chaveLote]);
+
+  useEffect(() => {
+    opcaoKeyRef.current = opcaoKey;
+  }, [opcaoKey]);
 
   // cada lote com halfPriceEnabled vira DUAS opções tocáveis — inteira e meia —
   // em vez de um checkbox por cima. Aparece exatamente como qualquer ingresso.
@@ -206,7 +244,13 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     return agora >= ini - 12 * 3600_000 && agora <= (fim ?? ini) + 6 * 3600_000;
   })();
 
-  // pedido pendente de um Pix que falhou só vale se nada mudou
+  // pedido pendente de um Pix que falhou só vale se nada mudou.
+  //
+  // Por isso o pedido (ingresso, pessoas, nome, CPF) fica TRAVADO enquanto
+  // algo está em andamento (2026-10-12): mexer no nome durante o "Gerando..."
+  // zerava `pedido` no meio da chamada, o QR aparecia sem polling, o "Já pagou
+  // — conferir agora" não fazia nada e o "Cancelar" dizia "nada foi cobrado"
+  // com o cliente podendo pagar aquele QR.
   useEffect(() => {
     if (fase === "venda") {
       setPedido(null);
@@ -220,8 +264,8 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     // a decisão "PDV só vende na porta" vira controle aqui (e no servidor)
     if (!diaDoEvento) return "Hoje não tem porta — o PDV só vende no dia do evento.";
     if (!lote) return "Escolha o ingresso.";
-    if (p === "pix" && pixExigeCpf && !cpfValido(cpf)) return "Este provedor de Pix exige o CPF para gerar o QR.";
-    if (cpf.trim() && !cpfValido(cpf)) return "Esse CPF não confere.";
+    if (p === "pix" && pixExigeCpf && !ehCpfValido(cpf)) return "Este provedor de Pix exige o CPF para gerar o QR.";
+    if (cpf.trim() && !ehCpfValido(cpf)) return "Esse CPF não confere.";
     if (!online) return "Sem internet — a venda na porta precisa de conexão.";
     if (!accountToken) return "Sessão da conta expirou. Saia e entre de novo.";
     return null;
@@ -247,7 +291,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
 
   // --- check-in automático: a MESMA chamada da validação ---------------------
   const liberar = useCallback(
-    async (orderId: string, publicToken: string, pagamento: Pagamento, pessoas: number, total: number) => {
+    async (orderId: string, publicToken: string, pagamento: Pagamento, pessoas: number, total: number, aviso?: string) => {
       setOcupado("liberando");
       // ingressos nascem no worker (outbox, ~3s): espera com tentativas
       let tickets: OrderTicket[] = [];
@@ -291,7 +335,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
         }
       }
       if (paradoRef.current) return;
-      setResultado({ pagamento, pessoas, totalCents: total, liberadas, publicToken, tickets, motivoFalha });
+      setResultado({ pagamento, pessoas, totalCents: total, liberadas, publicToken, tickets, motivoFalha, aviso });
       setOcupado(null);
       setFase("pronto");
     },
@@ -340,9 +384,40 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     setErro(null);
     try {
       // Pix que ficou pendente segura a vaga no lote: solta antes de vender em
-      // dinheiro, senão a mesma pessoa ocupa duas vagas até o Pix expirar
+      // dinheiro, senão a mesma pessoa ocupa duas vagas até o Pix expirar.
+      //
+      // E OLHA A RESPOSTA (2026-10-12): antes era `.catch(() => undefined)` e
+      // o dinheiro saía de qualquer jeito. Se o servidor dissesse que o Pix JÁ
+      // ESTAVA PAGO, a porta vendia de novo em dinheiro — cobrança dupla e
+      // ingresso em dobro. Mesmo tratamento do "Cancelar" da tela do Pix:
+      // pagou → a venda é a do Pix; não deu para cancelar → não vende.
       if (pedido?.orderId) {
-        await api.cancelPdvPixSale(eventId, pedido.orderId, accountToken!).catch(() => undefined);
+        const pendente = pedido;
+        let cancelamento: { canceled: boolean; status: string };
+        try {
+          cancelamento = await api.cancelPdvPixSale(eventId, pendente.orderId, accountToken!);
+        } catch (e) {
+          // sem a resposta não dá para saber se o Pix caiu: vender em dinheiro
+          // por cima pode cobrar duas vezes
+          setErro(
+            `Não deu para cancelar o Pix que ficou pendente (${
+              e instanceof ApiError ? e.message : "sem conexão"
+            }). Nada foi registrado em dinheiro — toque em Dinheiro de novo.`,
+          );
+          setOcupado(null);
+          return;
+        }
+        if (!cancelamento.canceled && ["PAID", "FULFILLED"].includes(cancelamento.status)) {
+          await liberar(
+            pendente.orderId,
+            pendente.publicToken,
+            "pix",
+            qtd,
+            totalCents,
+            "Este Pix já tinha sido pago — a venda ficou no Pix. Não cobre em dinheiro; se já recebeu, devolva.",
+          );
+          return;
+        }
         setPedido(null);
       }
       const venda = await api.createPdvCashSale(eventId, payload(), accountToken!, chaveDaTentativa("dinheiro"));
@@ -516,8 +591,14 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     // Erro de omissão (esquecer o toque) sai mais caro que erro de excesso
     // (perguntar de novo) — e "obrigar" nunca é o padrão seguro na porta.
     setOpcaoKey((atual) => (atual.split(":")[0] ? `${atual.split(":")[0]}:0` : atual));
+    setAvisoLote(null);
     carregar();
-    setTimeout(() => nomeRef.current?.focus(), 50);
+    // SEM FOCO AUTOMÁTICO NO CELULAR (2026-10-12): focar o nome abria o
+    // teclado a cada venda e ele cobria DINHEIRO e PIX — e o nome é opcional.
+    // Só foca com mouse (notebook no balcão), onde não há teclado na tela.
+    if (typeof window !== "undefined" && window.matchMedia?.("(pointer: fine)").matches) {
+      setTimeout(() => nomeRef.current?.focus(), 50);
+    }
   }
 
   // ==========================================================================
@@ -573,6 +654,11 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
           {reais(r.totalCents)} · {r.pagamento === "dinheiro" ? "em dinheiro" : "no Pix"}
           {r.liberadas > 0 && !tudoLiberado ? ` · ${r.liberadas} de ${r.pessoas} já entrou` : ""}
         </p>
+        {r.aviso && (
+          <p className="mt-3 rounded-2xl border-[1.5px] border-warning/50 bg-warning/[.12] px-4 py-3 text-center text-[13px] font-bold leading-relaxed text-[#fbbf24]">
+            {r.aviso}
+          </p>
+        )}
 
         {/* saída de emergência: o código serve para validar na mão, na aba Documento */}
         {!tudoLiberado && r.tickets.length > 0 && (
@@ -716,18 +802,27 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
         ) : lotsErro ? (
           <div className="mb-4 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-4">
             <p className="text-[13px] font-bold text-[#fbbf24]">Não foi possível carregar os ingressos.</p>
-            <button onClick={carregar} className="mt-2 rounded-xl bg-white/10 px-4 py-2 text-[12px] font-bold text-white">
+            <button onClick={carregar} disabled={!!ocupado} className="mt-2 rounded-xl bg-white/10 px-4 py-2 text-[12px] font-bold text-white disabled:opacity-40">
               Tentar de novo
             </button>
           </div>
         ) : cfgErro ? (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3">
             <p className="text-[12px] font-semibold text-[#fbbf24]">Configuração do Pix não carregou — o CPF fica opcional.</p>
-            <button onClick={carregar} className="flex-none rounded-xl bg-white/10 px-3 py-2 text-[11.5px] font-bold text-white">
+            <button
+              onClick={carregar}
+              disabled={!!ocupado}
+              className="flex-none rounded-xl bg-white/10 px-3 py-2 text-[11.5px] font-bold text-white disabled:opacity-50"
+            >
               Tentar de novo
             </button>
           </div>
         ) : null}
+        {avisoLote && !lote && (
+          <p className="mb-3 rounded-2xl border-[1.5px] border-warning/50 bg-warning/[.12] px-4 py-3 text-[12.5px] font-bold leading-relaxed text-[#fbbf24]">
+            {avisoLote}
+          </p>
+        )}
         {!carregando && !lotsErro && lots.length === 0 ? (
           <p className="mb-4 rounded-2xl bg-white/[.05] px-4 py-4 text-[13px] font-semibold text-white/45">
             Nenhum ingresso com vaga para vender agora.
@@ -744,8 +839,10 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
                     setOpcaoKey(o.key);
                     setQtd((q) => Math.min(Math.max(1, q), Math.min(20, o.available)));
                     setErro(null);
+                    setAvisoLote(null);
                   }}
-                  className={`rounded-2xl border-[1.5px] px-4 py-3 text-left ${
+                  disabled={!!ocupado}
+                  className={`rounded-2xl border-[1.5px] px-4 py-3 text-left disabled:opacity-60 ${
                     ativo ? "border-primary bg-primary/15" : "border-white/10 bg-white/[.05]"
                   }`}
                 >
@@ -765,7 +862,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
         <div className="mb-4 flex items-center justify-center gap-6">
           <button
             onClick={() => setQtd((q) => Math.max(1, q - 1))}
-            disabled={qtd <= 1}
+            disabled={qtd <= 1 || !!ocupado}
             aria-label="Menos um"
             className="flex h-[58px] w-[58px] flex-none items-center justify-center rounded-2xl border-[1.5px] border-white/15 bg-white/[.06] text-[26px] font-extrabold disabled:opacity-30"
           >
@@ -777,7 +874,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
           </div>
           <button
             onClick={() => setQtd((q) => Math.min(maxQtd, q + 1))}
-            disabled={!lote || qtd >= maxQtd}
+            disabled={!lote || qtd >= maxQtd || !!ocupado}
             aria-label="Mais um"
             className="flex h-[58px] w-[58px] flex-none items-center justify-center rounded-2xl border-[1.5px] border-white/15 bg-white/[.06] text-[26px] font-extrabold disabled:opacity-30"
           >
@@ -796,7 +893,8 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
           placeholder="Nome de quem entra"
           autoCapitalize="words"
           enterKeyHint="done"
-          className="h-[54px] w-full rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 text-[16px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary"
+          disabled={!!ocupado}
+          className="h-[54px] w-full rounded-2xl border-[1.5px] border-white/15 bg-white/[.07] px-4 text-[16px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary disabled:opacity-60"
         />
         {(pixExigeCpf || cfgErro) && (
           <input
@@ -808,8 +906,9 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
             }}
             placeholder={pixExigeCpf ? "CPF (obrigatório no Pix)" : "CPF (se o Pix pedir)"}
             inputMode="numeric"
-            className={`mt-2.5 h-[54px] w-full rounded-2xl border-[1.5px] bg-white/[.07] px-4 text-[16px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary ${
-              cpf.trim() && !cpfValido(cpf) ? "border-red-400/70" : "border-white/15"
+            disabled={!!ocupado}
+            className={`mt-2.5 h-[54px] w-full rounded-2xl border-[1.5px] bg-white/[.07] px-4 text-[16px] font-semibold text-white outline-none placeholder:font-medium placeholder:text-white/30 focus:border-primary disabled:opacity-60 ${
+              cpf.trim() && !ehCpfValido(cpf) ? "border-red-400/70" : "border-white/15"
             }`}
           />
         )}

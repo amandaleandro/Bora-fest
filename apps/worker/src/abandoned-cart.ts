@@ -94,7 +94,7 @@ async function remindOrder(order: {
   contactName: string | null;
   event: { title: string };
 }): Promise<void> {
-  const webBaseUrl = process.env.CHECKOUT_BASE_URL ?? process.env.WEB_BASE_URL ?? "http://localhost:3000";
+  const webBaseUrl = process.env.CHECKOUT_BASE_URL ?? process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
   const link = `${webBaseUrl}/pedido/${order.publicToken}`;
   const saudacao = order.contactName ? `Oi, ${order.contactName}!` : "Oi!";
 
@@ -201,7 +201,7 @@ async function resgatarPedido(
     return;
   }
 
-  const webBaseUrl = process.env.CHECKOUT_BASE_URL ?? process.env.WEB_BASE_URL ?? "http://localhost:3000";
+  const webBaseUrl = process.env.CHECKOUT_BASE_URL ?? process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
   const link = montarLinkDoResgate(webBaseUrl, order.event.slug, order);
   const saudacao = order.contactName ? `Oi, ${order.contactName}!` : "Oi!";
 

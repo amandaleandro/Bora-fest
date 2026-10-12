@@ -206,6 +206,12 @@ export interface AccountClaimPayload {
   claimUrl: string;
   /** entrada grátis: muda assunto/abertura (convite tem charme, cortesia é sóbria) */
   cortesia?: "CONVIDADO" | "CORTESIA" | "GRATIS" | null;
+  /**
+   * a conta nasceu deste pedido (2026-10-12). false = conta que já existia e
+   * não estava verificada: o texto não pode dizer "criada agora". Ausente =
+   * notificações antigas, que só existiam para conta nascida do pedido.
+   */
+  contaNova?: boolean;
 }
 
 /**
@@ -235,15 +241,22 @@ export function renderAccountClaimEmail(to: string, payload: AccountClaimPayload
   <div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:24px">
     <p style="font-size:16px;font-weight:700">${escapeHtml(saudacao)}</p>
     <p style="font-size:14px;line-height:1.6">${abertura}
-      <b>${escapeHtml(payload.eventTitle)}</b> está guardado na sua conta BoraFest —
-      criada agora com ${payload.cortesia ? "os seus dados" : "os dados da compra"}.</p>
+      <b>${escapeHtml(payload.eventTitle)}</b> está guardado na sua conta BoraFest${
+        payload.contaNova === false
+          ? "."
+          : ` —
+      criada agora com ${payload.cortesia ? "os seus dados" : "os dados da compra"}.`
+      }</p>
     <p style="font-size:14px;line-height:1.6">Toque no botão para acessar (isso confirma que este
       e-mail é seu e abre o ingresso na hora):</p>
     <p style="text-align:center;margin:28px 0">
       <a href="${escapeHtml(payload.claimUrl)}" style="background:#D9128F;color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">Acessar meu ingresso</a>
     </p>
-    <p style="font-size:12px;color:#6b6577;line-height:1.6">Abrindo em outro aparelho? Na página do
-      pedido dá para pedir um código de 6 dígitos para este mesmo e-mail.</p>
+    <p style="font-size:12px;color:#6b6577;line-height:1.6">${
+      payload.contaNova === false
+        ? "Abrindo em outro aparelho? Entre na sua conta em borafest.com.br/perfil com este e-mail e peça um código de 6 dígitos."
+        : "Abrindo em outro aparelho? Na página do pedido dá para pedir um código de 6 dígitos para este mesmo e-mail."
+    }</p>
   </div>`;
   const text = `${saudacao}\n\n${abertura} ${payload.eventTitle} está na sua conta BoraFest.\nAcesse: ${payload.claimUrl}`;
   return { to, subject, html, text };

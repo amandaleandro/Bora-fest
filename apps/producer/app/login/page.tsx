@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { passwordAuth } from "../../lib/api";
@@ -15,6 +15,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // aviso da sessão vencida (2026-10-12): o AuthGuard manda pra cá com
+  // ?sessao=expirada. Lido no efeito (e não com useSearchParams) para a página
+  // não precisar de Suspense só por causa disso.
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("sessao") === "expirada") {
+      setSessionNotice("Sua sessão expirou — entre de novo.");
+    }
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,6 +45,11 @@ export default function LoginPage() {
     <AuthShell>
       <h1 className="text-[26px] font-extrabold">Entrar no painel</h1>
       <p className="mt-1 text-[13px] font-medium text-muted">Gerencie eventos, vendas e repasses.</p>
+      {sessionNotice && !error ? (
+        <p className="mt-4 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-2.5 text-[12.5px] font-bold text-warning">
+          {sessionNotice}
+        </p>
+      ) : null}
       <form onSubmit={submit} className="mt-6 space-y-4">
         <div>
           <label className={labelCls}>E-mail</label>

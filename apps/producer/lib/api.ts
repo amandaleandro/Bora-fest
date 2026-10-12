@@ -9,6 +9,28 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * SESSÃO VENCIDA (2026-10-12): o painel nunca tratava 401 — com o token
+ * expirado as telas ficavam vazias até a pessoa clicar em Sair. Agora um 401
+ * numa chamada COM token avisa o AuthProvider (lib/auth.tsx), que faz o mesmo
+ * que o Sair e manda para o login com o aviso. O 401 do próprio login (senha
+ * errada) vai sem token, então continua sendo só o erro na tela.
+ */
+export const SESSION_EXPIRED_EVENT = "bf:session-expired";
+export const SESSION_EXPIRED_MESSAGE = "Sua sessão expirou — entre de novo";
+
+// exportada (2026-10-12): os clientes com fetch próprio (loyalty-api, vip-api,
+// os outros *-api.ts e o perfil-publico) usam esta mesma regra de 401
+export function avisarSessaoVencida(status: number, token: string | null | undefined): boolean {
+  if (status !== 401 || !token) return false;
+  if (typeof window !== "undefined") {
+    // leva o token junto: o AuthProvider só derruba a sessão se ainda for ESTE
+    // o token guardado (um 401 atrasado não desloga quem já entrou de novo)
+    window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { token } }));
+  }
+  return true;
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string | null } = {},
@@ -29,6 +51,9 @@ async function request<T>(
   const data = text ? JSON.parse(text) : undefined;
 
   if (!response.ok) {
+    if (avisarSessaoVencida(response.status, options.token)) {
+      throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
+    }
     throw new ApiError(response.status, data?.message ?? "Erro ao falar com a API");
   }
   return data as T;
@@ -142,8 +167,24 @@ export interface OrgEarnings {
   debtCents: number;
 }
 
+/**
+ * Carteira PESSOAL do promoter (GET wallet/mine): comissões de quem ainda não
+ * tem produtora. Quando ele cria a produtora, a carteira passa para ela e o
+ * saque sai pelo Financeiro (organizations.service create/getMyWallet).
+ */
+export interface PromoterWallet {
+  /** tudo que está na carteira (pode ficar negativo depois de estorno) */
+  balanceCents: number;
+  /** a parte que já passou da liberação (D+2 úteis após o evento) */
+  availableCents: number;
+  /** hoje sempre true: sacar exige completar o cadastro de produtor */
+  needsProducerAccount: boolean;
+}
+
 export const organizationsApi = {
   list: (token: string) => request<Array<Organization & { roleKey: string }>>("/v1/organizations", { token }),
+  /** carteira pessoal do promoter (2026-10-12: a rota existia e nenhuma tela usava) */
+  myWallet: (token: string) => request<PromoterWallet>("/v1/organizations/wallet/mine", { token }),
 
   /** Resumo da produtora numa requisição (ganhos, ingressos e eventos). */
   getSummary: (token: string, organizationId: string) =>
@@ -290,13 +331,14 @@ export interface EventSummary {
  *             finance:view, sales:perform (NÃO faz check-in no app);
  *  - finance = finance:view + order:refund → VÊ pedidos/participantes, exporta,
  *             reembolsa e pede saque; NÃO cria/edita ingressos nem vende no PDV;
- *  - operator = checkin:perform → só o app de validação e o painel ao vivo;
+ *  - operator = checkin:perform → só a portaria do site (/portaria) e o painel ao vivo
+ *    (2026-10-12: não existe "app de validação" — a portaria é uma página do site);
  *  - seller  = sales:perform → registra venda no PDV da atlética/parceiro.
  */
 export const MEMBER_ROLES = [
   { key: "admin", label: "Administrador", description: "Cria e edita eventos, ingressos, vendas, financeiro, saques e equipe" },
   { key: "finance", label: "Financeiro", description: "Vê pedidos e participantes, exporta, reembolsa e solicita saque" },
-  { key: "operator", label: "Check-in", description: "Só o app de validação e o painel ao vivo" },
+  { key: "operator", label: "Check-in", description: "Só a portaria (borafest.com.br/portaria) e o painel ao vivo" },
   { key: "seller", label: "Vendedor (porta)", description: "Vende no PDV e valida a entrada (check-in) na porta" },
 ] as const;
 
@@ -546,6 +588,8 @@ export const dashboardApi = {
             signal: controller.signal,
             cache: "no-store",
           });
+          // sessão vencida: reconectar a cada 3s com o mesmo token nunca daria certo
+          if (avisarSessaoVencida(response.status, token)) return;
           if (!response.ok || !response.body) throw new Error("stream indisponível");
 
           const reader = response.body.getReader();
@@ -585,6 +629,7 @@ export const dashboardApi = {
     const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/participants/export`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
     if (!response.ok) throw new ApiError(response.status, "Não foi possível exportar");
 
     const blob = await response.blob();
@@ -599,6 +644,7 @@ export const dashboardApi = {
     const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/orders/export`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
     if (!response.ok) throw new ApiError(response.status, "Não foi possível exportar");
 
     const blob = await response.blob();
@@ -801,6 +847,7 @@ export const eventControls = {
       headers: { Authorization: `Bearer ${token}` },
       body: form,
     });
+    if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
     const text = await response.text();
     const data = text ? JSON.parse(text) : undefined;
     if (!response.ok) throw new ApiError(response.status, data?.message ?? "Falha ao enviar o banner");

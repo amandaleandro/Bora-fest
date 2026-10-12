@@ -245,6 +245,9 @@ function VendasContent({ eventId }: { eventId: string }) {
   const { token } = useAuth();
   const [tab, setTab] = useState<"pedidos" | "pdv" | "vendedores" | "ranking">("pedidos");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): o dashboard caía num .catch(() => {}) e,
+  // se falhasse, o PDV abria com a lista de lotes vazia — cara de evento esgotado.
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -303,9 +306,19 @@ function VendasContent({ eventId }: { eventId: string }) {
     }
   }
 
-  useEffect(() => {
+  function loadDashboard() {
     if (!token) return;
-    dashboardApi.get(token, eventId).then(setDashboard).catch(() => {});
+    setDashboardError(null);
+    dashboardApi
+      .get(token, eventId)
+      .then(setDashboard)
+      .catch((err) =>
+        setDashboardError(err instanceof Error && err.message ? err.message : "Não foi possível carregar os lotes do evento"),
+      );
+  }
+
+  useEffect(() => {
+    loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, eventId]);
 
@@ -319,6 +332,9 @@ function VendasContent({ eventId }: { eventId: string }) {
     setExportingOrders(true);
     try {
       await dashboardApi.downloadOrdersCsv(token, eventId);
+    } catch (err) {
+      // export falhava sem mensagem nenhuma (2026-10-12)
+      setError(err instanceof Error ? err.message : "Não foi possível exportar os pedidos");
     } finally {
       setExportingOrders(false);
     }
@@ -643,6 +659,14 @@ function VendasContent({ eventId }: { eventId: string }) {
             Venda offline (dinheiro/maquininha própria): o pedido já entra pago e os ingressos são emitidos
             imediatamente.
           </p>
+          {dashboardError ? (
+            <div className="mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[13px] font-semibold text-danger">
+              Não deu para carregar os lotes ({dashboardError}) — a lista abaixo fica vazia até carregar.{" "}
+              <button type="button" onClick={loadDashboard} className="font-extrabold underline">
+                Tentar novamente
+              </button>
+            </div>
+          ) : null}
           <div className="mt-4 space-y-2">
             <select
               className="w-full rounded-lg border border-line-input px-3 py-2 text-[13px]"

@@ -621,6 +621,23 @@ export class AdminService {
       }
     }
 
+    // LINK DE ACESSO (2026-10-12): até esta data o link podia ter sido gravado
+    // para o e-mail de CONTATO de uma conta que já existia — um terceiro. Ele
+    // entra na conta; reenfileirar a linha velha o mandaria de novo. Só passa se
+    // o destino gravado for o que a regra de hoje escolheria.
+    if (notif.template === "account_claim" && notif.orderId) {
+      const pedido = await prisma.order.findUnique({
+        where: { id: notif.orderId },
+        select: { accountCreatedByOrder: true, contactEmail: true, user: { select: { email: true } } },
+      });
+      const destinoCerto = pedido?.accountCreatedByOrder ? pedido.contactEmail : pedido?.user?.email ?? null;
+      if (!destinoCerto || destinoCerto.toLowerCase() !== notif.recipient.toLowerCase()) {
+        throw new BadRequestException(
+          "Este link de acesso foi gravado para um e-mail que não é o da conta — use \"Reenviar\" na página do pedido, que manda para o endereço certo",
+        );
+      }
+    }
+
     const requeued = await prisma.notification.updateMany({
       where: { id: notificationId, status: { in: ["FAILED", "PENDING"] } },
       data: { status: "PENDING", availableAt: new Date(), attempts: 0, error: null },

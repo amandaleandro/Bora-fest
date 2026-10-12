@@ -21,7 +21,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       items: true,
       attendees: true,
       event: { include: { signingKey: true } },
-      user: { select: { id: true, emailVerifiedAt: true, name: true, cpf: true, sessionVersion: true } },
+      user: { select: { id: true, email: true, emailVerifiedAt: true, name: true, cpf: true, sessionVersion: true } },
       guestListEntries: { select: { id: true }, take: 1 },
     },
   });
@@ -132,6 +132,15 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
     // NÃO recebe o ingresso por e-mail — recebe o aviso com link mágico, que
     // verifica a conta e abre o ingresso. Verificado = entrega normal.
     if (order.user && !order.user.emailVerifiedAt) {
+      // o link entra na conta: vai para o e-mail DA CONTA, nunca para um
+      // contato digitado por quem estava logado (2026-10-12, ver a função)
+      const destino = destinoDoLinkDeAcesso(order);
+      if (!destino) {
+        // conta sem e-mail cadastrado: não há destino seguro para o link — e o
+        // QR segue trancado até verificar (caso de suporte, não do contato)
+        log.warn({ orderId }, "conta não verificada sem e-mail: link de acesso não enviado");
+        return;
+      }
       const claimToken = await createSessionToken(
         { sub: order.user.id, purpose: "email-verify", sv: order.user.sessionVersion, orderToken: order.publicToken },
         "7d",
@@ -140,12 +149,16 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
       await tx.notification.create({
         data: {
           channel: "EMAIL",
-          recipient: order.contactEmail,
+          recipient: destino,
           template: "account_claim",
           payload: {
-            contactName: order.contactName,
+            // conta que já existia: a saudação é do dono dela, não do contato
+            contactName: order.accountCreatedByOrder
+              ? order.contactName
+              : (order.user.name ?? order.contactName),
             eventTitle: order.event.title,
             claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+            contaNova: Boolean(order.accountCreatedByOrder),
             cortesia,
           },
           orderId,
@@ -207,6 +220,27 @@ export async function issueTicketsForOrder(orderId: string): Promise<void> {
   }
 }
 
+/**
+ * Para onde vai o link mágico de acesso (account_claim) — 2026-10-12, decisão
+ * de 02/09 ("escopar account_claim a accountCreatedByOrder"). O link VERIFICA
+ * E ENTRA na conta, e o contactEmail é só o que foi digitado no checkout:
+ * logado numa conta ainda não verificada, quem pusesse o e-mail de um terceiro
+ * entregava a ele a chave da própria conta. Só quando a conta NASCEU deste
+ * pedido o contato é o e-mail da conta; nos outros casos vai para o e-mail
+ * cadastrado na conta, e o contato não recebe link nenhum. null = sem destino
+ * seguro (pedido sem conta, ou conta sem e-mail). A API repete esta regra no
+ * reenvio (notifications.service.ts) — mudou aqui, muda lá.
+ */
+export function destinoDoLinkDeAcesso(order: {
+  accountCreatedByOrder: boolean;
+  contactEmail: string;
+  user: { email: string | null } | null;
+}): string | null {
+  if (!order.user) return null;
+  if (order.accountCreatedByOrder) return order.contactEmail;
+  return order.user.email || null;
+}
+
 export function buildDeliveryPayload(
   order: {
     publicToken: string;
@@ -219,7 +253,7 @@ export function buildDeliveryPayload(
   }>,
   cortesia: "CONVIDADO" | "CORTESIA" | "GRATIS" | null = null,
 ) {
-  const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+  const webBaseUrl = process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
   return {
     contactName: order.contactName ?? undefined,
     eventTitle: order.event.title,

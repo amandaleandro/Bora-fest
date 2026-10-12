@@ -33,7 +33,7 @@ export class NotificationsService {
     const order = await prisma.order.findUnique({
       where: { publicToken },
       include: {
-        user: { select: { id: true, emailVerifiedAt: true, sessionVersion: true } },
+        user: { select: { id: true, email: true, name: true, emailVerifiedAt: true, sessionVersion: true } },
         event: { select: { title: true, startsAt: true, timezone: true } },
         guestListEntries: { select: { id: true }, take: 1 },
         tickets: {
@@ -49,10 +49,22 @@ export class NotificationsService {
     // Portão do 1º ingresso: o QR NUNCA sai por reenvio antes de verificar.
     // Mas quem pagou e não recebeu o aviso precisa de auto-atendimento (queixa
     // 2026-09-02): em vez de recusar, REENVIAMOS o link mágico (account_claim)
-    // para o MESMO e-mail do pedido — nunca o QR. Clicar verifica e abre tudo.
+    // — nunca o QR. Clicar verifica e abre tudo.
     // (Institucionais como @ufu.br fazem greylisting; a 2ª tentativa costuma
     // passar — por isso o reenvio resolve boa parte dos casos.)
     if (order.user && !order.user.emailVerifiedAt) {
+      // DESTINO = E-MAIL DA CONTA (2026-10-12, decisão de 02/09): o link ENTRA
+      // na conta, e o contactEmail é só o que foi digitado no checkout. Logado
+      // numa conta não verificada, quem pusesse o e-mail de um terceiro fazia o
+      // reenvio entregar a ele a chave da própria conta. O contato só recebe
+      // quando a conta NASCEU deste pedido (aí os dois são o mesmo endereço).
+      // Mesma regra do worker (destinoDoLinkDeAcesso em issue-tickets.ts).
+      const destino = order.accountCreatedByOrder ? order.contactEmail : (order.user.email || null);
+      if (!destino) {
+        throw new BadRequestException(
+          "Esta conta não tem e-mail cadastrado para receber o link de acesso — fale com o suporte",
+        );
+      }
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const recent = await prisma.notification.count({
         where: { orderId: order.id, template: "account_claim", createdAt: { gt: oneHourAgo } },
@@ -71,17 +83,21 @@ export class NotificationsService {
         },
         "7d",
       );
-      const base = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+      const base = process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
       const cortesia = rotuloDoEmailGratis(order);
       await prisma.notification.create({
         data: {
           channel: "EMAIL",
-          recipient: order.contactEmail,
+          recipient: destino,
           template: "account_claim",
           payload: {
-            contactName: order.contactName,
+            // conta que já existia: a saudação é do dono dela, não do contato
+            contactName: order.accountCreatedByOrder
+              ? order.contactName
+              : (order.user.name ?? order.contactName),
             eventTitle: order.event.title,
             claimUrl: `${base}/acesso?token=${encodeURIComponent(claimToken)}`,
+            contaNova: Boolean(order.accountCreatedByOrder),
             cortesia,
           },
           orderId: order.id,
@@ -108,7 +124,7 @@ export class NotificationsService {
       );
     }
 
-    const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+    const webBaseUrl = process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
     const payload = {
       contactName: order.contactName ?? undefined,
       eventTitle: order.event.title,
@@ -216,7 +232,7 @@ export class NotificationsService {
       await prisma.order.update({ where: { id: order.id }, data: { contactPhone: phone } });
     }
 
-    const webBaseUrl = process.env.WEB_BASE_URL ?? "http://localhost:3000";
+    const webBaseUrl = process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
     const apiPublicUrl = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
     const orderUrl = `${webBaseUrl}/pedido/${order.publicToken}`;
     const eventDate = new Intl.DateTimeFormat("pt-BR", {

@@ -9,6 +9,26 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * SESSÃO VENCIDA (2026-10-12): o backoffice nunca tratava 401 — com o token
+ * expirado as telas ficavam vazias até clicar em Sair. Um 401 numa chamada COM
+ * token avisa o AuthProvider (lib/auth.tsx), que faz o mesmo que o Sair e manda
+ * ao login com aviso. O 401 do login (código errado) vai sem token: segue erro.
+ */
+export const SESSION_EXPIRED_EVENT = "bf:session-expired";
+export const SESSION_EXPIRED_MESSAGE = "Sua sessão expirou — entre de novo";
+
+// exportada (2026-10-12): a tela de banners faz fetch próprio (upload) e usa
+// esta mesma regra de 401 em vez de repetir o disparo do evento
+export function avisarSessaoVencida(status: number, token: string | null | undefined): boolean {
+  if (status !== 401 || !token) return false;
+  if (typeof window !== "undefined") {
+    // o token vai junto: só derruba se ainda for o guardado (lib/auth.tsx)
+    window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { token } }));
+  }
+  return true;
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string | null } = {},
@@ -29,6 +49,9 @@ async function request<T>(
   const data = text ? JSON.parse(text) : undefined;
 
   if (!response.ok) {
+    if (avisarSessaoVencida(response.status, options.token)) {
+      throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
+    }
     throw new ApiError(response.status, data?.message ?? "Erro ao falar com a API");
   }
   return data as T;

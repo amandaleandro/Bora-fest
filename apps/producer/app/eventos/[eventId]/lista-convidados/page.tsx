@@ -29,6 +29,13 @@ function GuestListContent({ eventId }: { eventId: string }) {
   const [partners, setPartners] = useState<SalesPartner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // ERRO NÃO VIRA "ZERO" (2026-10-12): parceiros caíam num .catch(() => {}) (a casa
+  // via "sem parceiro" e podia cadastrar o parceiro de novo), a falha dos lotes
+  // deixava o select vazio calado e a da lista mostrava "Nenhum convidado
+  // cadastrado ainda" — convite repetido. Agora cada parte mostra o erro e o retry.
+  const [entriesLoaded, setEntriesLoaded] = useState(false);
+  const [lotsError, setLotsError] = useState<string | null>(null);
+  const [partnersError, setPartnersError] = useState<string | null>(null);
 
   const [ticketLotId, setTicketLotId] = useState("");
   const [guestName, setGuestName] = useState("");
@@ -43,22 +50,38 @@ function GuestListContent({ eventId }: { eventId: string }) {
     try {
       const list = await guestListApi.list(token, eventId);
       setEntries(list);
+      setEntriesLoaded(true);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível carregar a lista de convidados");
     }
   }
 
+  async function loadLots() {
+    if (!token) return;
+    setLotsError(null);
+    try {
+      const d = await dashboardApi.get(token, eventId);
+      setLots(d.lots.map((l) => ({ id: l.id, name: l.name, typeName: l.typeName })));
+    } catch (err) {
+      setLotsError(err instanceof Error && err.message ? err.message : "Não foi possível carregar os lotes");
+    }
+  }
+
+  async function loadPartners() {
+    if (!token || !organization) return;
+    setPartnersError(null);
+    try {
+      setPartners(await organizationsApi.listSalesPartners(token, organization.id));
+    } catch (err) {
+      setPartnersError(err instanceof Error && err.message ? err.message : "Não foi possível carregar os parceiros");
+    }
+  }
+
   useEffect(() => {
     if (!token || !organization) return;
     setLoading(true);
-    Promise.all([
-      dashboardApi.get(token, eventId).then((d) =>
-        setLots(d.lots.map((l) => ({ id: l.id, name: l.name, typeName: l.typeName }))),
-      ),
-      organizationsApi.listSalesPartners(token, organization.id).then(setPartners).catch(() => {}),
-      loadEntries(),
-    ]).finally(() => setLoading(false));
+    Promise.all([loadLots(), loadPartners(), loadEntries()]).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, organization, eventId]);
 
@@ -129,10 +152,27 @@ function GuestListContent({ eventId }: { eventId: string }) {
         </div>
       </div>
 
-      {error ? <p className="mt-4 text-[13px] font-semibold text-danger">{error}</p> : null}
+      {/* sem a lista carregada, o erro aparece lá embaixo, no lugar da lista */}
+      {error && entriesLoaded ? <p className="mt-4 text-[13px] font-semibold text-danger">{error}</p> : null}
 
       <section className="mt-5 rounded-2xl border border-line bg-surface p-5">
         <h2 className="text-[15px] font-extrabold">Adicionar convidado</h2>
+        {lotsError ? (
+          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2.5 text-[13px] font-semibold text-danger">
+            Não deu para carregar os lotes ({lotsError}).{" "}
+            <button type="button" onClick={loadLots} className="font-extrabold underline">
+              Tentar novamente
+            </button>
+          </p>
+        ) : null}
+        {partnersError ? (
+          <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2.5 text-[13px] font-semibold text-danger">
+            Não deu para carregar os parceiros ({partnersError}) — sem eles, o convidado entra como da casa.{" "}
+            <button type="button" onClick={loadPartners} className="font-extrabold underline">
+              Tentar novamente
+            </button>
+          </p>
+        ) : null}
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <select className="w-full" value={ticketLotId} onChange={(e) => setTicketLotId(e.target.value)}>
             <option value="">Selecione o lote da lista de convidados</option>
@@ -184,8 +224,21 @@ function GuestListContent({ eventId }: { eventId: string }) {
       </section>
 
       <section className="mt-5 rounded-2xl border border-line bg-surface p-5">
-        <h2 className="text-[15px] font-extrabold">Convidados ({entries.length})</h2>
-        {entries.length === 0 ? (
+        <h2 className="text-[15px] font-extrabold">Convidados ({entriesLoaded ? entries.length : "…"})</h2>
+        {!entriesLoaded ? (
+          <div className="mt-4 rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
+            <p className="text-[13px] font-bold text-danger">
+              {error ?? "Não foi possível carregar a lista de convidados"}
+            </p>
+            <button
+              type="button"
+              onClick={loadEntries}
+              className="mt-3 h-10 rounded-xl bg-primary px-5 text-[13px] font-extrabold text-white shadow-cta"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        ) : entries.length === 0 ? (
           <p className="mt-4 text-[13px] font-semibold text-muted">Nenhum convidado cadastrado ainda.</p>
         ) : (
           <div className="mt-4 overflow-x-auto">

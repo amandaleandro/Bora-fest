@@ -4,6 +4,7 @@ import { PERMISSIONS } from "@borafest/auth";
 import { prisma } from "@borafest/database";
 import type { DuplicateEventInput, NextEventEditionInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
+import { SLUGS_RESERVADOS } from "../common/slugs-reservados";
 
 function slugify(title: string): string {
   return title
@@ -14,17 +15,12 @@ function slugify(title: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-const RESERVED_SLUGS = new Set([
-  "acesso", "checkout", "evento", "explorar", "favoritos", "legal",
-  "minhas-compras", "offline", "pedido", "perfil", "portaria",
-  "api", "admin", "painel", "sitemap.xml", "robots.txt", "_next",
-]);
 
 async function uniqueSlug(title: string): Promise<string> {
   const base = slugify(title) || "evento";
   for (let n = 0; n < 100; n += 1) {
     const candidate = n === 0 ? base : `${base}-${n + 1}`;
-    if (RESERVED_SLUGS.has(candidate)) continue;
+    if (SLUGS_RESERVADOS.has(candidate)) continue;
     const exists = await prisma.event.findUnique({ where: { slug: candidate }, select: { id: true } });
     if (!exists) return candidate;
   }

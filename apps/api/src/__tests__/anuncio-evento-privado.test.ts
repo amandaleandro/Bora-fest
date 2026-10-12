@@ -70,7 +70,7 @@ async function rascunho(ctx: Ctx, opcoes: { privado: boolean }) {
 }
 
 function avisosDo(ctx: Ctx, slug: string): number {
-  return sentEmails.filter((m) => m.to === ctx.seguidor.email && m.text.includes(`/evento/${slug}`)).length;
+  return sentEmails.filter((m) => m.to === ctx.seguidor.email && m.text.includes(`/${slug}`)).length;
 }
 
 /**

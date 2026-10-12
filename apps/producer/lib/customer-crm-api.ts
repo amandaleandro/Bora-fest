@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "./api";
 
 export type CustomerSegment =
   | "ALL"
@@ -60,6 +61,8 @@ export async function getCasaCustomers(
   const response = await fetch(`${API_BASE_URL}/v1/organizations/${organizationId}/customers?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   if (!response.ok) {
     let message = "Não foi possível carregar os clientes";
     try {

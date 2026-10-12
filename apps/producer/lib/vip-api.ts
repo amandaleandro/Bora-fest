@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { ApiError, SESSION_EXPIRED_MESSAGE, avisarSessaoVencida } from "./api";
 
 export type VipInventoryKind = "MESA" | "CAMAROTE" | "LOUNGE" | "BISTRO" | "OUTRO";
 export type VipReservationStatus = "REQUESTED" | "CONFIRMED" | "REJECTED" | "CANCELED";
@@ -66,6 +67,8 @@ async function api<T>(path: string, token: string, init?: RequestInit): Promise<
       ...(init?.headers ?? {}),
     },
   });
+  // sessão vencida (2026-10-12): mesmo tratamento do request de lib/api.ts
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
   if (!response.ok) {
     let message = "Não foi possível concluir a operação VIP";
     try {
