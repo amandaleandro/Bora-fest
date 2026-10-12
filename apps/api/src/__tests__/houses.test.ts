@@ -198,25 +198,38 @@ describe("BoraFest Casa", () => {
     assert.equal(current?.nextEvent?.id, fixture.event.id);
   });
 
+  // Fuso (2026-10-12): este caso falhava sempre num Postgres em
+  // America/Sao_Paulo — o ranking em SQL cru comparava ends_at pelo fuso da
+  // sessão e o evento vencido há 1 min ainda "valia" por 3 h. O serviço agora
+  // compara em UTC; o caso precisa passar com o banco em qualquer fuso.
   it("tira evento vencido da descoberta sem perder a Casa seguida", async () => {
     await prisma.event.update({
       where: { id: fixture.event.id },
       data: { endsAt: new Date(Date.now() - 60_000) },
     });
 
-    const result = await houses.listPublicHouses(1, 100);
-    assert.equal(result.houses.some((house) => house.id === fixture.organization.id), false);
+    try {
+      const result = await houses.listPublicHouses(1, 100);
+      assert.equal(result.houses.some((house) => house.id === fixture.organization.id), false);
 
-    const followed = await houses.listFollowedHouses(followerId!);
-    const current = followed.find((house) => house.id === fixture.organization.id);
-    assert.ok(current);
-    assert.equal(current?.nextEvent, null);
-    assert.equal(current?.upcomingEventsCount, 0);
+      // busca e cidade passam pelos mesmos filtros de SQL cru
+      const byName = await houses.listPublicHouses(1, 24, undefined, "Casa Teste BoraFest");
+      assert.equal(byName.houses.some((house) => house.id === fixture.organization.id), false);
+      const byCity = await houses.listPublicHouses(1, 100, "Uberlândia");
+      assert.equal(byCity.houses.some((house) => house.id === fixture.organization.id), false);
 
-    await prisma.event.update({
-      where: { id: fixture.event.id },
-      data: { endsAt: fixture.event.endsAt },
-    });
+      const followed = await houses.listFollowedHouses(followerId!);
+      const current = followed.find((house) => house.id === fixture.organization.id);
+      assert.ok(current);
+      assert.equal(current?.nextEvent, null);
+      assert.equal(current?.upcomingEventsCount, 0);
+    } finally {
+      // devolve a data mesmo se uma asserção cair, para não contaminar o caso seguinte
+      await prisma.event.update({
+        where: { id: fixture.event.id },
+        data: { endsAt: fixture.event.endsAt },
+      });
+    }
   });
 
   it("não expõe casa bloqueada", async () => {

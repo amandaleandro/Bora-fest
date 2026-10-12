@@ -10,6 +10,8 @@ export interface HouseEventPreview {
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
   fromPriceCents: number | null;
+  /** todo lote público está esgotado — o card mostra "Esgotado" (2026-10-12) */
+  soldOut?: boolean;
   currentLotEndsAt: string | null;
 }
 

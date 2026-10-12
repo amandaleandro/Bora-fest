@@ -13,6 +13,20 @@ const DEFAULT_LIMIT: RateLimitOptions = {
 };
 
 /**
+ * LIMITE DESLIGADO SÓ PARA TESTE DE CARGA (2026-10-12). O script de carga
+ * forjava X-Forwarded-For para escapar do limite — truque que a correção de
+ * 29/08 fechou (e que nunca deveria funcionar). Agora o caminho é explícito:
+ * `RATE_LIMIT_DISABLED=1` desliga o limite, mas SÓ com NODE_ENV=development ou
+ * test. Em produção (as imagens fixam NODE_ENV=production) ou com NODE_ENV
+ * vazio a variável é ignorada — lista do que é permitido, não do que é
+ * proibido: esquecer o NODE_ENV não abre a porta.
+ */
+export function rateLimitDesligadoParaTeste(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.RATE_LIMIT_DISABLED !== "1") return false;
+  return env.NODE_ENV === "development" || env.NODE_ENV === "test";
+}
+
+/**
  * Limite de requisições por janela, contado no Redis (`INCR` + `EXPIRE` na
  * primeira ocorrência — atômico o bastante pro propósito: um estouro
  * ocasional de +1 sob corrida não importa aqui, diferente do estoque).
@@ -20,9 +34,27 @@ const DEFAULT_LIMIT: RateLimitOptions = {
  */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  /** lido uma vez, no boot: o limite não liga/desliga no meio do processo */
+  private readonly desligado = rateLimitDesligadoParaTeste();
+
+  constructor(private readonly reflector: Reflector) {
+    if (this.desligado) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[rate-limit] DESLIGADO (RATE_LIMIT_DISABLED=1, NODE_ENV=${process.env.NODE_ENV}) — só para teste de carga`,
+      );
+    } else if (process.env.RATE_LIMIT_DISABLED === "1") {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[rate-limit] RATE_LIMIT_DISABLED=1 IGNORADO: só vale com NODE_ENV=development ou test (agora: ${
+          process.env.NODE_ENV ?? "vazio"
+        }). O limite segue ligado.`,
+      );
+    }
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (this.desligado) return true;
     const options =
       this.reflector.get<RateLimitOptions>(RATE_LIMIT_KEY, context.getHandler()) ?? DEFAULT_LIMIT;
 
@@ -68,11 +100,18 @@ export class RateLimitGuard implements CanActivate {
     // entre o incr e o expire a chave ficava SEM TTL — contador eterno
     // bloqueando o IP pra sempre. EXPIRE NX (Redis >= 7) renova só na criação,
     // dentro do mesmo pipeline.
-    const respostas = await redis
-      .multi()
-      .incr(redisKey)
-      .expire(redisKey, options.windowSeconds, "NX")
-      .exec();
+    // Redis fora: a conexão compartilhada tem fila offline sem limite de
+    // tentativas — o exec() ficava ESPERANDO para sempre e toda rota travava
+    // (revisão 2026-10-12). Sem conexão pronta, ou sem resposta em 1 s, libera.
+    if (redis.status !== "ready") {
+      // eslint-disable-next-line no-console
+      console.error(`[rate-limit] Redis ${redis.status} — request liberada sem limite`);
+      return true;
+    }
+    const respostas = await Promise.race([
+      redis.multi().incr(redisKey).expire(redisKey, options.windowSeconds, "NX").exec(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000).unref()),
+    ]);
     // Redis fora do ar: decisão DELIBERADA de falhar ABERTO (achado 2026-09-01)
     // — antes o incr lançava e TODA rota respondia 500 (indisponibilidade
     // total); melhor ficar sem rate limit por instantes do que sem site.

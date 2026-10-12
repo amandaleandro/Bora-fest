@@ -20,6 +20,8 @@ import {
   type FreeTicketCanceledPayload,
   renderFreeEventCanceledEmail,
   type FreeEventCanceledPayload,
+  type EmailMessage,
+  type EmailSendResult,
 } from "@borafest/notifications";
 import { withContext } from "@borafest/observability";
 
@@ -49,15 +51,23 @@ export async function deliverPendingNotifications(): Promise<number> {
     if (claimed.count === 0) continue;
 
     try {
-      await send(
+      const providerMessageId = await send(
         notification.channel,
         notification.recipient,
         notification.template,
         notification.payload as unknown,
+        notification.id,
       );
+      // ENTREGA REAL (2026-10-12): o id do Resend fica na linha para o webhook
+      // gravar entregue/devolvido/reclamação; canal sem id não mexe no campo
       await prisma.notification.update({
         where: { id: notification.id },
-        data: { status: "SENT", sentAt: new Date(), error: null },
+        data: {
+          status: "SENT",
+          sentAt: new Date(),
+          error: null,
+          ...(providerMessageId ? { providerMessageId } : {}),
+        },
       });
       delivered++;
     } catch (error) {
@@ -81,48 +91,58 @@ export async function deliverPendingNotifications(): Promise<number> {
   return delivered;
 }
 
+/** id que o provedor de e-mail devolveu (Resend); null quando não há (2026-10-12) */
+export function idDoProvedor(result: unknown): string | null {
+  if (typeof result !== "object" || result === null) return null;
+  const id = (result as EmailSendResult).providerMessageId;
+  return typeof id === "string" && id ? id : null;
+}
+
+/** Envia e devolve o id do provedor (só e-mail tem; WhatsApp/push devolvem null). */
 async function send(
   channel: string,
   recipient: string,
   template: string,
   payload: unknown,
-): Promise<void> {
+  notificationId: string,
+): Promise<string | null> {
+  // todo e-mail sai marcado com o id da notificação (2026-10-12): o webhook do
+  // Resend acha a linha por ele se o evento chegar antes de o id ser gravado
+  const email = async (message: EmailMessage): Promise<string | null> =>
+    idDoProvedor(await getEmailSender().send({ ...message, tags: { notification_id: notificationId } }));
+
   if (template === "otp_code") {
     const otp = payload as OtpCodePayload;
     if (channel === "EMAIL") {
-      await getEmailSender().send(renderOtpEmail(recipient, otp));
-      return;
+      return email(renderOtpEmail(recipient, otp));
     }
     if (channel === "WHATSAPP") {
       const message = renderOtpWhatsApp(otp);
       await getWhatsAppSender().send({ to: recipient, ...message });
-      return;
+      return null;
     }
     throw new Error(`Canal não suportado para otp_code: ${channel}`);
   }
 
   if (template === "password_reset") {
     if (channel === "EMAIL") {
-      await getEmailSender().send(renderPasswordResetEmail(recipient, payload as PasswordResetPayload));
-      return;
+      return email(renderPasswordResetEmail(recipient, payload as PasswordResetPayload));
     }
     throw new Error(`Canal não suportado para password_reset: ${channel}`);
   }
 
   if (template === "account_claim") {
     if (channel === "EMAIL") {
-      await getEmailSender().send(
+      return email(
         renderAccountClaimEmail(recipient, payload as import("@borafest/notifications").AccountClaimPayload),
       );
-      return;
     }
     throw new Error(`Canal não suportado para account_claim: ${channel}`);
   }
 
   if (template === "ticket_transferred") {
     if (channel === "EMAIL") {
-      await getEmailSender().send(renderTicketTransferredEmail(recipient, payload as any));
-      return;
+      return email(renderTicketTransferredEmail(recipient, payload as any));
     }
     throw new Error(`Canal não suportado para ticket_transferred: ${channel}`);
   }
@@ -131,24 +151,21 @@ async function send(
   // na mesma transação do cancelamento — sem texto de dinheiro
   if (template === "free_ticket_canceled") {
     if (channel === "EMAIL") {
-      await getEmailSender().send(renderFreeTicketCanceledEmail(recipient, payload as FreeTicketCanceledPayload));
-      return;
+      return email(renderFreeTicketCanceledEmail(recipient, payload as FreeTicketCanceledPayload));
     }
     throw new Error(`Canal não suportado para free_ticket_canceled: ${channel}`);
   }
 
   if (template === "free_event_canceled") {
     if (channel === "EMAIL") {
-      await getEmailSender().send(renderFreeEventCanceledEmail(recipient, payload as FreeEventCanceledPayload));
-      return;
+      return email(renderFreeEventCanceledEmail(recipient, payload as FreeEventCanceledPayload));
     }
     throw new Error(`Canal não suportado para free_event_canceled: ${channel}`);
   }
 
   if (template === "crm_reactivation") {
     if (channel === "EMAIL") {
-      await getEmailSender().send(renderCrmReactivationEmail(recipient, payload as CrmReactivationPayload));
-      return;
+      return email(renderCrmReactivationEmail(recipient, payload as CrmReactivationPayload));
     }
     throw new Error(`Canal não suportado para crm_reactivation: ${channel}`);
   }
@@ -157,7 +174,7 @@ async function send(
     if (channel === "EMAIL") {
       const p = payload as { orgName: string; eventTitle?: string | null; panelUrl: string };
       const escopo = p.eventTitle ? ` para o evento ${p.eventTitle}` : "";
-      await getEmailSender().send({
+      return email({
         to: recipient,
         subject: `${p.orgName} te convidou para ser promoter 🎟️`,
         text: [
@@ -178,7 +195,6 @@ async function send(
   <p>Equipe BoraFest</p>
 </div>`.trim(),
       });
-      return;
     }
     throw new Error(`Canal não suportado para promoter_invited: ${channel}`);
   }
@@ -186,7 +202,7 @@ async function send(
   if (template === "member_invited") {
     if (channel === "EMAIL") {
       const p = payload as { orgName: string; roleKey: string; panelUrl: string };
-      await getEmailSender().send({
+      return email({
         to: recipient,
         subject: `${p.orgName} te convidou para a equipe 🎉`,
         text: [
@@ -205,7 +221,6 @@ async function send(
   <p>Equipe BoraFest</p>
 </div>`.trim(),
       });
-      return;
     }
     throw new Error(`Canal não suportado para member_invited: ${channel}`);
   }
@@ -214,7 +229,7 @@ async function send(
     if (channel === "EMAIL") {
       const p = payload as { cpfMasked: string; name?: string | null };
       const ola = p.name ? `Olá, ${p.name}!` : "Olá!";
-      await getEmailSender().send({
+      return email({
         to: recipient,
         subject: "Seu CPF foi definido na conta BoraFest",
         text: [
@@ -234,7 +249,6 @@ async function send(
   <p>Equipe BoraFest</p>
 </div>`.trim(),
       });
-      return;
     }
     throw new Error(`Canal não suportado para cpf_defined: ${channel}`);
   }
@@ -245,17 +259,16 @@ async function send(
   const data = payload as TicketDeliveryPayload;
 
   if (channel === "EMAIL") {
-    await getEmailSender().send(renderTicketDeliveryEmail(recipient, data));
-    return;
+    return email(renderTicketDeliveryEmail(recipient, data));
   }
   if (channel === "WHATSAPP") {
     const message = renderTicketDeliveryWhatsApp(data);
     await getWhatsAppSender().send({ to: recipient, ...message });
-    return;
+    return null;
   }
   if (channel === "PUSH") {
     await getPushSender().send(renderTicketDeliveryPush(recipient, data));
-    return;
+    return null;
   }
   throw new Error(`Canal de notificação desconhecido: ${channel}`);
 }

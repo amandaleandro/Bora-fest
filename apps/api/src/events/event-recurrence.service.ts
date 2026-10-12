@@ -5,6 +5,7 @@ import { prisma } from "@borafest/database";
 import type { DuplicateEventInput, NextEventEditionInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { SLUGS_RESERVADOS } from "../common/slugs-reservados";
+import { abaixoDoMinimoOnline, emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 
 function slugify(title: string): string {
   return title
@@ -30,6 +31,43 @@ async function uniqueSlug(title: string): Promise<string> {
 function shiftDate(value: Date | null, deltaMs: number): Date | null {
   return value ? new Date(value.getTime() + deltaMs) : null;
 }
+
+/**
+ * LOTE MORTO NÃO ATRAVESSA EDIÇÃO (2026-10-12): a cópia levava para a próxima
+ * edição lote que o cadastro de lote hoje recusa — ninguém conseguiria
+ * comprar. Mesmas regras do createLot (catalog.service):
+ *  - só balcão de R$ 0: a porta não emite cortesia e o site não mostra;
+ *  - pago abaixo do mínimo que o banco aceita (inteira ou meia), fora do balcão.
+ * Devolve o motivo em português para a tela, ou null quando o lote vale.
+ */
+export function motivoParaNaoCopiarLote(lot: {
+  priceCents: number;
+  feeCents: number;
+  feeMode: string;
+  pdvOnly: boolean;
+  halfPriceEnabled: boolean;
+}): string | null {
+  if (lot.pdvOnly && lot.priceCents === 0) {
+    return "Lote só de balcão de R$ 0: a porta não emite cortesia. Para entrada grátis, use a Lista de convidados (ou uma Cortesia).";
+  }
+  if (lot.priceCents > 0 && !lot.pdvOnly) {
+    const minimo = minimoDaCobrancaCents();
+    const taxaDoComprador = lot.feeMode === "PRODUCER" ? 0 : lot.feeCents;
+    const inteira = lot.priceCents + taxaDoComprador;
+    if (abaixoDoMinimoOnline(inteira)) {
+      return `Sairia por ${emReais(inteira)} para o comprador, abaixo do mínimo de ${emReais(minimo)} que o banco aceita.`;
+    }
+    // meia = metade do preço com a taxa cheia, a mesma conta da reserva
+    const meia = Math.round(lot.priceCents / 2) + taxaDoComprador;
+    if (lot.halfPriceEnabled && abaixoDoMinimoOnline(meia)) {
+      return `A meia-entrada sairia por ${emReais(meia)}, abaixo do mínimo de ${emReais(minimo)} que o banco aceita.`;
+    }
+  }
+  return null;
+}
+
+/** Lote que ficou de fora da nova edição, e por quê. */
+export type LotePulado = { ticketTypeName: string; lotName: string; reason: string };
 
 @Injectable()
 export class EventRecurrenceService {
@@ -59,6 +97,20 @@ export class EventRecurrenceService {
     const title = input.title?.trim() || source.title;
     const slug = await uniqueSlug(title);
     const deltaMs = startsAt.getTime() - source.startsAt.getTime();
+
+    // separa antes da transação o que vai e o que fica (lote morto), para a
+    // resposta dizer ao produtor quais ficaram de fora e por quê
+    const skippedLots: LotePulado[] = [];
+    const lotesPorTipo = new Map(
+      (input.copyTicketCatalog ? source.ticketTypes : []).map((type) => {
+        const vivos = type.lots.filter((lot) => {
+          const motivo = motivoParaNaoCopiarLote(lot);
+          if (motivo) skippedLots.push({ ticketTypeName: type.name, lotName: lot.name, reason: motivo });
+          return !motivo;
+        });
+        return [type.id, vivos] as const;
+      }),
+    );
 
     const created = await prisma.$transaction(async (tx) => {
       const event = await tx.event.create({
@@ -95,9 +147,10 @@ export class EventRecurrenceService {
             },
           });
 
-          if (type.lots.length > 0) {
+          const lotesACopiar = lotesPorTipo.get(type.id) ?? [];
+          if (lotesACopiar.length > 0) {
             await tx.ticketLot.createMany({
-              data: type.lots.map((lot) => ({
+              data: lotesACopiar.map((lot) => ({
                 ticketTypeId: newType.id,
                 name: lot.name,
                 priceCents: lot.priceCents,
@@ -143,10 +196,10 @@ export class EventRecurrenceService {
       ...created,
       copiedFromEventId: source.id,
       copiedTicketTypes: input.copyTicketCatalog ? source.ticketTypes.length : 0,
-      copiedLots: input.copyTicketCatalog
-        ? source.ticketTypes.reduce((sum, type) => sum + type.lots.length, 0)
-        : 0,
+      // só os lotes que de fato foram copiados (2026-10-12): os mortos vão em skippedLots
+      copiedLots: [...lotesPorTipo.values()].reduce((sum, lotes) => sum + lotes.length, 0),
       copiedAddOns: source.addOns.length,
+      skippedLots,
     };
   }
 

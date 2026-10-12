@@ -42,6 +42,8 @@ import { processPaymentWebhookJob } from "./process-payment-webhook";
 import { sweepWaitingRooms } from "./sweep-waiting-room";
 import { sendAbandonedCartReminders, sendExpiredRescueEmails } from "./abandoned-cart";
 import { purgarFilasLegado } from "./purga-filas-legado";
+import { checkPaymentSecrets } from "@borafest/payments";
+import { iniciarBatidaDoWorker } from "./heartbeat";
 
 const log = withContext({ module: "worker" });
 
@@ -62,6 +64,15 @@ function assertProductionProviders(): void {
 }
 
 async function main() {
+  // chaves de pagamento conferidas no boot (2026-10-12): o worker valida a
+  // assinatura dos webhooks e faz estornos — sem elas só falhava lá na frente,
+  // com erro apenas no log. Não derruba o worker (ingresso e e-mail continuam).
+  {
+    const { errors, warnings } = checkPaymentSecrets(process.env);
+    for (const aviso of warnings) log.warn({ aviso }, "configuração de pagamento");
+    for (const erro of errors) log.error({ erro }, "configuração de pagamento incompleta");
+  }
+
   assertProductionProviders();
   startMetricsServer(Number(process.env.WORKER_METRICS_PORT ?? 9464));
 
@@ -189,6 +200,22 @@ async function main() {
     "workers iniciados: reservas, outbox, pagamentos, pedidos, notificações, repasses, webhooks de pagamento, sala de espera e carrinho abandonado",
   );
 
+  // batida a cada 30 s no Redis para o /health da API (2026-10-12): sem ela,
+  // worker parado ou fila caída apareciam como "ok" no monitor
+  const pararBatida = iniciarBatidaDoWorker({
+    consumidores: [
+      { nome: "reservas", estaRodando: () => reservationWorker.isRunning() },
+      { nome: "outbox", estaRodando: () => outboxWorker.isRunning() },
+      { nome: "pagamentos", estaRodando: () => paymentWorker.isRunning() },
+      { nome: "pedidos", estaRodando: () => orderWorker.isRunning() },
+      { nome: "notificações", estaRodando: () => notificationWorker.isRunning() },
+      { nome: "repasses", estaRodando: () => autoPayoutsWorker.isRunning() },
+      { nome: "webhooks de pagamento", estaRodando: () => webhookWorker.isRunning() },
+      { nome: "sala de espera", estaRodando: () => waitingRoomWorker.isRunning() },
+      { nome: "carrinho abandonado", estaRodando: () => abandonedCartWorker.isRunning() },
+    ],
+  });
+
   // purga one-shot do legado de jobs (2,4M chaves) — em background, sem
   // atrasar o boot; roda uma vez só (trava NX no Redis) e loga o total
   void purgarFilasLegado().catch((error) =>
@@ -212,6 +239,7 @@ async function main() {
   async function shutdown(signal: string) {
     if (encerrando) return;
     encerrando = true;
+    pararBatida();
     log.info({ signal }, "encerrando workers…");
     await Promise.allSettled(workers.map((w) => w.close()));
     process.exit(0);

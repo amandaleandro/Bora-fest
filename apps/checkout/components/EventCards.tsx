@@ -12,6 +12,18 @@ export function priceLabel(cents: number | null): string | null {
   return cents === 0 ? "Grátis" : `a partir de ${formatCents(cents)}`;
 }
 
+/**
+ * ESGOTADO DITO (2026-10-12): a API passou a mandar `soldOut` no card (todo
+ * lote à venda sem estoque). Antes o card esgotado ficava sem preço e o
+ * destaque completava com "Garanta seu lugar". O campo é opcional aqui porque
+ * o tipo do card (lib/api.ts) ainda não o declara.
+ */
+export function esgotado(event: { fromPriceCents: number | null; soldOut?: boolean }): boolean {
+  return event.soldOut === true;
+}
+
+type CardEvent = EventListItem & { soldOut?: boolean };
+
 export function shortDate(iso: string): string {
   return new Date(iso)
     .toLocaleDateString("pt-BR", { day: "2-digit", month: "short", timeZone: "America/Sao_Paulo" })
@@ -19,7 +31,7 @@ export function shortDate(iso: string): string {
 }
 
 /** Cartão compacto das fileiras horizontais (Em alta / prateleiras, mobile). */
-export function MiniCard({ event }: { event: EventListItem }) {
+export function MiniCard({ event }: { event: CardEvent }) {
   return (
     <div className="relative w-[240px] shrink-0">
       <Link
@@ -41,9 +53,11 @@ export function MiniCard({ event }: { event: EventListItem }) {
             {shortDate(event.startsAt)}
             {event.venue ? ` · ${event.venue.city}` : ""}
           </p>
-          {priceLabel(event.fromPriceCents) && (
+          {esgotado(event) ? (
+            <p className="mt-1.5 text-[12px] font-extrabold text-muted">Esgotado</p>
+          ) : priceLabel(event.fromPriceCents) ? (
             <p className="mt-1.5 text-[12px] font-extrabold text-primary">{priceLabel(event.fromPriceCents)}</p>
-          )}
+          ) : null}
         </div>
       </Link>
       <div className="absolute right-2 top-2">
@@ -54,7 +68,7 @@ export function MiniCard({ event }: { event: EventListItem }) {
 }
 
 /** Cartão de grade (2 col no mobile, 3–4 no desktop). */
-export function GridCard({ event }: { event: EventListItem }) {
+export function GridCard({ event }: { event: CardEvent }) {
   return (
     <div className="relative">
       <Link
@@ -76,14 +90,16 @@ export function GridCard({ event }: { event: EventListItem }) {
             {shortDate(event.startsAt)}
             {event.venue ? ` · ${event.venue.city}` : ""}
           </p>
-          {priceLabel(event.fromPriceCents) && (
+          {esgotado(event) ? (
+            <p className="mt-1.5 truncate text-[12.5px] font-extrabold text-muted lg:text-[13px]">Esgotado</p>
+          ) : priceLabel(event.fromPriceCents) ? (
             <p className="mt-1.5 truncate text-[12.5px] font-extrabold text-primary lg:text-[13px]">
               {priceLabel(event.fromPriceCents)}
               {event.fromPriceCents ? (
                 <span className="font-semibold text-muted"> · com taxas</span>
               ) : null}
             </p>
-          )}
+          ) : null}
         </div>
       </Link>
       <div className="absolute right-2.5 top-2.5">

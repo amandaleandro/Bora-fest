@@ -5,6 +5,7 @@ import {
   PixTransferResult,
   CreateCardPaymentInput,
   CreatePixChargeInput,
+  GatewayPaymentSnapshot,
   GatewayPaymentStatus,
   PaymentGateway,
   PixCharge,
@@ -43,6 +44,8 @@ interface AsaasPayment {
   status: string;
   externalReference?: string;
   value?: number;
+  /** id do parcelamento — presente quando a cobrança é UMA parcela de um cartão parcelado */
+  installment?: string | null;
 }
 
 interface AsaasErrorBody {
@@ -159,7 +162,15 @@ export class AsaasGateway implements PaymentGateway {
     }
 
     const status = mapAsaasStatus(payment.status);
-    if (status === "PAID") return { externalId: payment.id, status: "PAID" };
+    if (status === "PAID") {
+      // valor que o Asaas registrou, para a conferência do applyGatewayStatus (2026-10-12)
+      const paidAmountCents = asaasPaidAmountCents(payment);
+      return {
+        externalId: payment.id,
+        status: "PAID",
+        ...(paidAmountCents !== undefined ? { paidAmountCents } : {}),
+      };
+    }
     if (status === "AUTHORIZED") return { externalId: payment.id, status: "AUTHORIZED" };
     if (status === "PENDING") {
       // análise de risco do Asaas — o webhook resolve; reportamos AUTHORIZED
@@ -192,6 +203,14 @@ export class AsaasGateway implements PaymentGateway {
     return mapAsaasStatus(payment.status);
   }
 
+  /** Mesma consulta do getStatus + o valor pago (conferência de valor, 2026-10-12). */
+  async getPaymentSnapshot(externalId: string): Promise<GatewayPaymentSnapshot> {
+    const payment = await this.request<AsaasPayment>("GET", `/payments/${externalId}`);
+    const status = mapAsaasStatus(payment.status);
+    const paidAmountCents = status === "PAID" ? asaasPaidAmountCents(payment) : undefined;
+    return { status, ...(paidAmountCents !== undefined ? { paidAmountCents } : {}) };
+  }
+
   verifyWebhook(headers: WebhookHeaders, rawBody: string): VerifiedWebhookEvent {
     const expected = process.env.ASAAS_WEBHOOK_TOKEN;
     if (!expected) {
@@ -209,7 +228,11 @@ export class AsaasGateway implements PaymentGateway {
       throw new WebhookVerificationError("Token do webhook Asaas inválido");
     }
 
-    let body: { id?: string; event?: string; payment?: { id?: string; status?: string } };
+    let body: {
+      id?: string;
+      event?: string;
+      payment?: { id?: string; status?: string; value?: number; installment?: string | null };
+    };
     try {
       body = JSON.parse(rawBody);
     } catch {
@@ -219,13 +242,18 @@ export class AsaasGateway implements PaymentGateway {
       throw new WebhookVerificationError("Payload do webhook Asaas incompleto");
     }
 
+    const status = mapAsaasWebhookEvent(body.event, body.payment.status);
+    // o corpo já traz o valor da cobrança — conferido contra o pedido antes de
+    // marcar pago (2026-10-12), sem nova chamada ao Asaas
+    const paidAmountCents = status === "PAID" ? asaasPaidAmountCents(body.payment) : undefined;
     return {
       // nem todo evento traz id próprio — o par (evento, cobrança) é único o
       // suficiente para o dedupe de payment_events
       externalEventId: body.id ?? `${body.event}:${body.payment.id}`,
       externalPaymentId: body.payment.id,
       type: body.event,
-      status: mapAsaasWebhookEvent(body.event, body.payment.status),
+      status,
+      ...(paidAmountCents !== undefined ? { paidAmountCents } : {}),
       raw: body,
     };
   }
@@ -327,6 +355,24 @@ function toReais(amountCents: number): number {
   return Math.round(amountCents) / 100;
 }
 
+/**
+ * Valor pago em centavos a partir da cobrança do Asaas (2026-10-12).
+ *
+ * Cartão PARCELADO: o Asaas cria uma cobrança por parcela e o `value` é o de
+ * UMA parcela, não o total — comparar com o pedido acusaria falta em toda
+ * venda parcelada. Nesse caso fica sem valor (sem conferência); o cartão é
+ * cobrado pelo valor que mandamos e não é editável depois de confirmado.
+ */
+export function asaasPaidAmountCents(payment: {
+  value?: number;
+  installment?: string | null;
+}): number | undefined {
+  if (payment.installment) return undefined;
+  const value = payment.value;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value * 100);
+}
+
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -350,8 +396,12 @@ export function mapAsaasStatus(status: string): GatewayPaymentStatus {
       return "PAID";
     case "CHARGEBACK_REQUESTED":
     case "CHARGEBACK_DISPUTE":
-    case "AWAITING_CHARGEBACK_REVERSAL":
       return "CHARGEBACK";
+    case "AWAITING_CHARGEBACK_REVERSAL":
+      // "Disputa vencida, aguardando repasse da adquirente" (2026-10-12):
+      // antes caía em CHARGEBACK — a disputa GANHA era tratada como perdida e
+      // o produtor nunca recebia o valor de volta
+      return "CHARGEBACK_REVERSED";
     default:
       return "PENDING";
   }
@@ -367,6 +417,9 @@ export function mapAsaasWebhookEvent(event: string, paymentStatus?: string): Gat
     case "PAYMENT_CHARGEBACK_REQUESTED":
     case "PAYMENT_CHARGEBACK_DISPUTE":
       return "CHARGEBACK";
+    case "PAYMENT_AWAITING_CHARGEBACK_REVERSAL":
+      // disputa vencida (2026-10-12): devolve o crédito ao produtor
+      return "CHARGEBACK_REVERSED";
     case "PAYMENT_OVERDUE":
       return "EXPIRED";
     case "PAYMENT_DELETED":

@@ -14,7 +14,31 @@ export type GatewayPaymentStatus =
   | "CANCELED"
   | "EXPIRED"
   | "REFUNDED"
-  | "CHARGEBACK";
+  | "CHARGEBACK"
+  /**
+   * Contestação do cartão decidida A FAVOR da plataforma (2026-10-12) — ex.:
+   * Asaas AWAITING_CHARGEBACK_REVERSAL ("disputa vencida"). Só nasce de sinal
+   * explícito do provedor ou da revisão periódica dos chargebacks (status
+   * ATUAL no gateway), nunca de um "pago" atrasado: um PAYMENT_CONFIRMED
+   * velho chegando depois do chargeback não pode devolver o dinheiro ao
+   * produtor.
+   */
+  | "CHARGEBACK_REVERSED";
+
+/**
+ * Foto de uma cobrança no gateway (2026-10-12): o status e, quando o
+ * provedor informa, o valor REALMENTE pago — é o que permite conferir se
+ * entrou menos do que o cobrado antes de marcar o pedido como pago.
+ */
+export interface GatewayPaymentSnapshot {
+  status: GatewayPaymentStatus;
+  /**
+   * Valor pago em centavos. Só vem quando a cobrança está paga E o provedor
+   * informa o total da compra (ex.: no Asaas, cartão parcelado traz o valor de
+   * UMA parcela — aí fica ausente). Ausente = sem conferência.
+   */
+  paidAmountCents?: number;
+}
 
 export interface GatewayCustomer {
   name?: string;
@@ -85,6 +109,8 @@ export interface CardPaymentResult {
   externalId: string;
   status: Extract<GatewayPaymentStatus, "AUTHORIZED" | "PAID" | "FAILED">;
   failReason?: string;
+  /** valor pago informado pelo gateway na própria resposta (ver GatewayPaymentSnapshot) */
+  paidAmountCents?: number;
 }
 
 export interface RefundInput {
@@ -114,6 +140,12 @@ export interface VerifiedWebhookEvent {
    * aplicado (auditoria 2026-08-12).
    */
   resolveViaGetStatus?: boolean;
+  /**
+   * Valor pago informado no CORPO do webhook, em centavos (2026-10-12) — só
+   * quando o evento é de pagamento e o provedor manda o total. Ausente = o
+   * processador consulta o gateway (getPaymentSnapshot) ou segue sem conferir.
+   */
+  paidAmountCents?: number;
 }
 
 export class WebhookVerificationError extends Error {}
@@ -152,6 +184,11 @@ export interface PaymentGateway {
   createCardPayment(input: CreateCardPaymentInput): Promise<CardPaymentResult>;
   refund(input: RefundInput): Promise<RefundResult>;
   getStatus(externalId: string): Promise<GatewayPaymentStatus>;
+  /**
+   * Mesma consulta do getStatus, devolvendo também o valor pago (2026-10-12).
+   * Opcional: gateway sem ela segue sem conferência de valor.
+   */
+  getPaymentSnapshot?(externalId: string): Promise<GatewayPaymentSnapshot>;
   /** Verifica assinatura e normaliza o evento; lança WebhookVerificationError se inválido. */
   verifyWebhook(headers: WebhookHeaders, rawBody: string): VerifiedWebhookEvent;
   /** Pix de SAÍDA (repasse ao produtor). Opcional: nem todo provedor suporta. */

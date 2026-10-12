@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { SESSION_EXPIRED_EVENT } from "./api";
+import { limparConfirmacao2fa } from "./confirmacao-2fa";
 
 const STORAGE_KEY = "borafest-admin-token";
 
@@ -42,6 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback((nextToken: string, nextUser: AuthUser) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: nextToken, user: nextUser }));
+    // confirmação do 2FA é de quem a pediu: login novo começa sem ela (2026-10-12)
+    limparConfirmacao2fa();
     setToken(nextToken);
     setUser(nextUser);
     setSessionExpired(false);
@@ -49,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
+    limparConfirmacao2fa();
     setToken(null);
     setUser(null);
   }, []);

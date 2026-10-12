@@ -12,8 +12,13 @@ const LINKS = [
   { href: "/payouts", label: "Repasses" },
   { href: "/webhooks", label: "Webhooks" },
   { href: "/filas", label: "Filas" },
+  // e-mail que falhou/voltou + configuração efetiva da API (2026-10-12)
+  { href: "/emails", label: "E-mails" },
+  { href: "/configuracao", label: "Configuração" },
   { href: "/auditoria", label: "Auditoria" },
   { href: "/banners", label: "Banners do site" },
+  // app autenticador para as ações de dinheiro (2026-10-12)
+  { href: "/seguranca", label: "Segurança" },
 ];
 
 export function Nav() {

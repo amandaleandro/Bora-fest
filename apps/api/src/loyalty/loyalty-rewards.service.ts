@@ -254,9 +254,14 @@ export class LoyaltyRewardsService {
       if (redemption.status === "USED") return redemption;
 
       const usedAt = new Date();
+      // Fuso (2026-10-12): used_at é TIMESTAMP sem fuso e é lido como UTC. O
+      // Date no SQL cru chega como timestamptz e o Postgres o convertia pelo
+      // fuso da sessão: num banco em America/Sao_Paulo gravava 3 h a menos e o
+      // 2º uso do voucher devolvia um horário diferente do 1º. Gravar em UTC
+      // explícito mantém o que devolvemos igual ao que fica no banco.
       await tx.$executeRaw`
         UPDATE loyalty_redemptions
-        SET status = 'USED', used_at = ${usedAt}, used_by_user_id = ${actorUserId}::uuid
+        SET status = 'USED', used_at = (${usedAt}::timestamptz AT TIME ZONE 'UTC'), used_by_user_id = ${actorUserId}::uuid
         WHERE id = ${redemption.id}::uuid AND status = 'ISSUED'
       `;
       await tx.auditLog.create({

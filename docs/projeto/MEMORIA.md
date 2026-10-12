@@ -109,6 +109,12 @@ KYC do produtor ser aprovado.
 
 ## Infra de produção (pré-lançamento, 2026-07-23)
 
+> Atualizado em 2026-10-12: a produção de verdade, desde 30/07, é o
+> **EasyPanel** (serviço Compose com o `docker-compose.yml` da raiz e os
+> Dockerfiles de `infra/docker/easypanel/`; migração e seed no boot da API).
+> O compose com Caddy descrito abaixo é o caminho alternativo, não usado.
+> Deploy, variáveis e conferências: `docs/projeto/DEPLOY.md`.
+
 - `infra/docker/Dockerfile.backend` (targets `api`/`worker`) e
   `Dockerfile.web` (ARG `APP`, Next `output: "standalone"`); com
   `--frozen-lockfile` os Dockerfiles precisam copiar o `package.json` de
@@ -345,15 +351,18 @@ o banco 100% saudável — 8h de pânico por diagnóstico errado):
 - Repasse (`Payout`) é uma promessa (`PENDING`) até alguém confirmar a
   transferência bancária manualmente (`mark-paid`) — só aí nasce o
   `PAYOUT_DEBIT` no ledger. Pedir repasse não debita nada sozinho, só reserva
-  o valor (`getAvailableForPayoutCents` desconta payouts `PENDING`+`PAID`).
+  o valor (desde a auditoria de 10/08, `getReservedPayoutCents` desconta só os
+  payouts `PENDING`: o pago já virou `PAYOUT_DEBIT`).
 - Repasse é bloqueado por `Organization.status !== 'ACTIVE'` (KYC pendente)
   — é o hold-até-aprovação do diferencial de produto (§19 da arquitetura).
-  Ainda não há split/recebedor real no Pagar.me; isso é a Fase 9.1 quando o
-  comercial fechar a conta PSP.
+  Atualizado em 2026-10-12: o Pagar.me não foi adotado. Pix e cartão vão por
+  provedor (Mercado Pago / Asaas), sem split no gateway; o saldo libera D+2
+  úteis do fim do evento. Fluxo atual: `docs/projeto/FLUXO-FINANCEIRO.md`.
 - Taxa efetiva: `computePlatformFeeCents` (`packages/payments/src/fees.ts`)
   usa os overrides de `Organization` (Fase 8) e cai no padrão via env
-  (`PLATFORM_PIX_FEE_BPS`/`_FLOOR_CENTS`/`PLATFORM_CARD_FEE_BPS` — default
-  499/249/699, a decisão de 2026-07-23).
+  (`PLATFORM_PIX_FEE_BPS`/`_FLOOR_CENTS`/`PLATFORM_CARD_FEE_BPS`/
+  `PLATFORM_CARD_FEE_FLOOR_CENTS` — padrão 500/100/500/150, a "taxa" de
+  2026-08-13; a de 2026-07-23 era 499/249/699).
 
 ## Backup e restauração do banco (automático desde 2026-08-30)
 
@@ -374,8 +383,10 @@ o banco 100% saudável — 8h de pânico por diagnóstico errado):
   `PAYMENTS_PROVIDER=mock` até o adapter real).
 - Reservas: TTL de 10 min (`reservations.service.ts`); janela de pagamento do
   pedido: 15 min (`orders.service.ts`).
-- Gateway real: recomendação Pagar.me (primário) + Asaas (fallback) em
-  `docs/projeto/pesquisa-gateways-2026-07.md` — aguardando confirmação do Arthur.
+- ~~Gateway real: recomendação Pagar.me (primário) + Asaas (fallback) em
+  `docs/projeto/pesquisa-gateways-2026-07.md` — aguardando confirmação do Arthur.~~
+  Decidido e superado (nota de 2026-10-12): Asaas desde 28/07 e Pix pelo
+  Mercado Pago desde 08/2026 — ver `docs/projeto/FLUXO-FINANCEIRO.md`.
 - ~~Estorno/chargeback ainda NÃO devolve estoque ao lote~~ — **resolvido na
   Fase 9** (`returnSaleInventory`, ver regras da Fase 9 acima). O que falta
   é só o estorno PARCIAL (hoje `refundOrderSchema.amountCents` existe no

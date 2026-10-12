@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsx --test src/qr-token.test.ts"
+    "test": "tsx --test src/qr-token.test.ts src/cifra-chave.test.ts"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

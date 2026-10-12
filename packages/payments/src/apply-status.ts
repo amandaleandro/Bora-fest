@@ -6,8 +6,9 @@ import {
   type PaymentMethod as DbPaymentMethod,
   type PaymentStatus as DbPaymentStatus,
 } from "@borafest/database";
-import type { GatewayPaymentStatus } from "./types";
+import type { GatewayPaymentStatus, PaymentGateway } from "./types";
 import { computePlatformFeeCents } from "./fees";
+import { getGateway } from "./registry";
 
 /**
  * Aplica um status vindo do gateway (webhook, cartão síncrono ou reconciliação)
@@ -18,21 +19,51 @@ import { computePlatformFeeCents } from "./fees";
  *   vence; repetição e regressão viram no-op;
  * - PAID: pedido → PAID + estoque reservado vira vendido + outbox `order.paid`
  *   (emissão de ingressos exatamente-uma-vez no worker);
+ * - PAID com valor pago MENOR que o cobrado (2026-10-12): nada é faturado — o
+ *   pedido fica pendente e sai auditoria + outbox `payment.amount_mismatch`
+ *   para o backoffice;
  * - PAID com pedido já expirado/cancelado: outbox `payment.orphaned`
  *   (estorno automático no worker) — caso "pagamento aprovado depois da
  *   reserva expirar" da arquitetura §22;
  * - REFUNDED/CHARGEBACK: pedido acompanha e outbox `order.payment_reversed`
- *   revoga os ingressos.
+ *   revoga os ingressos;
+ * - CHARGEBACK_REVERSED (disputa ganha, 2026-10-12): o crédito do produtor
+ *   volta ao ledger; ingresso cancelado NÃO é reemitido — auditoria + outbox
+ *   `payment.chargeback_reversed` para o backoffice decidir.
  */
 
 export interface ApplyStatusResult {
   paymentChanged: boolean;
   orderPaid: boolean;
   orphaned: boolean;
+  /** o gateway informou valor pago MENOR que o cobrado — nada foi faturado */
+  amountMismatch?: boolean;
+  /** disputa de chargeback ganha — crédito do produtor restaurado */
+  chargebackReversed?: boolean;
 }
 
 const PAYABLE_ORDER_STATUSES = ["CREATED", "PAYMENT_PENDING"] as const;
 const OPEN_PAYMENT_STATUSES: DbPaymentStatus[] = ["PENDING", "AUTHORIZED"];
+/**
+ * De onde o PAID pode entrar: o dinheiro se moveu no gateway, então vence
+ * qualquer estado local NÃO monetário (webhook atrasado, §22). Estados
+ * monetários (PAID, REFUND_PENDING, REFUNDED, CHARGEBACK) nunca regridem por aqui.
+ */
+const PAID_TRANSITION_FROM: DbPaymentStatus[] = [
+  ...OPEN_PAYMENT_STATUSES,
+  "EXPIRED",
+  "FAILED",
+  "CANCELED",
+];
+
+/**
+ * Descrições que marcam os lançamentos do ledger feitos por um chargeback e os
+ * que os desfazem quando a disputa é ganha (2026-10-12). É por elas que a
+ * restauração acha EXATAMENTE o que o chargeback tirou — sem confundir com
+ * estornos parciais anteriores, que são devoluções de verdade ao comprador.
+ */
+export const DESCRICAO_CHARGEBACK = "Chargeback (contestação no cartão)";
+export const DESCRICAO_CHARGEBACK_REVERTIDO = "Chargeback revertido (disputa ganha)";
 
 export interface ApplyStatusOptions {
   /**
@@ -42,6 +73,14 @@ export interface ApplyStatusOptions {
    * igual ao total → estorno total (comportamento de sempre).
    */
   refundAmountCents?: number;
+  /**
+   * Valor REALMENTE pago segundo o gateway, em centavos (2026-10-12) — só vale
+   * para PAID. Menor que o valor do pagamento → não fatura (ver applyPaid).
+   * - número: o chamador já tem o valor (corpo do webhook, resposta do cartão);
+   * - null: o chamador consultou e o gateway não informa — segue sem conferir;
+   * - ausente: applyGatewayStatus consulta o gateway (getPaymentSnapshot).
+   */
+  paidAmountCents?: number | null;
 }
 
 export async function applyGatewayStatus(
@@ -65,8 +104,10 @@ export async function applyGatewayStatus(
       return result;
     }
 
-    case "PAID":
-      return applyPaid(paymentId, occurredAt);
+    case "PAID": {
+      const paidAmountCents = await resolvePaidAmountCents(paymentId, options?.paidAmountCents);
+      return applyPaid(paymentId, occurredAt, paidAmountCents);
+    }
 
     case "FAILED":
     case "CANCELED":
@@ -102,18 +143,100 @@ export async function applyGatewayStatus(
     case "CHARGEBACK":
       return applyReversal(paymentId, status);
 
+    case "CHARGEBACK_REVERSED":
+      return applyChargebackReversal(paymentId);
+
     default:
       return result;
   }
 }
 
-async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplyStatusResult> {
+/**
+ * Valor pago a conferir no PAID (2026-10-12). Quando o chamador não informou,
+ * consulta o gateway do pagamento — assim a conferência vale em TODA entrada
+ * (webhook, cartão síncrono, sync da tela do Pix, reconciliação) mesmo antes de
+ * cada chamador repassar o valor que já tem em mãos.
+ *
+ * Só consulta se o PAID ainda vai mudar alguma coisa (duplicata não custa
+ * chamada). Falha na consulta NÃO trava a venda: segue sem conferência e
+ * registra no log — o risco aqui é cobrança alterada/rateada a menos, não um
+ * atacante controlando a disponibilidade do gateway.
+ */
+async function resolvePaidAmountCents(
+  paymentId: string,
+  informado: number | null | undefined,
+): Promise<number | undefined> {
+  if (informado === null) return undefined;
+  if (informado !== undefined) return informado;
+
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: { provider: true, externalId: true, status: true },
+  });
+  if (!payment?.externalId || !PAID_TRANSITION_FROM.includes(payment.status)) return undefined;
+  return lookupGatewayPaidAmountCents(payment.provider, payment.externalId, paymentId);
+}
+
+/**
+ * Pergunta ao gateway quanto foi pago (getPaymentSnapshot). undefined quando o
+ * provedor não tem adapter/consulta, a cobrança não está paga ou a consulta
+ * falhou (logado). Compartilhado com o fluxo VIP (2026-10-12).
+ */
+export async function lookupGatewayPaidAmountCents(
+  provider: string,
+  externalId: string,
+  referencia: string,
+): Promise<number | undefined> {
+  let gateway: PaymentGateway;
+  try {
+    gateway = getGateway(provider);
+  } catch {
+    return undefined; // provedor sem adapter (ex.: venda manual) — nada a conferir
+  }
+  if (!gateway.getPaymentSnapshot) return undefined;
+
+  try {
+    const snapshot = await gateway.getPaymentSnapshot(externalId);
+    return snapshot.status === "PAID" ? snapshot.paidAmountCents : undefined;
+  } catch (error) {
+    console.warn(
+      `[payments] conferência de valor indisponível para o pagamento ${referencia} (${provider}): ${(error as Error).message}`,
+    );
+    return undefined;
+  }
+}
+
+async function applyPaid(
+  paymentId: string,
+  occurredAt?: Date,
+  /** valor pago segundo o gateway; undefined = o gateway não informa (sem conferência) */
+  paidAmountCents?: number,
+): Promise<ApplyStatusResult> {
   return prisma.$transaction(async (tx) => {
     const result: ApplyStatusResult = { paymentChanged: false, orderPaid: false, orphaned: false };
 
     const paidAt = occurredAt ?? new Date();
     const payment = await tx.payment.findUnique({ where: { id: paymentId } });
     if (!payment) return result;
+
+    // CONFERÊNCIA DE VALOR (2026-10-12; era o follow-up da auditoria
+    // 2026-08-30): compara o valor REAL que o gateway diz ter recebido com o
+    // valor cobrado — não amountCents vs totalCents, que nascem iguais. Entrou
+    // menos (cobrança editada no painel do PSP, pagamento a menor, arredonda-
+    // mento) → NÃO fatura: pagamento e pedido ficam como estão (o pedido segue
+    // pendente e expira na janela normal) e o backoffice recebe o alerta para
+    // decidir entre cobrar a diferença ou devolver o que entrou.
+    if (
+      paidAmountCents !== undefined &&
+      Number.isFinite(paidAmountCents) &&
+      paidAmountCents < payment.amountCents
+    ) {
+      // estado monetário (PAID/REFUND_*/CHARGEBACK) é no-op, como sempre
+      if (!PAID_TRANSITION_FROM.includes(payment.status)) return result;
+      result.amountMismatch = true;
+      await registerAmountMismatch(tx, payment, paidAmountCents);
+      return result;
+    }
 
     // O dinheiro se moveu no gateway: PAID vence qualquer estado local
     // não-monetário — inclusive EXPIRED/FAILED/CANCELED (webhook atrasado,
@@ -122,7 +245,7 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
     const updatedPayment = await tx.payment.updateMany({
       where: {
         id: paymentId,
-        status: { in: [...OPEN_PAYMENT_STATUSES, "EXPIRED", "FAILED", "CANCELED"] },
+        status: { in: PAID_TRANSITION_FROM },
       },
       data: { status: "PAID", paidAt },
     });
@@ -132,11 +255,6 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
       return result;
     }
 
-    // NOTA (auditoria 2026-08-30): uma conferência payment.amountCents vs
-    // order.totalCents seria INERTE — os dois nascem iguais por construção — e
-    // ainda arriscava deixar o pagamento em limbo (PAID sem faturar). A
-    // verificação de valor de verdade exige o montante REAL do gateway, que os
-    // adapters ainda não expõem; fica como follow-up, sem controle de fachada.
     const updatedOrder = await tx.order.updateMany({
       where: { id: payment.orderId, status: { in: [...PAYABLE_ORDER_STATUSES] } },
       data: { status: "PAID", paidAt },
@@ -177,6 +295,88 @@ async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplySta
     result.orderPaid = true;
     return result;
   });
+}
+
+function asJsonObject(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Prisma.JsonObject)
+    : {};
+}
+
+/**
+ * Registra "pagou menos que o cobrado" (2026-10-12): marca no metadata do
+ * pagamento, audita no pedido (aparece na Auditoria do backoffice) e solta o
+ * outbox `payment.amount_mismatch`. Idempotente sob a trava da linha: webhook,
+ * reconciliação e sync da tela repetindo o MESMO valor não duplicam o alerta.
+ */
+async function registerAmountMismatch(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string; provider: string; externalId: string | null; amountCents: number },
+  paidAmountCents: number,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id}::uuid FOR UPDATE`;
+  const atual = await tx.payment.findUnique({
+    where: { id: payment.id },
+    select: { metadata: true },
+  });
+  const metadata = asJsonObject(atual?.metadata);
+  const anterior = asJsonObject(metadata.amountMismatch);
+  if (anterior.paidCents === paidAmountCents) return; // já alertado com este valor
+
+  const detectedAt = new Date().toISOString();
+  const diferencaCents = payment.amountCents - paidAmountCents;
+  await tx.payment.update({
+    where: { id: payment.id },
+    data: {
+      metadata: {
+        ...metadata,
+        amountMismatch: {
+          expectedCents: payment.amountCents,
+          paidCents: paidAmountCents,
+          detectedAt,
+        },
+      } as Prisma.InputJsonObject,
+    },
+  });
+
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: { event: { select: { organizationId: true } } },
+  });
+  await tx.auditLog.create({
+    data: {
+      action: "payment.amount_mismatch",
+      entityType: "order",
+      entityId: payment.orderId,
+      organizationId: order?.event.organizationId ?? null,
+      metadata: {
+        paymentId: payment.id,
+        provider: payment.provider,
+        externalId: payment.externalId,
+        expectedCents: payment.amountCents,
+        paidCents: paidAmountCents,
+        diferencaCents,
+        resumo:
+          "O gateway informou um valor pago menor que o cobrado. O pedido NÃO foi confirmado: cobre a diferença ou devolva o valor recebido.",
+      },
+    },
+  });
+  await tx.outboxEvent.create({
+    data: {
+      aggregateType: "payment",
+      aggregateId: payment.id,
+      eventType: "payment.amount_mismatch",
+      payload: {
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        expectedCents: payment.amountCents,
+        paidCents: paidAmountCents,
+      },
+    },
+  });
+  console.warn(
+    `[payments] valor pago menor que o cobrado — pedido ${payment.orderId} NÃO confirmado (pagamento ${payment.id}: cobrado ${payment.amountCents}, pago ${paidAmountCents} centavos)`,
+  );
 }
 
 /** SALE_CREDIT (bruto) + PLATFORM_FEE (comissão) no ledger da organização do evento. */
@@ -385,7 +585,15 @@ async function reverseOrganizationLedgerAndStock(
   payment: { id: string; orderId: string; amountCents: number },
   /** quanto foi devolvido ao comprador no gateway; undefined = reembolso TOTAL */
   refundAmountCents?: number,
+  opcoes: {
+    /** reversão por CHARGEBACK: lançamentos marcados com DESCRICAO_CHARGEBACK (2026-10-12) */
+    chargeback?: boolean;
+    /** false = não mexe no estoque (ele já voltou num chargeback anterior) */
+    devolverEstoque?: boolean;
+  } = {},
 ): Promise<void> {
+  // marca os lançamentos do chargeback para a disputa ganha achá-los (2026-10-12)
+  const descricaoChargeback = opcoes.chargeback ? DESCRICAO_CHARGEBACK : undefined;
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
     select: { protectionFeeCents: true, event: { select: { organizationId: true, endsAt: true } } },
@@ -425,6 +633,7 @@ async function reverseOrganizationLedgerAndStock(
           amountCents: remaining,
           referenceType: "payment",
           referenceId: payment.id,
+          ...(descricaoChargeback ? { description: descricaoChargeback } : {}),
         },
       });
     }
@@ -467,7 +676,9 @@ async function reverseOrganizationLedgerAndStock(
               amountCents: -aReverter,
               referenceType: "payment",
               referenceId: payment.id,
-              description: "Estorno do prêmio da proteção — parte devolvida ao comprador",
+              description:
+                descricaoChargeback ??
+                "Estorno do prêmio da proteção — parte devolvida ao comprador",
             },
           });
         }
@@ -476,8 +687,9 @@ async function reverseOrganizationLedgerAndStock(
   }
 
   // comissão de promoter volta junto (idempotente)
-  await clawbackPromoterCommission(tx, payment);
+  await clawbackPromoterCommission(tx, payment, 1, descricaoChargeback);
 
+  if (opcoes.devolverEstoque === false) return;
   const items = await tx.orderItem.findMany({ where: { orderId: payment.orderId } });
   for (const item of items) {
     await returnSaleInventory(tx, item.ticketLotId, item.quantity);
@@ -516,7 +728,9 @@ async function reverseProtectionPremiumOnly(
         amountCents: -saldoPremio,
         referenceType: "payment",
         referenceId: payment.id,
-        description: "Estorno do prêmio da proteção — chargeback após reembolso",
+        // era "Estorno do prêmio da proteção — chargeback após reembolso": agora
+        // com a marca do chargeback, para a disputa ganha devolver o prêmio (2026-10-12)
+        description: DESCRICAO_CHARGEBACK,
       },
     });
   }
@@ -559,7 +773,9 @@ async function applyReversal(
     });
 
     if (updatedOrder.count > 0) {
-      await reverseOrganizationLedgerAndStock(tx, payment, refundAmountCents);
+      await reverseOrganizationLedgerAndStock(tx, payment, refundAmountCents, {
+        chargeback: status === "CHARGEBACK",
+      });
 
       await tx.outboxEvent.create({
         data: {
@@ -569,10 +785,239 @@ async function applyReversal(
           payload: { orderId: payment.orderId, paymentId, status },
         },
       });
+    } else if (await chargebackRestorationInForce(tx, payment.id)) {
+      // DISPUTA GANHA E DINHEIRO SAINDO DE NOVO (2026-10-12): depois da disputa
+      // ganha o pagamento volta a PAID, mas o pedido fica em CHARGEBACK
+      // (ingressos cancelados, sem reemissão automática). Um estorno feito pelo
+      // backoffice ou um novo chargeback caía aqui sem reverter nada e o
+      // produtor ficava com o crédito restaurado de um dinheiro que saiu. Desfaz
+      // a restauração pelo caminho normal, SEM devolver estoque (já voltou no
+      // primeiro chargeback) e sem reenviar `order.payment_reversed` (os
+      // ingressos já foram revogados).
+      await reverseOrganizationLedgerAndStock(tx, payment, refundAmountCents, {
+        chargeback: status === "CHARGEBACK",
+        devolverEstoque: false,
+      });
+      if (status === "REFUNDED") {
+        await tx.order.updateMany({
+          where: { id: payment.orderId, status: "CHARGEBACK" },
+          data: { status: "REFUNDED" },
+        });
+      }
     }
 
     return result;
   });
+}
+
+/** Há restauração de chargeback em vigor neste pagamento (disputa ganha antes)? */
+async function chargebackRestorationInForce(
+  tx: Prisma.TransactionClient,
+  paymentId: string,
+): Promise<boolean> {
+  const restaurado = await tx.ledgerEntry.findFirst({
+    where: {
+      referenceType: "payment",
+      referenceId: paymentId,
+      description: DESCRICAO_CHARGEBACK_REVERTIDO,
+    },
+    select: { id: true },
+  });
+  return restaurado !== null;
+}
+
+/**
+ * Desfaz no ledger exatamente o que os chargebacks deste pagamento tiraram
+ * (2026-10-12): por conta e tipo, soma os lançamentos marcados com
+ * DESCRICAO_CHARGEBACK e os que já os desfizeram, e lança a diferença com
+ * DESCRICAO_CHARGEBACK_REVERTIDO. Por soma, é idempotente e aguenta ciclos
+ * chargeback → disputa ganha → novo chargeback → disputa ganha.
+ *
+ * O availableAt é o do lançamento desfeito: o débito do chargeback valeu na
+ * hora, então a devolução também vale na hora — o saldo volta a ser o de antes
+ * (o crédito da venda continua liberando em D+N do evento, como sempre).
+ */
+async function restoreChargebackLedger(
+  tx: Prisma.TransactionClient,
+  paymentId: string,
+): Promise<{ lancamentos: number; centavosRestaurados: number; marcados: boolean }> {
+  const entradas = await tx.ledgerEntry.findMany({
+    where: {
+      referenceType: "payment",
+      referenceId: paymentId,
+      description: { in: [DESCRICAO_CHARGEBACK, DESCRICAO_CHARGEBACK_REVERTIDO] },
+    },
+    select: {
+      ledgerAccountId: true,
+      type: true,
+      amountCents: true,
+      description: true,
+      availableAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const grupos = new Map<
+    string,
+    { ledgerAccountId: string; type: Prisma.LedgerEntryCreateManyInput["type"]; soma: number; availableAt?: Date }
+  >();
+  for (const entrada of entradas) {
+    const chave = `${entrada.ledgerAccountId}:${entrada.type}`;
+    const grupo = grupos.get(chave) ?? {
+      ledgerAccountId: entrada.ledgerAccountId,
+      type: entrada.type,
+      soma: 0,
+    };
+    grupo.soma += entrada.amountCents;
+    if (entrada.description === DESCRICAO_CHARGEBACK) grupo.availableAt = entrada.availableAt;
+    grupos.set(chave, grupo);
+  }
+
+  const novas: Prisma.LedgerEntryCreateManyInput[] = [];
+  for (const grupo of grupos.values()) {
+    if (grupo.soma === 0) continue;
+    novas.push({
+      ledgerAccountId: grupo.ledgerAccountId,
+      type: grupo.type,
+      amountCents: -grupo.soma,
+      referenceType: "payment",
+      referenceId: paymentId,
+      description: DESCRICAO_CHARGEBACK_REVERTIDO,
+      ...(grupo.availableAt ? { availableAt: grupo.availableAt } : {}),
+    });
+  }
+  if (novas.length > 0) await tx.ledgerEntry.createMany({ data: novas });
+
+  return {
+    lancamentos: novas.length,
+    // total devolvido aos saldos (casa + promoter; a comissão só muda de lado)
+    centavosRestaurados: novas.reduce((soma, linha) => soma + linha.amountCents, 0),
+    marcados: entradas.some((entrada) => entrada.description === DESCRICAO_CHARGEBACK),
+  };
+}
+
+/**
+ * Disputa de chargeback GANHA (2026-10-12). Antes nenhum evento desfazia o
+ * chargeback: o produtor ficava sem o valor de uma venda que, no fim, foi
+ * mantida pelo banco.
+ *
+ * - pagamento CHARGEBACK → PAID (o dinheiro voltou para a plataforma); a
+ *   guarda de status torna repetição no-op;
+ * - ledger: devolve o que o chargeback tirou (venda líquida, prêmio da
+ *   proteção e comissão do promoter) — ver restoreChargebackLedger;
+ * - pedido FICA em CHARGEBACK e os ingressos cancelados NÃO são reemitidos:
+ *   reemitir é decisão do backoffice (o evento pode já ter passado, o lugar
+ *   pode ter sido revendido). Auditoria + outbox `payment.chargeback_reversed`.
+ *
+ * Chargeback anterior a 2026-10-12 não tem os lançamentos marcados: o
+ * pagamento volta a PAID, mas o saldo NÃO é mexido — a auditoria pede o ajuste
+ * manual em vez de adivinhar valores.
+ */
+async function applyChargebackReversal(paymentId: string): Promise<ApplyStatusResult> {
+  return prisma.$transaction(async (tx) => {
+    const result: ApplyStatusResult = { paymentChanged: false, orderPaid: false, orphaned: false };
+
+    const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) return result;
+
+    const updated = await tx.payment.updateMany({
+      where: { id: paymentId, status: "CHARGEBACK" },
+      data: { status: "PAID" },
+    });
+    result.paymentChanged = updated.count > 0;
+
+    if (!result.paymentChanged) {
+      // Chargeback sobre pagamento JÁ reembolsado (self-service e depois
+      // contestação): só o prêmio da proteção tinha sido estornado
+      // (reverseProtectionPremiumOnly). Ganha a disputa, o prêmio volta; o
+      // pagamento segue REFUNDED. Qualquer outro estado: no-op.
+      if (payment.status !== "REFUNDED") return result;
+      // sem transição de status para serializar: trava a linha, senão dois
+      // avisos simultâneos devolveriam o prêmio duas vezes
+      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id}::uuid FOR UPDATE`;
+      const restauracao = await restoreChargebackLedger(tx, payment.id);
+      if (restauracao.lancamentos === 0) return result;
+      result.chargebackReversed = true;
+      await registerChargebackReversal(tx, payment, restauracao, 0);
+      return result;
+    }
+
+    result.chargebackReversed = true;
+    const restauracao = await restoreChargebackLedger(tx, payment.id);
+    const ingressosCancelados = await tx.ticket.count({
+      where: { orderId: payment.orderId, status: { in: ["CANCELED", "REFUNDED"] } },
+    });
+    await registerChargebackReversal(tx, payment, restauracao, ingressosCancelados);
+    return result;
+  });
+}
+
+async function registerChargebackReversal(
+  tx: Prisma.TransactionClient,
+  payment: { id: string; orderId: string; provider: string; externalId: string | null; metadata: Prisma.JsonValue | null },
+  restauracao: { lancamentos: number; centavosRestaurados: number; marcados: boolean },
+  ingressosCancelados: number,
+): Promise<void> {
+  const ledgerRestaurado = restauracao.lancamentos > 0;
+  const order = await tx.order.findUnique({
+    where: { id: payment.orderId },
+    select: { status: true, event: { select: { organizationId: true } } },
+  });
+  const reversedAt = new Date().toISOString();
+
+  await tx.payment.update({
+    where: { id: payment.id },
+    data: {
+      metadata: {
+        ...asJsonObject(payment.metadata),
+        chargebackReversal: { reversedAt, ledgerRestaurado, ingressosCancelados },
+      } as Prisma.InputJsonObject,
+    },
+  });
+
+  const resumo = ledgerRestaurado
+    ? "Disputa de chargeback ganha: o valor voltou ao saldo do produtor. Os ingressos cancelados pelo chargeback NÃO foram reemitidos — decida se reemite ou devolve o valor ao comprador."
+    : restauracao.marcados
+      ? "Disputa de chargeback ganha: o saldo do produtor já estava restaurado."
+      : order?.status === "CHARGEBACK"
+        ? "Disputa de chargeback ganha, mas os lançamentos deste chargeback são anteriores à marcação automática (2026-10-12): ajuste o saldo do produtor manualmente."
+        : "Disputa de chargeback ganha: o chargeback não tinha tirado nada do saldo do produtor (o pedido não estava faturado) — nada a restaurar.";
+
+  await tx.auditLog.create({
+    data: {
+      action: "payment.chargeback_reversed",
+      entityType: "order",
+      entityId: payment.orderId,
+      organizationId: order?.event.organizationId ?? null,
+      metadata: {
+        paymentId: payment.id,
+        provider: payment.provider,
+        externalId: payment.externalId,
+        orderStatus: order?.status ?? null,
+        ledgerRestaurado,
+        lancamentosRestaurados: restauracao.lancamentos,
+        valorRestauradoCents: restauracao.centavosRestaurados,
+        ingressosCancelados,
+        resumo,
+      },
+    },
+  });
+  await tx.outboxEvent.create({
+    data: {
+      aggregateType: "payment",
+      aggregateId: payment.id,
+      eventType: "payment.chargeback_reversed",
+      payload: {
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        ledgerRestaurado,
+        ingressosCancelados,
+      },
+    },
+  });
+  console.warn(
+    `[payments] chargeback revertido (disputa ganha) — pedido ${payment.orderId}, pagamento ${payment.id}: ${resumo}`,
+  );
 }
 
 /** Soma N dias ÚTEIS (sábado/domingo pulam; feriado não é considerado). */
@@ -688,6 +1133,8 @@ export async function clawbackPromoterCommission(
   tx: Prisma.TransactionClient,
   payment: { id: string; orderId: string },
   fraction = 1,
+  /** descrição dos lançamentos (chargeback usa DESCRICAO_CHARGEBACK, 2026-10-12) */
+  description = "Estorno de comissão (reembolso)",
 ): Promise<void> {
   const order = await tx.order.findUnique({
     where: { id: payment.orderId },
@@ -709,7 +1156,20 @@ export async function clawbackPromoterCommission(
     },
     _sum: { amountCents: true },
   });
-  const jaDevolvido = devolvidoAntes._sum.amountCents ?? 0;
+  // disputa de chargeback ganha DEVOLVE a comissão ao promoter (2026-10-12):
+  // o que foi restaurado deixa de contar como "já devolvido" — senão um
+  // estorno depois da disputa ganha nunca recuperava a comissão de novo
+  const restauradoDepois = await tx.ledgerEntry.aggregate({
+    where: {
+      referenceType: "payment",
+      referenceId: payment.id,
+      type: "COMMISSION_DEBIT",
+      description: DESCRICAO_CHARGEBACK_REVERTIDO,
+    },
+    _sum: { amountCents: true },
+  });
+  const jaDevolvido =
+    (devolvidoAntes._sum.amountCents ?? 0) + (restauradoDepois._sum.amountCents ?? 0);
   const alvo = Math.min(
     Math.round(order.promoterCommissionCents * Math.max(0, Math.min(1, fraction))),
     order.promoterCommissionCents,
@@ -730,7 +1190,7 @@ export async function clawbackPromoterCommission(
         amountCents: -valor,
         referenceType: "payment",
         referenceId: payment.id,
-        description: "Estorno de comissão (reembolso)",
+        description,
       },
       {
         ledgerAccountId: hostAccount.id,
@@ -738,7 +1198,7 @@ export async function clawbackPromoterCommission(
         amountCents: valor,
         referenceType: "payment",
         referenceId: payment.id,
-        description: "Estorno de comissão (reembolso)",
+        description,
       },
     ],
   });

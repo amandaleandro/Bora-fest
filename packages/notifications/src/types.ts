@@ -9,11 +9,26 @@ export interface EmailMessage {
   subject: string;
   html: string;
   text: string;
+  /**
+   * Marcas que o provedor devolve nos eventos de entrega (2026-10-12): o worker
+   * manda o id da notificação, para o webhook achar a linha mesmo se o evento
+   * chegar antes de o id do provedor ser gravado. Só letras, números, _ e -.
+   */
+  tags?: Record<string, string>;
+}
+
+/**
+ * O que o provedor devolve ao aceitar o e-mail (2026-10-12). O id liga os
+ * eventos do webhook (entregue/devolvido/reclamação) à notificação.
+ */
+export interface EmailSendResult {
+  providerMessageId?: string;
 }
 
 export interface EmailSender {
   readonly provider: string;
-  send(message: EmailMessage): Promise<void>;
+  /** void = provedor sem id de mensagem (devlog, capturas de teste) */
+  send(message: EmailMessage): Promise<EmailSendResult | void>;
 }
 
 export interface WhatsAppTemplateMessage {

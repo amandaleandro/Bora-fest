@@ -3,6 +3,7 @@ import {
   CardPaymentResult,
   CreateCardPaymentInput,
   CreatePixChargeInput,
+  GatewayPaymentSnapshot,
   GatewayPaymentStatus,
   PaymentGateway,
   PixCharge,
@@ -30,6 +31,8 @@ interface MockWebhookBody {
   type: string;
   status: GatewayPaymentStatus;
   occurredAt?: string;
+  /** valor pago simulado, em centavos (conferência de valor, 2026-10-12) */
+  paidAmountCents?: number;
 }
 
 /**
@@ -45,6 +48,19 @@ export class MockGateway implements PaymentGateway {
   readonly pixRequiresPayerDocument = false;
 
   private readonly statuses = new Map<string, GatewayPaymentStatus>();
+  /** valor pago por cobrança — só existe depois de "pago" (cartão aprovado ou simulatePayment) */
+  private readonly paidAmounts = new Map<string, number>();
+
+  /**
+   * Simula o que o gateway diz de uma cobrança (2026-10-12): status e valor
+   * pago. É como os testes reproduzem "pagou menos que o cobrado" e "a
+   * disputa do chargeback foi ganha" sem dinheiro de verdade.
+   */
+  simulatePayment(externalId: string, status: GatewayPaymentStatus, paidAmountCents?: number): void {
+    this.statuses.set(externalId, status);
+    if (paidAmountCents === undefined) this.paidAmounts.delete(externalId);
+    else this.paidAmounts.set(externalId, paidAmountCents);
+  }
 
   async createPixCharge(input: CreatePixChargeInput): Promise<PixCharge> {
     const externalId = `mock_pix_${input.paymentId}`;
@@ -65,7 +81,8 @@ export class MockGateway implements PaymentGateway {
       return { externalId, status: "FAILED", failReason: "Cartão recusado (simulado)" };
     }
     this.statuses.set(externalId, "PAID");
-    return { externalId, status: "PAID" };
+    this.paidAmounts.set(externalId, input.amountCents);
+    return { externalId, status: "PAID", paidAmountCents: input.amountCents };
   }
 
   async refund(input: RefundInput): Promise<RefundResult> {
@@ -75,6 +92,12 @@ export class MockGateway implements PaymentGateway {
 
   async getStatus(externalId: string): Promise<GatewayPaymentStatus> {
     return this.statuses.get(externalId) ?? "PENDING";
+  }
+
+  async getPaymentSnapshot(externalId: string): Promise<GatewayPaymentSnapshot> {
+    const status = this.statuses.get(externalId) ?? "PENDING";
+    const paidAmountCents = status === "PAID" ? this.paidAmounts.get(externalId) : undefined;
+    return { status, ...(paidAmountCents !== undefined ? { paidAmountCents } : {}) };
   }
 
   async transferPix(input: import("./types").PixTransferInput): Promise<import("./types").PixTransferResult> {
@@ -115,6 +138,7 @@ export class MockGateway implements PaymentGateway {
       type: body.type ?? `payment.${body.status.toLowerCase()}`,
       status: body.status,
       occurredAt: body.occurredAt ? new Date(body.occurredAt) : undefined,
+      ...(typeof body.paidAmountCents === "number" ? { paidAmountCents: body.paidAmountCents } : {}),
       raw: body,
     };
   }

@@ -6,8 +6,23 @@
  * de verdade (Fastify + Nest + rede), contra uma API já rodando.
  *
  * Uso:
- *   pnpm infra:up && pnpm --filter @borafest/api dev   # num terminal
- *   pnpm --filter @borafest/api load-test               # noutro
+ *   pnpm infra:up
+ *   NODE_ENV=development RATE_LIMIT_DISABLED=1 pnpm --filter @borafest/api dev   # num terminal
+ *   pnpm --filter @borafest/api load-test                                       # noutro
+ *
+ * LIMITE DE REQUISIÇÕES (2026-10-12): as tentativas saem todas do mesmo IP, e a
+ * reserva aceita 20 por minuto por IP. Antes o script forjava um
+ * X-Forwarded-For diferente por tentativa para escapar do limite — truque que a
+ * correção de 29/08 fechou (o guard passou a usar só o IP que o proxy
+ * confiável informa). Agora a API do teste sobe com o limite desligado de
+ * forma explícita: `RATE_LIMIT_DISABLED=1`, que o guard só aceita com
+ * NODE_ENV=development ou test — nunca em produção (as imagens fixam
+ * NODE_ENV=production e a variável é ignorada, com erro no log). Se a API
+ * responder 429, o script para e explica, em vez de reportar "falhou".
+ *
+ * Contra um servidor de homologação: suba a API de lá com as mesmas duas
+ * variáveis (e só lá). Contra produção, NÃO desligue o limite — use um gerador
+ * distribuído (vários IPs de verdade) e conte o 429 como resultado esperado.
  *
  * Variáveis: API_BASE_URL (default http://localhost:3333),
  * LOAD_TEST_CAPACITY (default 5), LOAD_TEST_ATTEMPTS (default 100).
@@ -60,24 +75,30 @@ async function main() {
     console.log(`Disparando ${ATTEMPTS} reservas concorrentes de 1 unidade contra a API HTTP...`);
     const startedAt = Date.now();
 
-    // X-Forwarded-For distinto por tentativa: simula compradores reais e
-    // diferentes (o cenário do §22), e também evita que o rate limit por IP
-    // (Fase 11) confunda "um script disparando rápido" com "flood de um
-    // usuário só" — aqui queremos testar o estoque, não o rate limiter.
+    // sem cabeçalho forjado (2026-10-12): o limite por IP fica desligado na
+    // API do teste (RATE_LIMIT_DISABLED=1) — aqui o que se mede é o estoque
     const results = await Promise.allSettled(
-      Array.from({ length: ATTEMPTS }, (_, i) =>
+      Array.from({ length: ATTEMPTS }, () =>
         fetch(`${API_BASE_URL}/v1/reservations`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-forwarded-for": `203.0.113.${i % 254}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ eventId: event.id, items: [{ ticketLotId: lot.id, quantity: 1 }] }),
-        }).then(async (res) => ({ status: res.status, body: await res.json() })),
+        }).then(async (res) => ({ status: res.status, body: await res.json().catch(() => null) })),
       ),
     );
 
     const elapsedMs = Date.now() - startedAt;
+
+    const limitadas = results.filter((r) => r.status === "fulfilled" && r.value.status === 429).length;
+    if (limitadas > 0) {
+      console.error(
+        `\n❌ ${limitadas} de ${ATTEMPTS} tentativas voltaram 429 (limite de requisições ligado).` +
+          "\n   O resultado não mede o estoque. Suba a API do teste com" +
+          "\n   NODE_ENV=development RATE_LIMIT_DISABLED=1 e rode de novo (nunca em produção).",
+      );
+      process.exitCode = 1;
+      return;
+    }
 
     const succeeded = results.filter(
       (r) => r.status === "fulfilled" && r.value.status === 201,

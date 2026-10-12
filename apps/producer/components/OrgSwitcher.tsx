@@ -17,13 +17,29 @@ export function OrgSwitcher({ organizationId, dark }: { organizationId?: string;
   const { token } = useAuth();
   const router = useRouter();
   const [orgs, setOrgs] = useState<Array<Organization & { roleKey: string }>>([]);
+  // FALHA NÃO É "SEM PRODUTORA" (2026-10-12): o .catch virava [] e o trocador
+  // simplesmente sumia da lateral — sem aviso nem como tentar de novo.
+  const [erro, setErro] = useState(false);
+  const [tentativa, setTentativa] = useState(0);
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token) return;
-    organizationsApi.list(token).then(setOrgs).catch(() => setOrgs([]));
-  }, [token]);
+    let vivo = true;
+    setErro(false);
+    organizationsApi
+      .list(token)
+      .then((lista) => {
+        if (vivo) setOrgs(lista);
+      })
+      .catch(() => {
+        if (vivo) setErro(true);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [token, tentativa]);
 
   // fecha ao clicar fora
   useEffect(() => {
@@ -37,7 +53,27 @@ export function OrgSwitcher({ organizationId, dark }: { organizationId?: string;
 
   const ativaId = organizationId ?? (typeof window !== "undefined" ? localStorage.getItem("bf.activeOrg") : null);
   const ativa = orgs.find((o) => o.id === ativaId) ?? orgs[0];
-  if (!ativa) return null;
+  const claro = !dark;
+  if (!ativa) {
+    if (!erro) return null;
+    return (
+      <div
+        className={`rounded-xl px-3 py-2.5 ${claro ? "border border-line bg-surface" : "bg-white/[.06]"}`}
+        role="alert"
+      >
+        <p className={`text-[12px] font-semibold ${claro ? "text-muted" : "text-white/60"}`}>
+          Não deu para carregar suas produtoras.
+        </p>
+        <button
+          type="button"
+          onClick={() => setTentativa((n) => n + 1)}
+          className={`mt-1 text-[12px] font-extrabold hover:underline ${claro ? "text-primary" : "text-white"}`}
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
 
   const nome = (o: Organization) => o.displayName ?? o.name;
 
@@ -60,8 +96,6 @@ export function OrgSwitcher({ organizationId, dark }: { organizationId?: string;
     window.dispatchEvent(new CustomEvent("bf.orgchange", { detail: id }));
     router.push("/resumo");
   }
-
-  const claro = !dark;
 
   return (
     <div ref={caixa} className="relative">

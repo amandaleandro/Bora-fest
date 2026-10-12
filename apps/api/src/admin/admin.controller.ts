@@ -12,8 +12,19 @@ import {
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
+import { Exige2faGuard } from "../seguranca-2fa/exige-2fa.guard";
 import { AdminService } from "./admin.service";
 
+/**
+ * SEGUNDO FATOR (2026-10-12): as rotas com @UseGuards(Exige2faGuard) movem
+ * dinheiro ou destravam repasse — aprovar/gerar repasse, marcar pago, estornar,
+ * aprovar reembolso, taxa, modo de repasse, aprovar e desbloquear casa (o
+ * desbloquear também leva a ACTIVE e destrava o saque, então sem ele o 2FA do
+ * aprovar teria um atalho). Pedem o cabeçalho x-confirmacao-2fa, obtido com o
+ * código do app autenticador em POST v1/admin/2fa/confirmar-acao. Bloquear e
+ * recusar seguem só com a sessão: são freios, e não podem atrasar uma
+ * resposta a incidente.
+ */
 @Controller("v1/admin")
 @UseGuards(SessionGuard)
 export class AdminController {
@@ -30,6 +41,7 @@ export class AdminController {
   }
 
   @Post("organizations/:id/fee")
+  @UseGuards(Exige2faGuard)
   setOrganizationFee(
     @Param("id") id: string,
     @CurrentUserId() userId: string,
@@ -48,11 +60,13 @@ export class AdminController {
   }
 
   @Post("organizations/:id/unblock")
+  @UseGuards(Exige2faGuard)
   unblockOrganization(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.adminService.unblockOrganization(id, userId);
   }
 
   @Post("organizations/:id/approve")
+  @UseGuards(Exige2faGuard)
   approveOrganization(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.adminService.approveOrganization(id, userId);
   }
@@ -108,6 +122,7 @@ export class AdminController {
   }
 
   @Post("orders/:publicToken/refund")
+  @UseGuards(Exige2faGuard)
   refundOrder(
     @Param("publicToken") publicToken: string,
     @CurrentUserId() userId: string,
@@ -122,6 +137,7 @@ export class AdminController {
   }
 
   @Post("refund-requests/:id/approve")
+  @UseGuards(Exige2faGuard)
   approveRefundRequest(
     @Param("id") id: string,
     @CurrentUserId() userId: string,
@@ -214,6 +230,7 @@ export class AdminController {
   }
 
   @Post("payout-requests/:id/approve")
+  @UseGuards(Exige2faGuard)
   approvePayoutRequest(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.adminService.approvePayoutRequest(id, userId);
   }
@@ -228,6 +245,7 @@ export class AdminController {
   }
 
   @Post("organizations/:id/settlement")
+  @UseGuards(Exige2faGuard)
   updateSettlement(
     @Param("id") id: string,
     @CurrentUserId() userId: string,
@@ -237,11 +255,13 @@ export class AdminController {
   }
 
   @Post("organizations/:id/payouts")
+  @UseGuards(Exige2faGuard)
   createPayout(@Param("id") id: string, @CurrentUserId() userId: string) {
     return this.adminService.createPayout(id, userId);
   }
 
   @Post("payouts/:id/mark-paid")
+  @UseGuards(Exige2faGuard)
   markPayoutPaid(
     @Param("id") id: string,
     @CurrentUserId() userId: string,

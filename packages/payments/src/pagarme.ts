@@ -3,6 +3,7 @@ import {
   CardPaymentResult,
   CreateCardPaymentInput,
   CreatePixChargeInput,
+  GatewayPaymentSnapshot,
   GatewayPaymentStatus,
   PaymentGateway,
   PixCharge,
@@ -40,6 +41,10 @@ export class PagarmeApiError extends Error {
 interface PagarmeCharge {
   id: string;
   status: string;
+  /** valor cobrado, já em centavos */
+  amount?: number;
+  /** valor efetivamente pago, em centavos */
+  paid_amount?: number;
   last_transaction?: {
     qr_code?: string;
     qr_code_url?: string;
@@ -140,7 +145,15 @@ export class PagarmeGateway implements PaymentGateway {
     }
 
     const status = mapChargeStatus(charge.status);
-    if (status === "PAID") return { externalId: charge.id, status: "PAID" };
+    if (status === "PAID") {
+      // valor que o Pagar.me registrou, para a conferência do applyGatewayStatus (2026-10-12)
+      const paidAmountCents = pagarmePaidAmountCents(charge);
+      return {
+        externalId: charge.id,
+        status: "PAID",
+        ...(paidAmountCents !== undefined ? { paidAmountCents } : {}),
+      };
+    }
     if (status === "AUTHORIZED") return { externalId: charge.id, status: "AUTHORIZED" };
 
     return {
@@ -174,13 +187,22 @@ export class PagarmeGateway implements PaymentGateway {
     return mapChargeStatus(charge.status);
   }
 
+  /** Mesma consulta do getStatus + o valor pago (conferência de valor, 2026-10-12). */
+  async getPaymentSnapshot(externalId: string): Promise<GatewayPaymentSnapshot> {
+    const charge = await this.request<PagarmeCharge>("GET", `/charges/${externalId}`);
+    const status = mapChargeStatus(charge.status);
+    const paidAmountCents = status === "PAID" ? pagarmePaidAmountCents(charge) : undefined;
+    return { status, ...(paidAmountCents !== undefined ? { paidAmountCents } : {}) };
+  }
+
   verifyWebhook(headers: WebhookHeaders, rawBody: string): VerifiedWebhookEvent {
     this.assertWebhookAuthentic(headers, rawBody);
 
+    type ChargeLike = { id?: string; status?: string; amount?: number; paid_amount?: number };
     let body: {
       id?: string;
       type?: string;
-      data?: { id?: string; status?: string; charges?: Array<{ id?: string; status?: string }> };
+      data?: ChargeLike & { charges?: ChargeLike[] };
     };
     try {
       body = JSON.parse(rawBody);
@@ -193,19 +215,25 @@ export class PagarmeGateway implements PaymentGateway {
 
     // charge.* → data.id é a charge; order.* → primeira charge do pedido;
     // chargeback.* → referência à charge dentro do objeto de chargeback
-    const chargeLike = body.type.startsWith("charge.")
+    const chargeLike: ChargeLike | undefined = body.type.startsWith("charge.")
       ? body.data
-      : (body.data.charges?.[0] ?? (body.data as { charge?: { id?: string; status?: string } }).charge);
+      : (body.data.charges?.[0] ?? (body.data as { charge?: ChargeLike }).charge);
     const externalPaymentId = chargeLike?.id;
     if (!externalPaymentId) {
       throw new WebhookVerificationError("Webhook Pagar.me sem id de cobrança");
     }
 
+    const status = mapWebhookType(body.type, chargeLike?.status);
+    // a cobrança vem no corpo com paid_amount/amount — conferido contra o
+    // pedido antes de marcar pago (2026-10-12)
+    const paidAmountCents =
+      status === "PAID" && chargeLike ? pagarmePaidAmountCents(chargeLike) : undefined;
     return {
       externalEventId: body.id,
       externalPaymentId,
       type: body.type,
-      status: mapWebhookType(body.type, chargeLike?.status),
+      status,
+      ...(paidAmountCents !== undefined ? { paidAmountCents } : {}),
       raw: body,
     };
   }
@@ -331,6 +359,22 @@ export class PagarmeGateway implements PaymentGateway {
     }
     return json as T;
   }
+}
+
+/**
+ * Valor pago em centavos (o Pagar.me já trabalha em centavos, 2026-10-12):
+ * paid_amount quando vem; senão o valor da cobrança.
+ */
+export function pagarmePaidAmountCents(charge: {
+  amount?: number;
+  paid_amount?: number;
+}): number | undefined {
+  const value =
+    typeof charge.paid_amount === "number" && charge.paid_amount > 0
+      ? charge.paid_amount
+      : charge.amount;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value);
 }
 
 export function mapChargeStatus(status: string): GatewayPaymentStatus {

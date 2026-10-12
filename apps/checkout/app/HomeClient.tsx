@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api, type EventListItem, type EventCategory } from "../lib/api";
 import { getFavorites } from "../lib/favorites";
 import { FavoriteButton } from "../components/FavoriteButton";
-import { GridCard, MiniCard, priceLabel, shortDate } from "../components/EventCards";
+import { GridCard, MiniCard, esgotado, priceLabel, shortDate } from "../components/EventCards";
 import { EventImage } from "../components/EventImage";
 import { PromoBanner } from "../components/PromoBanner";
 import { captureAttributionFromUrl } from "../lib/attribution";
@@ -203,12 +203,16 @@ export function HomeClient({
               <p className="mt-2 text-[15px] font-semibold text-white/85">
                 {highlight.venue ? `${highlight.venue.name} · ${highlight.venue.city}` : "Em breve"}
               </p>
-              {priceLabel(highlight.fromPriceCents) && (
+              {esgotado(highlight) ? (
+                <span className="mt-4 inline-block rounded-full bg-white/90 px-6 py-3 text-[15px] font-extrabold text-muted">
+                  Esgotado
+                </span>
+              ) : priceLabel(highlight.fromPriceCents) ? (
                 <span className="mt-4 inline-block rounded-full bg-white px-6 py-3 text-[15px] font-extrabold text-ink">
                   {priceLabel(highlight.fromPriceCents)}
                   {highlight.fromPriceCents ? <span className="font-bold text-muted"> · com taxas</span> : null}
                 </span>
-              )}
+              ) : null}
             </div>
           </Link>
         </section>
@@ -340,12 +344,13 @@ export function HomeClient({
                   <div className="flex items-center justify-between gap-3 bg-ink px-5 py-3.5 text-white">
                     <div className="min-w-0">
                       <p className="text-[11.5px] font-semibold text-white/65">{featureWhen(highlight.startsAt)}</p>
+                      {/* esgotado não é "Garanta seu lugar" (2026-10-12) */}
                       <p className="truncate text-[15px] font-extrabold">
-                        {priceLabel(highlight.fromPriceCents) ?? "Garanta seu lugar"}
+                        {esgotado(highlight) ? "Esgotado" : (priceLabel(highlight.fromPriceCents) ?? "Garanta seu lugar")}
                       </p>
                     </div>
                     <span className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-extrabold shadow-cta">
-                      Quero ir →
+                      {esgotado(highlight) ? "Ver evento →" : "Quero ir →"}
                     </span>
                   </div>
                 </Link>

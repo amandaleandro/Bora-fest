@@ -127,7 +127,7 @@ export class VipPaymentsService {
 
       await tx.$executeRaw`
         UPDATE vip_reservations
-        SET deposit_cents = ${nextDeposit}, payment_due_at = ${nextDeposit ? dueAt : null}, updated_at = CURRENT_TIMESTAMP
+        SET deposit_cents = ${nextDeposit}, payment_due_at = (${nextDeposit ? dueAt : null}::timestamptz AT TIME ZONE 'UTC'), updated_at = CURRENT_TIMESTAMP
         WHERE id = ${reservationId}::uuid
       `;
       await tx.auditLog.create({
@@ -258,7 +258,7 @@ export class VipPaymentsService {
         await prisma.$executeRaw`
           UPDATE vip_payments
           SET provider = ${used.provider}, external_id = ${charge!.externalId},
-              pix_qr_code_text = ${charge!.qrCodeText}, expires_at = ${charge!.expiresAt},
+              pix_qr_code_text = ${charge!.qrCodeText}, expires_at = (${charge!.expiresAt}::timestamptz AT TIME ZONE 'UTC'),
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ${setup.paymentId}::uuid
         `;

@@ -6,6 +6,7 @@ import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 import { httpRequestDuration, httpRequestsTotal } from "@borafest/observability";
+import { checkPaymentSecrets } from "@borafest/payments";
 import { AppModule } from "./app.module";
 import { UPLOADS_DIR } from "./uploads/uploads.constants";
 
@@ -23,28 +24,19 @@ function corsOrigins(): true | string[] {
   return true; // dev: localhost em qualquer porta
 }
 
-/** Falha no boot em vez de aceitar venda que o gateway não vai honrar. */
+/**
+ * Falha no boot em vez de aceitar venda que o gateway não vai honrar.
+ *
+ * 2026-10-12: confere TODO provedor em uso — padrão, Pix e cartão — e não só o
+ * PAYMENTS_PROVIDER. Com o Pix no Mercado Pago, a API subia sem
+ * MERCADOPAGO_ACCESS_TOKEN ou sem o segredo do webhook. Reserva (FALLBACK) sem
+ * chave só avisa no log: a venda principal funciona.
+ */
 function assertPaymentSecrets(): void {
-  const provider = process.env.PAYMENTS_PROVIDER ?? "mock";
-  const missing: string[] = [];
-
-  if (provider === "pagarme") {
-    if (!process.env.PAGARME_SECRET_KEY) missing.push("PAGARME_SECRET_KEY");
-    const hasWebhookAuth =
-      (process.env.PAGARME_WEBHOOK_BASIC_USER && process.env.PAGARME_WEBHOOK_BASIC_PASSWORD) ||
-      process.env.PAGARME_WEBHOOK_SECRET;
-    if (!hasWebhookAuth) missing.push("PAGARME_WEBHOOK_BASIC_USER/PASSWORD");
-  } else if (provider === "asaas") {
-    if (!process.env.ASAAS_API_KEY) missing.push("ASAAS_API_KEY");
-    if (!process.env.ASAAS_WEBHOOK_TOKEN) missing.push("ASAAS_WEBHOOK_TOKEN");
-  } else {
-    return;
-  }
-
-  if (missing.length > 0) {
-    throw new Error(
-      `PAYMENTS_PROVIDER=${provider} exige: ${missing.join(", ")} — sem isso o webhook é recusado e o pedido nunca confirma`,
-    );
+  const { errors, warnings } = checkPaymentSecrets(process.env);
+  for (const aviso of warnings) console.warn(`[boot] pagamento: ${aviso}`);
+  if (errors.length > 0) {
+    throw new Error(`Configuração de pagamento incompleta: ${errors.join(" | ")}`);
   }
 }
 

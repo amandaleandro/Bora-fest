@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { loteNaJanela } from "../common/janela-do-lote";
 import { prisma, Prisma } from "@borafest/database";
 
 const publicEventSelect = {
@@ -18,6 +19,8 @@ const publicEventSelect = {
           priceCents: true,
           feeCents: true,
           feeMode: true,
+          // janela inteira (2026-10-12): lote que ainda não abriu também sai do preço
+          startsAt: true,
           endsAt: true,
           // estoque (2026-10-11): o card só anuncia lote que ainda dá pra pegar
           capacity: true,
@@ -52,6 +55,7 @@ function toEventCard(event: {
       priceCents: number;
       feeCents: number;
       feeMode: string;
+      startsAt: Date | null;
       endsAt: Date | null;
       capacity: number;
       soldCount: number;
@@ -63,11 +67,14 @@ function toEventCard(event: {
   // ESGOTADO FORA DO CARD (2026-10-11): o "Grátis"/"a partir de" da Casa
   // seguia anunciando lote que já tinha acabado. Tudo esgotado = sem preço
   // (null), que o site já mostra como card sem preço.
-  const lots = event.ticketTypes
-    .flatMap((type) => type.lots)
-    .filter((lot) => lot.endsAt === null || lot.endsAt.getTime() > now)
+  const ativos = event.ticketTypes.flatMap((type) => type.lots);
+  const lots = ativos
+    .filter((lot) => loteNaJanela(lot, now))
     .filter(loteComEstoque);
   const totals = lots.map((lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0));
+  // ESGOTADO DITO NO CARD (2026-10-12): mesma regra da vitrine
+  // (catalog.service) — tem lote ACTIVE público e NENHUM tem estoque.
+  const soldOut = ativos.length > 0 && !ativos.some(loteComEstoque);
   const futureLotEnds = lots
     .map((lot) => lot.endsAt)
     .filter((date): date is Date => date !== null)
@@ -84,6 +91,7 @@ function toEventCard(event: {
     venue: event.venue,
     fromPriceCents: totals.length > 0 ? Math.min(...totals) : null,
     currentLotEndsAt: futureLotEnds[0] ?? null,
+    soldOut,
   };
 }
 
@@ -145,6 +153,12 @@ export class HousesService {
     const safePageSize = Math.min(100, Math.max(1, Math.floor(pageSize)));
     const offset = (safePage - 1) * safePageSize;
     const now = new Date();
+    // Fuso (2026-10-12): ends_at é TIMESTAMP sem fuso gravado em UTC pelo
+    // Prisma, mas um Date no SQL cru chega como timestamptz e o Postgres
+    // converte pelo fuso da SESSÃO. Num banco em America/Sao_Paulo o evento
+    // vencido "durava" mais 3 h no ranking abaixo e a contagem (ORM) discordava
+    // da lista. Comparar sempre em UTC deixa o resultado igual em qualquer fuso.
+    const nowUtc = Prisma.sql`(${now}::timestamptz AT TIME ZONE 'UTC')`;
     const normalizedQuery = query?.trim();
     const pattern = normalizedQuery ? `%${normalizedQuery}%` : null;
     const eventWhere = {
@@ -212,7 +226,7 @@ export class HousesService {
               WHERE se.organization_id = o.id
                 AND se.status = 'PUBLISHED'::"EventStatus"
                 AND se.is_private = false
-                AND se.ends_at > ${now}
+                AND se.ends_at > ${nowUtc}
                 AND se.title ILIKE ${pattern}
             )
           )
@@ -228,7 +242,7 @@ export class HousesService {
           ON e.organization_id = o.id
           AND e.status = 'PUBLISHED'::"EventStatus"
           AND e.is_private = false
-          AND e.ends_at > ${now}
+          AND e.ends_at > ${nowUtc}
         ${cityJoin}
         LEFT JOIN organization_follows f ON f.organization_id = o.id
         WHERE o.status NOT IN ('SUSPENDED'::"OrganizationStatus", 'BLOCKED'::"OrganizationStatus")

@@ -5,10 +5,61 @@ on:
     branches: [main]
   pull_request:
 
+# push novo na mesma branch cancela a rodada anterior — economiza minutos da conta
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Rede de testes (2026-10-12): os testes de integração da API e do worker falam
+# com Postgres e Redis de verdade. Antes o CI chamava a suíte sem banco — mesmo
+# com a conta do GitHub em dia, ia falhar sempre. Agora são dois jobs em
+# paralelo: "testes" (com Postgres 16 + Redis 7, migrações e seed iguais ao que
+# a imagem da API roda em produção) e "build" (os 5 alvos que vão pro EasyPanel).
+
 jobs:
-  build-test:
+  testes:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: borafest
+          POSTGRES_PASSWORD: borafest
+          POSTGRES_DB: borafest_test
+          # o SQL cru do sistema assume a sessão do banco em UTC, como o
+          # Postgres de produção (imagem Docker padrão) — fixado aqui de propósito
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U borafest -d borafest_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://borafest:borafest@localhost:5432/borafest_test?schema=public
+      REDIS_URL: redis://localhost:6379/0
+      SESSION_JWT_SECRET: segredo-so-de-ci
+      TZ: UTC
+      # teste nunca fala com gateway, e-mail, WhatsApp ou push de verdade
+      PAYMENTS_PROVIDER: mock
+      EMAIL_PROVIDER: devlog
+      WHATSAPP_PROVIDER: devlog
+      PUSH_PROVIDER: devlog
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,24 +78,82 @@ jobs:
       - name: Gerar Prisma Client
         run: pnpm --filter @borafest/database exec prisma generate
 
-      - name: Build
-        run: pnpm build
+      # a API e o worker importam os pacotes pelo dist/ — sem isso tudo cai em MODULE_NOT_FOUND
+      - name: Build dos pacotes
+        run: pnpm -r --filter "./packages/*" run build
 
-      - name: Testes unitários
-        run: pnpm test
+      - name: Migrações no banco de teste
+        run: pnpm --filter @borafest/database exec prisma migrate deploy
 
-      - name: Typecheck do app mobile
-        run: pnpm --filter @borafest/mobile-checkin typecheck
+      # papéis base (owner, admin...) que as fixtures dos testes usam
+      - name: Seed do banco de teste
+        id: banco
+        run: pnpm --filter @borafest/database run seed
 
-      # compatibilidade criptográfica servidor ↔ app de check-in
-      - name: Verificação cruzada do QR (node assina, app verifica)
+      # Cada grupo de testes é um passo separado e roda mesmo se o anterior
+      # ficou vermelho (desde que o banco tenha subido), para o relatório
+      # mostrar todas as falhas de uma vez. API e worker em passos seguidos,
+      # nunca juntos: dividem o mesmo banco. Chama o pnpm direto (não o turbo)
+      # para NODE_ENV e as variáveis acima chegarem aos testes sem filtro.
+      - name: Testes dos pacotes (pagamentos, ingressos, notificações)
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: pnpm -r --filter "./packages/*" run test
+
+      - name: Testes de integração da API
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: pnpm --filter @borafest/api run test
+
+      - name: Testes de integração do worker
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: pnpm --filter @borafest/worker run test
+
+      # regras puras do site (preço/grátis, CPF, atribuição, endereço do site);
+      # o checkout não tem tsx próprio, usa o da API
+      - name: Testes de regra do site
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
+        run: apps/api/node_modules/.bin/tsx --test apps/checkout/lib/*.test.ts
+
+      # compatibilidade criptográfica: o servidor assina e a PORTARIA WEB
+      # (apps/checkout/lib/portaria, o que roda na porta hoje) verifica offline.
+      # Antes conferia contra o app nativo apps/mobile-checkin, que não vai pro ar.
+      - name: Verificação cruzada do QR (servidor assina, portaria verifica)
+        if: ${{ !cancelled() && steps.banco.outcome == 'success' }}
         run: |
           cd packages/tickets && npx tsx -e "
           import { generateEventKeyPair, signTicketToken } from './src/qr-token';
-          import { verifyTicketTokenSignature } from '../../apps/mobile-checkin/src/qr/verifyTicketToken';
+          import { verifyTicketTokenSignature } from '../../apps/checkout/lib/portaria/crypto';
           const pair = generateEventKeyPair();
+          const outro = generateEventKeyPair();
           const token = signTicketToken({ v: 1, eid: 'e', tid: 't', lid: 'l', n: 'n', iat: 1 }, pair.privateKeyPem);
           if (!verifyTicketTokenSignature(token, pair.publicKeyPem)) { throw new Error('token válido não verificou'); }
           if (verifyTicketTokenSignature(token.slice(0, -4) + 'AAAA', pair.publicKeyPem)) { throw new Error('token adulterado passou'); }
+          if (verifyTicketTokenSignature(token, outro.publicKeyPem)) { throw new Error('token de outro evento passou'); }
           console.log('verificação cruzada OK');
           "
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Gerar Prisma Client
+        run: pnpm --filter @borafest/database exec prisma generate
+
+      # API, worker, site, painel e admin — os apps nativos (mobile-*) não têm
+      # build e não vão pro ar; o typecheck do mobile-checkin saiu do CI em
+      # 2026-10-12 (a portaria é web desde julho)
+      - name: Build de produção
+        run: pnpm build

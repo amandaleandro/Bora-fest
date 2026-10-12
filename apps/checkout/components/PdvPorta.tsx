@@ -33,6 +33,8 @@ import type { Session } from "../lib/portaria/types";
 
 type Pagamento = "dinheiro" | "pix";
 type Fase = "venda" | "pix" | "pronto";
+/** o que aconteceu com o Pix pendente que ficou para trás (2026-10-12) */
+type ResolucaoPix = { estado: "livre" } | { estado: "pago" } | { estado: "falhou"; motivo: string };
 
 interface Props {
   eventId: string;
@@ -151,6 +153,15 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     if (!chaveRef.current) chaveRef.current = crypto.randomUUID();
     return `${chaveRef.current}:${forma}`;
   }
+  // PIX PENDENTE ABANDONADO (2026-10-12): quando o operador mudava lote,
+  // pessoas, nome ou CPF com um Pix pendente guardado, a tela só esquecia o
+  // pedido — ele seguia PENDENTE no servidor, segurando a vaga por 30 min, e
+  // se tivesse sido pago ninguém liberava a entrada. Agora o pedido vai para
+  // cá, o cancelamento sai na hora e QUALQUER venda seguinte espera por ele.
+  // Guarda pessoas/total do pedido de ANTES: a tela já mostra o pedido novo.
+  const pedidoResumoRef = useRef<{ pessoas: number; totalCents: number } | null>(null);
+  const pixAbandonadoRef = useRef<{ venda: PdvSaleResult; pessoas: number; totalCents: number } | null>(null);
+  const resolvendoAbandonadoRef = useRef<Promise<ResolucaoPix> | null>(null);
   const nomeRef = useRef<HTMLInputElement>(null);
   const cpfRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +264,16 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   // com o cliente podendo pagar aquele QR.
   useEffect(() => {
     if (fase === "venda") {
+      // o pedido mudou: o Pix pendente de antes é CANCELADO no servidor, não
+      // esquecido (2026-10-12) — ver pixAbandonadoRef
+      if (pedido) {
+        guardarPixAbandonado(pedido);
+        void resolverPixAbandonado().then((r) => {
+          if (r.estado === "falhou") {
+            setErro(`Não deu para cancelar o Pix que ficou pendente (${r.motivo}). Ele será conferido antes da próxima venda.`);
+          }
+        });
+      }
       setPedido(null);
       chaveRef.current = null;
     }
@@ -377,6 +398,70 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     [ocupado, session, gateId, onCheckedIn],
   );
 
+  // --- Pix pendente que ficou para trás (2026-10-12) ---------------------------
+  function guardarPixAbandonado(venda: PdvSaleResult) {
+    const resumo = pedidoResumoRef.current ?? { pessoas: qtd, totalCents };
+    pixAbandonadoRef.current = { venda, ...resumo };
+  }
+
+  /**
+   * Cancela no servidor o Pix pendente guardado, e diz o que aconteceu. Uma
+   * chamada só por vez: o efeito que dispara ao mudar o pedido e o toque de
+   * cobrar que vem logo depois esperam a MESMA resposta.
+   *
+   * - livre: cancelou (ou já tinha expirado) — pode vender.
+   * - pago: o Pix tinha caído — a venda vira a do Pix, com a entrada liberada
+   *   (mesmo tratamento do botão Dinheiro). Não vende de novo.
+   * - falhou: sem resposta não dá para saber se o Pix caiu; vender por cima
+   *   pode cobrar duas vezes. O pedido fica guardado para a próxima tentativa.
+   */
+  function resolverPixAbandonado(): Promise<ResolucaoPix> {
+    const pendente = pixAbandonadoRef.current;
+    if (!pendente) return Promise.resolve({ estado: "livre" });
+    if (resolvendoAbandonadoRef.current) return resolvendoAbandonadoRef.current;
+    const p = (async (): Promise<ResolucaoPix> => {
+      if (!accountToken) return { estado: "falhou", motivo: "sessão expirada" };
+      let r: { canceled: boolean; status: string };
+      try {
+        r = await api.cancelPdvPixSale(eventId, pendente.venda.orderId, accountToken);
+      } catch (e) {
+        // recusa DEFINITIVA do servidor (pedido não existe, não é deste
+        // vendedor): não há o que cancelar daqui — segurar a porta para sempre
+        // seria pior. Rede/servidor fora ou sessão vencida (401: depois de
+        // entrar de novo o cancelamento passa): guarda e tenta de novo.
+        const definitiva =
+          e instanceof ApiError && e.status >= 400 && e.status < 500 && ![401, 408, 429].includes(e.status);
+        if (definitiva) {
+          pixAbandonadoRef.current = null;
+          return { estado: "livre" };
+        }
+        return { estado: "falhou", motivo: e instanceof ApiError ? e.message : "sem conexão" };
+      }
+      pixAbandonadoRef.current = null;
+      if (!r.canceled && ["PAID", "FULFILLED"].includes(r.status)) {
+        paradoRef.current = false;
+        await liberar(
+          pendente.venda.orderId,
+          pendente.venda.publicToken,
+          "pix",
+          pendente.pessoas,
+          pendente.totalCents,
+          `O Pix de antes já tinha sido pago — a venda ficou no Pix (${pendente.pessoas} ${
+            pendente.pessoas === 1 ? "pessoa" : "pessoas"
+          }, ${reais(pendente.totalCents)}). Não cobre de novo; se já recebeu em dinheiro, devolva.`,
+        );
+        return { estado: "pago" };
+      }
+      // pedido morto: a chave da tentativa antiga replicaria ele no servidor
+      chaveRef.current = null;
+      return { estado: "livre" };
+    })().finally(() => {
+      resolvendoAbandonadoRef.current = null;
+    });
+    resolvendoAbandonadoRef.current = p;
+    return p;
+  }
+
   // --- receber ----------------------------------------------------------------
   async function receberDinheiro() {
     paradoRef.current = false;
@@ -392,33 +477,17 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       // ingresso em dobro. Mesmo tratamento do "Cancelar" da tela do Pix:
       // pagou → a venda é a do Pix; não deu para cancelar → não vende.
       if (pedido?.orderId) {
-        const pendente = pedido;
-        let cancelamento: { canceled: boolean; status: string };
-        try {
-          cancelamento = await api.cancelPdvPixSale(eventId, pendente.orderId, accountToken!);
-        } catch (e) {
-          // sem a resposta não dá para saber se o Pix caiu: vender em dinheiro
-          // por cima pode cobrar duas vezes
-          setErro(
-            `Não deu para cancelar o Pix que ficou pendente (${
-              e instanceof ApiError ? e.message : "sem conexão"
-            }). Nada foi registrado em dinheiro — toque em Dinheiro de novo.`,
-          );
-          setOcupado(null);
-          return;
-        }
-        if (!cancelamento.canceled && ["PAID", "FULFILLED"].includes(cancelamento.status)) {
-          await liberar(
-            pendente.orderId,
-            pendente.publicToken,
-            "pix",
-            qtd,
-            totalCents,
-            "Este Pix já tinha sido pago — a venda ficou no Pix. Não cobre em dinheiro; se já recebeu, devolva.",
-          );
-          return;
-        }
+        guardarPixAbandonado(pedido);
         setPedido(null);
+      }
+      const antes = await resolverPixAbandonado();
+      if (antes.estado === "pago") return; // a tela já é a da venda no Pix
+      if (antes.estado === "falhou") {
+        setErro(
+          `Não deu para cancelar o Pix que ficou pendente (${antes.motivo}). Nada foi registrado em dinheiro — toque em Dinheiro de novo.`,
+        );
+        setOcupado(null);
+        return;
       }
       const venda = await api.createPdvCashSale(eventId, payload(), accountToken!, chaveDaTentativa("dinheiro"));
       await liberar(venda.orderId, venda.publicToken, "dinheiro", qtd, totalCents);
@@ -430,14 +499,31 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     }
   }
 
-  async function receberPix() {
+  /** @param novo ignora o pedido guardado (o "Gerar de novo" de um Pix expirado) */
+  async function receberPix(novo = false) {
     paradoRef.current = false;
     setOcupado("gerando-pix");
     setErro(null);
     setPixExpirado(false);
     try {
+      // um Pix pendente de um pedido ANTERIOR (o operador mudou algo) precisa
+      // estar resolvido antes de gerar outro (2026-10-12)
+      const antes = await resolverPixAbandonado();
+      if (antes.estado === "pago") return; // a tela já é a da venda no Pix
+      if (antes.estado === "falhou") {
+        setErro(`Não deu para cancelar o Pix que ficou pendente (${antes.motivo}). Nenhum Pix novo foi gerado — toque em Pix de novo.`);
+        setOcupado(null);
+        return;
+      }
       // retry reaproveita o pedido pendente (não come estoque de novo)
-      const venda = pedido ?? (await api.createPdvPixSale(eventId, payload(), accountToken!, chaveDaTentativa("pix")));
+      const guardado = novo ? null : pedido;
+      let venda: PdvSaleResult;
+      if (guardado) {
+        venda = guardado;
+      } else {
+        venda = await api.createPdvPixSale(eventId, payload(), accountToken!, chaveDaTentativa("pix"));
+        pedidoResumoRef.current = { pessoas: qtd, totalCents };
+      }
       setPedido(venda);
       const doc = soDigitos(cpf);
       const pix = await api.createPixPayment(venda.orderId, { payerDocument: doc.length >= 11 ? doc : undefined });
@@ -569,6 +655,31 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       return;
     }
     proximaVenda();
+  }
+
+  /**
+   * "GERAR DE NOVO" NO PIX EXPIRADO (2026-10-12): a tela dizia "Gere de novo"
+   * e só oferecia "Voltar", que zerava nome e pessoas — o operador redigitava
+   * tudo com a fila esperando. Aqui mantém ingresso, pessoas, nome e CPF e
+   * gera um pedido NOVO (o expirado não volta; chave nova, senão o servidor
+   * replicaria o pedido morto).
+   */
+  function gerarPixDeNovo() {
+    if (ocupado) return;
+    paradoRef.current = true;
+    chaveRef.current = null;
+    setPedido(null);
+    setPixCode(null);
+    setPixExpirado(false);
+    setCopiado(false);
+    setFase("venda");
+    const b = bloqueio("pix");
+    if (b) {
+      setErro(b);
+      return;
+    }
+    setErro(null);
+    void receberPix(true);
   }
 
   function proximaVenda() {
@@ -731,7 +842,16 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
         {pixExpirado ? (
           <>
             <p className="mt-6 text-[20px] font-extrabold">Pix expirou</p>
-            <p className="mt-1 text-[13px] font-medium text-white/55">Nenhum valor foi cobrado. Gere de novo.</p>
+            <p className="mt-1 text-[13px] font-medium text-white/55">
+              Nenhum valor foi cobrado. Gere de novo — ingresso, pessoas e nome continuam.
+            </p>
+            <button
+              onClick={gerarPixDeNovo}
+              disabled={!!ocupado}
+              className="mx-auto mt-5 h-[56px] w-full rounded-2xl bg-primary text-[16px] font-extrabold text-white shadow-cta disabled:opacity-50"
+            >
+              Gerar de novo · {reais(totalCents)}
+            </button>
           </>
         ) : (
           <>
@@ -774,7 +894,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
           disabled={ocupado === "registrando"}
           className="mt-auto h-12 w-full flex-none rounded-2xl border-[1.5px] border-white/15 text-[14px] font-bold text-white/70 disabled:opacity-50"
         >
-          {pixExpirado ? "Voltar" : ocupado === "registrando" ? "Cancelando..." : "Cancelar · nada foi cobrado"}
+          {pixExpirado ? "Voltar · nova venda" : ocupado === "registrando" ? "Cancelando..." : "Cancelar · nada foi cobrado"}
         </button>
       </div>
     );

@@ -4,6 +4,7 @@ import { subscribeRankingUpdates } from "@borafest/queues";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { DashboardService } from "./dashboard.service";
+import { buscaDeParticipantes, paginaDeParticipantes } from "./participantes-pagina";
 
 @Controller("v1/events/:eventId")
 @UseGuards(SessionGuard)
@@ -75,9 +76,19 @@ export class DashboardController {
     });
   }
 
+  /** por página (2026-10-12): ?page=&pageSize=&q= — devolve { total, page, pageSize, participants } */
   @Get("participants")
-  listParticipants(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
-    return this.dashboardService.listParticipants(eventId, userId);
+  listParticipants(
+    @Param("eventId") eventId: string,
+    @CurrentUserId() userId: string,
+    @Query("page") page: string | undefined,
+    @Query("pageSize") pageSize: string | undefined,
+    @Query("q") q: string | undefined,
+  ) {
+    return this.dashboardService.listParticipants(eventId, userId, {
+      ...paginaDeParticipantes(page, pageSize),
+      q: buscaDeParticipantes(q),
+    });
   }
 
   @Get("participants/export")

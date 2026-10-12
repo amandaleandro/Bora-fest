@@ -618,8 +618,18 @@ export const dashboardApi = {
       controller.abort();
     };
   },
-  participants: (token: string, eventId: string) =>
-    request<Participant[]>(`/v1/events/${eventId}/participants`, { token }),
+  /** por página (2026-10-12): a rota deixou de devolver todos os ingressos de uma vez; `q` busca no servidor */
+  participants: (token: string, eventId: string, params?: { page?: number; pageSize?: number; q?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.pageSize) query.set("pageSize", String(params.pageSize));
+    if (params?.q?.trim()) query.set("q", params.q.trim());
+    const qs = query.toString();
+    return request<{ total: number; page: number; pageSize: number; participants: Participant[] }>(
+      `/v1/events/${eventId}/participants${qs ? `?${qs}` : ""}`,
+      { token },
+    );
+  },
   /**
    * O export exige sessão (SessionGuard) — um <a href> puro não manda o
    * Authorization header, então baixamos via fetch e disparamos o download

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Restauração do Postgres de produção a partir de um backup gerado por backup.sh.
+# (2026-10-12) Só para o caminho standalone (docker-compose.prod.yml). No
+# EasyPanel: ensaio com infra/scripts/restore-drill.sh e restauração de
+# verdade (sem apagar o banco atual) em infra/scripts/README.md.
 # Uso: infra/scripts/restore.sh backups/borafest-2026-07-23_030000.sql.gz
 #
 # ATENÇÃO: isso APAGA o banco atual (dropdb + createdb) antes de restaurar.

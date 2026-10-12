@@ -1,12 +1,19 @@
 import { Prisma, prisma, type VipPaymentRow } from "@borafest/database";
 import type { GatewayPaymentStatus } from "./types";
-import { addBusinessDays } from "./apply-status";
+import { addBusinessDays, lookupGatewayPaidAmountCents } from "./apply-status";
 import { computePlatformFeeCents } from "./fees";
 
 export interface ApplyVipStatusResult {
   paymentChanged: boolean;
   credited: boolean;
   orphaned: boolean;
+  /** o gateway informou valor pago MENOR que o cobrado — nada foi faturado (2026-10-12) */
+  amountMismatch?: boolean;
+}
+
+export interface ApplyVipStatusOptions {
+  /** mesma semântica de ApplyStatusOptions.paidAmountCents (número / null / ausente) */
+  paidAmountCents?: number | null;
 }
 
 type VipContext = {
@@ -61,6 +68,7 @@ export async function applyVipGatewayStatus(
   paymentId: string,
   status: GatewayPaymentStatus,
   occurredAt?: Date,
+  options?: ApplyVipStatusOptions,
 ): Promise<ApplyVipStatusResult> {
   if (status === "PENDING") return { paymentChanged: false, credited: false, orphaned: false };
 
@@ -83,18 +91,123 @@ export async function applyVipGatewayStatus(
     return { paymentChanged: changed > 0, credited: false, orphaned: false };
   }
 
-  if (status === "PAID") return applyPaid(paymentId, occurredAt);
+  if (status === "PAID") {
+    // a consulta ao gateway (quando o chamador não trouxe o valor) fica FORA
+    // da transação — nunca segurar a trava da linha esperando a rede
+    const informado = options?.paidAmountCents;
+    const paidAmountCents =
+      informado === null
+        ? undefined
+        : informado !== undefined
+          ? informado
+          : await resolveVipPaidAmountCents(paymentId);
+    return applyPaid(paymentId, occurredAt, paidAmountCents);
+  }
   if (status === "REFUNDED" || status === "CHARGEBACK") return applyReversal(paymentId, status);
 
   return { paymentChanged: false, credited: false, orphaned: false };
 }
 
-async function applyPaid(paymentId: string, occurredAt?: Date): Promise<ApplyVipStatusResult> {
+/** Valor pago segundo o gateway, só se o PAID ainda vai mudar algo (2026-10-12). */
+async function resolveVipPaidAmountCents(paymentId: string): Promise<number | undefined> {
+  const rows = await prisma.$queryRaw<Array<{ provider: string; externalId: string | null; status: string }>>`
+    SELECT provider, external_id AS "externalId", status::text AS status
+    FROM vip_payments
+    WHERE id = ${paymentId}::uuid
+    LIMIT 1
+  `;
+  const payment = rows[0];
+  if (!payment?.externalId) return undefined;
+  if (!NON_MONETARY.includes(payment.status as (typeof NON_MONETARY)[number])) return undefined;
+  return lookupGatewayPaidAmountCents(payment.provider, payment.externalId, paymentId);
+}
+
+/**
+ * VIP pago a MENOR (2026-10-12): mesma regra do ingresso — não fatura, a
+ * reserva não é confirmada por este pagamento e o backoffice é alertado
+ * (auditoria + outbox `vip.payment.amount_mismatch`). Idempotente pela
+ * auditoria, sob a trava da linha (paymentForUpdate); não grava nada na
+ * tabela vip_payments.
+ */
+async function registerVipAmountMismatch(
+  tx: Prisma.TransactionClient,
+  payment: VipPaymentRow,
+  paidAmountCents: number,
+): Promise<void> {
+  const anteriores = await tx.auditLog.findMany({
+    where: { action: "vip_payment.amount_mismatch", entityType: "vip_payment", entityId: payment.id },
+    select: { metadata: true },
+  });
+  const jaAlertado = anteriores.some((linha) => {
+    const meta = linha.metadata;
+    return (
+      !!meta &&
+      typeof meta === "object" &&
+      !Array.isArray(meta) &&
+      (meta as Prisma.JsonObject).paidCents === paidAmountCents
+    );
+  });
+  if (jaAlertado) return;
+
+  const context = await reservationContext(tx, payment.vipReservationId);
+  await tx.auditLog.create({
+    data: {
+      action: "vip_payment.amount_mismatch",
+      entityType: "vip_payment",
+      entityId: payment.id,
+      organizationId: context?.organizationId ?? null,
+      metadata: {
+        vipPaymentId: payment.id,
+        reservationId: payment.vipReservationId,
+        provider: payment.provider,
+        externalId: payment.externalId,
+        expectedCents: payment.amountCents,
+        paidCents: paidAmountCents,
+        diferencaCents: payment.amountCents - paidAmountCents,
+        resumo:
+          "O gateway informou um valor pago menor que o cobrado. A reserva VIP NÃO foi confirmada por este pagamento: cobre a diferença ou devolva o valor recebido.",
+      },
+    },
+  });
+  await tx.outboxEvent.create({
+    data: {
+      aggregateType: "vip_payment",
+      aggregateId: payment.id,
+      eventType: "vip.payment.amount_mismatch",
+      payload: {
+        vipPaymentId: payment.id,
+        reservationId: payment.vipReservationId,
+        expectedCents: payment.amountCents,
+        paidCents: paidAmountCents,
+      },
+    },
+  });
+  console.warn(
+    `[payments] VIP pago a menor — reserva ${payment.vipReservationId} NÃO confirmada (pagamento ${payment.id}: cobrado ${payment.amountCents}, pago ${paidAmountCents} centavos)`,
+  );
+}
+
+async function applyPaid(
+  paymentId: string,
+  occurredAt?: Date,
+  paidAmountCents?: number,
+): Promise<ApplyVipStatusResult> {
   return prisma.$transaction(async (tx) => {
     const result: ApplyVipStatusResult = { paymentChanged: false, credited: false, orphaned: false };
     const payment = await paymentForUpdate(tx, paymentId);
     if (!payment) return result;
     if (!NON_MONETARY.includes(payment.status as (typeof NON_MONETARY)[number])) return result;
+
+    // conferência de valor (2026-10-12) — ver applyPaid do ingresso
+    if (
+      paidAmountCents !== undefined &&
+      Number.isFinite(paidAmountCents) &&
+      paidAmountCents < payment.amountCents
+    ) {
+      result.amountMismatch = true;
+      await registerVipAmountMismatch(tx, payment, paidAmountCents);
+      return result;
+    }
 
     const paidAt = occurredAt ?? new Date();
     const changed = await tx.$executeRaw`

@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, prisma } from "@borafest/database";
+import { OrderStatus, prisma, type Prisma } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
 import { OrgAccessService } from "../common/org-access.service";
 import { getEventNetCents } from "../common/ledger";
 import { ONDE_PEDIDO_COM_VALOR, vendaDeuCerto, vendaFalhou } from "../common/conta-como-venda";
+import { PARTICIPANTES_POR_PAGINA, filtroDeParticipantes } from "./participantes-pagina";
 
 const PAID_ORDER_STATUSES = ["PAID", "FULFILLED"] as const;
 
@@ -345,14 +346,35 @@ export class DashboardService {
     await this.assertEventAccess(eventId, actorUserId);
   }
 
-  async listParticipants(eventId: string, actorUserId: string) {
+  /**
+   * Lista de participantes POR PÁGINA (2026-10-12) — ver participantes-pagina.ts.
+   * Antes devolvia todos os ingressos do evento numa resposta só.
+   */
+  async listParticipants(
+    eventId: string,
+    actorUserId: string,
+    options: { page: number; pageSize: number; q: string | null } = {
+      page: 1,
+      pageSize: PARTICIPANTES_POR_PAGINA,
+      q: null,
+    },
+  ) {
     await this.assertEventAccess(eventId, actorUserId, true);
-    return this.fetchParticipants(eventId);
+    const where = filtroDeParticipantes(eventId, options.q);
+    const [total, participants] = await Promise.all([
+      prisma.ticket.count({ where }),
+      this.fetchParticipants(where, {
+        skip: (options.page - 1) * options.pageSize,
+        take: options.pageSize,
+      }),
+    ]);
+    return { total, page: options.page, pageSize: options.pageSize, participants };
   }
 
   async exportParticipantsCsv(eventId: string, actorUserId: string): Promise<string> {
     await this.assertEventAccess(eventId, actorUserId, true);
-    const participants = await this.fetchParticipants(eventId);
+    // CSV segue com a lista INTEIRA, sem página (2026-10-12)
+    const participants = await this.fetchParticipants({ eventId });
 
     const header = "codigo,nome,email,tipo,lote,status,checkin_em";
     const rows = participants.map((p) =>
@@ -421,11 +443,13 @@ export class DashboardService {
     return [header, ...rows].join("\n");
   }
 
-  private fetchParticipants(eventId: string) {
+  private fetchParticipants(where: Prisma.TicketWhereInput, pagina?: { skip: number; take: number }) {
     return prisma.ticket
       .findMany({
-        where: { eventId },
+        where,
+        // (orderItemId, seq) é único: a ordem é estável entre uma página e outra
         orderBy: [{ orderItemId: "asc" }, { seq: "asc" }],
+        ...(pagina ?? {}),
         select: {
           id: true,
           code: true,

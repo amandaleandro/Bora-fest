@@ -1,9 +1,21 @@
 import { withContext } from "@borafest/observability";
-import { NotificationSendError, type EmailMessage, type EmailSender } from "./types";
+import { NotificationSendError, type EmailMessage, type EmailSendResult, type EmailSender } from "./types";
 
 const log = withContext({ module: "notifications-resend" });
 
 export const RESEND_PROVIDER = "resend";
+
+// O Resend recusa (422) a mensagem inteira com tag fora deste formato — uma
+// tag ruim nunca pode custar o e-mail, então ela é descartada (2026-10-12).
+const TAG_VALIDA = /^[A-Za-z0-9_-]{1,256}$/;
+
+/** Tags no formato da API do Resend, só as válidas. */
+export function resendTags(tags: Record<string, string> | undefined): { name: string; value: string }[] {
+  if (!tags) return [];
+  return Object.entries(tags)
+    .filter(([name, value]) => TAG_VALIDA.test(name) && typeof value === "string" && TAG_VALIDA.test(value))
+    .map(([name, value]) => ({ name, value }));
+}
 
 /**
  * Adapter real de e-mail (Resend — https://resend.com/docs/api-reference).
@@ -16,7 +28,7 @@ export const RESEND_PROVIDER = "resend";
 export class ResendEmailSender implements EmailSender {
   readonly provider = RESEND_PROVIDER;
 
-  async send(message: EmailMessage): Promise<void> {
+  async send(message: EmailMessage): Promise<EmailSendResult> {
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.EMAIL_FROM;
     if (!apiKey || !from) {
@@ -25,6 +37,7 @@ export class ResendEmailSender implements EmailSender {
       );
     }
 
+    const tags = resendTags(message.tags);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -37,6 +50,7 @@ export class ResendEmailSender implements EmailSender {
         subject: message.subject,
         html: message.html,
         text: message.text,
+        ...(tags.length > 0 ? { tags } : {}),
       }),
     });
 
@@ -46,6 +60,13 @@ export class ResendEmailSender implements EmailSender {
       throw new NotificationSendError(`Resend respondeu ${response.status}: ${body.slice(0, 200)}`);
     }
 
-    log.info({ to: message.to, subject: message.subject }, "e-mail enviado pelo Resend");
+    // ENTREGA REAL (2026-10-12): o id devolvido é a chave dos eventos do
+    // webhook (entregue/devolvido/reclamação). Resposta sem id NÃO vira erro:
+    // o e-mail já foi aceito, e lançar faria o worker mandar de novo.
+    const aceito = (await response.json().catch(() => null)) as { id?: unknown } | null;
+    const providerMessageId = typeof aceito?.id === "string" && aceito.id ? aceito.id : undefined;
+
+    log.info({ to: message.to, subject: message.subject, providerMessageId }, "e-mail enviado pelo Resend");
+    return { providerMessageId };
   }
 }

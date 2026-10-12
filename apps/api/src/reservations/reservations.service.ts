@@ -48,6 +48,7 @@ export class ReservationsService {
           })
         : null;
 
+    const agora = Date.now();
     for (const item of input.items) {
       const lot = lots.find((l) => l.id === item.ticketLotId);
       if (!lot || lot.ticketType.eventId !== input.eventId) {
@@ -64,6 +65,20 @@ export class ReservationsService {
       // restrito por link: só com o código atual do lote (trocar o link mata o antigo)
       if (lot.inviteMode === "LINK" && (!input.inviteToken || input.inviteToken !== lot.inviteToken)) {
         throw new BadRequestException("Este ingresso é só para convidados. Abra o link que você recebeu.");
+      }
+      // JANELA DO LOTE (2026-10-12): o site mostrava "lote termina em", mas a
+      // reserva não conferia início nem fim — o 1º lote seguia vendendo depois
+      // da data. Vem depois das travas de acesso para não revelar as datas de
+      // um lote restrito a quem não tem o link.
+      if (lot.startsAt && lot.startsAt.getTime() > agora) {
+        throw new BadRequestException(
+          `Este lote ainda não abriu (${lot.name}). Atualize a página para ver os ingressos à venda.`,
+        );
+      }
+      if (lot.endsAt && lot.endsAt.getTime() <= agora) {
+        throw new BadRequestException(
+          `Este lote já encerrou (${lot.name}). Atualize a página para ver os ingressos à venda.`,
+        );
       }
       // meia-entrada é opt-in do produtor — sem a flag, ninguém compra meia
       if (item.halfPrice && !lot.halfPriceEnabled) {

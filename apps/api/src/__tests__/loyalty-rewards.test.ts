@@ -83,6 +83,10 @@ describe("N9.1 — recompensas de fidelidade", () => {
     assert.equal(Number(balance[0]?.points ?? 0n), 200);
   });
 
+  // Fuso (2026-10-12): falhava sempre com o Postgres em America/Sao_Paulo — o
+  // 1º uso devolvia o horário real e o 2º lia do banco um valor 3 h menor,
+  // porque used_at era gravado pelo fuso da sessão. O serviço agora grava em
+  // UTC; o caso precisa passar com o banco em qualquer fuso.
   it("usar o mesmo voucher novamente é idempotente", async () => {
     const person = await customer(`loyalty-voucher-${Date.now()}@example.com`, 1000);
     const reward = await rewards.createReward(fixture.organization.id, ownerId, { name: "Água", pointsCost: 100, quantity: 10, maxPerCustomer: 2 });

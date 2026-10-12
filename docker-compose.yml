@@ -52,10 +52,15 @@ services:
       timeout: 5s
       retries: 12
 
-  # BACKUP AUTOMÁTICO do banco (incidente 2026-08-30 — não existia backup!).
-  # Dump comprimido no volume borafest_pg_backups: um IMEDIATO ao subir e um a
-  # cada 24h, mantendo 14 dias. Restaurar (só em último caso, com o banco
-  # comprovadamente perdido): ver "Backup e restauração" no docs/projeto/MEMORIA.md.
+  # BACKUP AUTOMÁTICO (incidente 2026-08-30 — não existia backup!). Revisão
+  # 2026-10-12: banco + banners/flyers (volume de uploads), criptografia e
+  # cópia opcional para fora do servidor. Toda a lógica e a lista do que
+  # configurar estão em infra/scripts/pg-backup.sh e infra/scripts/README.md.
+  # 1 backup a cada 24 h, 14 dias guardados no volume borafest_pg_backups.
+  # Variáveis (todas opcionais, no Environment do painel):
+  # BACKUP_ENCRYPTION_PASSPHRASE, BACKUP_S3_*, BACKUP_ALERT_WEBHOOK_URL.
+  # Ensaio de restauração: console deste serviço →
+  #   bash /opt/borafest/scripts/restore-drill.sh
   pg-backup:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -63,23 +68,57 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      PGHOST: postgres
+      PGUSER: borafest
+      PGDATABASE: borafest
       PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      # NUNCA ${VAR:?...} aqui (incidente 2026-08-10: derruba o deploy inteiro)
+      BACKUP_ENCRYPTION_PASSPHRASE: ${BACKUP_ENCRYPTION_PASSPHRASE:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
+      BACKUP_S3_PROVIDER: ${BACKUP_S3_PROVIDER:-Other}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-borafest}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      BACKUP_ALERT_WEBHOOK_URL: ${BACKUP_ALERT_WEBHOOK_URL:-}
     volumes:
       - borafest_pg_backups:/backups
-    entrypoint: ["sh", "-c"]
+      # banners/flyers: só leitura — o backup nunca altera os uploads
+      - borafest_uploads:/uploads:ro
+      - ./infra/scripts:/opt/borafest/scripts:ro
+    entrypoint: ["bash", "-c"]
     command:
       - |
+        if [ -f /opt/borafest/scripts/pg-backup.sh ]; then
+          exec bash /opt/borafest/scripts/pg-backup.sh
+        fi
+        # reserva: se a pasta de scripts não montar, o banco segue com backup
+        echo "[pg-backup] AVISO: infra/scripts/pg-backup.sh não encontrado — backup SIMPLES (só banco, sem criptografia, sem uploads, sem cópia externa)" >&2
+        set -o pipefail
+        trap 'exit 0' TERM INT
         while true; do
           ts=$$(date +%Y%m%d-%H%M%S)
-          if pg_dump -h postgres -U borafest -d borafest | gzip > "/backups/borafest-$${ts}.sql.gz"; then
-            echo "[pg-backup] ok: borafest-$${ts}.sql.gz ($$(du -h /backups/borafest-$${ts}.sql.gz | cut -f1))"
+          if pg_dump --no-password | gzip > "/backups/parcial-borafest-db-$${ts}.sql.gz"; then
+            mv "/backups/parcial-borafest-db-$${ts}.sql.gz" "/backups/borafest-db-$${ts}.sql.gz"
+            echo "[pg-backup] ok: borafest-db-$${ts}.sql.gz"
           else
             echo "[pg-backup] DUMP FALHOU ($${ts}) — investigar!" >&2
-            rm -f "/backups/borafest-$${ts}.sql.gz"
+            rm -f "/backups/parcial-borafest-db-$${ts}.sql.gz"
           fi
-          find /backups -name 'borafest-*.sql.gz' -mtime +14 -delete
-          sleep 86400
+          find /backups -maxdepth 1 -name 'borafest-*' -mtime +$${BACKUP_RETENTION_DAYS:-14} -delete
+          sleep 86400 &
+          wait $$!
         done
+    # "saudável" = existe dump do banco com menos de 26 h; vira "unhealthy"
+    # quando o backup para de sair (antes, a falha só aparecia no log)
+    healthcheck:
+      test: ["CMD-SHELL", "find /backups -maxdepth 1 -name 'borafest-db-*' -mmin -1560 | grep -q ."]
+      interval: 10m
+      timeout: 30s
+      retries: 1
+      start_period: 30m
 
   # migrações + seed rodam no boot da API (CMD do Dockerfile.api do easypanel)
   api:
@@ -138,6 +177,17 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:no-reply@borafest.com.br}
+      # 2026-10-12: o EasyPanel só entrega ao contêiner o que está listado aqui.
+      # Segundo fator do backoffice (sem ela, as ações de dinheiro ficam travadas)
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+      # chave mestra que cifra a chave dos QR no banco (a MESMA no worker)
+      TICKET_KEY_ENCRYPTION_KEY: ${TICKET_KEY_ENCRYPTION_KEY:-}
+      # assinatura do webhook do Resend (entregue/devolvido)
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
+      # /metrics para o Prometheus (o mesmo token vai no serviço prometheus)
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # só para a tela Configuração do backoffice mostrar o valor real do worker
+      AUTO_TRANSFER_ENABLED: ${AUTO_TRANSFER_ENABLED:-false}
     volumes:
       - borafest_uploads:/repo/uploads
     depends_on:
@@ -190,6 +240,16 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:no-reply@borafest.com.br}
+      # 2026-10-12: mesma chave mestra da API (o worker assina os QR na emissão)
+      TICKET_KEY_ENCRYPTION_KEY: ${TICKET_KEY_ENCRYPTION_KEY:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # mesmas taxas da API: o worker calcula a taxa do sinal VIP (webhook e
+      # reconciliação) — sem estas linhas ele usava o padrão do código
+      PLATFORM_PIX_FEE_BPS: ${PLATFORM_PIX_FEE_BPS:-500}
+      PLATFORM_PIX_FEE_FLOOR_CENTS: ${PLATFORM_PIX_FEE_FLOOR_CENTS:-100}
+      PLATFORM_CARD_FEE_BPS: ${PLATFORM_CARD_FEE_BPS:-500}
+      PLATFORM_CARD_FEE_FLOOR_CENTS: ${PLATFORM_CARD_FEE_FLOOR_CENTS:-150}
+      PAYMENT_MIN_CHARGE_CENTS: ${PAYMENT_MIN_CHARGE_CENTS:-500}
     depends_on:
       postgres:
         condition: service_healthy
@@ -217,6 +277,11 @@ services:
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
+    # 2026-10-12: o Prometheus não lê variável no YAML; o token vai para um
+    # arquivo antes de subir (credentials_file no prometheus.prod.yml)
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    entrypoint: ["/bin/sh", "-c", "printf '%s' \"$$METRICS_TOKEN\" > /tmp/metrics_token && exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus"]
     volumes:
       - ./infra/docker/prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
       - borafest_prometheus:/prometheus

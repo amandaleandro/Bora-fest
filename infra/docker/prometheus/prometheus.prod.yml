@@ -7,10 +7,16 @@ global:
 scrape_configs:
   - job_name: borafest-api
     metrics_path: /metrics
+    # 2026-10-12: /metrics exige "Authorization: Bearer $METRICS_TOKEN"; o
+    # entrypoint do serviço grava o token neste arquivo
+    authorization:
+      credentials_file: /tmp/metrics_token
     static_configs:
       - targets: ["api:3333"]
 
   - job_name: borafest-worker
     metrics_path: /metrics
+    authorization:
+      credentials_file: /tmp/metrics_token
     static_configs:
       - targets: ["worker:9464"]

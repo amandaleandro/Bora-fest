@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Backup do Postgres de produção (arquitetura §15).
+# (2026-10-12) Só para o caminho standalone (docker-compose.prod.yml + Caddy).
+# A produção no EasyPanel NÃO usa este script: lá o backup é o serviço
+# pg-backup + infra/scripts/pg-backup.sh (uploads, criptografia, cópia
+# externa) — ver infra/scripts/README.md.
 # Uso (no host, via cron): infra/scripts/backup.sh
 # Lê as mesmas envs do docker-compose.prod.yml (.env.production).
 #

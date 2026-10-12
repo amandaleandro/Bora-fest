@@ -1,12 +1,26 @@
 import { semEmailReal } from "@borafest/contracts";
 import { createSessionToken } from "@borafest/auth";
 import { prisma, Prisma } from "@borafest/database";
-import { generateEventKeyPair, generateTicketCode, signTicketToken } from "@borafest/tickets";
+import {
+  abrirChavePrivada,
+  conferirChaveMestra,
+  generateEventKeyPair,
+  generateTicketCode,
+  protegerChavePrivada,
+  signTicketToken,
+} from "@borafest/tickets";
 import { withContext } from "@borafest/observability";
 import { publishRankingUpdate } from "@borafest/queues";
 import { randomBytes } from "crypto";
 
 const log = withContext({ module: "ticket-issuance" });
+
+// CHAVE DO QR CIFRADA EM REPOUSO (2026-10-12): este módulo carrega no boot do
+// worker (via process-outbox). Sem TICKET_KEY_ENCRYPTION_KEY avisa que a chave
+// de cada evento fica em texto puro; mal formada, derruba o boot aqui — melhor
+// que falhar a emissão pedido a pedido com a compra já paga.
+const estadoChaveDoQr = conferirChaveMestra();
+if (estadoChaveDoQr.aviso) log.warn(estadoChaveDoQr.aviso);
 
 /**
  * Emissão exatamente-uma-vez (arquitetura §10/§11):
@@ -273,21 +287,28 @@ export function buildDeliveryPayload(
   };
 }
 
+/**
+ * Chave de assinatura do evento, JÁ ABERTA para assinar (2026-10-12): no banco
+ * ela é gravada cifrada quando há TICKET_KEY_ENCRYPTION_KEY; a leitura aceita
+ * também o texto puro antigo (ver @borafest/tickets, cifra-chave.ts).
+ */
 async function ensureSigningKey(
   eventId: string,
-  existing: { publicKeyPem: string; privateKeyPem: string } | null,
-) {
-  if (existing) return existing;
+  existing: { privateKeyPem: string } | null,
+): Promise<{ privateKeyPem: string }> {
+  if (existing) return { privateKeyPem: abrirChavePrivada(existing.privateKeyPem) };
 
   const pair = generateEventKeyPair();
   try {
-    return await prisma.eventSigningKey.create({
-      data: { eventId, publicKeyPem: pair.publicKeyPem, privateKeyPem: pair.privateKeyPem },
+    await prisma.eventSigningKey.create({
+      data: { eventId, publicKeyPem: pair.publicKeyPem, privateKeyPem: protegerChavePrivada(pair.privateKeyPem) },
     });
+    return { privateKeyPem: pair.privateKeyPem };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       // outra execução criou primeiro — usa a existente
-      return prisma.eventSigningKey.findUniqueOrThrow({ where: { eventId } });
+      const criada = await prisma.eventSigningKey.findUniqueOrThrow({ where: { eventId } });
+      return { privateKeyPem: abrirChavePrivada(criada.privateKeyPem) };
     }
     throw error;
   }

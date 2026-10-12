@@ -27,6 +27,8 @@ const showcaseSelect = {
           priceCents: true,
           feeCents: true,
           feeMode: true,
+          // janela (2026-10-12): lote que ainda não abriu não entra no preço do card
+          startsAt: true,
           endsAt: true,
           // estoque (2026-10-11): o card só anuncia lote que ainda dá pra pegar
           capacity: true,
@@ -47,6 +49,17 @@ function loteComEstoque(lot: { capacity: number; soldCount: number; reservedCoun
   return lot.capacity - lot.soldCount - lot.reservedCount > 0;
 }
 
+/**
+ * Lote dentro da janela de vendas (2026-10-12): mesma regra da reserva — não
+ * abriu (início no futuro) ou já encerrou (fim no passado) não é oferecido.
+ */
+function loteNaJanela(lot: { startsAt: Date | null; endsAt: Date | null }, agora: number): boolean {
+  return (
+    (lot.startsAt === null || lot.startsAt.getTime() <= agora) &&
+    (lot.endsAt === null || lot.endsAt.getTime() > agora)
+  );
+}
+
 type ShowcaseRow = {
   id: string;
   title: string;
@@ -61,6 +74,7 @@ type ShowcaseRow = {
       priceCents: number;
       feeCents: number;
       feeMode: string;
+      startsAt: Date | null;
       endsAt: Date | null;
       capacity: number;
       soldCount: number;
@@ -75,11 +89,20 @@ function toShowcaseCard(event: ShowcaseRow) {
   // partir de R$ 20") depois que aquele lote acabava. Só lote com estoque entra
   // no preço e no "lote atual termina em". Tudo esgotado = sem preço (null),
   // que o site já mostra como card sem preço.
-  const lots = event.ticketTypes.flatMap((type) => type.lots).filter(loteComEstoque);
+  // FORA DA JANELA FORA DO CARD (2026-10-12): lote que ainda não abriu ou já
+  // encerrou não vende, então não entra no preço nem no "termina em"
+  const now = Date.now();
+  const ativos = event.ticketTypes.flatMap((type) => type.lots);
+  const lots = ativos
+    .filter((lot) => loteNaJanela(lot, now))
+    .filter(loteComEstoque);
   const totals = lots.map(
     (lot) => lot.priceCents + (lot.feeMode !== "PRODUCER" ? lot.feeCents : 0),
   );
-  const now = Date.now();
+  // ESGOTADO DITO NO CARD (2026-10-12): sem preço o "Em alta" seguia com
+  // "Garanta seu lugar" para evento todo vendido. Esgotado = tem lote ACTIVE
+  // público e NENHUM tem estoque (lote fora da janela com vaga não é esgotado).
+  const soldOut = ativos.length > 0 && !ativos.some(loteComEstoque);
   const ends = lots
     .map((lot) => lot.endsAt)
     .filter((d): d is Date => d !== null && d.getTime() > now)
@@ -95,6 +118,7 @@ function toShowcaseCard(event: ShowcaseRow) {
     venue: event.venue,
     fromPriceCents: totals.length > 0 ? Math.min(...totals) : null,
     currentLotEndsAt: ends[0] ?? null,
+    soldOut,
   };
 }
 
@@ -210,27 +234,58 @@ export class CatalogService {
       }
     }
 
-    return prisma.ticketLot.create({
-      data: {
-        ticketTypeId,
-        name: input.name,
-        priceCents: input.priceCents,
-        feeCents,
-        capacity: input.capacity,
-        maxPerOrder: input.maxPerOrder,
-        feeMode: input.feeMode ?? "BUYER",
-        nominal: input.nominal ?? false,
-        // lote grátis não tem meia (2026-10-11): metade de zero só faria a porta pedir documento à toa
-        halfPriceEnabled: input.priceCents > 0 ? (input.halfPriceEnabled ?? false) : false,
-        pdvOnly: input.pdvOnly ?? false,
-        promoterOnly: input.promoterOnly ?? false,
-        inviteMode,
-        inviteToken: inviteMode === "LINK" ? novoCodigoDeConvite() : undefined,
-        limitPerCpf: input.limitPerCpf,
-        requiresCpf: input.requiresCpf ?? false,
-        startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
-        endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
-      },
+    // JANELA DO LOTE (2026-10-12): a reserva agora respeita início e fim do
+    // lote — fim antes do início criaria um lote que nunca vende
+    if (input.startsAt && input.endsAt && new Date(input.endsAt) <= new Date(input.startsAt)) {
+      throw new BadRequestException("O fim das vendas do lote precisa ser depois do início");
+    }
+
+    // rastro (2026-10-12): o lote e o registro de quem o criou entram juntos
+    return prisma.$transaction(async (tx) => {
+      const lote = await tx.ticketLot.create({
+        data: {
+          ticketTypeId,
+          name: input.name,
+          priceCents: input.priceCents,
+          feeCents,
+          capacity: input.capacity,
+          maxPerOrder: input.maxPerOrder,
+          feeMode: input.feeMode ?? "BUYER",
+          nominal: input.nominal ?? false,
+          // lote grátis não tem meia (2026-10-11): metade de zero só faria a porta pedir documento à toa
+          halfPriceEnabled: input.priceCents > 0 ? (input.halfPriceEnabled ?? false) : false,
+          pdvOnly: input.pdvOnly ?? false,
+          promoterOnly: input.promoterOnly ?? false,
+          inviteMode,
+          inviteToken: inviteMode === "LINK" ? novoCodigoDeConvite() : undefined,
+          limitPerCpf: input.limitPerCpf,
+          requiresCpf: input.requiresCpf ?? false,
+          startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
+          endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
+        },
+      });
+      // o código do convite NÃO vai para o histórico: é a chave do lote
+      await tx.auditLog.create(
+        rastroDoLote(actorUserId, ticketType.event.organizationId, "lot.create", lote.id, {
+          eventId: ticketType.eventId,
+          ticketTypeId,
+          name: lote.name,
+          priceCents: lote.priceCents,
+          feeCents: lote.feeCents,
+          feeMode: lote.feeMode,
+          capacity: lote.capacity,
+          maxPerOrder: lote.maxPerOrder,
+          halfPriceEnabled: lote.halfPriceEnabled,
+          pdvOnly: lote.pdvOnly,
+          promoterOnly: lote.promoterOnly,
+          inviteMode: lote.inviteMode,
+          limitPerCpf: lote.limitPerCpf,
+          status: lote.status,
+          startsAt: lote.startsAt?.toISOString() ?? null,
+          endsAt: lote.endsAt?.toISOString() ?? null,
+        }),
+      );
+      return lote;
     });
   }
 
@@ -269,7 +324,19 @@ export class CatalogService {
       throw new BadRequestException("Lote não pode ser ativado a partir do estado atual");
     }
 
-    return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "ACTIVE" } });
+    // rastro (2026-10-12): quem colocou o lote à venda, e de que estado
+    return prisma.$transaction(async (tx) => {
+      const ativado = await tx.ticketLot.update({ where: { id: lotId }, data: { status: "ACTIVE" } });
+      await tx.auditLog.create(
+        rastroDoLote(actorUserId, lot.ticketType.event.organizationId, "lot.activate", lotId, {
+          eventId: lot.ticketType.eventId,
+          name: lot.name,
+          de: lot.status,
+          para: "ACTIVE",
+        }),
+      );
+      return ativado;
+    });
   }
 
   /** Encerra as vendas do lote (some do site). Definitivo — crie outro lote se precisar. */
@@ -285,7 +352,21 @@ export class CatalogService {
       PERMISSIONS.EVENT_CREATE,
     );
     if (lot.status === "CLOSED") throw new BadRequestException("Lote já está encerrado");
-    return prisma.ticketLot.update({ where: { id: lotId }, data: { status: "CLOSED" } });
+    // rastro (2026-10-12): "quem fechou o lote?" — e com quanto vendido
+    return prisma.$transaction(async (tx) => {
+      const encerrado = await tx.ticketLot.update({ where: { id: lotId }, data: { status: "CLOSED" } });
+      await tx.auditLog.create(
+        rastroDoLote(actorUserId, lot.ticketType.event.organizationId, "lot.close", lotId, {
+          eventId: lot.ticketType.eventId,
+          name: lot.name,
+          de: lot.status,
+          para: "CLOSED",
+          soldCount: lot.soldCount,
+          capacity: lot.capacity,
+        }),
+      );
+      return encerrado;
+    });
   }
 
   /** Apaga o lote — só sem nenhuma venda/reserva; com movimento, use encerrar. */
@@ -307,7 +388,21 @@ export class CatalogService {
       throw new BadRequestException("Há reservas em andamento neste lote — tente de novo em alguns minutos");
     }
     try {
-      await prisma.ticketLot.delete({ where: { id: lotId } });
+      // rastro (2026-10-12): o lote some do banco, então o registro guarda o
+      // que ele era — apagar e registrar entram juntos (se um falha, nada muda)
+      await prisma.$transaction(async (tx) => {
+        await tx.ticketLot.delete({ where: { id: lotId } });
+        await tx.auditLog.create(
+          rastroDoLote(actorUserId, lot.ticketType.event.organizationId, "lot.delete", lotId, {
+            eventId: lot.ticketType.eventId,
+            ticketTypeId: lot.ticketTypeId,
+            name: lot.name,
+            status: lot.status,
+            priceCents: lot.priceCents,
+            capacity: lot.capacity,
+          }),
+        );
+      });
     } catch {
       // FK (pedido/ingresso/lista antiga apontando pro lote): não dá para apagar com histórico
       throw new BadRequestException("Lote tem histórico vinculado — encerre as vendas em vez de apagar");
@@ -469,6 +564,7 @@ export class CatalogService {
   }
 
   private async getPublicEventFresco(slug: string, promoterSlug?: string, inviteToken?: string) {
+    const agora = new Date();
     const event = await prisma.event.findFirst({
       // pausado continua acessível pelo link (o site mostra "Vendas pausadas");
       // listas e home seguem só PUBLISHED. Reservar continua exigindo PUBLISHED.
@@ -480,8 +576,17 @@ export class CatalogService {
           orderBy: { position: "asc" },
           include: {
             lots: {
-              // só-balcão fica invisível pro público (cortesia via promoter)
-              where: { status: "ACTIVE", pdvOnly: false },
+              // só-balcão fica invisível pro público (cortesia via promoter).
+              // JANELA DO LOTE (2026-10-12): lote que ainda não abriu ou já
+              // encerrou também não aparece — a reserva recusa os dois
+              where: {
+                status: "ACTIVE",
+                pdvOnly: false,
+                AND: [
+                  { OR: [{ startsAt: null }, { startsAt: { lte: agora } }] },
+                  { OR: [{ endsAt: null }, { endsAt: { gt: agora } }] },
+                ],
+              },
               orderBy: { createdAt: "asc" },
             },
           },
@@ -562,4 +667,20 @@ export class CatalogService {
 /** Código do link de convidado: 128 bits aleatórios, seguro para URL. */
 function novoCodigoDeConvite(): string {
   return randomBytes(16).toString("base64url");
+}
+
+/**
+ * Registro de auditoria de uma ação do produtor sobre o lote (2026-10-12) —
+ * mesmo formato dos outros registros (ator, organização, ação, entidade).
+ */
+function rastroDoLote(
+  actorUserId: string,
+  organizationId: string,
+  action: "lot.create" | "lot.activate" | "lot.close" | "lot.delete",
+  lotId: string,
+  metadata: Record<string, string | number | boolean | null>,
+) {
+  return {
+    data: { actorUserId, organizationId, action, entityType: "ticket_lot", entityId: lotId, metadata },
+  };
 }

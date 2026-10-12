@@ -22,15 +22,25 @@ const SLOTS: Array<{ slot: "desktop" | "mobile"; titulo: string; dica: string }>
 function BannersContent() {
   const { token } = useAuth();
   const [banners, setBanners] = useState<Banners | null>(null);
+  // FALHA NÃO É "SEM ARTE" (2026-10-12): antes qualquer erro do GET (rede,
+  // 500, resposta de erro lida como banner) virava "Sem arte anexada — o site
+  // está usando o banner padrão", o que pode ser mentira: a arte pode estar no
+  // ar. Agora a falha aparece como falha, com "Tentar novamente".
+  const [erroCarga, setErroCarga] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const load = useCallback(() => {
+    setErroCarga(false);
+    setBanners(null);
     fetch(`${API_BASE_URL}/v1/public/banners`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json() as Promise<Banners>;
+      })
       .then(setBanners)
-      .catch(() => setBanners({ desktopUrl: null, mobileUrl: null }));
+      .catch(() => setErroCarga(true));
   }, []);
 
   useEffect(load, [load]);
@@ -103,7 +113,20 @@ function BannersContent() {
               <p className="mt-0.5 text-xs text-slate-400">{dica}</p>
 
               <div className="mt-4 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/60">
-                {banners === null ? (
+                {banners === null && erroCarga ? (
+                  <div className="p-6 text-center">
+                    <p className="text-sm font-semibold text-rose-300">
+                      Não deu para carregar a arte atual — não dá para saber o que está no ar.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={load}
+                      className="mt-3 rounded-lg border border-white/15 px-4 py-2 text-sm font-bold text-white hover:bg-white/5"
+                    >
+                      Tentar novamente
+                    </button>
+                  </div>
+                ) : banners === null ? (
                   <p className="p-6 text-center text-sm text-slate-500">Carregando…</p>
                 ) : url ? (
                   // eslint-disable-next-line @next/next/no-img-element

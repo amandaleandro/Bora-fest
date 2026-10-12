@@ -130,6 +130,8 @@ export interface EventListItem {
   timezone: string;
   venue: { name: string; city: string; state: string } | null;
   fromPriceCents: number | null;
+  /** todo lote público está esgotado — o card mostra "Esgotado" (2026-10-12) */
+  soldOut?: boolean;
   /** fim do lote ativo mais próximo (urgência honesta na vitrine) */
   currentLotEndsAt: string | null;
 }

@@ -3,6 +3,7 @@ import {
   CardPaymentResult,
   CreateCardPaymentInput,
   CreatePixChargeInput,
+  GatewayPaymentSnapshot,
   GatewayPaymentStatus,
   PaymentGateway,
   PixCharge,
@@ -41,6 +42,10 @@ interface MpPayment {
   status_detail?: string;
   external_reference?: string;
   date_of_expiration?: string;
+  /** valor cobrado (reais) */
+  transaction_amount?: number;
+  /** total_paid_amount = o que o pagador efetivamente pagou (reais) */
+  transaction_details?: { total_paid_amount?: number };
   point_of_interaction?: {
     transaction_data?: { qr_code?: string; qr_code_base64?: string; ticket_url?: string };
   };
@@ -152,7 +157,15 @@ export class MercadoPagoGateway implements PaymentGateway {
     }
 
     const status = mapMercadoPagoStatus(payment.status ?? "pending");
-    if (status === "PAID") return { externalId: String(payment.id), status: "PAID" };
+    if (status === "PAID") {
+      // valor que o MP registrou, para a conferência do applyGatewayStatus (2026-10-12)
+      const paidAmountCents = mercadoPagoPaidAmountCents(payment);
+      return {
+        externalId: String(payment.id),
+        status: "PAID",
+        ...(paidAmountCents !== undefined ? { paidAmountCents } : {}),
+      };
+    }
     if (status === "PENDING") return { externalId: String(payment.id), status: "AUTHORIZED" };
     return {
       externalId: String(payment.id),
@@ -178,6 +191,17 @@ export class MercadoPagoGateway implements PaymentGateway {
   async getStatus(externalId: string): Promise<GatewayPaymentStatus> {
     const payment = await this.request<MpPayment>("GET", `/v1/payments/${externalId}`);
     return mapMercadoPagoStatus(payment.status ?? "pending");
+  }
+
+  /**
+   * Mesma consulta do getStatus + o valor pago (2026-10-12). O webhook do MP
+   * só traz o id, então é daqui que sai o valor para conferir o pedido.
+   */
+  async getPaymentSnapshot(externalId: string): Promise<GatewayPaymentSnapshot> {
+    const payment = await this.request<MpPayment>("GET", `/v1/payments/${externalId}`);
+    const status = mapMercadoPagoStatus(payment.status ?? "pending");
+    const paidAmountCents = status === "PAID" ? mercadoPagoPaidAmountCents(payment) : undefined;
+    return { status, ...(paidAmountCents !== undefined ? { paidAmountCents } : {}) };
   }
 
   /**
@@ -290,6 +314,21 @@ function first(value: string | string[] | undefined): string | undefined {
 
 function toReais(amountCents: number): number {
   return Math.round(amountCents) / 100;
+}
+
+/**
+ * Valor pago em centavos (2026-10-12): total_paid_amount é o que saiu do bolso
+ * do pagador (no cartão com juros do comprador fica ACIMA do cobrado — passa
+ * na conferência, que só barra o que entrou a menos); sem ele, o valor cobrado.
+ */
+export function mercadoPagoPaidAmountCents(payment: {
+  transaction_amount?: number;
+  transaction_details?: { total_paid_amount?: number };
+}): number | undefined {
+  const pago = payment.transaction_details?.total_paid_amount;
+  const value = typeof pago === "number" && pago > 0 ? pago : payment.transaction_amount;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value * 100);
 }
 
 /** ISO com offset, formato que o MP exige em date_of_expiration. */

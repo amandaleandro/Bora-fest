@@ -44,6 +44,12 @@ model User {
   /// invalida sessões antigas: a troca de senha incrementa isto e o guard
   /// recusa tokens com versão menor (revogação — auditoria 2026-08-29)
   sessionVersion    Int           @default(0) @map("session_version")
+  /// segundo fator do backoffice (2026-10-12): segredo TOTP CIFRADO com a
+  /// chave mestra TOTP_ENCRYPTION_KEY (nunca em texto puro). Preenchido e com
+  /// totpEnabledAt vazio = ativação começada, ainda não confirmada.
+  totpSecret        String?       @map("totp_secret")
+  /// quando o staff confirmou o 1º código do app autenticador; vazio = sem 2FA
+  totpEnabledAt     DateTime?     @map("totp_enabled_at")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
 
@@ -63,6 +69,9 @@ model User {
   promoterSellers         PromoterSeller[]      @relation("SellerPerson")
   webPushSubscriptions    WebPushSubscription[]
 
+  // tabelas criadas só por SQL, trazidas ao schema em 2026-10-12 (ver fim do arquivo)
+  loyaltyAccounts         LoyaltyAccount[]
+  loyaltyRedemptionsUsed  LoyaltyRedemption[]
   @@map("users")
 }
 
@@ -214,6 +223,12 @@ model Organization {
   promoterHosts  PromoterLink[]          @relation("PromoterHost")
   followers      OrganizationFollow[]
 
+  // fidelidade (tabelas criadas por SQL; no schema desde 2026-10-12)
+  loyaltyProgram     LoyaltyProgram?
+  loyaltyAccounts    LoyaltyAccount[]
+  loyaltyEntries     LoyaltyEntry[]
+  loyaltyRewards     LoyaltyReward[]
+  loyaltyRedemptions LoyaltyRedemption[]
   @@map("organizations")
 }
 
@@ -311,12 +326,14 @@ model PromoterLink {
 
   organization Organization     @relation("PromoterHost", fields: [organizationId], references: [id], onDelete: Cascade)
   promoterUser User             @relation("PromoterPerson", fields: [promoterUserId], references: [id], onDelete: Cascade)
-  event        Event?           @relation("PromoterEventScope", fields: [eventId], references: [id], onDelete: Cascade)
+  // onUpdate NoAction = como a FK está no banco (migração 20260815100000)
+  event        Event?           @relation("PromoterEventScope", fields: [eventId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   sellers      PromoterSeller[]
   orders       Order[]
 
   @@unique([organizationId, promoterUserId])
   @@index([promoterUserId, status])
+  @@index([eventId])
   @@map("promoter_links")
 }
 
@@ -655,11 +672,16 @@ model VipReservation {
   customerNote      String?              @map("customer_note")
   resolutionNote    String?              @map("resolution_note")
   respondedAt       DateTime?            @map("responded_at")
+  // sinal Pix (N8, 2026-09-14): colunas criadas por SQL, no schema desde 2026-10-12
+  depositCents      Int?                 @map("deposit_cents")
+  paymentDueAt      DateTime?            @map("payment_due_at")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
 
   inventory VipInventory @relation(fields: [vipInventoryId], references: [id], onDelete: Cascade)
 
+  // sinal Pix do VIP (tabela criada por SQL; no schema desde 2026-10-12)
+  payments VipPayment[]
   @@index([vipInventoryId, status])
   @@index([contactEmail])
   @@index([createdAt])
@@ -1197,8 +1219,18 @@ model Notification {
   orderId     String?             @map("order_id") @db.Uuid
   createdAt   DateTime            @default(now()) @map("created_at")
 
+  // Entrega real (2026-10-12): SENT só quer dizer que o provedor ACEITOU o
+  // e-mail. O id do provedor (Resend) liga os eventos do webhook a esta linha;
+  // deliveredAt/bouncedAt e o último evento relevante mostram ao suporte se o
+  // e-mail chegou, voltou ou foi marcado como spam.
+  providerMessageId String?   @map("provider_message_id")
+  deliveredAt       DateTime? @map("delivered_at")
+  bouncedAt         DateTime? @map("bounced_at")
+  deliveryEvent     String?   @map("delivery_event")
+
   @@index([status, availableAt])
   @@index([orderId])
+  @@index([providerMessageId])
   @@map("notifications")
 }
 
@@ -1456,4 +1488,143 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// TABELAS QUE NASCERAM SÓ EM SQL (fidelidade N9 e sinal Pix do VIP N8).
+// Trazidas ao schema em 2026-10-12, IDÊNTICAS ao banco (tiradas do `prisma db
+// pull`): antes, qualquer `migrate diff --from-url`/`migrate dev` propunha
+// APAGÁ-LAS — pontos dos clientes e sinais pagos. O código continua usando SQL
+// cru nelas; aqui é só para o Prisma saber que existem. As CHECK constraints
+// dessas tabelas existem no banco e o Prisma não as representa (não mexer).
+// ---------------------------------------------------------------------------
+
+model LoyaltyProgram {
+  id             String       @id @db.Uuid
+  organizationId String       @unique @map("organization_id") @db.Uuid
+  enabled        Boolean      @default(false)
+  pointsPerReal  Int          @default(1) @map("points_per_real")
+  silverPoints   Int          @default(500) @map("silver_points")
+  goldPoints     Int          @default(1500) @map("gold_points")
+  platinumPoints Int          @default(3000) @map("platinum_points")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @default(now()) @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("loyalty_programs")
+}
+
+model LoyaltyAccount {
+  id             String              @id @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  emailKey       String              @map("email_key")
+  userId         String?             @map("user_id") @db.Uuid
+  displayName    String?             @map("display_name")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @default(now()) @map("updated_at")
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?               @relation(fields: [userId], references: [id])
+  entries        LoyaltyEntry[]
+  redemptions    LoyaltyRedemption[]
+
+  @@unique([organizationId, emailKey], map: "loyalty_accounts_organization_email_key")
+  @@index([organizationId, userId], map: "loyalty_accounts_organization_user_idx")
+  @@map("loyalty_accounts")
+}
+
+model LoyaltyEntry {
+  id               String         @id @db.Uuid
+  loyaltyAccountId String         @map("loyalty_account_id") @db.Uuid
+  organizationId   String         @map("organization_id") @db.Uuid
+  deltaPoints      Int            @map("delta_points")
+  sourceType       String         @map("source_type")
+  sourceId         String         @map("source_id") @db.Uuid
+  description      String?
+  metadata         Json?
+  createdAt        DateTime       @default(now()) @map("created_at")
+  account          LoyaltyAccount @relation(fields: [loyaltyAccountId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceType, sourceId], map: "loyalty_entries_source_key")
+  @@index([loyaltyAccountId, createdAt], map: "loyalty_entries_account_created_idx")
+  @@map("loyalty_entries")
+}
+
+model LoyaltyReward {
+  id             String              @id @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  name           String
+  description    String?
+  pointsCost     Int                 @map("points_cost")
+  quantity       Int?
+  maxPerCustomer Int                 @default(1) @map("max_per_customer")
+  active         Boolean             @default(true)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @default(now()) @map("updated_at")
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  redemptions    LoyaltyRedemption[]
+
+  @@index([organizationId, active], map: "loyalty_rewards_org_active_idx")
+  @@map("loyalty_rewards")
+}
+
+model LoyaltyRedemption {
+  id               String         @id @db.Uuid
+  organizationId   String         @map("organization_id") @db.Uuid
+  rewardId         String         @map("reward_id") @db.Uuid
+  loyaltyAccountId String         @map("loyalty_account_id") @db.Uuid
+  code             String         @unique
+  pointsCost       Int            @map("points_cost")
+  status           String         @default("ISSUED")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  usedAt           DateTime?      @map("used_at")
+  usedByUserId     String?        @map("used_by_user_id") @db.Uuid
+  account          LoyaltyAccount @relation(fields: [loyaltyAccountId], references: [id])
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reward           LoyaltyReward  @relation(fields: [rewardId], references: [id])
+  usedBy           User?          @relation(fields: [usedByUserId], references: [id])
+
+  @@index([loyaltyAccountId, createdAt], map: "loyalty_redemptions_account_created_idx")
+  @@index([rewardId, status], map: "loyalty_redemptions_reward_status_idx")
+  @@map("loyalty_redemptions")
+}
+
+model VipPayment {
+  id               String            @id @db.Uuid
+  vipReservationId String            @map("vip_reservation_id") @db.Uuid
+  provider         String
+  method           PaymentMethod     @default(PIX)
+  status           PaymentStatus     @default(PENDING)
+  amountCents      Int               @map("amount_cents")
+  externalId       String?           @map("external_id")
+  pixQrCodeText    String?           @map("pix_qr_code_text")
+  failReason       String?           @map("fail_reason")
+  expiresAt        DateTime?         @map("expires_at")
+  paidAt           DateTime?         @map("paid_at")
+  metadata         Json?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @default(now()) @map("updated_at")
+  reservation      VipReservation    @relation(fields: [vipReservationId], references: [id], onDelete: Cascade)
+  events           VipPaymentEvent[]
+
+  @@unique([provider, externalId])
+  @@index([vipReservationId, status], map: "vip_payments_reservation_status_idx")
+  @@index([status, expiresAt])
+  @@map("vip_payments")
+}
+
+model VipPaymentEvent {
+  id              String     @id @db.Uuid
+  vipPaymentId    String     @map("vip_payment_id") @db.Uuid
+  provider        String
+  externalEventId String     @map("external_event_id")
+  type            String
+  payload         Json
+  processedAt     DateTime?  @map("processed_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  payment         VipPayment @relation(fields: [vipPaymentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalEventId])
+  @@index([vipPaymentId], map: "vip_payment_events_payment_id_idx")
+  @@map("vip_payment_events")
 }

@@ -15,6 +15,7 @@ import { semEmailReal } from "@borafest/contracts";
 import { getOrganizationBalanceCents } from "../common/ledger";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
 import { SLUGS_RESERVADOS } from "../common/slugs-reservados";
+import { alteracoesDoEvento } from "../common/auditoria-produtor";
 
 /** Assinatura (magic bytes) dos formatos aceitos — mimetype do multipart é só o que o cliente alegou. */
 const MAGIC_BYTES: Record<string, { ext: string; signature: number[]; offset?: number }> = {
@@ -175,32 +176,51 @@ export class EventsService {
       pixelSettings = merged as Record<string, string>;
     }
 
-    const atualizado = await prisma.event.update({
-      where: { id: eventId },
-      data: {
-        title: input.title,
-        description: input.description,
-        lineup: input.lineup,
-        amenities: input.amenities,
-        minAge: input.minAge,
-        category: input.category === null ? null : input.category,
-        bannerUrl: input.bannerUrl,
-        waitingRoomEnabled: input.waitingRoomEnabled,
-        waitingRoomConcurrency: input.waitingRoomConcurrency,
-        isPrivate: input.isPrivate,
-        pixelSettings,
-        // token do CAPI: "" ou null desliga; undefined mantém o atual
-        metaCapiToken:
-          input.metaCapiToken === undefined
-            ? undefined
-            : input.metaCapiToken
-              ? input.metaCapiToken
-              : null,
-        venueId,
-        startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
-        endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
-        timezone: input.timezone,
-      },
+    // RASTRO (2026-10-12): a edição e o registro na auditoria entram juntos —
+    // numa disputa ("quem mudou a data?") o histórico diz quem, quando e o quê.
+    // Salvar sem mudar nada não suja o histórico.
+    const atualizado = await prisma.$transaction(async (tx) => {
+      const depois = await tx.event.update({
+        where: { id: eventId },
+        data: {
+          title: input.title,
+          description: input.description,
+          lineup: input.lineup,
+          amenities: input.amenities,
+          minAge: input.minAge,
+          category: input.category === null ? null : input.category,
+          bannerUrl: input.bannerUrl,
+          waitingRoomEnabled: input.waitingRoomEnabled,
+          waitingRoomConcurrency: input.waitingRoomConcurrency,
+          isPrivate: input.isPrivate,
+          pixelSettings,
+          // token do CAPI: "" ou null desliga; undefined mantém o atual
+          metaCapiToken:
+            input.metaCapiToken === undefined
+              ? undefined
+              : input.metaCapiToken
+                ? input.metaCapiToken
+                : null,
+          venueId,
+          startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
+          endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
+          timezone: input.timezone,
+        },
+      });
+      const alteracoes = alteracoesDoEvento(event, depois);
+      if (alteracoes.campos.length > 0) {
+        await tx.auditLog.create({
+          data: {
+            actorUserId,
+            organizationId: event.organizationId,
+            action: "event.update",
+            entityType: "event",
+            entityId: eventId,
+            metadata: alteracoes,
+          },
+        });
+      }
+      return depois;
     });
 
     // privado → público (2026-10-11): é a primeira vez que quem segue a Casa
@@ -230,9 +250,9 @@ export class EventsService {
       return semSegredoDoEvento(event);
     }
 
-    const published = await prisma.event.update({
-      where: { id: eventId },
-      data: { status: "PUBLISHED", publishedAt: new Date() },
+    const published = await this.trocarStatusComRastro(event, actorUserId, "event.publish", {
+      status: "PUBLISHED",
+      publishedAt: new Date(),
     });
 
     // melhor esforço — não bloqueia a publicação se o envio falhar.
@@ -349,9 +369,8 @@ export class EventsService {
       return semSegredoDoEvento(event);
     }
 
-    const pausado = await prisma.event.update({
-      where: { id: eventId },
-      data: { status: "SALES_PAUSED" },
+    const pausado = await this.trocarStatusComRastro(event, actorUserId, "event.pause", {
+      status: "SALES_PAUSED",
     });
     return semSegredoDoEvento(pausado);
   }
@@ -367,9 +386,8 @@ export class EventsService {
       return semSegredoDoEvento(event);
     }
 
-    const republicado = await prisma.event.update({
-      where: { id: eventId },
-      data: { status: "PUBLISHED" },
+    const republicado = await this.trocarStatusComRastro(event, actorUserId, "event.republish", {
+      status: "PUBLISHED",
     });
 
     // reabrir vendas de evento que nunca foi anunciado (ex.: virou público
@@ -380,6 +398,33 @@ export class EventsService {
       republicado.followersNotifiedAt;
 
     return semSegredoDoEvento({ ...republicado, followersNotifiedAt });
+  }
+
+  /**
+   * Troca o status do evento e grava na auditoria quem trocou, na MESMA
+   * transação (2026-10-12): publicar, pausar e reabrir vendas não deixavam
+   * rastro — numa disputa não havia como provar quem fez.
+   */
+  private async trocarStatusComRastro(
+    event: { id: string; organizationId: string; status: string },
+    actorUserId: string,
+    action: "event.publish" | "event.pause" | "event.republish",
+    data: { status: "PUBLISHED" | "SALES_PAUSED"; publishedAt?: Date },
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const atualizado = await tx.event.update({ where: { id: event.id }, data });
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId: event.organizationId,
+          action,
+          entityType: "event",
+          entityId: event.id,
+          metadata: { de: event.status, para: data.status },
+        },
+      });
+      return atualizado;
+    });
   }
 
   /**
@@ -441,7 +486,21 @@ export class EventsService {
 
     const base = process.env.API_PUBLIC_URL ?? "http://localhost:3333";
     const bannerUrl = `${base}/uploads/${name}`;
-    await prisma.event.update({ where: { id: eventId }, data: { bannerUrl } });
+    // trocar o flyer também é editar o evento (rastro 2026-10-12): mesmo
+    // registro "event.update" do salvamento, na mesma transação
+    await prisma.$transaction(async (tx) => {
+      await tx.event.update({ where: { id: eventId }, data: { bannerUrl } });
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId: event.organizationId,
+          action: "event.update",
+          entityType: "event",
+          entityId: eventId,
+          metadata: alteracoesDoEvento(event, { ...event, bannerUrl }),
+        },
+      });
+    });
     return { bannerUrl };
   }
 

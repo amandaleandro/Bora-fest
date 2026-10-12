@@ -1,15 +1,35 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { origemGratis } from "../common/origem-gratis";
-import { signTicketToken } from "@borafest/tickets";
+import { abrirChavePrivada, conferirChaveMestra, signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
 import type { TransferTicketInput } from "@borafest/contracts";
 
 @Injectable()
-export class TicketsService {
+export class TicketsService implements OnModuleInit {
+  private readonly logger = new Logger(TicketsService.name);
+
+  /**
+   * CHAVE DO QR CIFRADA EM REPOUSO (2026-10-12): no boot da API, avisa se a
+   * chave de cada evento fica em texto puro (sem TICKET_KEY_ENCRYPTION_KEY) e
+   * para o boot se a variável estiver mal formada. O worker faz o mesmo.
+   */
+  onModuleInit() {
+    const { aviso } = conferirChaveMestra();
+    if (aviso) this.logger.warn(aviso);
+  }
+
   /**
    * Quem segura o `orderPublicToken` é o COMPRADOR do pedido. Um ingresso é
    * dele enquanto ninguém o transferiu para outra conta: `ownerUserId` nulo
@@ -198,6 +218,20 @@ export class TicketsService {
     if (!ticket.event.signingKey) {
       throw new BadRequestException("Evento sem chave de assinatura configurada");
     }
+    // chave gravada cifrada ou em texto puro antigo (2026-10-12). Abre antes de
+    // mexer em qualquer coisa: se não abrir (variável ausente/diferente neste
+    // serviço), a transferência para aqui sem trocar dono nem QR.
+    let chavePrivadaPem: string;
+    try {
+      chavePrivadaPem = abrirChavePrivada(ticket.event.signingKey.privateKeyPem);
+    } catch (error) {
+      this.logger.error(
+        `chave do QR do evento ${ticket.eventId} não abriu: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new ServiceUnavailableException(
+        "Não conseguimos transferir o ingresso agora por um problema no nosso servidor. Tente de novo mais tarde ou fale com o suporte.",
+      );
+    }
 
     // a posse só muda para uma conta que EXISTE. Caminho NOVO (2026-08-15):
     // transferência POR CPF — acha a conta verificada pelo documento e o
@@ -254,7 +288,7 @@ export class TicketsService {
         n: randomBytes(8).toString("base64url"),
         iat: Math.floor(Date.now() / 1000),
       },
-      ticket.event.signingKey.privateKeyPem,
+      chavePrivadaPem,
     );
 
     const toName = toUser.name ?? toUser.email ?? "Novo titular";

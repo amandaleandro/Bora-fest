@@ -21,6 +21,7 @@ import { CouponsService } from "../coupons/coupons.service";
 import { OrgAccessService } from "../common/org-access.service";
 import { IdempotencyService } from "../common/idempotency.service";
 import { semEmailReal } from "@borafest/contracts";
+import { loteNaJanela, motivoForaDaJanela } from "../common/janela-do-lote";
 import { abaixoDoMinimoOnline, emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 
 /**
@@ -699,7 +700,9 @@ export class OrdersService {
     const lots = todos.filter(
       (lot) =>
         lot.priceCents + lot.feeCents > 0 &&
-        lot.capacity - lot.soldCount - lot.reservedCount > 0,
+        lot.capacity - lot.soldCount - lot.reservedCount > 0 &&
+        // a porta respeita as datas do lote como o site (2026-10-12)
+        loteNaJanela(lot),
     );
     return lots.map((lot) => ({
       ticketTypeId: lot.ticketType.id,
@@ -788,6 +791,8 @@ export class OrdersService {
     if (lot.status !== "ACTIVE") {
       throw new BadRequestException("Este lote não está ativo para venda");
     }
+    const foraDaJanelaDinheiro = motivoForaDaJanela(lot);
+    if (foraDaJanelaDinheiro) throw new BadRequestException(foraDaJanelaDinheiro);
     // MEIA-ENTRADA NA PORTA (decisão do Arthur, 2026-09-15): mesmo portão de
     // qualquer ingresso — só existe se o lote permitir. Documento é conferido
     // pelo próprio operador, na hora, que é quem está vendo a pessoa.
@@ -974,6 +979,8 @@ export class OrdersService {
     });
     if (!lot) throw new BadRequestException("Lote não pertence a este evento");
     if (lot.status !== "ACTIVE") throw new BadRequestException("Este lote não está ativo para venda");
+    const foraDaJanelaPix = motivoForaDaJanela(lot);
+    if (foraDaJanelaPix) throw new BadRequestException(foraDaJanelaPix);
     // mesma regra da venda em dinheiro: meia só existe se o lote permitir
     if (input.halfPrice && !lot.halfPriceEnabled) {
       throw new BadRequestException("Este lote não oferece meia-entrada");

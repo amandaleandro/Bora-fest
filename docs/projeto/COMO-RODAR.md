@@ -76,9 +76,14 @@ webhook duplicado, e corrida de check-in.
 
 ## Teste de carga (arquitetura §22)
 
-Com a API rodando (`pnpm --filter @borafest/api dev` ou `dist/main.js`):
+Com a API rodando **com o limite de requisições desligado** (todas as
+tentativas saem do mesmo IP, e a reserva aceita 20 por minuto por IP):
 
 ```bash
+# terminal 1 — a API do teste
+NODE_ENV=development RATE_LIMIT_DISABLED=1 pnpm --filter @borafest/api dev
+
+# terminal 2 — o teste
 pnpm --filter @borafest/api load-test
 # ou escolher a escala:
 LOAD_TEST_CAPACITY=20 LOAD_TEST_ATTEMPTS=500 pnpm --filter @borafest/api load-test
@@ -87,6 +92,14 @@ LOAD_TEST_CAPACITY=20 LOAD_TEST_ATTEMPTS=500 pnpm --filter @borafest/api load-te
 Dispara N reservas HTTP concorrentes contra um lote recém-criado de
 capacidade C e falha (`exit 1`) se vender mais que C. Valida o caminho
 inteiro (Fastify → Nest → Postgres), não só o service.
+
+`RATE_LIMIT_DISABLED=1` (2026-10-12) só vale com `NODE_ENV=development` ou
+`test`. Em produção (as imagens fixam `NODE_ENV=production`) ou sem
+`NODE_ENV` a variável é ignorada e o log da API avisa. Antes o script forjava
+`X-Forwarded-For` para escapar do limite — truque que a correção de 29/08
+fechou. Se a API responder 429, o script para e explica. **Nunca** desligue o
+limite no servidor de produção; carga lá exige gerador distribuído (vários
+IPs de verdade), contando o 429 como resposta esperada.
 
 ## Problemas comuns
 

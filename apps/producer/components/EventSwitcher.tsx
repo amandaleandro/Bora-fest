@@ -36,15 +36,35 @@ export function EventSwitcher({
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const [eventos, setEventos] = useState<EventSummary[]>([]);
+  // FALHA NÃO É LISTA VAZIA (2026-10-12): antes o .catch virava [] e o menu
+  // ficava em "Carregando…" para sempre, sem dizer que a lista não veio nem
+  // deixar tentar de novo.
+  const [estado, setEstado] = useState<"carregando" | "ok" | "erro">("carregando");
+  const [tentativa, setTentativa] = useState(0);
   const [aberto, setAberto] = useState(false);
   const caixa = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token || !organizationId || !aberto) return;
-    eventsApi.list(token, organizationId).then(setEventos).catch(() => setEventos([]));
-  }, [token, organizationId, aberto]);
+    let vivo = true;
+    setEstado("carregando");
+    eventsApi
+      .list(token, organizationId)
+      .then((lista) => {
+        if (!vivo) return;
+        setEventos(lista);
+        setEstado("ok");
+      })
+      .catch(() => {
+        if (vivo) setEstado("erro");
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [token, organizationId, aberto, tentativa]);
   useEffect(() => {
     setEventos([]);
+    setEstado("carregando");
   }, [organizationId]);
 
   useEffect(() => {
@@ -105,8 +125,21 @@ export function EventSwitcher({
           role="listbox"
           className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-[360px] overflow-y-auto rounded-xl border border-line bg-surface shadow-card"
         >
-          {eventos.length === 0 ? (
-            <p className="px-3 py-2.5 text-[12.5px] font-semibold text-muted">Carregando…</p>
+          {estado === "erro" ? (
+            <div className="px-3 py-2.5">
+              <p className="text-[12.5px] font-semibold text-muted">Não deu para carregar seus eventos.</p>
+              <button
+                type="button"
+                onClick={() => setTentativa((n) => n + 1)}
+                className="mt-1.5 text-[12px] font-extrabold text-primary hover:underline"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : eventos.length === 0 ? (
+            <p className="px-3 py-2.5 text-[12.5px] font-semibold text-muted">
+              {estado === "carregando" ? "Carregando…" : "Nenhum evento nesta produtora."}
+            </p>
           ) : (
             eventos.map((e) => (
               <button

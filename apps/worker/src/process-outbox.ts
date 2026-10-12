@@ -82,6 +82,14 @@ async function handleOutboxEvent(eventType: string, payload: Record<string, stri
     case "vip.payment.paid":
       return;
 
+    // alertas de pagamento (2026-10-12): a auditoria já foi gravada junto com o
+    // evento; aqui só registra para a equipe agir pelo backoffice
+    case "payment.amount_mismatch":
+    case "vip.payment.amount_mismatch":
+    case "payment.chargeback_reversed":
+      log.warn({ eventType, payload }, "alerta de pagamento para a equipe conferir no backoffice");
+      return;
+
     default:
       log.warn({ eventType }, "tipo de evento do outbox sem handler; marcado como processado");
   }

@@ -142,10 +142,9 @@ export class PdvController {
     return this.ordersService.getPdvOrderTickets(eventId, orderId, userId);
   }
 
-  @Post(":publicToken/correct-email")
-  correctEmail(@Param("publicToken") publicToken: string, @Body() body: { email?: string }) {
-    return this.ordersService.correctEmail(publicToken, body?.email ?? "");
-  }
+  // 2026-10-12: saiu daqui a cópia de "corrigir e-mail" (POST
+  // /v1/events/:eventId/pdv-orders/:publicToken/correct-email) — nenhuma tela
+  // chamava; a correção do comprador é a rota pública /v1/orders/:publicToken/correct-email.
 
   @RateLimit({ limit: 60, windowSeconds: 60, keyPrefix: "pdv-sale", by: "session" })
   @Post()

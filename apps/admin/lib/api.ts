@@ -1,9 +1,12 @@
 import { API_BASE_URL } from "./config";
+import { lerConfirmacao2fa, limparConfirmacao2fa, pedirConfirmacao2fa } from "./confirmacao-2fa";
 
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** código de máquina da API, quando houver (ex.: 2FA_NAO_ATIVADO) — 2026-10-12 */
+    public code?: string,
   ) {
     super(message);
   }
@@ -29,14 +32,14 @@ export function avisarSessaoVencida(status: number, token: string | null | undef
   return true;
 }
 
-async function request<T>(
-  path: string,
-  options: { method?: string; body?: unknown; token?: string | null } = {},
-): Promise<T> {
+type RequestOptions = { method?: string; body?: unknown; token?: string | null; confirmacao2fa?: string | null };
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.confirmacao2fa) headers[CONFIRMACAO_2FA_HEADER] = options.confirmacao2fa;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
@@ -52,9 +55,42 @@ async function request<T>(
     if (avisarSessaoVencida(response.status, options.token)) {
       throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
     }
-    throw new ApiError(response.status, data?.message ?? "Erro ao falar com a API");
+    throw new ApiError(response.status, data?.message ?? "Erro ao falar com a API", data?.code);
   }
   return data as T;
+}
+
+/**
+ * SEGUNDO FATOR (2026-10-12): aprovar saque, gerar/marcar repasse, estornar,
+ * aprovar reembolso, mudar taxa ou modo de repasse e aprovar/desbloquear casa
+ * pedem a confirmação do app autenticador (cabeçalho abaixo). Manda a
+ * confirmação guardada; se a API disser que falta (ou venceu), abre o modal do
+ * código uma vez e repete a chamada. A 1ª chamada recusada não executa nada: a
+ * API barra no guard, antes da ação. Sem 2FA ativo, o erro da API ("Ative em
+ * Segurança") chega à tela como qualquer outro.
+ */
+export const CONFIRMACAO_2FA_HEADER = "X-Confirmacao-2FA";
+export const ERRO_2FA_NAO_ATIVADO = "2FA_NAO_ATIVADO";
+export const ERRO_2FA_CONFIRMACAO_NECESSARIA = "2FA_CONFIRMACAO_NECESSARIA";
+
+async function requestComConfirmacao<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await request<T>(path, { ...options, confirmacao2fa: lerConfirmacao2fa() });
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.code !== ERRO_2FA_CONFIRMACAO_NECESSARIA || !options.token) throw err;
+  }
+  const sessionToken = options.token;
+  if (!sessionToken) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
+  limparConfirmacao2fa();
+  const confirmacao = await pedirConfirmacao2fa(sessionToken);
+  if (!confirmacao) {
+    throw new ApiError(
+      403,
+      "Ação não feita: ela só acontece com o código do aplicativo autenticador.",
+      ERRO_2FA_CONFIRMACAO_NECESSARIA,
+    );
+  }
+  return request<T>(path, { ...options, confirmacao2fa: confirmacao });
 }
 
 // ---------------------------------------------------------------------------
@@ -185,14 +221,14 @@ export const adminApi = {
     token: string,
     id: string,
     input: { pixFeeBps?: number | null; pixFeeFloorCents?: number | null; cardFeeBps?: number | null },
-  ) => request(`/v1/admin/organizations/${id}/fee`, { method: "POST", body: input, token }),
+  ) => requestComConfirmacao(`/v1/admin/organizations/${id}/fee`, { method: "POST", body: input, token }),
 
   updateSettlement: (
     token: string,
     id: string,
     input: { settlementMode?: "STANDARD" | "INSTANT"; autoPayout?: boolean; refundHoldDays?: number },
   ) =>
-    request<{ settlementMode: "STANDARD" | "INSTANT"; autoPayout: boolean; refundHoldDays: number }>(
+    requestComConfirmacao<{ settlementMode: "STANDARD" | "INSTANT"; autoPayout: boolean; refundHoldDays: number }>(
       `/v1/admin/organizations/${id}/settlement`,
       { method: "POST", body: input, token },
     ),
@@ -201,10 +237,10 @@ export const adminApi = {
     request(`/v1/admin/organizations/${id}/block`, { method: "POST", body: { reason }, token }),
 
   unblockOrganization: (token: string, id: string) =>
-    request(`/v1/admin/organizations/${id}/unblock`, { method: "POST", token }),
+    requestComConfirmacao(`/v1/admin/organizations/${id}/unblock`, { method: "POST", token }),
 
   approveOrganization: (token: string, id: string) =>
-    request(`/v1/admin/organizations/${id}/approve`, { method: "POST", token }),
+    requestComConfirmacao(`/v1/admin/organizations/${id}/approve`, { method: "POST", token }),
 
   /** etapa 1 da exclusão: manda o código de confirmação pro e-mail do admin */
   requestOrgDeleteCode: (token: string, id: string) =>
@@ -240,7 +276,7 @@ export const adminApi = {
     }),
 
   refundOrder: (token: string, publicToken: string, input: { amountCents?: number; reason: string }) =>
-    request(`/v1/admin/orders/${publicToken}/refund`, { method: "POST", body: input, token }),
+    requestComConfirmacao(`/v1/admin/orders/${publicToken}/refund`, { method: "POST", body: input, token }),
 
   listWebhooks: (token: string, filters: { provider?: string; status?: string } = {}) => {
     const params = new URLSearchParams();
@@ -282,7 +318,7 @@ export const adminApi = {
   },
 
   createPayout: (token: string, organizationId: string) =>
-    request<Payout>(`/v1/admin/organizations/${organizationId}/payouts`, { method: "POST", token }),
+    requestComConfirmacao<Payout>(`/v1/admin/organizations/${organizationId}/payouts`, { method: "POST", token }),
 
   listPayoutRequests: (token: string, status = "PENDING") =>
     request<
@@ -297,11 +333,11 @@ export const adminApi = {
       }>
     >(`/v1/admin/payout-requests?status=${status}`, { token }),
   approvePayoutRequest: (token: string, id: string) =>
-    request(`/v1/admin/payout-requests/${id}/approve`, { method: "POST", token }),
+    requestComConfirmacao(`/v1/admin/payout-requests/${id}/approve`, { method: "POST", token }),
   rejectPayoutRequest: (token: string, id: string, note?: string) =>
     request(`/v1/admin/payout-requests/${id}/reject`, { method: "POST", body: { note }, token }),
   markPayoutPaid: (token: string, id: string, notes?: string) =>
-    request<Payout>(`/v1/admin/payouts/${id}/mark-paid`, { method: "POST", body: { notes }, token }),
+    requestComConfirmacao<Payout>(`/v1/admin/payouts/${id}/mark-paid`, { method: "POST", body: { notes }, token }),
 
   // Fila de reembolsos do comprador (refund-requests). Nos eventos de casas no
   // repasse PADRÃO quem analisa é a BoraFest — sem esta tela a fila fica PENDING
@@ -311,11 +347,47 @@ export const adminApi = {
     return request<AdminRefundRequest[]>(`/v1/admin/refund-requests${query}`, { token });
   },
   approveRefundRequest: (token: string, id: string, amountCents?: number) =>
-    request(`/v1/admin/refund-requests/${id}/approve`, {
+    requestComConfirmacao(`/v1/admin/refund-requests/${id}/approve`, {
       method: "POST",
       body: amountCents != null ? { amountCents } : {},
       token,
     }),
   rejectRefundRequest: (token: string, id: string, note: string) =>
     request(`/v1/admin/refund-requests/${id}/reject`, { method: "POST", body: { note }, token }),
+};
+
+// ---------------------------------------------------------------------------
+// Segurança — segundo fator do backoffice (2026-10-12)
+// ---------------------------------------------------------------------------
+
+export interface Status2fa {
+  ativo: boolean;
+  ativoDesde: string | null;
+  /** chave gerada e ainda não confirmada com um código */
+  ativacaoPendente: boolean;
+  /** false = falta TOTP_ENCRYPTION_KEY no servidor: ninguém consegue ativar */
+  servidorPronto: boolean;
+}
+
+export const segurancaApi = {
+  status: (token: string) => request<Status2fa>("/v1/admin/2fa", { token }),
+
+  iniciarAtivacao: (token: string) =>
+    request<{ segredo: string; otpauthUrl: string; digitos: number; periodoSegundos: number }>(
+      "/v1/admin/2fa/ativacao",
+      { method: "POST", token },
+    ),
+
+  confirmarAtivacao: (token: string, code: string) =>
+    request<{ ativo: boolean; ativoDesde: string; confirmacao: string; expiraEm: string }>(
+      "/v1/admin/2fa/ativacao/confirmar",
+      { method: "POST", body: { code }, token },
+    ),
+
+  confirmarAcao: (token: string, code: string) =>
+    request<{ confirmacao: string; expiraEm: string }>("/v1/admin/2fa/confirmar-acao", {
+      method: "POST",
+      body: { code },
+      token,
+    }),
 };
