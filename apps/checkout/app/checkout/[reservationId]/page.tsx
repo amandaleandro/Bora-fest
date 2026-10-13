@@ -280,6 +280,29 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     };
   }, [slug, temLoteRestrito, lotesDaReserva]);
 
+  // QUEM JÁ ENTROU (2026-10-13): nome, e-mail, CPF e celular vêm da conta — só
+  // campo vazio, e tudo segue editável. O e-mail do convite pessoal (acima)
+  // continua valendo por cima. Falhou ou a sessão venceu: o formulário segue
+  // em branco, como antes (é só conveniência; o pedido não depende disto)
+  useEffect(() => {
+    const token = localStorage.getItem("bf.token");
+    if (!token) return;
+    let active = true;
+    api
+      .myProfile(token)
+      .then((perfil) => {
+        if (!active || !perfil) return;
+        if (perfil.name) setName((atual) => atual || perfil.name || "");
+        if (perfil.email) setEmail((atual) => atual || perfil.email || "");
+        if (perfil.cpf) setBuyerCpf((atual) => atual || maskCpf(perfil.cpf || ""));
+        if (perfil.phone) setPhone((atual) => atual || maskBrPhone(perfil.phone || ""));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (otpResendIn <= 0) return;
     const id = setInterval(() => setOtpResendIn((v) => v - 1), 1000);
