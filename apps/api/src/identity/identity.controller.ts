@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Headers, Ip, Post } from "@nestjs/common";
 import {
   passwordLoginSchema,
   recoverPasswordSchema,
@@ -9,6 +9,7 @@ import {
 } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { RateLimit } from "../common/rate-limit.decorator";
+import { origemDoAceite } from "../orders/orders.controller";
 import { IdentityService } from "./identity.service";
 
 @Controller("v1/identity")
@@ -35,10 +36,19 @@ export class IdentityController {
 
   // --- auth por senha (painel do produtor — protótipo docs/design) ---------
 
+  /**
+   * IP e navegador vão junto para o aceite dos termos (LGPD, 2026-10-12) — o
+   * mesmo jeito do checkout: `request.ip` (o do rate limit; o X-Forwarded-For
+   * só vale do proxy confiável) e o user-agent, limpos por origemDoAceite.
+   */
   @Post("register")
   @RateLimit({ limit: 10, windowSeconds: 900, keyPrefix: "register" })
-  register(@Body(ZodBody(registerSchema)) body: unknown) {
-    return this.identityService.registerWithPassword(body as any);
+  register(
+    @Body(ZodBody(registerSchema)) body: unknown,
+    @Ip() ip: string | undefined,
+    @Headers("user-agent") userAgent: string | undefined,
+  ) {
+    return this.identityService.registerWithPassword(body as any, origemDoAceite(ip, userAgent));
   }
 
   @Post("login")

@@ -27,6 +27,12 @@ export interface PromoterPerformanceRow {
   guestsNoShow: number;
   /** % da lista que apareceu — null quando não cadastrou ninguém */
   guestShowRate: number | null;
+  /**
+   * GRÁTIS (2026-10-12): ingresso de R$ 0 fora da lista atribuído ao promoter
+   * (lote grátis pelo link, cupom de 100%) — pegaram / entraram. Não é venda nem lista.
+   */
+  freeTaken: number;
+  freeCheckedIn: number;
 }
 
 export interface PromoterPerformanceResponse {
@@ -49,6 +55,8 @@ export interface PromoterPerformanceResponse {
     guestsRegistered: number;
     guestsCheckedIn: number;
     guestsNoShow: number;
+    freeTaken: number;
+    freeCheckedIn: number;
   };
   promoters: PromoterPerformanceRow[];
 }

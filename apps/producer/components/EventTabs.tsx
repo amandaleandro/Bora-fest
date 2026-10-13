@@ -26,8 +26,9 @@ export function EventTabs({ eventId }: { eventId: string }) {
   ];
 
   const segment = pathname.split(base)[1]?.replace(/^\//, "").split("/")[0] ?? "";
+  // "convites" (convite por e-mail, 2026-10-12) é de um lote: fica na aba Ingressos
   const active =
-    segment === "" ? "ingressos"
+    segment === "" || segment === "convites" ? "ingressos"
     : segment === "dashboard" || segment === "editar" || segment === "recorrencia" ? "geral"
     : segment === "portaria" || segment === "checkin-ao-vivo" || segment === "lista-convidados" ? "checkin"
     : segment;

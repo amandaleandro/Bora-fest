@@ -90,6 +90,43 @@ export const invitePromoterSchema = z
   });
 export type InvitePromoterInput = z.infer<typeof invitePromoterSchema>;
 
+const textoDoCodigo = "O código precisa de 3 a 16 letras ou números";
+
+/**
+ * A CASA ajusta o vínculo do promoter depois do convite (2026-10-12). A cota
+ * de convidados nascia 0 e não havia onde liberar — o promoter tentava pôr
+ * alguém na lista e levava "peça para a produção liberar a sua cota", e a
+ * produção não tinha tela nem rota. O código pessoal também não tinha campo.
+ *
+ * - `guestQuota`: quantos convidados o promoter pode pôr na lista de cada
+ *   evento (0 = nenhum). Mesmo teto do convite.
+ * - `code`: código pessoal, sempre gravado em MAIÚSCULAS; `null` tira o código.
+ *
+ * Pelo menos um dos dois precisa vir.
+ */
+export const updatePromoterLinkSchema = z
+  .object({
+    guestQuota: z
+      .number()
+      .int("A cota precisa ser um número inteiro")
+      .min(0, "A cota vai de 0 a 1000")
+      .max(1000, "A cota vai de 0 a 1000")
+      .optional(),
+    code: z
+      .string()
+      .trim()
+      .min(3, textoDoCodigo)
+      .max(16, textoDoCodigo)
+      .regex(/^[A-Za-z0-9]+$/, "Use só letras e números no código")
+      .transform((codigo) => codigo.toUpperCase())
+      .nullable()
+      .optional(),
+  })
+  .refine((v) => v.guestQuota !== undefined || v.code !== undefined, {
+    message: "Informe a cota de convidados ou o código",
+  });
+export type UpdatePromoterLinkInput = z.infer<typeof updatePromoterLinkSchema>;
+
 /** Convite de vendedor (nível 3): o promoter convida uma pessoa por e-mail. Vendedor nunca recebe dinheiro pela plataforma. */
 export const inviteSellerSchema = z.object({
   email: z.string().email(),

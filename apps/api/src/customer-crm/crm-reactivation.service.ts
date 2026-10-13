@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma, prisma } from "@borafest/database";
 import type {
   CrmAudiencePreviewInput,
@@ -7,11 +7,16 @@ import type {
   CrmReactivationSegment,
 } from "@borafest/contracts";
 import { IdempotencyService } from "../common/idempotency.service";
+import { chaveDoEmail, criarTokenDeDescadastro, linksDeDescadastro } from "../descadastro/descadastro-token";
+import { emailsDescadastrados } from "../descadastro/supressao";
 import { CustomerCrmService } from "./customer-crm.service";
 
 const PAGE_SIZE = 100;
 const MAX_SCAN = 20_000;
 const MAX_SEND = 5_000;
+
+const TODOS_SAIRAM =
+  "Ninguém para receber: todos os clientes deste segmento pediram para não receber campanhas desta Casa";
 
 function matchesSegment(tags: string[], segment: CrmReactivationSegment): boolean {
   if (segment === "ALL" || segment === "EMAIL_OPT_IN") return true;
@@ -49,6 +54,9 @@ export class CrmReactivationService {
         segment: "EMAIL_OPT_IN",
         page,
         pageSize: PAGE_SIZE,
+        // a lista do CRM já tira quem saiu das campanhas; aqui eles vêm junto
+        // só para serem CONTADOS (prévia e auditoria) e tirados logo abaixo
+        incluirQuemSaiuDasCampanhas: true,
       });
       sourceTotal = result.total;
 
@@ -73,11 +81,17 @@ export class CrmReactivationService {
 
     if (sourceTotal > scanned) truncated = true;
 
+    // LGPD (2026-10-12): quem clicou em "Não quero mais receber" numa campanha
+    // desta Casa fica fora do público — da prévia, da contagem e do disparo
+    const descadastrados = await emailsDescadastrados(prisma, organizationId, audience.keys());
+    for (const key of descadastrados) audience.delete(key);
+
     return {
       customers: Array.from(audience.values()),
       scanned,
       sourceTotal,
       truncated,
+      optedOut: descadastrados.size,
     };
   }
 
@@ -90,6 +104,8 @@ export class CrmReactivationService {
     return {
       segment: input.segment,
       eligibleCount: audience.customers.length,
+      /** clientes do segmento que pediram para não receber campanhas desta Casa (já fora do eligibleCount) */
+      optedOutCount: audience.optedOut,
       truncated: audience.truncated,
       maxSend: MAX_SEND,
       canSend: !audience.truncated && audience.customers.length > 0 && audience.customers.length <= MAX_SEND,
@@ -175,7 +191,9 @@ export class CrmReactivationService {
         );
       }
       if (audience.customers.length === 0) {
-        throw new BadRequestException("Nenhum cliente com opt-in de ofertas neste segmento");
+        throw new BadRequestException(
+          audience.optedOut > 0 ? TODOS_SAIRAM : "Nenhum cliente com opt-in de ofertas neste segmento",
+        );
       }
       if (audience.customers.length > MAX_SEND) {
         throw new BadRequestException(`Limite de ${MAX_SEND} destinatários por campanha`);
@@ -184,9 +202,29 @@ export class CrmReactivationService {
       const houseName = organization.displayName ?? organization.name;
       const queuedAt = new Date();
 
-      await prisma.$transaction(async (tx) => {
+      // cada e-mail leva o próprio link "Não quero mais receber" (LGPD,
+      // 2026-10-12): o código assinado aponta para a linha da fila DESTE
+      // destinatário, que guarda o e-mail e a Casa. Sem o segredo da sessão o
+      // código não sai — e a campanha não sai sem o link de sair.
+      const recipients = audience.customers.map((customer) => {
+        const notificationId = randomUUID();
+        const links = linksDeDescadastro(criarTokenDeDescadastro({ tipo: "campanha", notificationId }));
+        return { customer, notificationId, links };
+      });
+
+      const queued = await prisma.$transaction(async (tx) => {
+        // quem saiu entre a leitura do público e agora também fica de fora
+        const saiuAgora = await emailsDescadastrados(
+          tx,
+          organizationId,
+          recipients.map(({ customer }) => customer.email),
+        );
+        const finalRecipients = recipients.filter(({ customer }) => !saiuAgora.has(chaveDoEmail(customer.email)));
+        if (finalRecipients.length === 0) throw new BadRequestException(TODOS_SAIRAM);
+
         await tx.notification.createMany({
-          data: audience.customers.map((customer) => ({
+          data: finalRecipients.map(({ customer, notificationId, links }) => ({
+            id: notificationId,
             channel: "EMAIL" as const,
             recipient: customer.email,
             template: "crm_reactivation",
@@ -199,6 +237,8 @@ export class CrmReactivationService {
               message: input.message,
               ctaLabel: input.ctaLabel ?? null,
               ctaUrl: input.ctaUrl ?? null,
+              unsubscribeUrl: links.pagina,
+              unsubscribeOneClickUrl: links.umClique,
             } as Prisma.InputJsonValue,
           })),
         });
@@ -212,18 +252,22 @@ export class CrmReactivationService {
             entityId: campaignId,
             metadata: {
               segment: input.segment,
-              queued: audience.customers.length,
+              queued: finalRecipients.length,
+              // pulados por terem pedido para não receber campanhas desta Casa
+              skippedOptOut: audience.optedOut + (recipients.length - finalRecipients.length),
               subject: input.subject,
               hasCta: Boolean(input.ctaUrl),
               queuedAt: queuedAt.toISOString(),
             } as Prisma.InputJsonValue,
           },
         });
+
+        return finalRecipients.length;
       });
 
       return {
         campaignId,
-        queued: audience.customers.length,
+        queued,
         segment: input.segment,
         createdAt: queuedAt,
         replayed: false,

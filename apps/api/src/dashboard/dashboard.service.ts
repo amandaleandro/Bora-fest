@@ -5,6 +5,14 @@ import { OrgAccessService } from "../common/org-access.service";
 import { getEventNetCents } from "../common/ledger";
 import { ONDE_PEDIDO_COM_VALOR, vendaDeuCerto, vendaFalhou } from "../common/conta-como-venda";
 import { PARTICIPANTES_POR_PAGINA, filtroDeParticipantes } from "./participantes-pagina";
+import {
+  CABECALHO_MEIA,
+  linhaCsv,
+  linhasDaMeia,
+  quantidadeDeMeia,
+  simOuNao,
+  textoSeguroParaPlanilha,
+} from "./relatorio-meia";
 
 const PAID_ORDER_STATUSES = ["PAID", "FULFILLED"] as const;
 
@@ -376,19 +384,20 @@ export class DashboardService {
     // CSV segue com a lista INTEIRA, sem página (2026-10-12)
     const participants = await this.fetchParticipants({ eventId });
 
-    const header = "codigo,nome,email,tipo,lote,status,checkin_em";
+    // "meia" no FIM (2026-10-12): quem já monta planilha em cima das colunas
+    // antigas não vê nada mudar de lugar
+    const header = "codigo,nome,email,tipo,lote,status,checkin_em,meia";
     const rows = participants.map((p) =>
-      [
+      linhaCsv([
         p.code,
-        p.attendeeName ?? "",
-        p.attendeeEmail ?? "",
-        p.typeName,
-        p.lotName,
+        textoSeguroParaPlanilha(p.attendeeName ?? ""),
+        textoSeguroParaPlanilha(p.attendeeEmail ?? ""),
+        textoSeguroParaPlanilha(p.typeName),
+        textoSeguroParaPlanilha(p.lotName),
         p.status,
         p.checkedInAt ? p.checkedInAt.toISOString() : "",
-      ]
-        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-        .join(","),
+        simOuNao(p.halfPrice),
+      ]),
     );
 
     return [header, ...rows].join("\n");
@@ -410,24 +419,25 @@ export class DashboardService {
         discountCents: true,
         createdAt: true,
         paidAt: true,
-        items: { select: { quantity: true, priceCents: true, feeCents: true } },
+        items: { select: { quantity: true, priceCents: true, feeCents: true, halfPrice: true } },
         payments: { select: { method: true, status: true }, orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
 
+    // "meia" no FIM (2026-10-12): quantos ingressos do pedido são meia-entrada
     const header =
-      "pedido,data,comprador,email,itens,valor_bruto,taxa_servico,valor_liquido,desconto,status,meio_pagamento";
+      "pedido,data,comprador,email,itens,valor_bruto,taxa_servico,valor_liquido,desconto,status,meio_pagamento,meia";
     const rows = orders.map((o) => {
       const itemCount = o.items.reduce((sum, i) => sum + i.quantity, 0);
       // pedido de R$ 0 (lote grátis, cupom 100%) não teve taxa cobrada: taxa e líquido zerados
       const feeCents = o.totalCents === 0 ? 0 : o.items.reduce((sum, i) => sum + i.feeCents * i.quantity, 0);
       const grossCents = o.totalCents + o.discountCents; // bruto antes do desconto do cupom
       const netCents = o.totalCents === 0 ? 0 : grossCents - feeCents - o.discountCents;
-      return [
+      return linhaCsv([
         o.publicToken,
         o.createdAt.toISOString(),
-        o.contactName ?? "",
-        o.contactEmail,
+        textoSeguroParaPlanilha(o.contactName ?? ""),
+        textoSeguroParaPlanilha(o.contactEmail),
         itemCount,
         (grossCents / 100).toFixed(2),
         (feeCents / 100).toFixed(2),
@@ -435,12 +445,44 @@ export class DashboardService {
         (o.discountCents / 100).toFixed(2),
         o.status,
         o.payments[0]?.method ?? "",
-      ]
-        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-        .join(",");
+        quantidadeDeMeia(o.items),
+      ]);
     });
 
     return [header, ...rows].join("\n");
+  }
+
+  /**
+   * CSV DE MEIA-ENTRADA (2026-10-12, Decreto 8.537/2015): um ingresso de meia
+   * por linha — data da compra, tipo, lote, participante, código, canal (site
+   * ou porta) e situação. Mesma permissão dos outros exports (finance:view):
+   * tem nome de participante. Regras das linhas em relatorio-meia.ts.
+   */
+  async exportMeiaEntradaCsv(eventId: string, actorUserId: string): Promise<string> {
+    await this.assertEventAccess(eventId, actorUserId, true);
+
+    const itens = await prisma.orderItem.findMany({
+      where: { halfPrice: true, order: { eventId } },
+      // ordem da compra; o id desempata e deixa a saída estável entre exportações
+      orderBy: [{ order: { createdAt: "asc" } }, { id: "asc" }],
+      select: {
+        quantity: true,
+        ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+        order: {
+          select: {
+            publicToken: true,
+            status: true,
+            createdAt: true,
+            paidAt: true,
+            contactName: true,
+            soldByUserId: true,
+          },
+        },
+        tickets: { orderBy: { seq: "asc" }, select: { code: true, status: true, attendeeName: true } },
+      },
+    });
+
+    return [CABECALHO_MEIA, ...linhasDaMeia(itens).map(linhaCsv)].join("\n");
   }
 
   private fetchParticipants(where: Prisma.TicketWhereInput, pagina?: { skip: number; take: number }) {
@@ -459,6 +501,7 @@ export class DashboardService {
           checkedInAt: true,
           ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
           order: { select: { contactName: true, contactEmail: true } },
+          orderItem: { select: { halfPrice: true } },
         },
       })
       .then((tickets) =>
@@ -471,6 +514,8 @@ export class DashboardService {
           checkedInAt: t.checkedInAt,
           typeName: t.ticketLot.ticketType.name,
           lotName: t.ticketLot.name,
+          /** meia-entrada (2026-10-12): vai para a coluna "meia" do CSV */
+          halfPrice: t.orderItem.halfPrice,
         })),
       );
   }

@@ -45,3 +45,32 @@ export const ONDE_PEDIDO_COM_VALOR: Prisma.OrderWhereInput = { totalCents: { gt:
  * Espera a tabela `orders` com o apelido `o` na query.
  */
 export const SQL_PEDIDO_COM_VALOR = Prisma.sql`o.total_cents > 0`;
+
+/**
+ * VENDA, LISTA OU GRÁTIS — os três baldes dos relatórios (2026-10-12).
+ *
+ * Todo pedido cai em exatamente um balde:
+ *  - venda:  tem valor (a regra de cima, `temValorDeVenda`);
+ *  - lista:  R$ 0 nascido da lista de convidados (tem entrada em
+ *            guest_list_entries, o mesmo critério de `origem-gratis.ts`);
+ *  - gratis: R$ 0 que NÃO é lista: lote grátis, cupom de 100%, cortesia.
+ *
+ * O relatório de promoter só tinha os dois primeiros: quem trouxe 200 pessoas
+ * para um evento grátis pelo link dele aparecia com zero. "Grátis" não soma em
+ * venda nem em lista; é um terceiro número, ao lado deles.
+ */
+export type BaldeDoPedido = "venda" | "lista" | "gratis";
+
+export function baldeDoPedido(pedido: { totalCents: number; daLista: boolean }): BaldeDoPedido {
+  if (temValorDeVenda(pedido)) return "venda";
+  return pedido.daLista ? "lista" : "gratis";
+}
+
+/** O pedido nasceu da lista (a entrada pode ter sido cancelada depois; o pedido continua sendo de lista). */
+const SQL_PEDIDO_TEM_LISTA = Prisma.sql`EXISTS (SELECT 1 FROM guest_list_entries g_balde WHERE g_balde.order_id = o.id)`;
+
+/** Balde "lista" em SQL, com o mesmo apelido `o` de `SQL_PEDIDO_COM_VALOR`. */
+export const SQL_PEDIDO_DA_LISTA = Prisma.sql`(NOT (${SQL_PEDIDO_COM_VALOR}) AND ${SQL_PEDIDO_TEM_LISTA})`;
+
+/** Balde "grátis" em SQL: sem valor e fora da lista. */
+export const SQL_PEDIDO_GRATIS = Prisma.sql`(NOT (${SQL_PEDIDO_COM_VALOR}) AND NOT ${SQL_PEDIDO_TEM_LISTA})`;

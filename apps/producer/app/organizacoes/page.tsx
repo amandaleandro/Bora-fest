@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import QRCode from "react-qr-code";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { SalesPushButton } from "@/components/SalesPushButton";
 import { useAuth } from "@/lib/auth";
+import { CHECKOUT_URL, hotsiteUrl } from "@/lib/config";
+import { copiarTexto } from "@/lib/copiar";
 import {
   organizationsApi,
   type Organization,
@@ -16,6 +19,97 @@ import {
 
 function brl(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function diaEMes(iso: string): string {
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+/**
+ * LINK E QR DO PROMOTER (2026-10-12). O link aponta para O EVENTO (2026-09-08:
+ * antes ia para a home e o comprador caçava a festa). Promoter da Casa inteira
+ * escolhe o evento na agenda que o servidor manda (até 50, só os públicos) —
+ * antes a tela só montava o link do primeiro. O QR é o mesmo link, para
+ * mostrar na fila ou na faculdade. Sem evento publicado, cai na página inicial.
+ */
+function LinkEQrDoPromoter({ engagement }: { engagement: PromoterEngagement }) {
+  const opcoes = engagement.event ? [engagement.event] : (engagement.events ?? []);
+  const [escolhido, setEscolhido] = useState(opcoes[0]?.id ?? "");
+  const [copia, setCopia] = useState<"ok" | "falhou" | null>(null);
+  // a agenda recarregou e o evento escolhido saiu dela: volta para o primeiro
+  const evento = opcoes.find((e) => e.id === escolhido) ?? opcoes[0] ?? null;
+  const link = evento ? `${hotsiteUrl(evento.slug)}?pr=${engagement.slug}` : `${CHECKOUT_URL}/?pr=${engagement.slug}`;
+
+  async function copiar() {
+    const ok = await copiarTexto(link);
+    setCopia(ok ? "ok" : "falhou");
+    if (ok) setTimeout(() => setCopia(null), 2000);
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {engagement.event ? (
+        <p className="text-[12px] font-semibold text-muted">
+          Você divulga só <b className="text-ink">{engagement.event.title}</b> · {diaEMes(engagement.event.startsAt)}
+        </p>
+      ) : opcoes.length > 0 ? (
+        <label className="block">
+          <span className="mb-1 block text-[12px] font-bold text-ink-soft">Evento</span>
+          <select
+            className="h-[42px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3 text-[14px] font-semibold outline-none focus:border-primary"
+            value={evento?.id ?? ""}
+            onChange={(e) => {
+              setEscolhido(e.target.value);
+              setCopia(null);
+            }}
+          >
+            {opcoes.map((e) => (
+              <option key={e.id} value={e.id}>
+                {`${e.title} · ${diaEMes(e.startsAt)}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="text-[12px] font-semibold text-muted">
+          Esta casa ainda não tem evento publicado — seu link leva para a página inicial.
+        </p>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-[148px_minmax(0,1fr)] sm:items-center">
+        <div className="mx-auto w-[148px] rounded-xl border border-line bg-white p-2.5 sm:mx-0">
+          <QRCode
+            value={link}
+            size={128}
+            title={evento ? `QR do seu link para ${evento.title}` : "QR do seu link"}
+            style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+          />
+        </div>
+        <div className="min-w-0 space-y-2">
+          <div className="flex items-center gap-2 rounded-xl border border-dashed border-line-input bg-surface px-3 py-2.5">
+            <code className="min-w-0 flex-1 break-all font-mono text-[12px] text-ink">
+              {link.replace(/^https?:\/\//, "")}
+            </code>
+            <button
+              type="button"
+              onClick={copiar}
+              className="h-10 shrink-0 rounded-xl border-[1.5px] border-line-input bg-surface px-3 text-[12.5px] font-extrabold text-primary"
+            >
+              {copia === "ok" ? "Copiado ✓" : "Copiar"}
+            </button>
+          </div>
+          {copia === "falhou" ? (
+            <p className="text-[11.5px] font-semibold text-danger">
+              Não deu para copiar sozinho. Selecione o link acima e copie.
+            </p>
+          ) : null}
+          <p className="text-center text-[11.5px] font-semibold text-muted sm:text-left">
+            Mostre o QR na fila ou mande o link. Cada venda por ele conta para você.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const PRODUCER_TYPES: Array<{ value: ProducerType; label: string }> = [
@@ -95,24 +189,6 @@ function PromoterInbox({ ownedOrg }: { ownedOrg: (Organization & { roleKey: stri
     }
   }
 
-  /**
-   * Link do promoter (2026-09-08): aponta para O EVENTO, não mais para a home.
-   * Antes era `/?pr=slug` e o comprador caía na loja para caçar a festa — atrito
-   * puro em cima do funil que mais converte. Sem evento no escopo, usa o próximo
-   * da agenda da casa; só cai na home se a casa não tiver evento publicado.
-   */
-  function linkDoPromoter(e: PromoterEngagement): string {
-    const base = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "https://borafest.com.br";
-    const evento = e.event ?? e.events?.[0] ?? null;
-    return evento ? `${base}/${evento.slug}?pr=${e.slug}` : `${base}/?pr=${e.slug}`;
-  }
-
-  function copyLink(e: PromoterEngagement, id: string) {
-    navigator.clipboard.writeText(linkDoPromoter(e));
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-  }
-
   async function respondSeller(sellerId: string, accept: boolean) {
     if (!token) return;
     setMessage(null);
@@ -139,9 +215,12 @@ function PromoterInbox({ ownedOrg }: { ownedOrg: (Organization & { roleKey: stri
     }
   }
 
-  function copySellerLink(slug: string, id: string) {
-    const base = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "https://borafest.com.br";
-    navigator.clipboard.writeText(`${base}/?vd=${slug}`);
+  async function copySellerLink(slug: string, id: string) {
+    const link = `${CHECKOUT_URL}/?vd=${slug}`;
+    if (!(await copiarTexto(link))) {
+      setMessage(`Não deu para copiar sozinho. Selecione e copie: ${link}`);
+      return;
+    }
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   }
@@ -177,53 +256,6 @@ function PromoterInbox({ ownedOrg }: { ownedOrg: (Organization & { roleKey: stri
           >
             Tentar novamente
           </button>
-        </div>
-      ) : null}
-
-      {/* CARTEIRA DO PROMOTER (2026-10-12): a tela só dizia "R$ X na sua carteira"
-          por vínculo — sem dizer quanto já liberou nem como sacar. GET wallet/mine
-          existia e ninguém usava. */}
-      {/* ownedOrg undefined = lista de produtoras ainda não respondeu: sem chute de R$ 0,00 */}
-      {(engagements.length > 0 || walletComSaldo) && ownedOrg !== undefined && (ownedOrg || wallet) ? (
-        <div className="rounded-[18px] border border-line bg-surface p-5">
-          <h2 className="text-[15px] font-extrabold">Minhas comissões</h2>
-          {ownedOrg ? (
-            <>
-              <p className="mt-1 text-[12.5px] font-semibold text-muted">
-                Suas comissões entram no caixa de {ownedOrg.displayName ?? ownedOrg.name} e liberam 2 dias úteis
-                após o fim de cada evento, como as vendas. O saldo e o saque ficam no Financeiro.
-              </p>
-              <Link
-                href={`/organizacoes/${ownedOrg.id}/financeiro`}
-                className="mt-3 inline-flex h-10 items-center rounded-xl border border-line px-4 text-[13px] font-bold text-primary"
-              >
-                Ver no Financeiro →
-              </Link>
-            </>
-          ) : wallet ? (
-            <>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-bg px-4 py-3">
-                  <p className="text-[12px] font-bold text-muted">Na sua carteira</p>
-                  <p className="mt-0.5 text-[18px] font-extrabold">{brl(wallet.balanceCents)}</p>
-                </div>
-                <div className="rounded-xl bg-bg px-4 py-3">
-                  <p className="text-[12px] font-bold text-muted">Já liberado</p>
-                  <p className="mt-0.5 text-[18px] font-extrabold text-success">{brl(wallet.availableCents)}</p>
-                </div>
-              </div>
-              <p className="mt-2 text-[12px] font-semibold text-muted">
-                Cada comissão libera 2 dias úteis após o fim do evento em que a venda aconteceu.
-              </p>
-              {wallet.needsProducerAccount && ownedOrg === null ? (
-                <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12.5px] font-semibold text-warning">
-                  Para sacar, complete seu cadastro de produtor: toque em “Nova organização” e informe seu CPF ou
-                  CNPJ. A carteira passa para a sua produtora, e o saque sai pelo Financeiro dela depois que a
-                  BoraFest aprovar o cadastro e você cadastrar uma conta bancária.
-                </p>
-              ) : null}
-            </>
-          ) : null}
         </div>
       ) : null}
 
@@ -274,34 +306,33 @@ function PromoterInbox({ ownedOrg }: { ownedOrg: (Organization & { roleKey: stri
         </div>
       ) : null}
 
+      {/* SOU PROMOTER (2026-10-12): escolher o evento da agenda (antes só montava
+          o link do primeiro) e QR do link para mostrar na fila. Evento privado
+          não vem na agenda (regra decidida): o produtor manda o link dele. */}
       {engagements.length > 0 ? (
         <div className="rounded-[18px] border border-line bg-surface p-5">
           <h2 className="text-[15px] font-extrabold">Sou promoter</h2>
           <p className="mt-1 text-[12px] font-semibold text-muted">
             Divulgue seu link — toda compra que vier por ele conta para você.
           </p>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-3">
             {engagements.map((eng) => (
-              <div
-                key={eng.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-bg px-4 py-3"
-              >
-                <div>
-                  <p className="text-[13.5px] font-extrabold">{eng.hostName}</p>
-                  <p className="text-[12px] font-semibold text-muted">
-                    {eng.paidOrders} venda{eng.paidOrders === 1 ? "" : "s"}
-                    {/* "em comissões" (2026-10-12): é o total desta casa, não o saldo —
-                        o saldo e o liberado estão em "Minhas comissões" acima */}
-                    {eng.commissionType === "PERCENT"
-                      ? ` · ${((eng.commissionBps ?? 0) / 100).toFixed(1).replace(".", ",")}% · ${brl(eng.commissionCents ?? 0)} em comissões`
-                      : eng.commissionType === "FIXED"
-                        ? ` · ${brl(eng.commissionFixedCents ?? 0)}/ingresso · ${brl(eng.commissionCents ?? 0)} em comissões`
-                        : ""}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
+              <div key={eng.id} className="rounded-xl bg-bg px-4 py-4">
+                <p className="text-[13.5px] font-extrabold">{eng.hostName}</p>
+                <p className="text-[12px] font-semibold text-muted">
+                  {eng.paidOrders} venda{eng.paidOrders === 1 ? "" : "s"}
+                  {/* "em comissões" (2026-10-12): é o total desta casa, não o saldo —
+                      o saldo e o liberado estão em "Minhas comissões" */}
+                  {eng.commissionType === "PERCENT"
+                    ? ` · ${((eng.commissionBps ?? 0) / 100).toFixed(1).replace(".", ",")}% · ${brl(eng.commissionCents ?? 0)} em comissões`
+                    : eng.commissionType === "FIXED"
+                      ? ` · ${brl(eng.commissionFixedCents ?? 0)}/ingresso · ${brl(eng.commissionCents ?? 0)} em comissões`
+                      : ""}
+                </p>
+                <LinkEQrDoPromoter engagement={eng} />
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
                   <input
-                    className="h-10 w-[200px] rounded-xl border border-line-input px-3 text-[12.5px]"
+                    className="h-10 w-[200px] rounded-xl border border-line-input bg-surface px-3 text-[12.5px]"
                     placeholder="e-mail do vendedor"
                     value={sellerEmail[eng.id] ?? ""}
                     onChange={(e) => setSellerEmail((prev) => ({ ...prev, [eng.id]: e.target.value }))}
@@ -309,28 +340,61 @@ function PromoterInbox({ ownedOrg }: { ownedOrg: (Organization & { roleKey: stri
                   <button
                     type="button"
                     onClick={() => convidarVendedor(eng.id)}
-                    className="h-10 rounded-xl border border-line px-3 text-[12.5px] font-bold"
+                    className="h-10 rounded-xl border border-line bg-surface px-3 text-[12.5px] font-bold"
                   >
                     Convidar vendedor
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => copyLink(eng, eng.id)}
-                    className="h-10 rounded-xl border border-line px-4 text-[13px] font-bold text-primary"
-                  >
-                    {copied === eng.id ? "Copiado ✓" : "Copiar meu link"}
-                  </button>
                 </div>
-                <p className="mt-2 text-[11.5px] font-semibold text-muted">
-                  {eng.event
-                    ? `Seu link leva direto para ${eng.event.title}.`
-                    : eng.events && eng.events.length > 0
-                      ? `Seu link leva direto para ${eng.events[0].title} (próximo evento da casa).`
-                      : "Esta casa ainda não tem evento publicado — seu link leva para a página inicial."}
-                </p>
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* CARTEIRA DO PROMOTER (2026-10-12): a tela só dizia "R$ X na sua carteira"
+          por vínculo — sem dizer quanto já liberou nem como sacar. GET wallet/mine
+          existia e ninguém usava. */}
+      {/* ownedOrg undefined = lista de produtoras ainda não respondeu: sem chute de R$ 0,00 */}
+      {(engagements.length > 0 || walletComSaldo) && ownedOrg !== undefined && (ownedOrg || wallet) ? (
+        <div className="rounded-[18px] border border-line bg-surface p-5">
+          <h2 className="text-[15px] font-extrabold">Minhas comissões</h2>
+          {ownedOrg ? (
+            <>
+              <p className="mt-1 text-[12.5px] font-semibold text-muted">
+                Suas comissões entram no caixa de {ownedOrg.displayName ?? ownedOrg.name} e liberam 2 dias úteis
+                após o fim de cada evento, como as vendas. O saldo e o saque ficam no Financeiro.
+              </p>
+              <Link
+                href={`/organizacoes/${ownedOrg.id}/financeiro`}
+                className="mt-3 inline-flex h-10 items-center rounded-xl border border-line px-4 text-[13px] font-bold text-primary"
+              >
+                Ver no Financeiro →
+              </Link>
+            </>
+          ) : wallet ? (
+            <>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-bg px-4 py-3">
+                  <p className="text-[12px] font-bold text-muted">Na sua carteira</p>
+                  <p className="mt-0.5 text-[18px] font-extrabold">{brl(wallet.balanceCents)}</p>
+                </div>
+                <div className="rounded-xl bg-bg px-4 py-3">
+                  <p className="text-[12px] font-bold text-muted">Já liberado</p>
+                  <p className="mt-0.5 text-[18px] font-extrabold text-success">{brl(wallet.availableCents)}</p>
+                </div>
+              </div>
+              <p className="mt-2 text-[12px] font-semibold text-muted">
+                Cada comissão libera 2 dias úteis após o fim do evento em que a venda aconteceu.
+              </p>
+              {wallet.needsProducerAccount && ownedOrg === null ? (
+                <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12.5px] font-semibold text-warning">
+                  Para sacar, complete seu cadastro de produtor: toque em “Nova organização” e informe seu CPF ou
+                  CNPJ. A carteira passa para a sua produtora, e o saque sai pelo Financeiro dela depois que a
+                  BoraFest aprovar o cadastro e você cadastrar uma conta bancária.
+                </p>
+              ) : null}
+            </>
+          ) : null}
         </div>
       ) : null}
 

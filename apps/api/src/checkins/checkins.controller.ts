@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { createCheckinSchema, syncCheckinsSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { RateLimit } from "../common/rate-limit.decorator";
@@ -31,10 +31,26 @@ export class CheckinsController {
     return this.checkinsService.reverseFromDevice(req.validatorDevice, checkinId);
   }
 
+  /** "Desfazer entrada" do painel: dono/admin do evento, sem janela de tempo. */
   @Post("checkins/:id/reverse")
   @UseGuards(SessionGuard)
   reverse(@CurrentUserId() userId: string, @Param("id") checkinId: string) {
     return this.checkinsService.reverse(userId, checkinId);
+  }
+
+  /** Entradas do evento para o produtor desfazer (busca por nome ou código). */
+  @Get("events/:eventId/recent-checkins")
+  @UseGuards(SessionGuard)
+  recentEntries(
+    @CurrentUserId() userId: string,
+    @Param("eventId") eventId: string,
+    @Query("busca") busca?: unknown,
+  ) {
+    return this.checkinsService.recentEntries(
+      userId,
+      eventId,
+      typeof busca === "string" ? busca : undefined,
+    );
   }
 
   @Get("events/:eventId/checkin-live")

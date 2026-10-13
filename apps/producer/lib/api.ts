@@ -33,12 +33,13 @@ export function avisarSessaoVencida(status: number, token: string | null | undef
 
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string | null } = {},
+  options: { method?: string; body?: unknown; token?: string | null; idempotencyKey?: string } = {},
 ): Promise<T> {
   // Content-Type só com corpo: o Fastify rejeita (400) JSON declarado e vazio
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
@@ -126,6 +127,14 @@ export interface PromoterRow {
   slug: string;
   /** null = todos os eventos da casa; senão o título do evento do escopo */
   eventTitle?: string | null;
+  /** escopo do vínculo: null = todos os eventos da casa */
+  eventId?: string | null;
+  /** slug do evento do escopo — o "Copiar link" leva direto à festa */
+  eventSlug?: string | null;
+  /** código pessoal (ex.: BIA10); null = sem código */
+  code?: string | null;
+  /** quantos convidados o promoter pode pôr na lista de cada evento (0 = nenhum) */
+  guestQuota?: number;
   promoterName: string;
   sellers: number;
   paidOrders: number;
@@ -134,6 +143,15 @@ export interface PromoterRow {
   commissionType: "NONE" | "PERCENT" | "FIXED";
   commissionBps?: number;
   commissionFixedCents?: number;
+}
+
+/** Resposta do PATCH do vínculo do promoter: o que ficou gravado. */
+export interface PromoterLinkEditado {
+  id: string;
+  status: string;
+  code: string | null;
+  guestQuota: number;
+  eventId: string | null;
 }
 
 export interface Organization {
@@ -246,6 +264,21 @@ export const organizationsApi = {
 
   listPromoters: (token: string, organizationId: string) =>
     request<PromoterRow[]>(`/v1/organizations/${organizationId}/promoters`, { token }),
+  /**
+   * A casa muda a cota de convidados e/ou o código pessoal do promoter
+   * (2026-10-12). Mande só o que mudou; `code: null` tira o código.
+   */
+  updatePromoterLink: (
+    token: string,
+    organizationId: string,
+    linkId: string,
+    input: { guestQuota?: number; code?: string | null },
+  ) =>
+    request<PromoterLinkEditado>(`/v1/organizations/${organizationId}/promoters/${linkId}`, {
+      method: "PATCH",
+      body: input,
+      token,
+    }),
   myPromoterInvites: (token: string) =>
     request<PromoterInvite[]>(`/v1/organizations/promoter-invites/mine`, { token }),
   myPromoterEngagements: (token: string) =>
@@ -321,6 +354,14 @@ export interface EventSummary {
   bannerUrl?: string | null;
   category?: EventCategory | null;
   venue?: EventVenue | null;
+  /**
+   * Evento privado (2026-10-12): fora da home, da busca, da página da Casa e do
+   * Google; abre só por link. Ausente = API que não manda o campo — a tela não
+   * chuta "público".
+   */
+  isPrivate?: boolean;
+  /** quando os seguidores da Casa foram avisados do evento (uma vez só); null = ainda não */
+  followersNotifiedAt?: string | null;
 }
 
 /**
@@ -435,6 +476,9 @@ export interface TicketLot {
   requiresCpf?: boolean;
 }
 
+/** "Quem pode pegar" restrito a convidados: link com código ou convite pessoal por e-mail. */
+export type LotInviteMode = "NONE" | "LINK" | "EMAIL";
+
 export interface CreateLotInput {
   name: string;
   priceCents: number;
@@ -448,17 +492,103 @@ export interface CreateLotInput {
   /** oferece meia-entrada (50%) — opt-in do produtor */
   halfPriceEnabled?: boolean;
   pdvOnly?: boolean;
+  /** só para quem chega pelo link de um promoter da Casa */
+  promoterOnly?: boolean;
+  inviteMode?: LotInviteMode;
+  /** ingressos deste lote por CPF; ausente = sem limite */
+  limitPerCpf?: number;
+  /** ISO; ausente = começa já / sem data para parar */
+  startsAt?: string;
+  endsAt?: string;
+  /** virada automática: nasce guardado e abre quando este lote esgotar ou for encerrado */
+  activateAfterLotId?: string;
+  /** já nasce à venda (uma chamada só, sem lote repetido) */
+  activateNow?: boolean;
+}
+
+/** Edição de lote: só o que mudou; null limpa (sem limite, sem data, sem virada). */
+export interface UpdateLotInput {
+  name?: string;
+  priceCents?: number;
+  capacity?: number;
+  maxPerOrder?: number;
+  limitPerCpf?: number | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  inviteMode?: LotInviteMode;
+  promoterOnly?: boolean;
+  pdvOnly?: boolean;
+  halfPriceEnabled?: boolean;
+  activateAfterLotId?: string | null;
+}
+
+/** Lote como o painel do produtor edita (GET /v1/events/:id/ticket-lots). */
+export interface ProducerLot {
+  id: string;
+  ticketTypeId: string;
+  typeName: string;
+  name: string;
+  priceCents: number;
+  feeCents: number;
+  feeMode: FeeMode;
+  nominal: boolean;
+  requiresCpf: boolean;
+  halfPriceEnabled: boolean;
+  pdvOnly: boolean;
+  promoterOnly: boolean;
+  inviteMode: LotInviteMode;
+  /** código do link de convite (só lote LINK) — é a chave do lote */
+  inviteToken: string | null;
+  limitPerCpf: number | null;
+  capacity: number;
+  maxPerOrder: number;
+  soldCount: number;
+  reservedCount: number;
+  checkedInCount: number;
+  status: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  activateAfterLotId: string | null;
+  createdAt: string;
+}
+
+export interface ProducerLots {
+  /** mínimo que o banco aceita numa cobrança online (o comprador paga pelo menos isto) */
+  minimoCobrancaCents: number;
+  lots: ProducerLot[];
+}
+
+/** O que a virada automática fez por causa desta ação (editar ou encerrar lote). */
+export interface LotesDaVirada {
+  /** lotes que abriram sozinhos */
+  openedLots?: Array<{ id: string; name: string }>;
+  /** encerrar um lote que ainda esperava a vez: os de trás passam a esperar o anterior dele */
+  requeuedLots?: Array<{ id: string; name: string }>;
+  requeuedAfter?: { id: string; name: string } | null;
 }
 
 export const catalogApi = {
   createTicketType: (token: string, eventId: string, input: { name: string; position?: number }) =>
     request<TicketType>(`/v1/events/${eventId}/ticket-types`, { method: "POST", body: input, token }),
-  createLot: (token: string, ticketTypeId: string, input: CreateLotInput) =>
-    request<TicketLot>(`/v1/ticket-types/${ticketTypeId}/lots`, { method: "POST", body: input, token }),
+  /**
+   * `idempotencyKey` (2026-10-13): a mesma chave por tentativa — a resposta que
+   * se perde e o "Tentar novamente" devolvem o lote já criado, sem um 2º lote.
+   */
+  createLot: (token: string, ticketTypeId: string, input: CreateLotInput, idempotencyKey?: string) =>
+    request<TicketLot>(`/v1/ticket-types/${ticketTypeId}/lots`, { method: "POST", body: input, token, idempotencyKey }),
+  listLots: (token: string, eventId: string) =>
+    request<ProducerLots>(`/v1/events/${eventId}/ticket-lots`, { token }),
+  updateLot: (token: string, lotId: string, input: UpdateLotInput) =>
+    request<TicketLot & LotesDaVirada>(`/v1/ticket-lots/${lotId}`, { method: "PATCH", body: input, token }),
+  rotateInviteLink: (token: string, lotId: string) =>
+    request<{ id: string; inviteToken: string }>(`/v1/ticket-lots/${lotId}/invite-link/rotate`, {
+      method: "POST",
+      token,
+    }),
   activateLot: (token: string, lotId: string) =>
     request<TicketLot>(`/v1/ticket-lots/${lotId}/activate`, { method: "POST", token }),
   closeLot: (token: string, lotId: string) =>
-    request<TicketLot>(`/v1/ticket-lots/${lotId}/close`, { method: "POST", token }),
+    request<TicketLot & LotesDaVirada>(`/v1/ticket-lots/${lotId}/close`, { method: "POST", token }),
   deleteLot: (token: string, lotId: string) =>
     request<{ deleted: boolean }>(`/v1/ticket-lots/${lotId}`, { method: "DELETE", token }),
 };
@@ -631,41 +761,97 @@ export const dashboardApi = {
     );
   },
   /**
-   * O export exige sessão (SessionGuard) — um <a href> puro não manda o
-   * Authorization header, então baixamos via fetch e disparamos o download
-   * a partir de um blob.
+   * Participantes. `vazio` = evento sem ingresso emitido (a planilha sai só
+   * com o cabeçalho e a tela avisa, para não parecer falha). O tratamento de
+   * rede, sessão e recusa é o de `baixarCsv`, comum aos três CSVs.
    */
-  downloadParticipantsCsv: async (token: string, eventId: string): Promise<void> => {
-    const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/participants/export`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
-    if (!response.ok) throw new ApiError(response.status, "Não foi possível exportar");
-
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "participantes.csv";
-    link.click();
-    URL.revokeObjectURL(url);
-  },
-  downloadOrdersCsv: async (token: string, eventId: string): Promise<void> => {
-    const response = await fetch(`${API_BASE_URL}/v1/events/${eventId}/orders/export`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
-    if (!response.ok) throw new ApiError(response.status, "Não foi possível exportar");
-
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "pedidos.csv";
-    link.click();
-    URL.revokeObjectURL(url);
-  },
+  downloadParticipantsCsv: (token: string, eventId: string): Promise<{ vazio: boolean }> =>
+    baixarCsv(token, `/v1/events/${eventId}/participants/export`, "participantes.csv", "Não foi possível exportar os participantes"),
+  /**
+   * Pedidos (2026-10-12): mesmo caminho dos outros CSVs. Antes a recusa do
+   * servidor virava só "Não foi possível exportar" (sem o motivo), a rede fora
+   * vazava "Failed to fetch" cru e a URL era revogada no mesmo instante do
+   * clique — em alguns navegadores o download saía cortado ou nem começava.
+   * `vazio` = evento sem pedido (a planilha sai só com o cabeçalho).
+   */
+  downloadOrdersCsv: (token: string, eventId: string): Promise<{ vazio: boolean }> =>
+    baixarCsv(token, `/v1/events/${eventId}/orders/export`, "pedidos.csv", "Não foi possível exportar os pedidos"),
+  /**
+   * Meia-entrada (2026-10-12, Decreto 8.537/2015): um ingresso de meia por
+   * linha. `vazio` = o evento não tem nenhuma meia; a planilha sai só com o
+   * cabeçalho e a tela avisa, para não parecer que a exportação falhou.
+   */
+  downloadMeiaEntradaCsv: (token: string, eventId: string): Promise<{ vazio: boolean }> =>
+    baixarCsv(token, `/v1/events/${eventId}/half-price/export`, "meia-entrada.csv", "Não foi possível exportar a meia-entrada"),
 };
+
+/** Texto da recusa do servidor (`message` do Nest, string ou lista); sem JSON, o padrão. */
+export function mensagemDaRecusa(corpo: string, padrao: string): string {
+  try {
+    const dados: unknown = JSON.parse(corpo);
+    const message = dados && typeof dados === "object" ? (dados as { message?: unknown }).message : undefined;
+    if (Array.isArray(message)) {
+      const juntas = message.filter((m) => typeof m === "string" && m.trim()).join(" · ");
+      if (juntas) return juntas;
+    } else if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  } catch {
+    // corpo sem JSON (ex.: página de erro do proxy): fica a mensagem padrão
+  }
+  return padrao;
+}
+
+/** Só o cabeçalho (ou nada) = nenhuma linha de dado. */
+export function csvSemLinhas(texto: string): boolean {
+  return !texto.trim().includes("\n");
+}
+
+/**
+ * CSVs do painel (2026-10-12) — um caminho só para os três. O export exige
+ * sessão (SessionGuard): um <a href> puro não manda o Authorization, então o
+ * arquivo vem por fetch e o download sai de um blob. Rede fora vira texto
+ * legível, 401 avisa a sessão vencida (como o `request`), a recusa vem com o
+ * motivo do servidor, e a URL do blob só é revogada depois que o download
+ * começou (revogar no mesmo instante corta o download em alguns navegadores).
+ */
+async function baixarCsv(
+  token: string,
+  caminho: string,
+  nomeDoArquivo: string,
+  mensagemPadrao: string,
+): Promise<{ vazio: boolean }> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${caminho}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+  } catch {
+    // "Failed to fetch" cru vira o mesmo texto do resto do painel
+    throw new ApiError(0, "Falha de conexão com o servidor — confira a internet e tente de novo.");
+  }
+  if (avisarSessaoVencida(response.status, token)) throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
+  let texto: string;
+  try {
+    texto = await response.text();
+  } catch {
+    // a conexão caiu no meio do arquivo: nada de planilha cortada
+    throw new ApiError(0, "A conexão caiu no meio do download — tente de novo.");
+  }
+  if (!response.ok) throw new ApiError(response.status, mensagemDaRecusa(texto, mensagemPadrao));
+
+  const url = URL.createObjectURL(new Blob([texto], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = nomeDoArquivo;
+  // Firefox só dispara o download de link que está no documento
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { vazio: csvSemLinhas(texto) };
+}
 
 // ---------------------------------------------------------------------------
 // Finance
@@ -758,7 +944,44 @@ export const validatorConfigApi = {
     request<ValidatorDevice[]>(`/v1/events/${eventId}/validator-devices`, { token }),
   blockDevice: (token: string, eventId: string, deviceId: string) =>
     request(`/v1/events/${eventId}/validator-devices/${deviceId}/block`, { method: "POST", token }),
+  /** Entradas do evento para "Desfazer entrada" (50 mais recentes; busca por nome ou código). */
+  listRecentCheckins: (token: string, eventId: string, busca?: string) =>
+    request<RecentCheckinsResponse>(
+      `/v1/events/${eventId}/recent-checkins${busca ? `?busca=${encodeURIComponent(busca)}` : ""}`,
+      { token },
+    ),
+  /** Desfaz uma entrada (dono/admin, sem limite de tempo). O ingresso volta a valer na porta. */
+  reverseCheckin: (token: string, checkinId: string) =>
+    request<{ reversed: boolean; ticketActive?: boolean }>(`/v1/checkins/${checkinId}/reverse`, {
+      method: "POST",
+      token,
+    }),
 };
+
+/** Uma entrada registrada na porta (Check-in → "Desfazer entrada"). */
+export interface RecentCheckin {
+  checkinId: string;
+  /** hora da leitura na porta */
+  at: string;
+  gate: string | null;
+  deviceName: string;
+  /** registrada sem internet e enviada depois */
+  offline: boolean;
+  code: string;
+  name: string | null;
+  buyerName: string | null;
+  typeName: string;
+  lotName: string;
+  meia: boolean;
+  /** false quando o pedido foi cancelado/reembolsado depois da entrada */
+  canUndo: boolean;
+}
+
+export interface RecentCheckinsResponse {
+  entries: RecentCheckin[];
+  /** há mais entradas além das mostradas — a busca acha as outras */
+  hasMore: boolean;
+}
 
 export const passwordAuth = {
   register: (input: { name: string; email: string; password: string }) =>
@@ -802,6 +1025,8 @@ export interface UpdateEventInput {
   metaCapiToken?: string | null;
   /** A API cria/atualiza o local e vincula ao evento. */
   venue?: EventVenue;
+  /** evento privado (abre só por link); abrir um publicado avisa os seguidores uma vez — o servidor decide */
+  isPrivate?: boolean;
 }
 
 export interface CancelPreview {
@@ -1046,6 +1271,85 @@ export const guestListApi = {
     request<GuestListEntry>(`/v1/events/${eventId}/guest-list`, { method: "POST", body: input, token }),
   cancel: (token: string, eventId: string, id: string) =>
     request<GuestListEntry>(`/v1/events/${eventId}/guest-list/${id}`, { method: "DELETE", token }),
+};
+
+// ---------------------------------------------------------------------------
+// Convite por e-mail (2026-10-12) — lote "Só quem eu convidar por e-mail"
+// ---------------------------------------------------------------------------
+
+/** Calculada no servidor (convite + pedido + entrega do e-mail). */
+export type SituacaoConviteEmail =
+  | "ENVIADO"
+  | "ENTREGUE"
+  | "VOLTOU"
+  | "NAO_SAIU"
+  | "PAGANDO"
+  | "PEGOU"
+  | "REVOGADO";
+
+export interface ConviteEmail {
+  id: string;
+  email: string;
+  situacao: SituacaoConviteEmail;
+  enviadoEm: string;
+  criadoEm: string;
+  pegouEm: string | null;
+  podeReenviar: boolean;
+  podeCorrigir: boolean;
+  podeRevogar: boolean;
+}
+
+export interface ConvitesDoLote {
+  lote: {
+    id: string;
+    name: string;
+    ticketTypeName: string;
+    status: string;
+    inviteMode: string;
+    priceCents: number;
+    capacity: number;
+    disponiveis: number;
+  };
+  evento: { id: string; title: string; slug: string };
+  /** null = dá para mandar convites agora; senão, o motivo (envio travado) */
+  motivoParaNaoMandar: string | null;
+  resumo: { convidados: number; pegaram: number; voltaram: number };
+  convites: ConviteEmail[];
+}
+
+export interface LoteDeConviteEmail {
+  id: string;
+  name: string;
+  ticketTypeName: string;
+  status: string;
+  /** convites que não foram revogados */
+  convites: number;
+}
+
+export interface ResultadoDoEnvioDeConvites {
+  enviados: string[];
+  jaConvidados: string[];
+  invalidos: Array<{ email: string; motivo: string }>;
+  repetidosNaLista: number;
+}
+
+export const convitesEmailApi = {
+  lotes: (token: string, eventId: string) =>
+    request<LoteDeConviteEmail[]>(`/v1/events/${eventId}/convites-email/lotes`, { token }),
+  listar: (token: string, lotId: string) =>
+    request<ConvitesDoLote>(`/v1/ticket-lots/${lotId}/convites-email`, { token }),
+  criar: (token: string, lotId: string, emails: string[]) =>
+    request<ResultadoDoEnvioDeConvites>(`/v1/ticket-lots/${lotId}/convites-email`, {
+      method: "POST",
+      body: { emails },
+      token,
+    }),
+  reenviar: (token: string, id: string) =>
+    request<ConviteEmail>(`/v1/convites-email/${id}/reenviar`, { method: "POST", token }),
+  corrigir: (token: string, id: string, email: string) =>
+    request<ConviteEmail>(`/v1/convites-email/${id}/corrigir`, { method: "POST", body: { email }, token }),
+  revogar: (token: string, id: string) =>
+    request<ConviteEmail>(`/v1/convites-email/${id}/revogar`, { method: "POST", token }),
 };
 
 // ---------------------------------------------------------------------------

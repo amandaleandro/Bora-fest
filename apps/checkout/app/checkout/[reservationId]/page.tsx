@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import QRCode from "react-qr-code";
@@ -15,18 +15,30 @@ import {
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { precoOuGratis } from "../../../lib/preco";
 import { ehCpfValido } from "../../../lib/cpf";
+import { CONSENT_VERSION } from "../../../lib/consent";
+import {
+  avisoDoCodigoPromoter,
+  codigoPromoterParaEnviar,
+  limparCodigoPromoter,
+  type AvisoCodigoPromoter,
+} from "../../../lib/codigo-promoter";
 
 /** Proteção de reembolso (upsell): mesmo valor do backend. */
 const PROTECTION_FEE_CENTS = 150;
-import { eventAccess, getAttributedPartnerSlug, getAttributedPromoterSlug, getAttributedSellerSlug } from "../../../lib/attribution";
+import {
+  eventAccess,
+  getAttributedPartnerSlug,
+  getAttributedPromoterSlug,
+  getAttributedSellerSlug,
+  getInviteToken,
+} from "../../../lib/attribution";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
 
 type Step = "ident" | "participantes" | "pagamento";
 type PayTab = "pix" | "cartao";
 
-/** Versão vigente de Termos/Privacidade — vai junto do pedido para auditoria LGPD. */
-const CONSENT_VERSION = "v2026-07";
+// a versão de Termos/Privacidade que vai no pedido (auditoria LGPD) mora em lib/consent.ts
 /** Avisos de sandbox só aparecem em ambiente de teste. */
 const SHOW_TEST_HINTS = process.env.NEXT_PUBLIC_SHOW_TEST_HINTS === "true";
 
@@ -121,6 +133,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [name, setName] = useState("");
   // CPF do pagador: exigência do Asaas para emitir Pix/cartão
   const [buyerCpf, setBuyerCpf] = useState("");
+  // convite pessoal por e-mail (2026-10-12): o código do convite deste evento é
+  // de um e-mail — o campo vem preenchido e travado com ele (o servidor recusa
+  // outro e-mail de qualquer jeito; isto só evita a pessoa bater na recusa)
+  const [conviteEmail, setConviteEmail] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [otpResendIn, setOtpResendIn] = useState(0);
@@ -132,6 +148,16 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [coupon, setCoupon] = useState("");
   const [couponInfo, setCouponInfo] = useState<string | null>(null);
   const [couponPreview, setCouponPreview] = useState<{ code: string; discountCents: number } | null>(null);
+
+  // código do promoter (2026-10-12): opcional, conferido pelo servidor ao criar
+  // o pedido — não há rota para validar antes, então o aviso vem do pedido criado
+  const [promoterCode, setPromoterCode] = useState("");
+  const [promoterAviso, setPromoterAviso] = useState<AvisoCodigoPromoter | null>(null);
+  // pedido sendo criado agora: o segundo toque espera este em vez de criar outro
+  const pedidoEmCriacao = useRef<Promise<Order | null> | null>(null);
+  // um pagamento por vez (2026-10-12): `paying`/`creating` só travam o botão no
+  // próximo render — o ref trava já no segundo toque (sem 2º Pix nem 2ª cobrança no cartão)
+  const pagamentoEmAndamento = useRef(false);
 
   // itens adicionais (upsell)
   const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
@@ -149,6 +175,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   const [copied, setCopied] = useState(false);
   const [pixChecking, setPixChecking] = useState(false);
   const [pixNotice, setPixNotice] = useState<string | null>(null);
+  // o banco pagou um valor diferente do cobrado (2026-10-12): nada foi
+  // confirmado — em vez de "Aguardando pagamento" até expirar, a tela avisa
+  const [valorDiferente, setValorDiferente] = useState(false);
   const [approved, setApproved] = useState(false);
   const [cardNumber, setCardNumber] = useState("");
   const [cardExp, setCardExp] = useState("");
@@ -192,11 +221,14 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       .catch(() => setError("Reserva não encontrada"));
   }, [reservationId, router]);
 
-  // catálogo do evento: traz nominal/requiresCpf/feeMode de cada lote
+  // catálogo do evento: itens adicionais, pixel, cupom — e nominal/CPF/taxa dos
+  // lotes quando a API ainda não os manda na reserva (ela é a fonte primeiro)
   useEffect(() => {
     if (!reservation) return;
     let active = true;
-    const stored = sessionStorage.getItem(`bf.slug.${reservationId}`);
+    // a reserva traz o slug desde 2026-10-12: aba nova de evento privado (fora
+    // da vitrine) também acha o catálogo
+    const stored = sessionStorage.getItem(`bf.slug.${reservationId}`) ?? reservation.eventSlug ?? null;
     const resolve = stored ? Promise.resolve(stored) : api.resolveEventSlug(reservation.eventId);
     resolve
       .then((found) => {
@@ -217,6 +249,36 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       active = false;
     };
   }, [reservation, reservationId]);
+
+  // CONVITE PESSOAL: o código do link guardado para este evento é de um convite
+  // por e-mail? Só trava quando a reserva tem o lote do convite (lote aberto do
+  // mesmo evento segue com e-mail livre). Rota fora, convite já usado/revogado
+  // ou código que não é de convite pessoal (link do lote): segue normal — o
+  // servidor recusa e-mail diferente de qualquer jeito.
+  // (sem inviteMode = API antiga: na dúvida, vale o que o convite disser)
+  const lotesDaReserva = (reservation?.items ?? []).map((item) => item.ticketLotId).join(",");
+  const temLoteRestrito = (reservation?.items ?? []).some((item) => item.inviteMode !== "NONE");
+  useEffect(() => {
+    if (!slug || !temLoteRestrito) return;
+    const codigo = getInviteToken(slug);
+    if (!codigo) return;
+    let active = true;
+    api
+      .getConviteEmail(codigo)
+      .then((convite) => {
+        const convidado = typeof convite?.email === "string" ? convite.email.trim().toLowerCase() : "";
+        if (!active || !convidado.includes("@")) return;
+        // convite de OUTRO lote (ou de outro evento): não é deste pedido
+        if (convite.eventSlug && convite.eventSlug !== slug) return;
+        if (convite.lote?.id && !lotesDaReserva.split(",").includes(convite.lote.id)) return;
+        setConviteEmail(convidado);
+        setEmail(convidado);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [slug, temLoteRestrito, lotesDaReserva]);
 
   useEffect(() => {
     if (otpResendIn <= 0) return;
@@ -239,8 +301,22 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         });
       }
     }
+    // A RESERVA VENCE (2026-10-12): a página pública esconde lote encerrado, e o
+    // lote que fechava no meio da reserva sumia daqui — nome virava "Ingresso",
+    // os participantes deixavam de ser pedidos e a taxa do produtor entrava no
+    // total. A reserva guarda o lote que a pessoa pegou, com os valores atuais
+    // (os mesmos que o pedido confere). API antiga sem esses campos: catálogo.
+    for (const item of reservation?.items ?? []) {
+      if (item.lotName === undefined) continue;
+      map.set(item.ticketLotId, {
+        label: item.ticketTypeName ? `${item.ticketTypeName} · ${item.lotName}` : item.lotName,
+        nominal: Boolean(item.nominal),
+        requiresCpf: Boolean(item.requiresCpf),
+        buyerPaysFee: item.feeMode !== "PRODUCER",
+      });
+    }
     return map;
-  }, [event]);
+  }, [event, reservation]);
 
   const items = reservation?.items ?? [];
 
@@ -364,13 +440,33 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     }
   }
 
-  /** Cria o pedido na primeira tentativa de pagamento — leva participantes e consentimento. */
-  async function ensureOrder(): Promise<Order | null> {
-    if (order) return order;
+  /**
+   * Cria o pedido na primeira tentativa de pagamento — leva participantes e consentimento.
+   * Clique duplo (2026-10-12): o segundo toque espera o MESMO pedido em vez de
+   * mandar outro — antes o segundo batia em "Reserva não está mais ativa" e o
+   * erro aparecia por cima de um pedido criado.
+   */
+  function ensureOrder(): Promise<Order | null> {
+    if (order) return Promise.resolve(order);
+    if (pedidoEmCriacao.current) return pedidoEmCriacao.current;
+    const criando = criarPedido().finally(() => {
+      pedidoEmCriacao.current = null;
+    });
+    pedidoEmCriacao.current = criando;
+    return criando;
+  }
+
+  async function criarPedido(): Promise<Order | null> {
     const invalid = attendeesError();
     if (invalid) {
       setError(invalid);
       setStep("participantes");
+      return null;
+    }
+    // código do promoter: curto demais o servidor recusaria o pedido inteiro
+    const promoter = codigoPromoterParaEnviar(promoterCode);
+    if (promoter.erro) {
+      setError(promoter.erro);
       return null;
     }
     setCreating(true);
@@ -383,18 +479,22 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       }));
       // token de sessão: amarra a compra à conta de quem já entrou
       const token = localStorage.getItem("bf.token") ?? undefined;
+      const promoterSlug = getAttributedPromoterSlug();
+      const sellerSlug = getAttributedSellerSlug();
       const created = await api.createOrder(
         {
           reservationId,
-          contactEmail: email,
+          contactEmail: conviteEmail ?? email,
           contactName: name || undefined,
           // telefone é opcional: só vai quando tem DDD+número completo — um
           // valor pela metade fazia o createOrder recusar (min 10) e travar a compra
           contactPhone: onlyDigits(phone).length >= 10 ? onlyDigits(phone) : undefined,
           couponCode: validCoupon ? coupon.trim().toUpperCase() : undefined,
           partnerSlug: getAttributedPartnerSlug(),
-          promoterSlug: getAttributedPromoterSlug(),
-          sellerSlug: getAttributedSellerSlug(),
+          promoterSlug,
+          // o link do promoter vence o código no servidor; os dois podem ir
+          promoterCode: promoter.codigo,
+          sellerSlug,
           contactCpf: onlyDigits(buyerCpf) || undefined,
           addOns: Object.entries(addOnQty).some(([, qty]) => qty > 0)
             ? Object.entries(addOnQty)
@@ -409,12 +509,32 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       );
       setOrder(created);
       sessionStorage.setItem(`bf.order.${reservationId}`, created.publicToken);
+      // o servidor ignora código que não vale (outro evento, outra Casa, não
+      // existe): o pedido diz se algum promoter ficou com a venda
+      setPromoterAviso(
+        avisoDoCodigoPromoter({
+          codigo: promoter.codigo,
+          promoterLinkId: created.promoterLinkId,
+          veioDeLink: Boolean(promoterSlug || sellerSlug),
+        }),
+      );
       return created;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível criar o pedido");
       return null;
     } finally {
       setCreating(false);
+    }
+  }
+
+  /** Botões de pagar/garantir: um toque de cada vez (ver pagamentoEmAndamento). */
+  async function umPorVez(acao: () => Promise<void>) {
+    if (pagamentoEmAndamento.current) return;
+    pagamentoEmAndamento.current = true;
+    try {
+      await acao();
+    } finally {
+      pagamentoEmAndamento.current = false;
     }
   }
 
@@ -448,7 +568,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     if (!target) return;
     if (["PAID", "FULFILLED"].includes(target.status)) {
       setApproved(true);
-      setTimeout(() => router.push(`/pedido/${target.publicToken}`), 1200);
+      // com código do promoter digitado, um pouco mais de tela: se ele não
+      // valeu, o aviso aparece aqui (grátis não passa pela tela de pagamento)
+      const espera = promoterCode.trim() ? 3200 : 1200;
+      setTimeout(() => router.push(`/pedido/${target.publicToken}`), espera);
       return;
     }
     setError("Não foi possível confirmar seu ingresso agora. Tente de novo em instantes.");
@@ -461,11 +584,16 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
     setPixNotice(null);
     try {
       // força o servidor a conferir no GATEWAY (webhook atrasado não segura mais)
-      await api.syncPayment(order.id).catch(() => undefined);
+      const sync = await api.syncPayment(order.id).catch(() => undefined);
       const status = await api.getOrderStatus(order.publicToken);
       if (["PAID", "FULFILLED"].includes(status.status)) {
         setApproved(true);
         setTimeout(() => router.push(`/pedido/${order.publicToken}`), 1400);
+        return;
+      }
+      // o sim/não vem do sync e também do /status (2026-10-12) — basta um dos dois
+      if (sync?.valorDiferente || status.valorDiferente === true) {
+        setValorDiferente(true);
         return;
       }
       setPixNotice("Ainda não identificamos o pagamento. Assim que cair, esta tela avança sozinha.");
@@ -482,9 +610,17 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
   // avançava sozinha (caso da Marcela, 2026-08-14).
   useEffect(() => {
     if (step !== "pagamento" || !order) return;
+    // valor diferente do cobrado: o sync devolve o sinal (só sim/não)
+    const sincronizar = () =>
+      api
+        .syncPayment(order.id)
+        .then((sync) => {
+          if (sync?.valorDiferente) setValorDiferente(true);
+        })
+        .catch(() => undefined);
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        api.syncPayment(order.id).catch(() => undefined);
+        sincronizar();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -495,8 +631,12 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
       if (document.visibilityState === "hidden") return;
       try {
         tick += 1;
-        if (tick % 6 === 0) await api.syncPayment(order.id).catch(() => undefined);
+        if (tick % 6 === 0) await sincronizar();
         const status = await api.getOrderStatus(order.publicToken);
+        // o /status traz o mesmo sim/não do sync (2026-10-12): o aviso de valor
+        // diferente aparece no próximo tick, sem esperar a conferência de ~15 s.
+        // Só o "sim" muda a tela — ausente ou "não" não desfaz o que o sync viu
+        if (status.valorDiferente === true) setValorDiferente(true);
         if (["PAID", "FULFILLED"].includes(status.status)) {
           setApproved(true);
           clearInterval(id);
@@ -509,6 +649,9 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
           setCardSubmitted(false);
           setPaying(false);
           setCardError("O pagamento não foi aprovado. Revise os dados do cartão e tente novamente.");
+          // o pedido expira normalmente quando o valor pago foi diferente: uma
+          // última conferência para a tela do Pix dizer isso, e não "aguardando"
+          sincronizar();
         }
       } catch {
         /* mantém polling */
@@ -621,6 +764,10 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
         </div>
         <h1 className="mt-5 text-[22px] font-extrabold">{semCusto ? "Ingresso garantido!" : "Pagamento aprovado!"}</h1>
         <p className="mt-1 text-[13px] font-medium text-muted">Levando você para seus ingressos…</p>
+        {/* ingresso grátis pula a tela de pagamento: o aviso do código aparece aqui */}
+        {promoterAviso?.tipo === "nao-valeu" && (
+          <p className="mt-3 max-w-[340px] text-[12px] font-semibold text-warning">{promoterAviso.texto}</p>
+        )}
       </main>
     );
   }
@@ -653,7 +800,8 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
               </button>
               <h1 className="hidden text-[22px] font-extrabold lg:block">Checkout</h1>
             </div>
-            {timerVisible && (
+            {/* valor diferente do cobrado: "Pague em" deixaria a pessoa pagar de novo */}
+            {timerVisible && !valorDiferente && (
               <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-bold text-warning">
                 <Icon d={paths.clock} size={14} />
                 {order ? "Pague em" : "Reservado por"} {timerLabel}
@@ -786,6 +934,11 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
             {step === "ident" && (
               <section className={cardClass}>
+                {conviteEmail && (
+                  <span className="mb-3 inline-block max-w-full truncate rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary">
+                    Convite pessoal · {conviteEmail}
+                  </span>
+                )}
                 <h2 className="text-[22px] font-extrabold lg:text-[18px]">Quase lá! Seus dados</h2>
                 <p className="mt-1 text-[13px] font-medium text-muted">
                   Sem senha, sem baixar app — sua conta BoraFest nasce junto com {semCusto ? "o seu ingresso" : "a compra"}.
@@ -802,14 +955,33 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>E-mail</label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="voce@email.com"
-                      className={inputClass}
-                    />
+                    <label className={labelClass} htmlFor="checkout-email">E-mail</label>
+                    {conviteEmail ? (
+                      <>
+                        {/* convite pessoal: o ingresso só sai para o e-mail convidado */}
+                        <input
+                          id="checkout-email"
+                          type="email"
+                          value={conviteEmail}
+                          readOnly
+                          aria-readonly="true"
+                          aria-describedby="checkout-email-convite"
+                          className="mt-1 h-[50px] w-full cursor-not-allowed rounded-2xl border-[1.5px] border-line-input bg-bg px-4 text-[14px] font-medium text-ink-soft outline-none"
+                        />
+                        <p id="checkout-email-convite" className="mt-1 text-[11.5px] font-semibold text-muted-2">
+                          Convite pessoal: o ingresso sai para o e-mail que recebeu o convite.
+                        </p>
+                      </>
+                    ) : (
+                      <input
+                        id="checkout-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="voce@email.com"
+                        className={inputClass}
+                      />
+                    )}
                   </div>
 
                   <div>
@@ -973,7 +1145,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
             {/* ETAPA 3 — pagamento */}
             {step === "pagamento" && (
               <section className={cardClass}>
-                <div className={`flex rounded-2xl bg-line p-1 ${semCusto ? "hidden" : ""}`}>
+                <div className={`flex rounded-2xl bg-line p-1 ${semCusto || valorDiferente ? "hidden" : ""}`}>
                   {([["pix", "Pix"], ["cartao", "Cartão"]] as const).map(
                     ([key, labelTab]) => (
                       <button
@@ -1025,13 +1197,24 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
 
                 {error && <p className="mt-3 text-[12px] font-semibold text-danger">{error}</p>}
 
+                {/* o código do promoter só se confere com o pedido criado (2026-10-12) */}
+                {promoterAviso && (
+                  <p
+                    className={`mt-3 text-[12px] font-semibold ${
+                      promoterAviso.tipo === "ok" ? "text-success" : "text-warning"
+                    }`}
+                  >
+                    {promoterAviso.texto}
+                  </p>
+                )}
+
                 {semCusto && (
                   <div className="mt-5">
                     <p className="text-[13px] font-medium leading-[1.6] text-muted">
                       Este ingresso é gratuito. Confirme e ele chega no seu e-mail na hora.
                     </p>
                     <button
-                      onClick={claimFree}
+                      onClick={() => umPorVez(claimFree)}
                       disabled={payDisabled}
                       className={`mt-4 h-14 w-full rounded-2xl text-[15px] font-extrabold text-white ${
                         payDisabled ? "cursor-not-allowed bg-[#ecd6e4]" : "bg-primary shadow-cta"
@@ -1047,7 +1230,23 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   </div>
                 )}
 
-                {!semCusto && tab === "pix" && (
+                {/* pagou um valor diferente do cobrado (2026-10-12): nada foi
+                    confirmado. Sai o QR, o "Já fiz o pagamento" e o cartão —
+                    pagar de novo só criaria um segundo problema */}
+                {!semCusto && valorDiferente && (
+                  <div className="mt-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-left">
+                    <p className="flex items-start gap-2 text-[14px] font-extrabold leading-snug text-warning">
+                      <Icon d={paths.clock} size={18} className="mt-0.5 shrink-0" />
+                      Recebemos um valor diferente do cobrado — nossa equipe vai falar com você.
+                    </p>
+                    <p className="mt-2 text-[12.5px] font-medium leading-relaxed text-muted">
+                      Não faça outro pagamento. Vamos acertar a diferença ou devolver o valor pelo contato
+                      deste pedido{order ? ` (${order.contactEmail})` : ""}.
+                    </p>
+                  </div>
+                )}
+
+                {!semCusto && !valorDiferente && tab === "pix" && (
                   <div className="mt-5 text-center">
                     {!pixCode ? (
                       <div className="text-left">
@@ -1056,7 +1255,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                           aqui em tempo real — sem sair desta página.
                         </p>
                         <button
-                          onClick={payWithPix}
+                          onClick={() => umPorVez(payWithPix)}
                           disabled={payDisabled}
                           className={`mt-4 h-14 w-full rounded-2xl text-[15px] font-extrabold text-white ${
                             payDisabled ? "cursor-not-allowed bg-[#ecd6e4]" : "bg-pix"
@@ -1125,7 +1324,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                   </div>
                 )}
 
-                {!semCusto && tab === "cartao" && (
+                {!semCusto && !valorDiferente && tab === "cartao" && (
                   <div className="mt-5 space-y-4">
                     {cardError && (
                       <div className="rounded-2xl border border-danger/30 bg-danger/5 p-3.5 text-[13px] font-bold text-danger">
@@ -1221,7 +1420,7 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       </select>
                     </div>
                     <button
-                      onClick={payCard}
+                      onClick={() => umPorVez(payCard)}
                       disabled={
                         cardSubmitted ||
                         payDisabled ||
@@ -1362,6 +1561,35 @@ export default function CheckoutPage({ params }: { params: { reservationId: stri
                       Clique em Aplicar para validar o cupom.
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* CÓDIGO DO PROMOTER (2026-10-12): mesmo visual do cupom. Não há
+                  rota para conferir antes — o servidor confere ao criar o
+                  pedido e a tela de pagamento diz se valeu. */}
+              {!order && slug && (
+                <div className="mt-4">
+                  <label className={labelClass} htmlFor="checkout-promoter">
+                    Código do promoter <span className="font-semibold text-muted-2">(opcional)</span>
+                  </label>
+                  <input
+                    id="checkout-promoter"
+                    value={promoterCode}
+                    onChange={(e) => {
+                      setPromoterCode(limparCodigoPromoter(e.target.value));
+                      setPromoterAviso(null);
+                    }}
+                    // sem maxLength: colar "BIA-10" cortaria antes da limpeza (que já para em 16)
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    aria-describedby="checkout-promoter-ajuda"
+                    placeholder="EX.: BIA10"
+                    className="mt-1 h-[44px] w-full rounded-xl border-[1.5px] border-dashed border-line-input bg-surface px-3.5 text-[13px] font-bold uppercase outline-none focus:border-primary"
+                  />
+                  <p id="checkout-promoter-ajuda" className="mt-1.5 text-[12px] font-semibold text-muted-2">
+                    Alguém te indicou? Digite o código da pessoa. Ele é conferido quando você finaliza o pedido.
+                  </p>
                 </div>
               )}
 

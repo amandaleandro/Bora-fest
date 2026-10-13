@@ -5,6 +5,8 @@ import type { CustomerSegment } from "./customer-crm-api";
 export interface ReactivationPreview {
   segment: CustomerSegment;
   eligibleCount: number;
+  /** do segmento, quantos saíram das campanhas desta Casa (já fora do eligibleCount) */
+  optedOutCount?: number;
   truncated: boolean;
   maxSend: number;
   canSend: boolean;

@@ -28,6 +28,8 @@ export interface CrmCustomer {
   attendedEvents: number;
   followsHouse: boolean;
   emailOffersOptIn: boolean;
+  /** clicou em "Não quero mais receber" numa campanha desta Casa */
+  saiuDasCampanhas?: boolean;
   lastPromoterName: string | null;
   tags: string[];
 }
@@ -43,6 +45,8 @@ export interface CustomerCrmResponse {
     noShow: number;
     followers: number;
     emailOptIn: number;
+    /** saíram das campanhas desta Casa (fora do emailOptIn) */
+    emailOptOut?: number;
   };
   customers: CrmCustomer[];
 }

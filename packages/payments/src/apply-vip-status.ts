@@ -212,7 +212,7 @@ async function applyPaid(
     const paidAt = occurredAt ?? new Date();
     const changed = await tx.$executeRaw`
       UPDATE vip_payments
-      SET status = 'PAID'::"PaymentStatus", paid_at = ${paidAt}, updated_at = CURRENT_TIMESTAMP
+      SET status = 'PAID'::"PaymentStatus", paid_at = (${paidAt}::timestamptz AT TIME ZONE 'UTC'), updated_at = CURRENT_TIMESTAMP
       WHERE id = ${paymentId}::uuid
         AND status IN (
           'PENDING'::"PaymentStatus", 'AUTHORIZED'::"PaymentStatus", 'EXPIRED'::"PaymentStatus",

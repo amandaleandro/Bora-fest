@@ -34,6 +34,7 @@ type CustomerRow = {
   pastEvents: number | null;
   followsHouse: boolean | null;
   emailOffersOptIn: boolean | null;
+  saiuDasCampanhas: boolean | null;
   lastPromoterName: string | null;
   totalRows: bigint;
   recurringRows: bigint;
@@ -42,6 +43,7 @@ type CustomerRow = {
   noShowRows: bigint;
   followersRows: bigint;
   emailOptInRows: bigint;
+  emailOptOutRows: bigint;
 };
 
 function safePage(value?: number) {
@@ -56,10 +58,26 @@ function safePageSize(value?: number) {
 export class CustomerCrmService {
   constructor(private readonly orgAccess: OrgAccessService) {}
 
+  /**
+   * "Aceita e-mail" (EMAIL_OPT_IN) = marcou "receber ofertas" no perfil E não
+   * saiu das campanhas DESTA Casa pelo link do e-mail (marketing_opt_outs,
+   * LGPD 2026-10-12) — na etiqueta, no segmento e na contagem.
+   *
+   * `incluirQuemSaiuDasCampanhas` é só para uso interno (o disparo de campanha,
+   * que precisa CONTAR quem saiu para dizer isso ao produtor); a rota HTTP não
+   * repassa este campo. Com ele, o segmento EMAIL_OPT_IN traz também quem saiu,
+   * marcado com `saiuDasCampanhas` e sem a etiqueta EMAIL_OPT_IN.
+   */
   async list(
     organizationId: string,
     actorUserId: string,
-    options: { q?: string; segment?: string; page?: number; pageSize?: number },
+    options: {
+      q?: string;
+      segment?: string;
+      page?: number;
+      pageSize?: number;
+      incluirQuemSaiuDasCampanhas?: boolean;
+    },
   ) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.FINANCE_VIEW);
 
@@ -92,7 +110,10 @@ export class CustomerCrmService {
       : segment === "LAPSED_30" ? Prisma.sql`AND j.next_event_at IS NULL AND j.last_event_at < NOW() - INTERVAL '30 days'`
       : segment === "NO_SHOW" ? Prisma.sql`AND j.past_events > 0 AND j.attended_events = 0`
       : segment === "FOLLOWER" ? Prisma.sql`AND j.follows_house = TRUE`
-      : segment === "EMAIL_OPT_IN" ? Prisma.sql`AND j.email_offers_opt_in = TRUE`
+      : segment === "EMAIL_OPT_IN"
+        ? options.incluirQuemSaiuDasCampanhas
+          ? Prisma.sql`AND j.aceita_ofertas_no_perfil = TRUE`
+          : Prisma.sql`AND j.email_offers_opt_in = TRUE`
       : Prisma.empty;
 
     const rows = await prisma.$queryRaw<CustomerRow[]>(Prisma.sql`
@@ -168,7 +189,10 @@ export class CustomerCrmService {
           COALESCE(ts.attended_events, 0)::int AS attended_events,
           cs.past_events,
           (ofol.id IS NOT NULL) AS follows_house,
-          COALESCE(u.notify_email_offers, FALSE) AS email_offers_opt_in,
+          COALESCE(u.notify_email_offers, FALSE) AS aceita_ofertas_no_perfil,
+          (moo.id IS NOT NULL) AS saiu_das_campanhas,
+          -- "aceita e-mail" = aceita no perfil e NÃO saiu das campanhas desta Casa
+          (COALESCE(u.notify_email_offers, FALSE) AND moo.id IS NULL) AS email_offers_opt_in,
           pu.name AS last_promoter_name
         FROM customer_stats cs
         INNER JOIN latest_order lo ON lo.email_key = cs.email_key
@@ -176,6 +200,9 @@ export class CustomerCrmService {
         LEFT JOIN users u ON u.id = lo.user_id
         LEFT JOIN organization_follows ofol
           ON ofol.organization_id = ${organizationId}::uuid AND ofol.user_id = lo.user_id
+        -- única por Casa + e-mail: o LEFT JOIN não duplica cliente
+        LEFT JOIN marketing_opt_outs moo
+          ON moo.organization_id = ${organizationId}::uuid AND moo.email_key = cs.email_key
         LEFT JOIN promoter_links pl ON pl.id = lo.promoter_link_id
         LEFT JOIN users pu ON pu.id = pl.promoter_user_id
       ),
@@ -197,7 +224,8 @@ export class CustomerCrmService {
           COUNT(*) FILTER (WHERE sf.next_event_at IS NULL AND sf.last_event_at < NOW() - INTERVAL '30 days')::bigint AS lapsed30_rows,
           COUNT(*) FILTER (WHERE sf.past_events > 0 AND sf.attended_events = 0)::bigint AS no_show_rows,
           COUNT(*) FILTER (WHERE sf.follows_house)::bigint AS followers_rows,
-          COUNT(*) FILTER (WHERE sf.email_offers_opt_in)::bigint AS email_opt_in_rows
+          COUNT(*) FILTER (WHERE sf.email_offers_opt_in)::bigint AS email_opt_in_rows,
+          COUNT(*) FILTER (WHERE sf.saiu_das_campanhas)::bigint AS email_opt_out_rows
         FROM search_filtered sf
       ),
       page_rows AS (
@@ -225,6 +253,7 @@ export class CustomerCrmService {
         p.past_events AS "pastEvents",
         p.follows_house AS "followsHouse",
         p.email_offers_opt_in AS "emailOffersOptIn",
+        p.saiu_das_campanhas AS "saiuDasCampanhas",
         p.last_promoter_name AS "lastPromoterName",
         s.total_rows AS "totalRows",
         s.recurring_rows AS "recurringRows",
@@ -232,7 +261,8 @@ export class CustomerCrmService {
         s.lapsed30_rows AS "lapsed30Rows",
         s.no_show_rows AS "noShowRows",
         s.followers_rows AS "followersRows",
-        s.email_opt_in_rows AS "emailOptInRows"
+        s.email_opt_in_rows AS "emailOptInRows",
+        s.email_opt_out_rows AS "emailOptOutRows"
       FROM summary s
       LEFT JOIN page_rows p ON TRUE
       ORDER BY p.last_purchase_at DESC NULLS LAST, p.email_key ASC NULLS LAST
@@ -271,6 +301,8 @@ export class CustomerCrmService {
           attendedEvents,
           followsHouse: Boolean(row.followsHouse),
           emailOffersOptIn: Boolean(row.emailOffersOptIn),
+          /** clicou em "Não quero mais receber" numa campanha desta Casa */
+          saiuDasCampanhas: Boolean(row.saiuDasCampanhas),
           lastPromoterName: row.lastPromoterName,
           tags,
         };
@@ -287,6 +319,8 @@ export class CustomerCrmService {
         noShow: Number(first?.noShowRows ?? 0n),
         followers: Number(first?.followersRows ?? 0n),
         emailOptIn: Number(first?.emailOptInRows ?? 0n),
+        /** saíram das campanhas desta Casa (fora do emailOptIn acima) */
+        emailOptOut: Number(first?.emailOptOutRows ?? 0n),
       },
       customers,
     };

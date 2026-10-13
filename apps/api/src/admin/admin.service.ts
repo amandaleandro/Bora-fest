@@ -28,6 +28,37 @@ import { PlatformAccessService } from "../common/platform-access.service";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@borafest/auth";
 import { NotificationsService } from "../notifications/notifications.service";
 import { getOrganizationBalanceCents, getPayoutAvailability } from "../common/ledger";
+import {
+  devolverReembolsoParaFila,
+  recusarPedidoDeReembolso,
+  reservarAprovacaoDoReembolso,
+} from "../common/recusar-reembolso";
+import { ERRO_DESCADASTRADO, TEMPLATES_DE_CAMPANHA, emailsDescadastrados } from "../descadastro/supressao";
+import { chaveDoEmail, ehUuid } from "../descadastro/descadastro-token";
+
+/** Recusa do reenvio de campanha para quem saiu das campanhas da Casa (LGPD). */
+export const REENVIO_RECUSADO_DESCADASTRO =
+  "Esta pessoa pediu para não receber campanhas desta Casa (clicou em \"Não quero mais receber\") — o e-mail não pode ser reenviado";
+
+/** Campanha gravada antes de 2026-10-12: o e-mail sairia sem o link de sair. */
+export const REENVIO_RECUSADO_SEM_LINK =
+  "Esta campanha foi gravada sem o link \"Não quero mais receber\" e não pode ser reenviada — a Casa pode disparar de novo pelo painel, que já inclui o link";
+
+/** Casa e e-mail de uma linha de campanha da fila; null quando a linha não diz. */
+function alvoDaCampanha(notif: { recipient: string; payload: unknown }): {
+  organizationId: string;
+  temLinkDeSair: boolean;
+} | null {
+  const payload =
+    notif.payload && typeof notif.payload === "object" && !Array.isArray(notif.payload)
+      ? (notif.payload as Record<string, unknown>)
+      : null;
+  const organizationId = payload?.organizationId;
+  if (!ehUuid(organizationId) || !chaveDoEmail(notif.recipient)) return null;
+  const link = payload?.unsubscribeUrl;
+  const temLinkDeSair = typeof link === "string" && link.trim().length > 0;
+  return { organizationId, temLinkDeSair };
+}
 
 @Injectable()
 export class AdminService {
@@ -468,15 +499,19 @@ export class AdminService {
       throw new BadRequestException("Este pedido de reembolso já foi resolvido");
     }
 
-    const order = await this.refundOrder(request.order.publicToken, userId, {
-      amountCents: input.amountCents,
-      reason: request.reason,
-    });
-
-    await prisma.refundRequest.update({
-      where: { id },
-      data: { status: "APPROVED", resolvedAt: new Date(), resolvedByUserId: userId },
-    });
+    // reserva atômica ANTES do estorno (common/recusar-reembolso.ts): uma
+    // recusa ao mesmo tempo não manda "recusado" para quem recebeu o dinheiro
+    await reservarAprovacaoDoReembolso(id, userId);
+    let order: Awaited<ReturnType<AdminService["refundOrder"]>>;
+    try {
+      order = await this.refundOrder(request.order.publicToken, userId, {
+        amountCents: input.amountCents,
+        reason: request.reason,
+      });
+    } catch (err) {
+      await devolverReembolsoParaFila(id, userId);
+      throw err;
+    }
 
     // auditoria simétrica ao reject e ao lado do produtor: aprovação de reembolso
     // do comprador passa a ser rastreável por entityType=refund_request
@@ -496,21 +531,9 @@ export class AdminService {
   async rejectRefundRequest(id: string, userId: string, input: RejectRefundRequestInput) {
     const actor = await this.platformAccess.assertAdmin(userId);
 
-    const request = await prisma.refundRequest.findUnique({ where: { id } });
-    if (!request) throw new NotFoundException("Pedido de reembolso não encontrado");
-    if (request.status !== "PENDING") {
-      throw new BadRequestException("Este pedido de reembolso já foi resolvido");
-    }
-
-    const updated = await prisma.refundRequest.update({
-      where: { id },
-      data: {
-        status: "REJECTED",
-        resolvedAt: new Date(),
-        resolvedByUserId: userId,
-        resolutionNote: input.note,
-      },
-    });
+    // atômica (só se ainda PENDING) e com aviso ao comprador — mesma função da
+    // recusa pela casa (common/recusar-reembolso.ts, 2026-10-13)
+    const updated = await recusarPedidoDeReembolso(id, userId, input.note, "BoraFest");
 
     await prisma.auditLog.create({
       data: {
@@ -638,12 +661,38 @@ export class AdminService {
       }
     }
 
+    // CAMPANHA (LGPD, 2026-10-12): quem clicou em "Não quero mais receber" não
+    // volta a receber pelo backoffice — o descadastro tira da fila o que está
+    // pendente, e o reenvio aqui desfaria isso. Linha sem a Casa ou sem o link
+    // de sair (campanha de antes do descadastro) também não volta.
+    const campanha =
+      notif.channel === "EMAIL" && TEMPLATES_DE_CAMPANHA.has(notif.template) ? alvoDaCampanha(notif) : undefined;
+    if (campanha === null || (campanha && !campanha.temLinkDeSair)) {
+      throw new BadRequestException(REENVIO_RECUSADO_SEM_LINK);
+    }
+    const saiuDasCampanhas = async () =>
+      campanha
+        ? (await emailsDescadastrados(prisma, campanha.organizationId, [notif.recipient])).size > 0
+        : false;
+    if (await saiuDasCampanhas()) {
+      throw new BadRequestException(REENVIO_RECUSADO_DESCADASTRO);
+    }
+
     const requeued = await prisma.notification.updateMany({
       where: { id: notificationId, status: { in: ["FAILED", "PENDING"] } },
       data: { status: "PENDING", availableAt: new Date(), attempts: 0, error: null },
     });
     if (requeued.count === 0) {
       throw new BadRequestException("Notificação já enviada ou não pode ser reenfileirada");
+    }
+    // descadastro que chegou entre a conferência e a volta à fila: o UPDATE dele
+    // não achou a linha pendente — desfaz aqui, com o mesmo motivo que ele grava
+    if (await saiuDasCampanhas()) {
+      await prisma.notification.updateMany({
+        where: { id: notificationId, status: "PENDING" },
+        data: { status: "FAILED", error: ERRO_DESCADASTRADO },
+      });
+      throw new BadRequestException(REENVIO_RECUSADO_DESCADASTRO);
     }
 
     await prisma.auditLog.create({

@@ -38,10 +38,22 @@ type Redis = ReturnType<typeof getRedisConnection>;
 /**
  * Redis fora do ar: segue sem o controle de tentativas e de reuso, como o
  * rate limit global (decisão de 2026-09-01). O código TOTP continua exigido.
+ * A conexão compartilhada tem fila offline sem limite: sem conexão pronta, ou
+ * sem resposta em 1 s, segue — antes a confirmação ficava esperando para
+ * sempre (revisão 2026-10-13, mesmo conserto do rate-limit.guard).
  */
 async function noRedis<T>(operacao: (redis: Redis) => Promise<T>): Promise<T | undefined> {
   try {
-    return await operacao(getRedisConnection());
+    const redis = getRedisConnection();
+    if (redis.status !== "ready") {
+      // eslint-disable-next-line no-console
+      console.error(`[2fa] Redis ${redis.status} — seguindo sem o controle de tentativas`);
+      return undefined;
+    }
+    return await Promise.race([
+      operacao(redis),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000).unref()),
+    ]);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[2fa] Redis indisponível — seguindo sem o controle de tentativas", err);
@@ -193,8 +205,15 @@ export class Seguranca2faService {
    */
   private async conferirCodigo(userId: string, segredo: Buffer, codigo: string): Promise<void> {
     const chaveErros = `2fa:erros:${userId}`;
-    const erros = await noRedis((r) => r.get(chaveErros));
-    if (Number(erros ?? 0) >= MAX_CODIGOS_ERRADOS) {
+    // a tentativa é RESERVADA antes de conferir, num INCR atômico (revisão
+    // 2026-10-13): antes lia o contador e só incrementava depois do erro, e N
+    // requisições ao mesmo tempo passavam todas pela checagem — a trava de 5
+    // não segurava força bruta em paralelo. Acertou: o contador zera abaixo.
+    const reserva = await noRedis((r) =>
+      r.multi().incr(chaveErros).expire(chaveErros, TRAVA_CODIGOS_ERRADOS_SEGUNDOS, "NX").exec(),
+    );
+    const tentativas = Number(reserva?.[0]?.[1] ?? 0);
+    if (tentativas > MAX_CODIGOS_ERRADOS) {
       throw new HttpException(
         "Muitos códigos errados seguidos. Espere 15 minutos e tente de novo.",
         HttpStatus.TOO_MANY_REQUESTS,
@@ -203,9 +222,6 @@ export class Seguranca2faService {
 
     const passo = verificarTotp(segredo, codigo);
     if (passo === null) {
-      await noRedis((r) =>
-        r.multi().incr(chaveErros).expire(chaveErros, TRAVA_CODIGOS_ERRADOS_SEGUNDOS, "NX").exec(),
-      );
       throw new BadRequestException(
         "Código incorreto. Use o código que aparece agora no aplicativo autenticador (e confira se a hora do celular está automática).",
       );

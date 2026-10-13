@@ -3,9 +3,8 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Icon, paths } from "../../components/icons";
-
-/** versão vigente do aceite de Termos/Privacidade (handoff v2) */
-const CONSENT_VERSION = "v2026-07";
+// versão vigente do aceite de Termos/Privacidade: um lugar só (2026-10-12)
+import { CONSENT_VERSION } from "../../lib/consent";
 
 const PRIVACIDADE = [
   ["O que coletamos", "Nome, e-mail, celular e dados do pedido — o mínimo para emitir e entregar seus ingressos. CPF só quando o evento exigir (meia-entrada ou controle de acesso)."],

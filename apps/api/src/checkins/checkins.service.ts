@@ -11,10 +11,22 @@ import type { CreateCheckinInput, SyncCheckinsInput } from "@borafest/contracts"
 import { OrgAccessService } from "../common/org-access.service";
 import { withContext } from "@borafest/observability";
 import { origemGratis } from "../common/origem-gratis";
+import { ehGratuito, ehMeia } from "./etiquetas-porta";
+import { ehOQrAtual } from "./qr-atual";
 
 const log = withContext({ module: "checkins" });
 
 export type CheckinOutcome = "VALID" | "ALREADY_USED" | "INVALID" | "CANCELED";
+
+/**
+ * Pedidos em que o ingresso ainda vale. Desfazer a entrada devolve o QR à vida,
+ * então só acontece com o pedido num destes estados (ver `desfazerEntrada`).
+ * Reembolso parcial mantém os ingressos válidos — por isso entra na lista.
+ */
+const PEDIDO_VALENDO = new Set(["PAID", "FULFILLED", "PARTIALLY_REFUNDED"]);
+
+/** Quantas entradas a lista do painel devolve de uma vez (o resto, pela busca). */
+const ENTRADAS_POR_PAGINA = 50;
 
 @Injectable()
 export class CheckinsService {
@@ -67,10 +79,58 @@ export class CheckinsService {
       .catch(() => undefined); // auditoria nunca derruba a entrada de ninguém
   }
 
+  /**
+   * QR ANTIGO APRESENTADO NA PORTA (2026-10-12) — o rastro da tentativa.
+   *
+   * Quem mostra o QR de antes da transferência é, quase sempre, quem passou o
+   * ingresso adiante e guardou um print. A recusa sozinha some da tela no
+   * próximo scan; o registro fica para o produtor responder ao novo dono ("tentaram
+   * entrar com o meu ingresso?") com hora e aparelho. Só o caminho online
+   * registra: offline o aparelho recusa sozinho e a fila não carrega recusas.
+   */
+  private async auditarQrAntigo(args: {
+    ticket: { id: string; code: string; eventId: string };
+    device: ValidatorDevice;
+    scannedAt: Date;
+  }) {
+    try {
+      const evento = await prisma.event.findUnique({
+        where: { id: args.ticket.eventId },
+        select: { organizationId: true },
+      });
+      await prisma.auditLog.create({
+        data: {
+          organizationId: evento?.organizationId ?? null,
+          action: "checkin.qr_antigo",
+          entityType: "ticket",
+          entityId: args.ticket.id,
+          metadata: {
+            ticketCode: args.ticket.code,
+            deviceId: args.device.id,
+            deviceName: args.device.name,
+            eventId: args.device.eventId,
+            scannedAt: args.scannedAt.toISOString(),
+          },
+        },
+      });
+    } catch {
+      // auditoria nunca muda a resposta da porta: a recusa já está decidida
+    }
+  }
+
   async create(device: ValidatorDevice, input: CreateCheckinInput) {
     const resolved = await this.resolveTicketWithReason(device.eventId, input);
     if (!resolved.ticket) {
-      // motivo específico para a portaria saber o que dizer ao portador (handoff v2)
+      if (resolved.reason === "OLD_QR" && resolved.qrAntigoDe) {
+        await this.auditarQrAntigo({
+          ticket: resolved.qrAntigoDe,
+          device,
+          scannedAt: input.scannedAt ?? new Date(),
+        });
+      }
+      // motivo específico para a portaria saber o que dizer ao portador (handoff v2).
+      // QR antigo não devolve o ingresso: o nome do novo dono não vai para a
+      // tela de quem apresentou o QR de antes
       return { result: "INVALID" as CheckinOutcome, reason: resolved.reason };
     }
     const ticket = resolved.ticket;
@@ -86,7 +146,15 @@ export class CheckinsService {
       input.scannedAt ?? new Date(),
       "ONLINE",
       null,
+      // leitura por QR: o update só pega se o ingresso ainda tiver ESTE QR
+      input.qrToken ? ticket.qrToken : undefined,
     );
+
+    if (outcome.qrTrocado) {
+      // transferência gravou um QR novo entre a conferência e a entrada
+      await this.auditarQrAntigo({ ticket, device, scannedAt: input.scannedAt ?? new Date() });
+      return { result: "INVALID" as CheckinOutcome, reason: "OLD_QR" as const };
+    }
 
     if (input.semConferirCpf && outcome.result === "VALID") {
       await this.auditarSemConferirCpf({
@@ -111,6 +179,11 @@ export class CheckinsService {
         // em common/origem-gratis.ts — antes estava copiada aqui e na carteira,
         // e as duas metades já tinham começado a divergir.
         tipo: ticket.order ? (origemGratis(ticket.order)?.kind ?? null) : null,
+        // etiquetas da porta (2026-10-12), mesma regra do manifesto offline
+        // (etiquetas-porta.ts): MEIA-ENTRADA pede o documento; GRATUITO é o R$ 0
+        // que não é lista nem cortesia (lote grátis, cupom de 100%)
+        meia: ehMeia(ticket.orderItem),
+        gratuito: ehGratuito(ticket.order),
       },
       checkinId: outcome.checkinId,
       firstCheckin: outcome.firstCheckin,
@@ -241,49 +314,135 @@ export class CheckinsService {
     return result;
   }
 
-  /** Reversão com permissão e auditoria (§12). */
+  /** Recusa o que não é uma entrada valendo, com o motivo em português claro. */
+  private assertDesfazivel(status: string) {
+    if (status === "REVERSED") throw new BadRequestException("Esta entrada já foi desfeita");
+    if (status !== "CONFIRMED") {
+      // CONFLICT: a leitura foi recusada na porta (já usado, cancelado...) —
+      // não existe entrada a desfazer
+      throw new BadRequestException("Esta leitura foi recusada na porta — não há entrada para desfazer");
+    }
+  }
+
+  /**
+   * NÚCLEO DO "DESFAZER ENTRADA" — o mesmo para o painel e para o aparelho.
+   * Roda dentro da transação de quem chama (que grava o auditLog junto).
+   *
+   * PEDIDO MORTO NÃO RESSUSCITA (2026-10-12). Reembolso e cancelamento de grátis
+   * deixam CHECKED_IN o ingresso de quem já entrou ("quem está dentro fica" —
+   * refund-order.ts e cancelar-pedido-gratis.ts). Desfazer a entrada devolvia
+   * esse ingresso para ACTIVE: o QR de um pedido REEMBOLSADO voltava a passar
+   * na porta. Agora o pedido precisa estar valendo.
+   *
+   * O pedido é TRAVADO (FOR UPDATE) antes de tudo: um reembolso que chegue no
+   * mesmo instante espera esta transação terminar e então cancela o ingresso,
+   * que já está ACTIVE — ou chega antes, e aqui a recusa vem com o estado novo.
+   * A trava também enfileira o clique duplo: o segundo encontra a entrada já
+   * desfeita e recebe "Esta entrada já foi desfeita".
+   */
+  private async desfazerEntrada(
+    tx: Prisma.TransactionClient,
+    checkin: { id: string; ticketId: string },
+    reversedBy: string | null,
+  ): Promise<{ ingressoVoltouAValer: boolean }> {
+    const ticket = await tx.ticket.findUniqueOrThrow({
+      where: { id: checkin.ticketId },
+      select: { orderId: true },
+    });
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM orders WHERE id = ${ticket.orderId}::uuid FOR UPDATE
+    `;
+    const pedido = await tx.order.findUniqueOrThrow({
+      where: { id: ticket.orderId },
+      select: { status: true },
+    });
+    if (!PEDIDO_VALENDO.has(pedido.status)) {
+      throw new BadRequestException(
+        "O pedido deste ingresso foi cancelado ou reembolsado depois da entrada. Desfazer faria o QR voltar a valer — a entrada continua registrada.",
+      );
+    }
+
+    const reversed = await tx.checkin.updateMany({
+      where: { id: checkin.id, status: "CONFIRMED" },
+      data: { status: "REVERSED", reversedAt: new Date(), ...(reversedBy ? { reversedBy } : {}) },
+    });
+    if (reversed.count === 0) throw new BadRequestException("Esta entrada já foi desfeita");
+
+    // guarda de status: ingresso que não está mais CHECKED_IN (cancelado, por
+    // exemplo) NÃO volta a valer — só a entrada sai do registro
+    const voltou = await tx.ticket.updateMany({
+      where: { id: checkin.ticketId, status: "CHECKED_IN" },
+      data: { status: "ACTIVE", checkedInAt: null },
+    });
+    return { ingressoVoltouAValer: voltou.count > 0 };
+  }
+
+  /**
+   * DESFAZER ENTRADA PELO PAINEL DO PRODUTOR (2026-10-12) — "entrada registrada
+   * por engano". O aparelho só desfaz o que ele mesmo registrou, nos últimos 10
+   * minutos (`reverseFromDevice`). Passado isso, ou de outro aparelho, quem
+   * desfaz é o produtor, por aqui, sem janela de tempo.
+   *
+   * PERMISSÃO: dono/admin do evento (EVENT_CREATE — a mesma da configuração da
+   * portaria). Antes bastava CHECKIN_PERFORM, que operador e vendedor da porta
+   * também têm: a pessoa da porta que não pode desfazer a entrada de outro
+   * aparelho (tranca de 2026-09-12) fazia isso pela conta, sem limite, e o QR
+   * voltava a valer para um segundo portador. Nenhuma tela chamava esta rota
+   * até o botão do painel — nada que funcionava deixou de funcionar.
+   */
   async reverse(userId: string, checkinId: string) {
     const checkin = await prisma.checkin.findUnique({
       where: { id: checkinId },
-      include: { ticket: { include: { event: { select: { organizationId: true } } } } },
+      include: {
+        ticket: {
+          select: {
+            code: true,
+            attendeeName: true,
+            event: { select: { organizationId: true } },
+          },
+        },
+        device: { select: { name: true } },
+        checkinPoint: { select: { name: true } },
+      },
     });
-    if (!checkin) throw new NotFoundException("Check-in não encontrado");
+    if (!checkin) throw new NotFoundException("Entrada não encontrada");
 
-    await this.orgAccess.assertPermission(
-      checkin.ticket.event.organizationId,
-      userId,
-      PERMISSIONS.CHECKIN_PERFORM,
-    );
+    const organizationId = checkin.ticket.event.organizationId;
+    await this.orgAccess.assertPermission(organizationId, userId, PERMISSIONS.EVENT_CREATE);
+    this.assertDesfazivel(checkin.status);
 
-    if (checkin.status !== "CONFIRMED") {
-      throw new BadRequestException("Só check-ins confirmados podem ser revertidos");
-    }
-
-    await prisma.$transaction(async (tx) => {
-      const reversed = await tx.checkin.updateMany({
-        where: { id: checkinId, status: "CONFIRMED" },
-        data: { status: "REVERSED", reversedAt: new Date(), reversedBy: userId },
-      });
-      if (reversed.count === 0) {
-        throw new BadRequestException("Check-in já revertido");
-      }
-      await tx.ticket.updateMany({
-        where: { id: checkin.ticketId, status: "CHECKED_IN" },
-        data: { status: "ACTIVE", checkedInAt: null },
-      });
+    const { ingressoVoltouAValer } = await prisma.$transaction(async (tx) => {
+      const desfeito = await this.desfazerEntrada(tx, checkin, userId);
+      // rastro (padrão das ações do produtor): quem desfez, de quem era a
+      // entrada, onde e quando ela foi registrada — numa disputa ("como esse
+      // QR entrou duas vezes?") é o que prova o que aconteceu
       await tx.auditLog.create({
         data: {
           actorUserId: userId,
-          organizationId: checkin.ticket.event.organizationId,
+          organizationId,
           action: "checkin.reverse",
           entityType: "checkin",
           entityId: checkinId,
-          metadata: { ticketId: checkin.ticketId, eventId: checkin.eventId },
+          metadata: {
+            ticketId: checkin.ticketId,
+            eventId: checkin.eventId,
+            ticketCode: checkin.ticket.code,
+            attendeeName: checkin.ticket.attendeeName,
+            deviceId: checkin.deviceId,
+            deviceName: checkin.device.name,
+            gateName: checkin.checkinPoint?.name ?? null,
+            source: checkin.source,
+            scannedAt: checkin.scannedAt.toISOString(),
+            ingressoVoltouAValer: desfeito.ingressoVoltouAValer,
+          },
         },
       });
+      return desfeito;
     });
 
-    return { reversed: true };
+    // `reversed` mantém o formato de antes; `ticketActive` diz à tela se o
+    // ingresso voltou mesmo a valer (não volta se já estava cancelado)
+    return { reversed: true, ticketActive: ingressoVoltouAValer };
   }
 
   /**
@@ -298,17 +457,18 @@ export class CheckinsService {
       where: { id: checkinId, eventId: device.eventId },
       include: { ticket: { include: { event: { select: { organizationId: true } } } } },
     });
-    if (!checkin) throw new NotFoundException("Check-in não encontrado neste evento");
-    if (checkin.status !== "CONFIRMED") {
-      throw new BadRequestException("Só check-ins confirmados podem ser revertidos");
-    }
+    if (!checkin) throw new NotFoundException("Entrada não encontrada neste evento");
+    this.assertDesfazivel(checkin.status);
     // TRANCA (auditoria 2026-09-12, bloqueio nº 5): qualquer aparelho da portaria
     // desfazia QUALQUER check-in do evento, sem limite de tempo, e o mesmo QR
     // voltava a entrar verde em outro portão — fraude invisível no dinheiro.
     // Agora: só o aparelho que fez o check-in, só dentro de 10 minutos (o
     // tempo de um "errei de pessoa"), e o auditLog diz QUEM (credencial).
+    // Fora disso o caminho existe e a mensagem diz qual é: o painel do produtor.
     if (checkin.deviceId !== device.id) {
-      throw new ForbiddenException("Este check-in foi feito em outro aparelho — só ele pode reverter");
+      throw new ForbiddenException(
+        "Esta entrada foi registrada em outro aparelho — só ele pode desfazer, ou o produtor pelo painel (aba Check-in)",
+      );
     }
     // OS DOIS RELÓGIOS (2026-09-15). Só `receivedAt` reabria a janela inteira
     // no instante do sync: 4h offline, 150 check-ins, e ao voltar a rede todos
@@ -320,19 +480,15 @@ export class CheckinsService {
     const naPorta = agora - checkin.scannedAt.getTime();
     const noServidor = agora - checkin.receivedAt.getTime();
     if (naPorta > JANELA_MS || noServidor > JANELA_MS) {
-      throw new BadRequestException("Passaram mais de 10 minutos — reversão só pelo painel do produtor");
+      throw new BadRequestException(
+        "Passaram mais de 10 minutos — agora só o produtor desfaz, pelo painel (aba Check-in)",
+      );
     }
 
     await prisma.$transaction(async (tx) => {
-      const reversed = await tx.checkin.updateMany({
-        where: { id: checkinId, status: "CONFIRMED" },
-        data: { status: "REVERSED", reversedAt: new Date() },
-      });
-      if (reversed.count === 0) throw new BadRequestException("Check-in já revertido");
-      await tx.ticket.updateMany({
-        where: { id: checkin.ticketId, status: "CHECKED_IN" },
-        data: { status: "ACTIVE", checkedInAt: null },
-      });
+      // mesmo núcleo do painel: trava o pedido e não ressuscita QR de pedido
+      // reembolsado/cancelado (2026-10-12)
+      await this.desfazerEntrada(tx, checkin, null);
       await tx.auditLog.create({
         data: {
           organizationId: checkin.ticket.event.organizationId,
@@ -351,6 +507,87 @@ export class CheckinsService {
     });
 
     return { reversed: true };
+  }
+
+  /**
+   * ENTRADAS PARA O PRODUTOR DESFAZER (2026-10-12) — a lista do botão "Desfazer
+   * entrada" do painel. Diferente da lista do aparelho (só as dele, só os
+   * últimos 10 minutos): aqui é o evento inteiro, sem janela, e com busca por
+   * nome ou código — numa festa de 2 mil pessoas a entrada errada de uma hora
+   * atrás não está entre as 50 mais recentes. Mesma permissão do desfazer.
+   *
+   * ERRO NÃO VIRA LISTA VAZIA: sem permissão é 403 e evento inexistente é 404;
+   * a tela mostra o erro, nunca "nenhuma entrada".
+   */
+  async recentEntries(userId: string, eventId: string, busca?: string) {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, organizationId: true },
+    });
+    if (!event) throw new NotFoundException("Evento não encontrado");
+    await this.orgAccess.assertPermission(event.organizationId, userId, PERMISSIONS.EVENT_CREATE);
+
+    const termo = (busca ?? "").trim().slice(0, 80);
+    // código é guardado em maiúsculas com hífen (BF-XXXX-XXXX)
+    const codigo = termo.toUpperCase().replace(/\s+/g, "-");
+    const doIngresso: Prisma.TicketWhereInput | undefined = termo
+      ? {
+          OR: [
+            { attendeeName: { contains: termo, mode: "insensitive" } },
+            // ingresso não nominal: quem a produção conhece é o comprador
+            { order: { contactName: { contains: termo, mode: "insensitive" } } },
+            { code: { contains: codigo } },
+          ],
+        }
+      : undefined;
+
+    const rows = await prisma.checkin.findMany({
+      where: {
+        eventId: event.id,
+        status: "CONFIRMED",
+        ...(doIngresso ? { ticket: doIngresso } : {}),
+      },
+      // a hora da PORTA: entrada feita offline aparece onde aconteceu, não na
+      // hora em que o aparelho sincronizou
+      orderBy: [{ scannedAt: "desc" }, { id: "desc" }],
+      take: ENTRADAS_POR_PAGINA + 1,
+      select: {
+        id: true,
+        scannedAt: true,
+        source: true,
+        device: { select: { name: true } },
+        checkinPoint: { select: { name: true } },
+        ticket: {
+          select: {
+            code: true,
+            attendeeName: true,
+            ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+            orderItem: { select: { halfPrice: true } },
+            order: { select: { contactName: true, status: true } },
+          },
+        },
+      },
+    });
+
+    return {
+      entries: rows.slice(0, ENTRADAS_POR_PAGINA).map((r) => ({
+        checkinId: r.id,
+        at: r.scannedAt,
+        gate: r.checkinPoint?.name ?? null,
+        deviceName: r.device.name,
+        offline: r.source === "OFFLINE_SYNC",
+        code: r.ticket.code,
+        name: r.ticket.attendeeName,
+        buyerName: r.ticket.order.contactName,
+        typeName: r.ticket.ticketLot.ticketType.name,
+        lotName: r.ticket.ticketLot.name,
+        meia: ehMeia(r.ticket.orderItem),
+        // a tela não oferece o botão que o servidor vai recusar (mesma regra
+        // de `desfazerEntrada`) e diz o porquê
+        canUndo: PEDIDO_VALENDO.has(r.ticket.order.status),
+      })),
+      hasMore: rows.length > ENTRADAS_POR_PAGINA,
+    };
   }
 
   /** Painel ao vivo do produtor (§13): totais e ritmo de entrada. */
@@ -444,6 +681,12 @@ export class CheckinsService {
   /**
    * Núcleo da concorrência: só marca CHECKED_IN se o ingresso ainda está
    * ISSUED/ACTIVE — quem chegar primeiro vence; o Checkin registra o resto.
+   *
+   * `qrTokenConferido` (leitura por QR, 2026-10-12): o QR que acabou de ser
+   * comparado com o do ingresso entra na MESMA guarda do update. Uma
+   * transferência que grave o QR novo entre a comparação e esta transação faz
+   * o update não pegar nada — e a leitura sai como QR antigo (`qrTrocado`), em
+   * vez de deixar entrar quem tinha o QR de um milissegundo atrás.
    */
   private async attemptCheckin(
     ticketId: string,
@@ -452,11 +695,13 @@ export class CheckinsService {
     scannedAt: Date,
     source: "ONLINE" | "OFFLINE_SYNC",
     localSeq: number | null,
+    qrTokenConferido?: string,
   ): Promise<{
     result: CheckinOutcome;
     ticketStatus: string;
     checkinId?: string;
     firstCheckin?: { at: Date | null; deviceName?: string };
+    qrTrocado?: boolean;
   }> {
     return prisma.$transaction(async (tx) => {
       const won = await tx.ticket.updateMany({
@@ -464,6 +709,7 @@ export class CheckinsService {
           id: ticketId,
           eventId: device.eventId,
           status: { in: ["ISSUED", "ACTIVE"] },
+          ...(qrTokenConferido ? { qrToken: qrTokenConferido } : {}),
         },
         data: { status: "CHECKED_IN", checkedInAt: scannedAt },
       });
@@ -486,6 +732,11 @@ export class CheckinsService {
 
       // não venceu: classifica e registra conflito p/ auditoria
       const ticket = await tx.ticket.findUniqueOrThrow({ where: { id: ticketId } });
+      if (qrTokenConferido && ticket.qrToken !== qrTokenConferido) {
+        // o QR mudou no meio da leitura: é QR antigo agora — quem decide o que
+        // registrar é `create` (mesmo rastro da recusa normal de QR antigo)
+        return { result: "INVALID" as CheckinOutcome, ticketStatus: ticket.status, qrTrocado: true };
+      }
       const result: CheckinOutcome =
         ticket.status === "CHECKED_IN"
           ? "ALREADY_USED"
@@ -547,6 +798,15 @@ export class CheckinsService {
 
     const found = await this.findTicket(eventId, ticketId, input.code);
     if (!found) return { ticket: null, reason: "NOT_FOUND" as const };
+
+    // SÓ O QR ATUAL VALE (2026-10-12). A assinatura confere também no QR de
+    // antes da transferência — ele foi assinado pela mesma chave do evento. Sem
+    // esta comparação, o print guardado por quem passou o ingresso adiante
+    // entrava antes do novo dono. Vem ANTES de "já utilizado"/"cancelado": QR
+    // antigo nunca vale, qualquer que seja o estado do ingresso.
+    if (input.qrToken && !ehOQrAtual(input.qrToken, found.qrToken)) {
+      return { ticket: null, reason: "OLD_QR" as const, qrAntigoDe: found };
+    }
     return { ticket: found, reason: null };
   }
 
@@ -558,6 +818,8 @@ export class CheckinsService {
       },
       include: {
         ticketLot: { select: { name: true, ticketType: { select: { name: true } } } },
+        // etiqueta MEIA-ENTRADA: a meia é gravada no item do pedido
+        orderItem: { select: { halfPrice: true } },
         order: {
           select: { totalCents: true, soldByUserId: true, salesPartnerId: true, promoterLinkId: true, guestListEntries: { select: { id: true }, take: 1 } },
         },

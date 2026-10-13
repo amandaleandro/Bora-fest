@@ -101,7 +101,7 @@ melhor parar no boot do que vender sem confirmar o pagamento.
 | `postgres`, `pg-backup`, `api`, `worker` | `POSTGRES_PASSWORD` | — |
 | `redis`, `api`, `worker` | `REDIS_PASSWORD` | — |
 | `api` | `SESSION_JWT_SECRET`; `EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + `EMAIL_FROM`; provedor de pagamento real (nunca `mock`, nem nas rotas por meio) e as chaves de **cada** provedor usado no padrão, no Pix e no cartão (`ASAAS_API_KEY` + `ASAAS_WEBHOOK_TOKEN`; `MERCADOPAGO_ACCESS_TOKEN` + `MERCADOPAGO_WEBHOOK_SECRET`); `WHATSAPP_PROVIDER` diferente de `devlog` (padrão do compose: `off`); `TOTP_ENCRYPTION_KEY` (a partir da rodada de 12/10: sem ela nenhum admin ativa o segundo fator, e aprovar saque, marcar repasse pago e estornar ficam bloqueados) | `TICKET_KEY_ENCRYPTION_KEY`, `RESEND_WEBHOOK_SECRET`, `METRICS_TOKEN`, `PLATFORM_ADMIN_EMAILS`, `VAPID_*`, `PAYMENT_MIN_CHARGE_CENTS`, `PLATFORM_*` (taxa). `CORS_ORIGINS`, `WEB_BASE_URL`, `PRODUCER_BASE_URL` e `API_PUBLIC_URL` já têm padrão de produção no compose |
-| `worker` | `EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + `EMAIL_FROM` (o worker também recusa `devlog`); as mesmas chaves de pagamento da API (ele processa webhook, reconcilia e estorna; não confere as chaves no boot, então a falta só aparece no log) | `TICKET_KEY_ENCRYPTION_KEY` (**a mesma** da API), `METRICS_TOKEN`, `VAPID_*`, `AUTO_TRANSFER_ENABLED` (padrão `false`) |
+| `worker` | `EMAIL_PROVIDER=resend` + `RESEND_API_KEY` + `EMAIL_FROM` (o worker também recusa `devlog`); as mesmas chaves de pagamento da API (ele processa webhook, reconcilia e estorna; não confere as chaves no boot, então a falta só aparece no log) | `TICKET_KEY_ENCRYPTION_KEY` (**a mesma** da API), `METRICS_TOKEN`, `VAPID_*`, `AUTO_TRANSFER_ENABLED` (padrão `false`), `WEBHOOK_RAW_RETENTION_DAYS` (LGPD: dias que o corpo cru dos webhooks de pagamento fica guardado; padrão 90) |
 | `pg-backup` | — | `BACKUP_ENCRYPTION_PASSPHRASE`, `BACKUP_S3_*`, `BACKUP_ALERT_WEBHOOK_URL` (`infra/scripts/README.md`) |
 | `grafana` | `GRAFANA_ADMIN_PASSWORD`, antes de apontar um domínio | `GRAFANA_ROOT_URL` |
 | `site`, `painel`, `admin` | nenhuma do Environment: só as `NEXT_PUBLIC_*` do build (§3) | — |
@@ -191,6 +191,13 @@ Confira e anote no diário (com o commit implantado):
      (só confere) e depois com `--aplicar`;
    - listar os `account_claim` já enviados ao e-mail de terceiro (consulta só
      de leitura) e avaliar.
+8. Pendentes do deploy de 13/10, uma vez só:
+   - **depois de um backup**, contas apagadas antes de 12/10 (exclusão antiga,
+     que deixava dados): `cd apps/api && npx tsx scripts/lgpd-contas-apagadas-antes.ts`
+     (só confere) e depois com `--aplicar`;
+   - **portaria**: recarregar `borafest.com.br/portaria` nos aparelhos da porta
+     antes do próximo evento (o manifesto passou ao formato 4: QR e código
+     antigos de ingresso transferido são recusados também sem internet).
 
 ## 8. Caminho alternativo: servidor próprio com Caddy (não é a produção)
 

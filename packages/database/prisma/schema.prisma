@@ -247,6 +247,22 @@ model OrganizationFollow {
   @@map("organization_follows")
 }
 
+/// Descadastro de campanhas (LGPD, 2026-10-12): quem clicou em "Não quero mais
+/// receber" num e-mail de campanha de uma Casa. Os disparos de campanha DESTA
+/// Casa pulam este e-mail; ingresso e avisos de compra continuam chegando.
+/// organizationId é coluna simples (sem chave estrangeira), como no convite por
+/// e-mail: o pedido de não receber vale mesmo que a Casa mude ou saia.
+model MarketingOptOut {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// e-mail normalizado (sem espaços, minúsculo) — a mesma chave do CRM
+  emailKey       String   @map("email_key")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, emailKey])
+  @@map("marketing_opt_outs")
+}
+
 model Role {
   id          String   @id @default(uuid()) @db.Uuid
   key         String   @unique
@@ -725,10 +741,12 @@ enum FeeMode {
   PRODUCER
 }
 
-/// disponibilidade do lote para convidados (EMAIL entra com o convite por e-mail)
+/// disponibilidade do lote para convidados: LINK = link único do lote;
+/// EMAIL = só quem o produtor convidou por e-mail (lot_email_invites)
 enum LotInviteMode {
   NONE
   LINK
+  EMAIL
 }
 
 enum LotStatus {
@@ -763,18 +781,61 @@ model TicketLot {
   status           LotStatus @default(DRAFT)
   startsAt         DateTime? @map("starts_at")
   endsAt           DateTime? @map("ends_at")
+  /// virada automática: lote guardado (DRAFT) que abre sozinho quando este lote
+  /// anterior esgotar ou for encerrado (2026-10-12)
+  activateAfterLotId String?  @map("activate_after_lot_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   ticketType       TicketType        @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  activateAfterLot TicketLot?        @relation("ViradaDeLote", fields: [activateAfterLotId], references: [id], onDelete: SetNull)
+  nextLots         TicketLot[]       @relation("ViradaDeLote")
   reservationItems ReservationItem[]
   orderItems       OrderItem[]
   tickets          Ticket[]
   guestListEntries GuestListEntry[]
+  emailInvites     LotEmailInvite[]
 
   @@index([ticketTypeId])
   @@index([status])
+  @@index([activateAfterLotId])
   @@map("ticket_lots")
+}
+
+enum LotEmailInviteStatus {
+  /// convite mandado; o link pessoal ainda vale
+  SENT
+  /// a pessoa pegou o ingresso (orderId); volta a SENT se o pedido grátis for cancelado
+  CLAIMED
+  /// o produtor revogou: o link para de valer na hora
+  REVOKED
+}
+
+/// Convite por e-mail (2026-10-12) — 3ª forma do ingresso restrito, formato
+/// Sympla: só quem o produtor convidou pega o lote EMAIL, pelo link pessoal e
+/// com o MESMO e-mail do convite. orderId e notificationId são colunas simples
+/// (sem chave estrangeira): o convite só aponta para o pedido que o usou e para
+/// o último e-mail mandado (entregue/voltou vêm da notificação).
+model LotEmailInvite {
+  id             String               @id @default(uuid()) @db.Uuid
+  ticketLotId    String               @map("ticket_lot_id") @db.Uuid
+  /// e-mail normalizado (sem espaços, minúsculo): é o que o pedido tem que usar
+  email          String
+  /// código do link pessoal (?convite=): 128 bits aleatórios em base64url
+  token          String               @unique
+  status         LotEmailInviteStatus @default(SENT)
+  orderId        String?              @map("order_id") @db.Uuid
+  notificationId String?              @map("notification_id") @db.Uuid
+  /// último envio do e-mail (criar, reenviar ou corrigir) — trava reenvio em sequência
+  sentAt         DateTime             @default(now()) @map("sent_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  claimedAt      DateTime?            @map("claimed_at")
+
+  ticketLot TicketLot @relation(fields: [ticketLotId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketLotId, email])
+  @@index([orderId])
+  @@map("lot_email_invites")
 }
 
 // ---------------------------------------------------------------------------

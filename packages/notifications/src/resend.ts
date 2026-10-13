@@ -17,6 +17,25 @@ export function resendTags(tags: Record<string, string> | undefined): { name: st
     .map(([name, value]) => ({ name, value }));
 }
 
+// Cabeçalhos extras (LGPD, 2026-10-12): nome só com letras, números e hífen;
+// valor numa linha só (quebra de linha num cabeçalho injeta outro cabeçalho) e
+// bem abaixo do limite de 998 caracteres por linha do e-mail. Os que o próprio
+// envio já define (remetente, destino, assunto...) nunca são sobrescritos.
+const NOME_DE_CABECALHO = /^[A-Za-z0-9-]{1,100}$/;
+const CABECALHOS_DO_ENVIO = new Set(["from", "to", "cc", "bcc", "reply-to", "subject", "sender", "date", "message-id"]);
+
+/** Cabeçalhos no formato da API do Resend, só os válidos. */
+export function resendHeaders(headers: Record<string, string> | undefined): Record<string, string> {
+  const validos: Record<string, string> = {};
+  if (!headers) return validos;
+  for (const [name, value] of Object.entries(headers)) {
+    if (!NOME_DE_CABECALHO.test(name) || CABECALHOS_DO_ENVIO.has(name.toLowerCase())) continue;
+    if (typeof value !== "string" || !value || value.length > 900 || /[\r\n]/.test(value)) continue;
+    validos[name] = value;
+  }
+  return validos;
+}
+
 /**
  * Adapter real de e-mail (Resend — https://resend.com/docs/api-reference).
  * Escolhido por ser o de menor atrito para começar: sem SDK, só um POST com
@@ -38,6 +57,7 @@ export class ResendEmailSender implements EmailSender {
     }
 
     const tags = resendTags(message.tags);
+    const headers = resendHeaders(message.headers);
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -51,6 +71,7 @@ export class ResendEmailSender implements EmailSender {
         html: message.html,
         text: message.text,
         ...(tags.length > 0 ? { tags } : {}),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
       }),
     });
 

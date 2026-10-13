@@ -5,8 +5,20 @@ import Link from "next/link";
 import { GuardedPanelShell } from "@/components/PanelShell";
 import { SalesPushButton } from "@/components/SalesPushButton";
 import { InviteMemberModal } from "@/components/InviteMemberModal";
+import { AJUDA_CODIGO_E_COTA, CodigoECotaDoPromoter } from "@/components/CodigoECotaDoPromoter";
 import { useAuth } from "@/lib/auth";
-import { eventsApi, organizationsApi, MEMBER_ROLES, type EventSummary, type OrgMember, type PromoterRow, type SalesPartner } from "@/lib/api";
+import { CHECKOUT_URL, hotsiteUrl } from "@/lib/config";
+import { copiarTexto } from "@/lib/copiar";
+import {
+  eventsApi,
+  organizationsApi,
+  MEMBER_ROLES,
+  type EventSummary,
+  type OrgMember,
+  type PromoterLinkEditado,
+  type PromoterRow,
+  type SalesPartner,
+} from "@/lib/api";
 
 function PublicProfile({ orgId }: { orgId: string }) {
   const { token } = useAuth();
@@ -422,11 +434,29 @@ function Promoters({ orgId }: { orgId: string }) {
     }
   }
 
-  function copyLink(slug: string, id: string) {
-    const base = process.env.NEXT_PUBLIC_CHECKOUT_URL ?? "https://borafest.com.br";
-    navigator.clipboard.writeText(`${base}/?pr=${slug}`);
-    setCopied(id);
+  /**
+   * Vínculo de um evento só: o link leva direto à festa dele (antes ia para a
+   * home e o comprador caçava o evento). Vínculo da Casa inteira: a home com
+   * ?pr= — o link de cada festa fica em Promoters, dentro do evento.
+   */
+  function linkDoPromoter(p: PromoterRow): string {
+    return p.eventSlug ? `${hotsiteUrl(p.eventSlug)}?pr=${p.slug}` : `${CHECKOUT_URL}/?pr=${p.slug}`;
+  }
+
+  async function copyLink(p: PromoterRow) {
+    const ok = await copiarTexto(linkDoPromoter(p));
+    if (!ok) {
+      setMessage(`Não deu para copiar sozinho. Selecione e copie: ${linkDoPromoter(p)}`);
+      return;
+    }
+    setCopied(p.id);
     setTimeout(() => setCopied(null), 2000);
+  }
+
+  function aoSalvarCodigoECota(editado: PromoterLinkEditado) {
+    setPromoters((antes) =>
+      antes.map((p) => (p.id === editado.id ? { ...p, code: editado.code, guestQuota: editado.guestQuota } : p)),
+    );
   }
 
   function comissaoLabel(p: PromoterRow): string {
@@ -440,6 +470,7 @@ function Promoters({ orgId }: { orgId: string }) {
       <p className="mb-3 text-[12px] font-semibold text-muted">
         Convide por e-mail — a pessoa não precisa ter conta de produtor. Você define se ela recebe
         comissão; sem comissão, o dinheiro das vendas fica todo com você e o sistema só contabiliza.
+        O link de cada festa, inclusive de evento privado, fica em Promoters, dentro do evento.
       </p>
 
       <div className="rounded-[16px] border border-dashed border-line bg-bg/40 p-4">
@@ -534,7 +565,7 @@ function Promoters({ orgId }: { orgId: string }) {
                   {p.status === "ACTIVE" ? (
                     <button
                       type="button"
-                      onClick={() => copyLink(p.slug, p.id)}
+                      onClick={() => copyLink(p)}
                       className="h-9 rounded-xl border border-line px-4 text-[12.5px] font-bold text-primary"
                     >
                       {copied === p.id ? "Copiado ✓" : "Copiar link"}
@@ -559,6 +590,7 @@ function Promoters({ orgId }: { orgId: string }) {
                   </button>
                 </div>
               </div>
+              <CodigoECotaDoPromoter organizationId={orgId} promoter={p} onSalvo={aoSalvarCodigoECota} />
               {aberto === p.id ? (
                 <div className="mt-3 border-t border-line-divider pt-3">
                   {sellersError[p.id] ? (
@@ -597,6 +629,7 @@ function Promoters({ orgId }: { orgId: string }) {
               ) : null}
             </div>
           ))}
+          <p className="text-[11.5px] font-semibold text-muted">{AJUDA_CODIGO_E_COTA}</p>
         </div>
       ) : null}
     </section>

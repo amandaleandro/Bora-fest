@@ -3,30 +3,26 @@
 import { CHECKOUT_URL } from "@/lib/config";
 import { Bloco } from "@/components/Bloco";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { tentativaDeEdicao, type TentativaDeEdicao } from "@/lib/event-recurrence-api";
 import Link from "next/link";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAuth } from "@/lib/auth";
-import { catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn, type FeeMode } from "@/lib/api";
-import { FeeModeField, NominalFields } from "@/components/FeeModeField";
+import { ApiError, catalogApi, eventsApi, dashboardApi, eventControls, couponsApi, complimentaryApi, addOnsApi, UF_LIST, EVENT_CATEGORIES, type Dashboard, type EventVenue, type EventCategory, type EventAddOn, type ProducerLots } from "@/lib/api";
+import {
+  CamposDoLote,
+  CartaoDoLote,
+  anterioresPossiveis,
+  balcaoGratis,
+  dadosParaCriar,
+  faltaPreencher,
+  problemaDoLote,
+  valoresIniciais,
+  type ValoresDoLote,
+} from "@/components/LoteDoIngresso";
 
 function formatCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-/** Aceita "49,90" e "49.90". Inválido/vazio → 0. */
-function parsePriceCents(value: string): number {
-  const n = Number(value.trim().replace(",", "."));
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
-}
-
-/**
- * Espelho (só para exibição) da taxa calculada pelo SERVIDOR (fees.ts):
- * 5% do preço com piso de R$ 1; ingresso grátis = taxa 0.
- */
-function serviceFeeCents(priceCents: number): number {
-  if (priceCents <= 0) return 0;
-  return Math.max(Math.round(priceCents * 0.05), 100);
 }
 
 const BANNER_MAX_BYTES = 5 * 1024 * 1024;
@@ -66,6 +62,11 @@ function EventContent({ eventId }: { eventId: string }) {
   const [ticketForm, setTicketForm] = useState<null | { typeId?: string; typeName?: string }>(null);
   const [typeName, setTypeName] = useState("");
   const [savingTicket, setSavingTicket] = useState(false);
+  // chave da tentativa de criar lote (2026-10-13): a mesma enquanto os dados
+  // forem os mesmos — "tentar de novo" depois de resposta perdida não duplica
+  const tentativaDoLote = useRef<TentativaDeEdicao | null>(null);
+  // erro do formulário de ingresso/lote fica DENTRO do formulário (2026-10-12)
+  const [erroNovoLote, setErroNovoLote] = useState<string | null>(null);
   const [coupons, setCoupons] = useState<Array<{ id: string; code: string; discountType: string; discountValue: number; redeemedCount: number; maxRedemptions: number | null; active: boolean }>>([]);
   const [courtesies, setCourtesies] = useState<Array<{ id: string; contactName: string | null; contactEmail: string; status: string; items: Array<{ quantity: number; ticketLot: { name: string } }> }>>([]);
   const [couponCode, setCouponCode] = useState("");
@@ -123,15 +124,15 @@ function EventContent({ eventId }: { eventId: string }) {
   const [venueSaving, setVenueSaving] = useState(false);
   const [venueError, setVenueError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [lotName, setLotName] = useState("");
-  const [lotPrice, setLotPrice] = useState("");
-  const [lotCapacity, setLotCapacity] = useState("");
-  const [lotMaxPerOrder, setLotMaxPerOrder] = useState("6");
-  const [lotFeeMode, setLotFeeMode] = useState<FeeMode>("BUYER");
-  const [lotNominal, setLotNominal] = useState(false);
-  const [lotHalf, setLotHalf] = useState(false);
-  const [lotPdvOnly, setLotPdvOnly] = useState(false);
-  const [lotRequiresCpf, setLotRequiresCpf] = useState(false);
+  // formulário de lote novo (2026-10-12): os mesmos campos da edição
+  const [novoLote, setNovoLote] = useState<ValoresDoLote>(() => valoresIniciais(""));
+  // detalhe dos lotes (link de convite, virada, datas) — só quem pode criar
+  // lote recebe; erro NÃO vira "sem lote": a lista do painel continua e o
+  // aviso diz o que faltou, com "Tentar novamente"
+  const [lotes, setLotes] = useState<ProducerLots | null>(null);
+  const [lotesErro, setLotesErro] = useState<string | null>(null);
+  const [lotesSemPermissao, setLotesSemPermissao] = useState(false);
+  const [lotesOk, setLotesOk] = useState<string | null>(null);
 
   function listError(err: unknown, fallback: string): string {
     return err instanceof Error && err.message ? err.message : fallback;
@@ -153,6 +154,39 @@ function EventContent({ eventId }: { eventId: string }) {
       .list(eventId, token)
       .then(setCourtesies)
       .catch((err) => setCourtesiesError(listError(err, "Não foi possível carregar as cortesias")));
+  }
+
+  async function loadLotes() {
+    if (!token) return;
+    setLotesErro(null);
+    try {
+      setLotes(await catalogApi.listLots(token, eventId));
+      setLotesSemPermissao(false);
+    } catch (err) {
+      // sem permissão de criar lote (ex.: vendedor): vê a lista, não edita
+      if (err instanceof ApiError && err.status === 403) {
+        setLotesSemPermissao(true);
+        setLotes(null);
+        return;
+      }
+      setLotesErro(listError(err, "Não foi possível carregar os detalhes dos lotes"));
+    }
+  }
+
+  /**
+   * Recarrega ingressos e lotes SEM a tela de "Carregando..." (2026-10-12):
+   * o load() desmontava a página inteira — o link recém-trocado e as
+   * mensagens de sucesso sumiam junto.
+   */
+  async function atualizarIngressos() {
+    if (!token) return;
+    try {
+      setDashboard(await dashboardApi.get(token, eventId));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(listError(err, "Não foi possível atualizar os ingressos"));
+    }
+    await loadLotes();
   }
 
   function loadAddOns() {
@@ -183,6 +217,7 @@ function EventContent({ eventId }: { eventId: string }) {
       loadCoupons();
       loadCourtesies();
       loadAddOns();
+      void loadLotes();
     } catch (err) {
       setLoadError(listError(err, "Não foi possível carregar o evento"));
     } finally {
@@ -422,35 +457,31 @@ function EventContent({ eventId }: { eventId: string }) {
     return err instanceof Error && err.message ? err.message : fallback;
   }
 
-  function resetLotFields(nextLotName: string) {
-    setLotName(nextLotName);
-    setLotPrice("");
-    setLotCapacity("");
-    setLotMaxPerOrder("6");
-    setLotFeeMode("BUYER");
-    setLotNominal(false);
-    setLotRequiresCpf(false);
-    setLotHalf(false);
-    setLotPdvOnly(false);
-  }
-
   function openNewTicket() {
-    setError(null);
+    setErroNovoLote(null);
+    setLotesOk(null);
     setTypeName("");
-    resetLotFields("1º lote");
+    setNovoLote(valoresIniciais("1º lote"));
     setTicketForm({});
   }
 
   function openNewLot(typeId: string, name: string, existingLots: number) {
-    setError(null);
-    resetLotFields(`${existingLots + 1}º lote`);
+    setErroNovoLote(null);
+    setLotesOk(null);
+    setNovoLote(valoresIniciais(`${existingLots + 1}º lote`));
     setTicketForm({ typeId, typeName: name });
   }
 
-  /** Fluxo unificado: cria o tipo (se for ingresso novo) + lote + ativa. */
+  /**
+   * Fluxo unificado: cria o tipo (se for ingresso novo) + lote. O lote já
+   * nasce à venda numa chamada só (2026-10-12) — antes eram duas (criar e
+   * ativar) e, se a segunda falhasse, "tentar de novo" criava lote repetido.
+   * Com virada automática ele nasce guardado e abre sozinho.
+   */
   async function handleCreateTicket() {
-    if (!token || !ticketForm) return;
-    setError(null);
+    if (!token || !ticketForm || savingTicket) return;
+    setErroNovoLote(null);
+    setLotesOk(null);
     setSavingTicket(true);
     try {
       let typeId = ticketForm.typeId;
@@ -458,35 +489,45 @@ function EventContent({ eventId }: { eventId: string }) {
         const type = await catalogApi.createTicketType(token, eventId, { name: typeName.trim() });
         setSessionTypes((prev) => [...prev, { id: type.id, name: type.name }]);
         typeId = type.id;
+        // se o lote falhar daqui em diante, "tentar de novo" põe o lote neste
+        // ingresso em vez de criar outro com o mesmo nome
+        setTicketForm({ typeId: type.id, typeName: type.name });
       }
-      const priceCents = parsePriceCents(lotPrice);
-      // maxPerOrder: contrato aceita 1..20 (default 6) — clampa pra não tomar 400.
-      const maxPerOrder = Math.min(Math.max(Number(lotMaxPerOrder) || 6, 1), 20);
-      const lot = await catalogApi.createLot(token, typeId, {
-        name: lotName,
-        priceCents,
-        // A taxa é CALCULADA PELO SERVIDOR; este valor é ignorado lá,
-        // mandamos o espelho só para satisfazer o contrato do schema.
-        feeCents: serviceFeeCents(priceCents),
-        capacity: Number(lotCapacity),
-        maxPerOrder,
-        feeMode: lotFeeMode,
-        nominal: lotNominal,
-        // CPF só faz sentido em lote nominal (o backend também amarra os dois)
-        requiresCpf: lotNominal && lotRequiresCpf,
-        halfPriceEnabled: lotHalf,
-        pdvOnly: lotPdvOnly,
-      });
-      await catalogApi.activateLot(token, lot.id);
+      const dados = dadosParaCriar(novoLote);
+      tentativaDoLote.current = tentativaDeEdicao(tentativaDoLote.current, JSON.stringify({ typeId, dados }));
+      const lot = await catalogApi.createLot(token, typeId, dados, tentativaDoLote.current.chave);
+      tentativaDoLote.current = null;
+      const anterior = dados.activateAfterLotId
+        ? lotes?.lots.find((l) => l.id === dados.activateAfterLotId)?.name
+        : undefined;
+      const extra =
+        dados.inviteMode === "LINK"
+          ? " O link de convite está no lote — copie e mande só para quem você quer."
+          : dados.inviteMode === "EMAIL"
+            ? " Agora convide as pessoas em “Convidar por e-mail”."
+            : "";
       setTicketForm(null);
       setTypeName("");
-      resetLotFields("");
-      await load();
+      setNovoLote(valoresIniciais(""));
+      setLotesOk(
+        anterior
+          ? `Lote “${lot.name}” criado. Ele fica guardado e abre sozinho quando o “${anterior}” esgotar.${extra}`
+          : `Lote “${lot.name}” criado e à venda.${extra}`,
+      );
+      await atualizarIngressos();
     } catch (err) {
-      setError(catalogError(err, "Não foi possível criar o ingresso"));
+      setErroNovoLote(catalogError(err, "Não foi possível criar o ingresso"));
+      // a resposta pode ter se perdido com o lote já criado: a lista mostra
+      // o que o servidor gravou
+      await atualizarIngressos();
     } finally {
       setSavingTicket(false);
     }
+  }
+
+  async function aposMudarLote(mensagem: string | null) {
+    if (mensagem !== null) setLotesOk(mensagem);
+    await atualizarIngressos();
   }
 
   if (!loading && !dashboard && loadError) {
@@ -516,6 +557,7 @@ function EventContent({ eventId }: { eventId: string }) {
 
   const statusStyle = STATUS_STYLES[dashboard.event.status] ?? { bg: "bg-line", fg: "text-muted", label: dashboard.event.status };
   const publicUrl = `${CHECKOUT_URL}/${dashboard.event.slug}`;
+  const problemaNovoLote = ticketForm ? problemaDoLote(novoLote) : null;
 
   return (
     <main>
@@ -567,10 +609,27 @@ function EventContent({ eventId }: { eventId: string }) {
         ) : null}
       </div>
 
+      {lotesOk ? (
+        <p className="mt-3 rounded-lg bg-success/10 px-3 py-2.5 text-[13px] font-bold text-success">{lotesOk}</p>
+      ) : null}
+      {lotesErro ? (
+        <div className="mt-3 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[13px] font-semibold text-danger">
+          {lotesErro} — sem isso não dá para editar lote nem ver o link de convite.{" "}
+          <button type="button" onClick={() => void loadLotes()} className="font-extrabold underline">
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
+      {lotesSemPermissao ? (
+        <p className="mt-3 text-[12.5px] font-semibold text-muted">
+          Editar lote e ver o link de convite é só para quem pode criar eventos nesta organização.
+        </p>
+      ) : null}
+
       {ticketForm ? (
         <div className="mt-3 space-y-2 rounded-2xl border border-line bg-surface p-4">
           <p className="text-[14px] font-extrabold">
-            {ticketForm.typeId ? `Novo lote em "${ticketForm.typeName}"` : "Novo ingresso"}
+            {ticketForm.typeId ? `Novo lote · ${ticketForm.typeName}` : "Novo ingresso"}
           </p>
           {!ticketForm.typeId ? (
             <div>
@@ -583,98 +642,24 @@ function EventContent({ eventId }: { eventId: string }) {
               />
             </div>
           ) : null}
-          <div>
-            <label className="text-[12px] font-bold text-ink-soft">Lote</label>
-            <input placeholder="Ex.: 1º lote" className="mt-1 w-full" value={lotName} onChange={(e) => setLotName(e.target.value)} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <div className="min-w-0 flex-1">
-              <label className="text-[12px] font-bold text-ink-soft">Quanto você quer receber (R$)</label>
-              <input
-                placeholder="Ex.: 20,00"
-                className="mt-1 w-full"
-                inputMode="decimal"
-                value={lotPrice}
-                onChange={(e) => setLotPrice(e.target.value)}
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <label className="text-[12px] font-bold text-ink-soft">Quantidade de ingressos</label>
-              <input
-                placeholder="Ex.: 200"
-                className="mt-1 w-full"
-                inputMode="numeric"
-                value={lotCapacity}
-                onChange={(e) => setLotCapacity(e.target.value)}
-              />
-            </div>
-            <div className="w-36 min-w-0">
-              <label className="text-[12px] font-bold text-ink-soft">Máx. por pedido</label>
-              <input
-                className="mt-1 w-full"
-                inputMode="numeric"
-                value={lotMaxPerOrder}
-                onChange={(e) => setLotMaxPerOrder(e.target.value)}
-                title="Quantos ingressos deste lote cada pessoa pode comprar num pedido (1 a 20)"
-              />
-            </div>
-          </div>
-          <FeeModeField
-            value={lotFeeMode}
-            onChange={setLotFeeMode}
-            priceCents={parsePriceCents(lotPrice)}
-            feeCents={serviceFeeCents(parsePriceCents(lotPrice))}
+          <CamposDoLote
+            valores={novoLote}
+            onChange={setNovoLote}
+            modo="criar"
+            eventId={eventId}
+            minimoCobrancaCents={lotes?.minimoCobrancaCents ?? 500}
+            anteriores={
+              ticketForm.typeId
+                ? anterioresPossiveis(lotes?.lots.filter((l) => l.ticketTypeId === ticketForm.typeId) ?? [])
+                : []
+            }
           />
-          <NominalFields
-            nominal={lotNominal}
-            requiresCpf={lotRequiresCpf}
-            onChange={({ nominal, requiresCpf }) => {
-              setLotNominal(nominal);
-              setLotRequiresCpf(requiresCpf);
-            }}
-          />
-          <label className="flex items-center gap-2 text-[13px] font-semibold">
-            <input
-              type="checkbox"
-              checked={lotHalf}
-              onChange={(e) => setLotHalf(e.target.checked)}
-              className="h-4 w-4 accent-primary"
-            />
-            <span>
-              Oferecer meia-entrada (50% do preço)
-              <span className="block text-[11.5px] font-medium text-muted">
-                Opcional — o comprador escolhe meia no checkout e o documento é conferido na portaria.
-              </span>
-            </span>
-          </label>
-          <label className="flex items-center gap-2 text-[13px] font-semibold">
-            <input
-              type="checkbox"
-              checked={lotPdvOnly}
-              onChange={(e) => setLotPdvOnly(e.target.checked)}
-              className="h-4 w-4 accent-primary"
-            />
-            {/* 2026-10-12: prometia "com R$ 0 vira lote de cortesia" — desde 07/09
-                cortesia não sai na porta (o balcão esconde lote grátis e o servidor
-                recusa R$ 0 só de balcão). Entrada grátis = Lista de convidados ou Cortesias. */}
-            <span>
-              Só balcão — não aparece no site
-              <span className="block text-[11.5px] font-medium text-muted">
-                Sua equipe com permissão de venda vende pela portaria, na hora do evento. Precisa ter preço: cortesia
-                não sai na porta. Para entrada grátis, use a Lista de convidados ou as Cortesias.
-              </span>
-            </span>
-          </label>
-          {lotPdvOnly && lotPrice.trim() !== "" && parsePriceCents(lotPrice) === 0 ? (
+          {problemaNovoLote ? (
             <p className="rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] font-semibold text-warning">
-              Lote só de balcão com preço R$ 0 não pode ser criado: o balcão não emite cortesia. Para dar entrada
-              grátis, cadastre a pessoa na{" "}
-              <Link href={`/eventos/${eventId}/lista-convidados`} className="font-extrabold underline">
-                Lista de convidados
-              </Link>{" "}
-              ou emita uma Cortesia (mais abaixo nesta página).
+              {problemaNovoLote}
             </p>
           ) : null}
+          {erroNovoLote ? <p className="text-[13px] font-semibold text-danger">{erroNovoLote}</p> : null}
           <div className="flex gap-2 pt-1">
             <button
               type="button"
@@ -683,19 +668,27 @@ function EventContent({ eventId }: { eventId: string }) {
               disabled={
                 savingTicket ||
                 (!ticketForm.typeId && typeName.trim().length < 2) ||
-                !lotName ||
-                !lotPrice ||
-                !lotCapacity ||
+                faltaPreencher(novoLote) ||
                 // só balcão exige preço (2026-10-12): o servidor recusa R$ 0 nesse lote
-                (lotPdvOnly && parsePriceCents(lotPrice) === 0)
+                balcaoGratis(novoLote) ||
+                problemaNovoLote !== null
               }
             >
-              {savingTicket ? "Criando…" : ticketForm.typeId ? "Criar lote" : "Criar ingresso e começar a vender"}
+              {savingTicket
+                ? "Criando…"
+                : erroNovoLote
+                  ? "Tentar novamente"
+                  : ticketForm.typeId
+                    ? "Criar lote"
+                    : "Criar ingresso e começar a vender"}
             </button>
             <button
               type="button"
               className="btn-secondary px-4"
-              onClick={() => setTicketForm(null)}
+              onClick={() => {
+                setTicketForm(null);
+                setErroNovoLote(null);
+              }}
               disabled={savingTicket}
             >
               Cancelar
@@ -724,6 +717,8 @@ function EventContent({ eventId }: { eventId: string }) {
               </p>
             );
           }
+          // detalhe de cada lote (link, virada, datas): só chega para quem edita lote
+          const detalhes = new Map((lotes?.lots ?? []).map((l) => [l.id, l]));
           return [...groups.entries()].map(([typeId, group]) => (
             <div key={typeId} className="rounded-2xl border border-line bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -743,55 +738,16 @@ function EventContent({ eventId }: { eventId: string }) {
               ) : (
                 <div className="mt-3 space-y-2">
                   {group.lots.map((lot) => (
-                    <div key={lot.id} className="rounded-xl border border-line-divider bg-bg/50 px-3.5 py-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                        <div className="min-w-0">
-                          <p className="font-bold">{lot.name}</p>
-                          <p className="text-sm text-muted">
-                            {formatCents(lot.priceCents)} + taxa {formatCents(lot.feeCents)} · {lot.sold}/{lot.capacity} vendidos
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-muted">{lot.status}</span>
-                          {lot.status !== "CLOSED" ? (
-                            <button
-                              type="button"
-                              className="h-8 rounded-lg border border-line px-3 text-[12px] font-bold text-muted hover:text-ink"
-                              onClick={async () => {
-                                if (!token) return;
-                                if (!window.confirm(`Encerrar as vendas de "${lot.name}"? O lote some do site e não pode ser reativado.`)) return;
-                                try {
-                                  await catalogApi.closeLot(token, lot.id);
-                                  await load();
-                                } catch (err) {
-                                  setError(catalogError(err, "Não foi possível encerrar o lote"));
-                                }
-                              }}
-                            >
-                              Encerrar
-                            </button>
-                          ) : null}
-                          {lot.sold === 0 ? (
-                            <button
-                              type="button"
-                              className="h-8 rounded-lg border border-danger/40 px-3 text-[12px] font-bold text-danger hover:bg-danger/5"
-                              onClick={async () => {
-                                if (!token) return;
-                                if (!window.confirm(`Apagar o lote "${lot.name}"? Isso não pode ser desfeito.`)) return;
-                                try {
-                                  await catalogApi.deleteLot(token, lot.id);
-                                  await load();
-                                } catch (err) {
-                                  setError(catalogError(err, "Não foi possível apagar o lote"));
-                                }
-                              }}
-                            >
-                              Apagar
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
+                    <CartaoDoLote
+                      key={lot.id}
+                      lote={lot}
+                      detalhe={detalhes.get(lot.id)}
+                      lotesDoIngresso={(lotes?.lots ?? []).filter((l) => l.ticketTypeId === typeId)}
+                      eventId={eventId}
+                      linkDoEvento={publicUrl}
+                      minimoCobrancaCents={lotes?.minimoCobrancaCents ?? 500}
+                      onMudou={aposMudarLote}
+                    />
                   ))}
                 </div>
               )}

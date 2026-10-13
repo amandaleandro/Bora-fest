@@ -1,5 +1,6 @@
-import { prisma } from "@borafest/database";
-import { getEmailSender } from "@borafest/notifications";
+import { ehEmailAnonimo, prisma } from "@borafest/database";
+import { escapeHtml, getEmailSender } from "@borafest/notifications";
+import { semEmailReal } from "@borafest/contracts";
 import { withContext } from "@borafest/observability";
 
 const log = withContext({ module: "abandoned-cart" });
@@ -94,14 +95,25 @@ async function remindOrder(order: {
   contactName: string | null;
   event: { title: string };
 }): Promise<void> {
+  // conta excluída (LGPD, 2026-10-12): o pedido ficou com o e-mail anônimo
+  // (.invalid, ninguém recebe) — não manda; marca como tratado para não
+  // reavaliar a cada varredura. Idem e-mail sintético (Pix da porta, lista,
+  // 2026-10-13): não tem caixa, o envio seria bounce garantido
+  if (ehEmailAnonimo(order.contactEmail) || semEmailReal(order.contactEmail)) {
+    await prisma.order.update({ where: { id: order.id }, data: { abandonedReminderSentAt: new Date() } });
+    log.info({ orderId: order.id }, "lembrete pulado: o pedido não tem e-mail de verdade");
+    return;
+  }
+
   const webBaseUrl = process.env.CHECKOUT_BASE_URL ?? process.env.WEB_BASE_URL ?? (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
   const link = `${webBaseUrl}/pedido/${order.publicToken}`;
   const saudacao = order.contactName ? `Oi, ${order.contactName}!` : "Oi!";
 
+  // título e nome são texto do produtor/comprador: escapados no HTML (2026-10-13)
   await getEmailSender().send({
     to: order.contactEmail,
     subject: `Seu Pix pra ${order.event.title} expira em breve`,
-    html: `<p>${saudacao}</p><p>Você começou a comprar ingresso pra <strong>${order.event.title}</strong> e o Pix ainda está valendo — mas expira em breve.</p><p><a href="${link}">Concluir o pagamento</a></p><p style="color:#666;font-size:12px">Se você já pagou, pode ignorar este e-mail.</p>`,
+    html: `<p>${escapeHtml(saudacao)}</p><p>Você começou a comprar ingresso pra <strong>${escapeHtml(order.event.title)}</strong> e o Pix ainda está valendo — mas expira em breve.</p><p><a href="${escapeHtml(link)}">Concluir o pagamento</a></p><p style="color:#666;font-size:12px">Se você já pagou, pode ignorar este e-mail.</p>`,
     text: `${saudacao} Você começou a comprar ingresso pra ${order.event.title} e o Pix ainda está valendo, mas expira em breve. Conclua em: ${link}`,
   });
 
@@ -123,7 +135,8 @@ async function remindOrder(order: {
  *  - só eventos publicados e que ainda não começaram;
  *  - nunca para quem JÁ COMPROU o mesmo evento em outro pedido (marcamos
  *    rescueReminderSentAt mesmo assim, pra não reavaliar a cada varredura);
- *  - nunca para pedido com lote de convidado por link (mesma marcação);
+ *  - nunca para pedido com lote restrito — link de convidado ou convite por
+ *    e-mail (mesma marcação);
  *  - o link leva a etiqueta (?vd=/?pr=/?p=) que o pedido gravou;
  *  - teto de idade (RESCUE_MAX_AGE_MS) segura o backlog no primeiro deploy;
  *  - um e-mail por pedido, via rescueReminderSentAt.
@@ -174,15 +187,26 @@ async function resgatarPedido(
     items: Array<{ ticketLot: { inviteMode: string } }>;
   },
 ): Promise<void> {
-  // LOTE DE CONVIDADO (inviteMode LINK, 2026-10-11): a página só mostra esse
-  // lote com o código do convite. Mandar o código ATUAL furaria a troca de
-  // link (se o produtor trocou porque vazou, quem tinha o velho receberia o
-  // novo); mandar sem código leva o convidado a uma página sem o ingresso
-  // dele, com o e-mail prometendo "continuam à venda". Não manda: marca como
-  // tratado (não reavalia a cada varredura) e registra.
-  if (order.items.some((item) => item.ticketLot.inviteMode === "LINK")) {
+  // LOTE RESTRITO (inviteMode LINK 2026-10-11; EMAIL 2026-10-12): a página só
+  // mostra esse lote com o código do convite. Mandar o código ATUAL furaria a
+  // troca de link (se o produtor trocou porque vazou, quem tinha o velho
+  // receberia o novo); mandar sem código leva o convidado a uma página sem o
+  // ingresso dele, com o e-mail prometendo "continuam à venda". No convite por
+  // e-mail o link pessoal da pessoa continua valendo (o pedido expirado devolve
+  // o convite) — o "Ainda dá tempo" sem ele só confundiria. Qualquer modo que
+  // não seja o aberto (NONE) fica de fora, inclusive um que venha a existir:
+  // não manda, marca como tratado (não reavalia a cada varredura) e registra.
+  if (order.items.some((item) => item.ticketLot.inviteMode !== "NONE")) {
     await prisma.order.update({ where: { id: order.id }, data: { rescueReminderSentAt: new Date() } });
-    log.info({ orderId: order.id }, "resgate pulado: pedido tem lote de convidado (link restrito)");
+    log.info({ orderId: order.id }, "resgate pulado: pedido tem lote restrito (link ou convite por e-mail)");
+    return;
+  }
+
+  // conta excluída (LGPD, 2026-10-12) ou e-mail sintético (porta, lista,
+  // 2026-10-13): ninguém recebe
+  if (ehEmailAnonimo(order.contactEmail) || semEmailReal(order.contactEmail)) {
+    await prisma.order.update({ where: { id: order.id }, data: { rescueReminderSentAt: new Date() } });
+    log.info({ orderId: order.id }, "resgate pulado: o pedido não tem e-mail de verdade");
     return;
   }
 
@@ -208,7 +232,7 @@ async function resgatarPedido(
   await getEmailSender().send({
     to: order.contactEmail,
     subject: `Ainda dá tempo: ingressos pra ${order.event.title}`,
-    html: `<p>${saudacao}</p><p>Seu pedido pra <strong>${order.event.title}</strong> expirou, mas os ingressos continuam à venda.</p><p><a href="${link}">Garantir meu ingresso</a></p><p style="color:#666;font-size:12px">Se você já garantiu o seu, pode ignorar este e-mail.</p>`,
+    html: `<p>${escapeHtml(saudacao)}</p><p>Seu pedido pra <strong>${escapeHtml(order.event.title)}</strong> expirou, mas os ingressos continuam à venda.</p><p><a href="${escapeHtml(link)}">Garantir meu ingresso</a></p><p style="color:#666;font-size:12px">Se você já garantiu o seu, pode ignorar este e-mail.</p>`,
     text: `${saudacao} Seu pedido pra ${order.event.title} expirou, mas os ingressos continuam à venda: ${link}`,
   });
 

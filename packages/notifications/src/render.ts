@@ -170,7 +170,7 @@ export function renderPasswordResetEmail(to: string, payload: PasswordResetPaylo
   return { to, subject: "Redefinição de senha — BoraFest", html, text };
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -344,4 +344,95 @@ export function renderFreeEventCanceledEmail(
 </div>`.trim();
 
   return { to, subject: `O evento ${payload.eventTitle} foi cancelado`, html, text };
+}
+
+/*
+ * PEDIDO DE REEMBOLSO RECUSADO (2026-10-13). Antes a recusa só aparecia se o
+ * comprador voltasse em "Minhas compras". O motivo é o que a casa (ou a
+ * BoraFest) escreveu na recusa — as duas telas já avisam que o comprador vê.
+ */
+
+export interface RefundRequestRejectedPayload {
+  contactName?: string | null;
+  eventTitle: string;
+  /** quem recusou: nome público da casa, ou "BoraFest" no repasse padrão */
+  recusadoPor: string;
+  /** nome público da casa (displayName ?? name) — com quem falar */
+  casa: string;
+  motivo: string;
+}
+
+/** "Seu pedido de reembolso foi recusado" — com o motivo e com quem falar. */
+export function renderRefundRequestRejectedEmail(
+  to: string,
+  payload: RefundRequestRejectedPayload,
+): EmailMessage {
+  const saudacao = payload.contactName ? `Olá, ${payload.contactName}!` : "Olá!";
+  const recusa = `O pedido de reembolso do seu ingresso para ${payload.eventTitle} foi recusado por ${payload.recusadoPor}.`;
+  const motivo = `Motivo: ${payload.motivo.trim()}`;
+  const ingresso = "Seu ingresso continua valendo normalmente.";
+  const fecho = `Se tiver dúvida, fale com ${payload.casa}.`;
+
+  const text = [saudacao, "", recusa, motivo, "", ingresso, fecho, "", "Equipe BoraFest"].join("\n");
+  const html = `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p>${escapeHtml(saudacao)}</p>
+  <p>${escapeHtml(recusa)}</p>
+  <p>${escapeHtml(motivo)}</p>
+  <p>${escapeHtml(ingresso)}</p>
+  <p style="color:#666;font-size:13px">${escapeHtml(fecho)}</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim();
+
+  return { to, subject: `Pedido de reembolso recusado — ${payload.eventTitle}`, html, text };
+}
+
+/*
+ * CONVITE POR E-MAIL (2026-10-12): 3ª forma do ingresso restrito. O texto é o
+ * do protótipo aprovado pelo Arthur. O link é pessoal (?convite=<código do
+ * convite>) e só abre o ingresso para quem usar este mesmo e-mail.
+ */
+
+export interface LotEmailInvitePayload {
+  /** nome público da casa (displayName ?? name) */
+  casa: string;
+  eventTitle: string;
+  /** "sexta, 17/10, 23h" no fuso do evento; null quando não deu para formatar */
+  eventStartsAt?: string | null;
+  /** link pessoal: https://borafest.com.br/<slug>?convite=<código> */
+  conviteUrl: string;
+}
+
+/** "Você foi convidado — <evento> ✨" */
+export function renderLotEmailInviteEmail(to: string, payload: LotEmailInvitePayload): EmailMessage {
+  const quando = payload.eventStartsAt ? `, ${payload.eventStartsAt}` : "";
+  const convidou = `${payload.casa} te convidou para ${payload.eventTitle}${quando}.`;
+  const pessoal = 'O convite é pessoal: toque em "Pegar meu ingresso" e confirme seus dados.';
+  const semBotao = "Se o botão não abrir, copie este link no navegador:";
+
+  const text = [
+    "Olá!",
+    "",
+    convidou,
+    "",
+    pessoal,
+    "",
+    `Pegar meu ingresso: ${payload.conviteUrl}`,
+    "",
+    "Equipe BoraFest",
+  ].join("\n");
+
+  const html = `
+<div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+  <p><strong>Olá!</strong></p>
+  <p>${escapeHtml(payload.casa)} te convidou para <strong>${escapeHtml(payload.eventTitle)}</strong>${escapeHtml(quando)}.</p>
+  <p>${escapeHtml(pessoal)}</p>
+  <p style="text-align:center;margin:28px 0">
+    <a href="${escapeHtml(payload.conviteUrl)}" style="background:#D9128F;color:#fff;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">Pegar meu ingresso</a>
+  </p>
+  <p style="color:#666;font-size:13px">${escapeHtml(semBotao)}<br/>${escapeHtml(payload.conviteUrl)}</p>
+  <p>Equipe BoraFest</p>
+</div>`.trim();
+
+  return { to, subject: `Você foi convidado — ${payload.eventTitle} ✨`, html, text };
 }

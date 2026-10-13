@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -54,24 +55,29 @@ export class EventsController {
     return this.eventsService.update(id, userId, body as any);
   }
 
-  /** N3: cria uma nova edição em rascunho a partir da configuração atual. */
+  /**
+   * N3: cria uma nova edição em rascunho a partir da configuração atual.
+   * Idempotency-Key (2026-10-12): clique duplo devolve a mesma edição.
+   */
   @Post("v1/events/:id/duplicate")
   duplicate(
     @Param("id") id: string,
     @CurrentUserId() userId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Body(ZodBody(duplicateEventSchema)) body: unknown,
   ) {
-    return this.recurrenceService.duplicate(id, userId, body as any);
+    return this.recurrenceService.duplicate(id, userId, body as any, idempotencyKey);
   }
 
-  /** N3: atalho para casas recorrentes (por padrão, próxima semana). */
+  /** N3: atalho para casas recorrentes (por padrão, próxima semana). Idem Idempotency-Key. */
   @Post("v1/events/:id/next-edition")
   nextEdition(
     @Param("id") id: string,
     @CurrentUserId() userId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Body(ZodBody(nextEventEditionSchema)) body: unknown,
   ) {
-    return this.recurrenceService.nextEdition(id, userId, body as any);
+    return this.recurrenceService.nextEdition(id, userId, body as any, idempotencyKey);
   }
 
   @Post("v1/events/:id/banner")

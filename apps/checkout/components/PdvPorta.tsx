@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 import { api, ApiError, type AvailabilityItem, type OrderTicket, type PdvSaleResult } from "../lib/api";
 import { ehCpfValido } from "../lib/cpf";
+import { motivoLegivel } from "../lib/pdv-motivo";
 import { portariaApi } from "../lib/portaria/api";
 import type { Session } from "../lib/portaria/types";
 
@@ -69,20 +70,8 @@ interface Resultado {
   aviso?: string;
 }
 
-/**
- * O servidor recusa a entrada com um enum. Na porta o operador precisa da AÇÃO,
- * não do código — "OTHER_EVENT" não diz a ele que o portão preso no aparelho é
- * de outro evento, que é a causa mais comum e a mais silenciosa.
- */
-function motivoLegivel(result: string, reason?: string): string {
-  if (reason === "OTHER_EVENT") return "O portão selecionado é de outro evento — troque o portão";
-  if (reason === "NOT_FOUND") return "O servidor não achou este ingresso";
-  if (reason === "BAD_SIGNATURE" || reason === "MALFORMED") return "QR não reconhecido pelo servidor";
-  if (reason === "EVENT_WITHOUT_KEY") return "Evento sem chave de validação — chame o produtor";
-  if (result === "CANCELED") return "Ingresso cancelado";
-  if (result === "UNVERIFIED") return "Não deu para verificar a entrada";
-  return "O servidor recusou a entrada";
-}
+// motivoLegivel (enum da recusa → o que o operador faz) mora em lib/pdv-motivo.ts
+// desde 2026-10-12, com teste; inclui o QR antigo de ingresso transferido.
 
 function reais(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -135,6 +124,11 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   const [pedido, setPedido] = useState<PdvSaleResult | null>(null);
   const [pixCode, setPixCode] = useState<string | null>(null);
   const [pixExpirado, setPixExpirado] = useState(false);
+  // O BANCO PAGOU UM VALOR DIFERENTE DO COBRADO (2026-10-12): nada foi
+  // confirmado e o pedido expira sozinho — a tela ficava em "Aguardando" e
+  // depois dizia "Pix expirou · nenhum valor foi cobrado", o que é falso para
+  // quem pagou. O sinal vem do syncPayment (só sim/não), como no checkout.
+  const [valorDiferente, setValorDiferente] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [mostrarRetirada, setMostrarRetirada] = useState(false);
@@ -505,6 +499,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     setOcupado("gerando-pix");
     setErro(null);
     setPixExpirado(false);
+    setValorDiferente(false);
     try {
       // um Pix pendente de um pedido ANTERIOR (o operador mudou algo) precisa
       // estar resolvido antes de gerar outro (2026-10-12)
@@ -571,8 +566,19 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     const pessoas = qtd;
     const total = totalCents;
     const orderId = pedido.orderId;
+    // checagem no gateway que também traz o "pagou valor diferente" (só sim/não).
+    // `vivo`: resposta que chega depois de trocar de venda não marca a venda nova
+    let vivo = true;
+    const sincronizar = () =>
+      api
+        .syncPayment(orderId)
+        .then((sync) => {
+          if (sync?.valorDiferente && vivo) setValorDiferente(true);
+          return sync;
+        })
+        .catch(() => undefined);
     const onVisible = () => {
-      if (document.visibilityState === "visible") api.syncPayment(orderId).catch(() => undefined);
+      if (document.visibilityState === "visible") void sincronizar();
     };
     document.addEventListener("visibilitychange", onVisible);
     let tick = 0;
@@ -580,15 +586,20 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       if (document.visibilityState === "hidden") return; // sem gastar rede escondido
       try {
         tick += 1;
-        if (tick % 6 === 0) await api.syncPayment(orderId).catch(() => undefined);
+        if (tick % 6 === 0) await sincronizar();
         let st = await api.getOrderStatus(pedido.publicToken);
         if (["CANCELED", "EXPIRED", "REFUNDED"].includes(st.status)) {
           // ANTES de decretar "expirou · nada foi cobrado", olhar o gateway UMA
           // vez: um Pix que caiu tarde no banco não pode virar cliente barrado
-          // com o dinheiro debitado. Só é terminal se continuar terminal.
-          await api.syncPayment(orderId).catch(() => undefined);
+          // com o dinheiro debitado. Só é terminal se continuar terminal. A
+          // mesma olhada diz se o banco pagou um valor diferente (aí não é
+          // "nada foi cobrado" — a tela mostra o aviso, não o "Pix expirou").
+          await sincronizar();
           st = await api.getOrderStatus(pedido.publicToken);
         }
+        // o /status também traz o "pagou valor diferente" (2026-10-12): o aviso
+        // aparece no tick de 2,5 s, sem esperar a conferência de ~15 s
+        if (st.valorDiferente === true && vivo) setValorDiferente(true);
         if (["PAID", "FULFILLED"].includes(st.status)) {
           clearInterval(id);
           await liberar(orderId, pedido.publicToken, "pix", pessoas, total);
@@ -601,6 +612,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
       }
     }, 2500);
     return () => {
+      vivo = false;
       paradoRef.current = true;
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
@@ -612,14 +624,22 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   async function conferirPixAgora() {
     if (!pedido || ocupado) return;
     setOcupado("liberando");
+    setErro(null);
     try {
-      await api.syncPayment(pedido.orderId).catch(() => undefined);
+      const sync = await api.syncPayment(pedido.orderId).catch(() => undefined);
       const st = await api.getOrderStatus(pedido.publicToken);
       if (["PAID", "FULFILLED"].includes(st.status)) {
         await liberar(pedido.orderId, pedido.publicToken, "pix", qtd, totalCents);
         return;
       }
       setOcupado(null);
+      // pagou um valor diferente: não é "não caiu" nem "não foi pago" (o sinal
+      // vem do sync e, desde 2026-10-12, também do /status — vale se o sync falhar)
+      if (sync?.valorDiferente || st.valorDiferente === true) {
+        setErro(null);
+        setValorDiferente(true);
+        return;
+      }
       setErro(["CANCELED", "EXPIRED", "REFUNDED"].includes(st.status)
         ? "O gateway confirma: este Pix não foi pago."
         : "Ainda não caiu. Peça para conferir no app do banco.");
@@ -635,7 +655,9 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
    * o servidor disser que já pagou, NÃO voltamos — seguimos para liberar.
    */
   async function cancelarPix() {
-    if (pixExpirado || !pedido || !accountToken) {
+    // valor diferente: o pedido não é cancelado daqui — ele expira sozinho e a
+    // equipe BoraFest acerta o que entrou (mesmo do checkout, que não cancela)
+    if (pixExpirado || valorDiferente || !pedido || !accountToken) {
       proximaVenda();
       return;
     }
@@ -671,6 +693,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     setPedido(null);
     setPixCode(null);
     setPixExpirado(false);
+    setValorDiferente(false);
     setCopiado(false);
     setFase("venda");
     const b = bloqueio("pix");
@@ -689,6 +712,7 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
     setPedido(null);
     setPixCode(null);
     setPixExpirado(false);
+    setValorDiferente(false);
     setResultado(null);
     setErro(null);
     setCopiado(false);
@@ -839,7 +863,25 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
   if (fase === "pix") {
     return (
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto px-6 pb-4 pt-4 text-center">
-        {pixExpirado ? (
+        {valorDiferente ? (
+          // PAGOU UM VALOR DIFERENTE (2026-10-12): o mesmo aviso do checkout.
+          // Sai o QR e o "conferir": nada foi confirmado, e cobrar de novo só
+          // criaria um segundo problema. Vem antes do "Pix expirou" — o pedido
+          // expira sozinho, mas aqui houve dinheiro.
+          <>
+            <div className="mx-auto mt-4 flex h-[72px] w-[72px] items-center justify-center rounded-full bg-warning">
+              <svg width="38" height="38" viewBox="0 0 24 24" fill="none">
+                <path d="M12 7v7" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+                <circle cx="12" cy="18" r="1.7" fill="#fff" />
+              </svg>
+            </div>
+            <p className="mt-4 text-[20px] font-extrabold leading-tight">Recebemos um valor diferente do cobrado</p>
+            <p className="mx-auto mt-2 max-w-[300px] text-[13px] font-medium leading-relaxed text-white/60">
+              Nada foi confirmado e a entrada não foi liberada. Não peça outro pagamento por este Pix — a equipe
+              BoraFest vai acertar a diferença ou devolver o valor a quem pagou.
+            </p>
+          </>
+        ) : pixExpirado ? (
           <>
             <p className="mt-6 text-[20px] font-extrabold">Pix expirou</p>
             <p className="mt-1 text-[13px] font-medium text-white/55">
@@ -889,12 +931,23 @@ export default function PdvPorta({ eventId, accountToken, session, gateId, gateN
             </button>
           </>
         )}
+        {/* o resultado do "conferir agora" e do "Cancelar" (2026-10-12): o erro só
+            aparecia na tela de venda, e aqui o toque parecia não fazer nada */}
+        {erro && !valorDiferente && (
+          <p className="mx-auto mt-3 max-w-[320px] rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-[12.5px] font-semibold text-[#fb7185]">
+            {erro}
+          </p>
+        )}
         <button
           onClick={() => void cancelarPix()}
           disabled={ocupado === "registrando"}
           className="mt-auto h-12 w-full flex-none rounded-2xl border-[1.5px] border-white/15 text-[14px] font-bold text-white/70 disabled:opacity-50"
         >
-          {pixExpirado ? "Voltar · nova venda" : ocupado === "registrando" ? "Cancelando..." : "Cancelar · nada foi cobrado"}
+          {pixExpirado || valorDiferente
+            ? "Voltar · nova venda"
+            : ocupado === "registrando"
+              ? "Cancelando..."
+              : "Cancelar · nada foi cobrado"}
         </button>
       </div>
     );

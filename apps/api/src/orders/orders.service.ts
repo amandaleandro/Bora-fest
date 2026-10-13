@@ -9,6 +9,7 @@ import {
   reserveInventory,
   returnSaleInventory,
   InsufficientStockError,
+  ehEmailAnonimo,
   prisma,
   Prisma,
 } from "@borafest/database";
@@ -23,6 +24,8 @@ import { IdempotencyService } from "../common/idempotency.service";
 import { semEmailReal } from "@borafest/contracts";
 import { loteNaJanela, motivoForaDaJanela } from "../common/janela-do-lote";
 import { abaixoDoMinimoOnline, emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
+import { convitesParaOPedido, marcarConvitesComoUsados } from "../convites-email/convite-regras";
+import { pagouValorDiferente } from "../payments/valor-diferente";
 
 /**
  * Janela para pagar depois de criar o pedido. O estoque permanece em
@@ -107,7 +110,21 @@ export class OrdersService {
     private readonly idempotency: IdempotencyService = new IdempotencyService(),
   ) {}
 
-  async createFromReservation(userId: string | undefined, input: CreateOrderInput) {
+  /**
+   * `origem`: IP e navegador de quem clicou em "aceito os termos" (LGPD,
+   * 2026-10-12) — o controller passa; testes e labs podem omitir.
+   */
+  async createFromReservation(
+    userId: string | undefined,
+    input: CreateOrderInput,
+    origem: { ip?: string; userAgent?: string } = {},
+  ) {
+    // e-mail de conta apagada ou sintético (porta, lista) não tem caixa: o
+    // ingresso nunca chegaria e o pedido se misturaria aos da porta (2026-10-13)
+    if (input.contactEmail && (ehEmailAnonimo(input.contactEmail) || semEmailReal(input.contactEmail))) {
+      throw new BadRequestException("Use um e-mail válido");
+    }
+
     const reservation = await prisma.reservation.findUnique({
       where: { id: input.reservationId },
       include: { items: true },
@@ -340,6 +357,10 @@ export class OrdersService {
     const lotesComLimite = [...qtdPorLote.keys()]
       .filter((ticketLotId) => lotById.get(ticketLotId)?.limitPerCpf)
       .sort();
+    // CONVITE POR E-MAIL (2026-10-12): lote EMAIL só sai para o e-mail que
+    // recebeu o convite (a reserva já exigiu o link). Recusa aqui, antes de
+    // criar conta; o convite vira "usado" dentro da transação, lá embaixo.
+    const convitesDoPedido = await convitesParaOPedido([...qtdPorLote.keys()], input.contactEmail, userId);
     let effectiveUserId = userId;
     let accountCreatedByOrder = false;
     if (!effectiveUserId && input.contactEmail) {
@@ -469,6 +490,10 @@ export class OrdersService {
         include: { items: true },
       });
 
+      // convite por e-mail: vira "usado" junto com o pedido. Dois pedidos com o
+      // mesmo convite: só um troca; o outro é recusado e nada dele fica gravado
+      await marcarConvitesComoUsados(tx, convitesDoPedido, created.id);
+
       if (addOnSelections.length > 0) {
         await tx.orderAddOnItem.createMany({
           data: addOnSelections.map((sel) => ({
@@ -492,11 +517,14 @@ export class OrdersService {
       }
 
       if (input.consent) {
-        // LGPD: aceite versionado e provável em auditoria
+        // LGPD: aceite versionado e provável em auditoria — com IP e navegador
+        // de quem clicou (as colunas existiam e nunca eram gravadas)
+        const ip = origem.ip ?? null;
+        const userAgent = origem.userAgent ?? null;
         await tx.consent.createMany({
           data: [
-            { orderId: created.id, userId: effectiveUserId ?? null, document: "terms", version: input.consent.version },
-            { orderId: created.id, userId: effectiveUserId ?? null, document: "privacy", version: input.consent.version },
+            { orderId: created.id, userId: effectiveUserId ?? null, document: "terms", version: input.consent.version, ip, userAgent },
+            { orderId: created.id, userId: effectiveUserId ?? null, document: "privacy", version: input.consent.version, ip, userAgent },
           ],
         });
       }
@@ -577,6 +605,9 @@ export class OrdersService {
             failReason: true,
             expiresAt: true,
             paidAt: true,
+            // só para o sinal valorDiferente abaixo — NUNCA sai na resposta
+            // (pode ter dado do pagador); é tirado de cada pagamento no return
+            metadata: true,
           },
         },
         tickets: { select: { id: true, code: true, status: true } },
@@ -588,6 +619,14 @@ export class OrdersService {
     // portão do 1º ingresso: sem verificar, o /status não entrega nem os ids
     // dos ingressos (eram a porta de entrada para o PNG do QR)
     const locked = Boolean(order.user && !order.user.emailVerifiedAt);
+    // PAGOU VALOR DIFERENTE DO COBRADO (2026-10-12): o mesmo sim/não do sync do
+    // pagamento (payments/valor-diferente.ts), agora também no /status que a
+    // página do pedido consulta a cada 3 s — a troca de "Aguardando pagamento"
+    // por "Pagamento não confirmado" aparece na hora, sem esperar a conferência
+    // de ~30 s. Lido do banco na mesma consulta: se a consulta falha, a rota
+    // inteira falha (nunca um "não" inventado).
+    const valorDiferente = pagouValorDiferente(order);
+    const payments = order.payments.map(({ metadata: _metadata, ...pagamento }) => pagamento);
     // proteção de reembolso: pode pedir enquanto pago e ANTES do evento começar
     const podePedirProtegido =
       order.protectionPurchased &&
@@ -599,6 +638,8 @@ export class OrdersService {
     const { user: _user, event: _event, contactCpf: _cpf, ...rest } = order;
     return {
       ...rest,
+      payments,
+      valorDiferente,
       tickets: locked ? [] : order.tickets,
       requiresVerification: locked,
       protection: {
@@ -1197,7 +1238,9 @@ export class OrdersService {
    */
   async correctEmail(publicToken: string, newEmail: string) {
     const email = newEmail.trim().toLowerCase();
-    if (!email.includes("@")) throw new BadRequestException("E-mail inválido");
+    if (!email.includes("@") || ehEmailAnonimo(email) || semEmailReal(email)) {
+      throw new BadRequestException("E-mail inválido");
+    }
 
     const order = await prisma.order.findUnique({
       where: { publicToken },

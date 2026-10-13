@@ -67,7 +67,10 @@ export interface CheckinResponse {
     attendeeName: string | null;
     lotName: string;
     typeName: string;
-        tipo?: "CONVIDADO" | "CORTESIA" | null;
+    tipo?: "CONVIDADO" | "CORTESIA" | null;
+    /** etiquetas da porta (2026-10-12); ausentes num servidor antigo = sem etiqueta */
+    meia?: boolean;
+    gratuito?: boolean;
   };
   checkinId?: string;
   firstCheckin?: { at: string | null; deviceName?: string; gateName?: string | null };

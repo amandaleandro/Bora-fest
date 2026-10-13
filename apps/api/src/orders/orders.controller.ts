@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Ip, Param, Post, UseGuards } from "@nestjs/common";
 import { cancelFreeOrderSchema, createOrderSchema, pdvOrderSchema, refundOrderSchema } from "@borafest/contracts";
 import type { CancelFreeOrderInput } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
@@ -8,6 +8,20 @@ import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
 import { OrdersService } from "./orders.service";
 import { CancelamentoGratisService } from "./cancelamento-gratis.service";
+
+/**
+ * Origem do aceite dos termos (LGPD, 2026-10-12): IP e navegador de quem criou
+ * o pedido. Tamanho limitado — o user-agent é texto que o cliente manda — e
+ * vazio vira "não informado" em vez de string vazia.
+ */
+export function origemDoAceite(
+  ip: string | undefined,
+  userAgent: string | undefined,
+): { ip?: string; userAgent?: string } {
+  const ipLimpo = typeof ip === "string" ? ip.trim().slice(0, 64) : "";
+  const navegador = typeof userAgent === "string" ? userAgent.trim().slice(0, 512) : "";
+  return { ip: ipLimpo || undefined, userAgent: navegador || undefined };
+}
 
 @Controller("v1/orders")
 export class OrdersController {
@@ -33,12 +47,19 @@ export class OrdersController {
     return this.ordersService.claimOrder(publicToken, userId);
   }
 
+  /**
+   * IP e navegador vão junto para o aceite dos termos (LGPD). O IP é o
+   * `request.ip` — o MESMO que o rate limit usa: o Fastify só aceita o
+   * X-Forwarded-For do proxy confiável (TRUST_PROXY), nunca o do cliente.
+   */
   @Post()
   create(
     @OptionalUserId() userId: string | undefined,
     @Body(ZodBody(createOrderSchema)) body: unknown,
+    @Ip() ip: string | undefined,
+    @Headers("user-agent") userAgent: string | undefined,
   ) {
-    return this.ordersService.createFromReservation(userId, body as any);
+    return this.ordersService.createFromReservation(userId, body as any, origemDoAceite(ip, userAgent));
   }
 
   @RateLimit({ limit: 60, windowSeconds: 60, keyPrefix: "order-status", by: "params:publicToken" })

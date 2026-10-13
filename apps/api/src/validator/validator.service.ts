@@ -23,6 +23,23 @@ import type {
 import { PERMISSIONS, roleHasPermission } from "@borafest/auth";
 import { listaDoPedido, origemGratis } from "../common/origem-gratis";
 import { OrgAccessService } from "../common/org-access.service";
+import { ehGratuito, ehMeia } from "../checkins/etiquetas-porta";
+import { qrAtualDoIngresso } from "../checkins/qr-atual";
+
+/**
+ * FORMATO dos campos por ingresso no manifesto (2026-10-12). Vai junto da
+ * resposta para a portaria saber que ESTE servidor já manda `meia` e
+ * `gratuito`. O aparelho só marca o manifesto guardado como formato novo
+ * quando o servidor confirma — se o site for ao ar antes da API, o aparelho
+ * não grava um manifesto "novo" sem as etiquetas (o delta nunca as traria
+ * depois: ingresso que não muda não volta no delta).
+ *   2 → `lista` (2026-09-15)
+ *   3 → `meia` e `gratuito` (2026-10-12)
+ *   4 → `qrAtual` (2026-10-12): nonce + emissão do QR que vale — a porta
+ *       offline recusa o QR de antes da transferência (checkins/qr-atual.ts)
+ * Subir junto com o MANIFEST_SCHEMA de apps/checkout/lib/portaria/sync.ts.
+ */
+const MANIFEST_SCHEMA = 4;
 
 /** SHA-256 (hex minúsculo) dos 11 dígitos do CPF — o cru nunca sai do servidor. */
 function hashCpf(cpf: string | null): string | null {
@@ -334,6 +351,12 @@ export class ValidatorService {
         // aparelho: só o hash sai do servidor (minimização LGPD).
         attendeeName: true,
         attendeeCpf: true,
+        // QR ATUAL (2026-10-12): lido só para tirar o nonce e a emissão — o
+        // token em si NUNCA vai para o aparelho (com ele, qualquer aparelho da
+        // portaria mostraria o QR válido de qualquer pessoa)
+        qrToken: true,
+        // etiqueta MEIA-ENTRADA (2026-10-12): a meia é gravada no item do pedido
+        orderItem: { select: { halfPrice: true } },
         // etiqueta de entrada grátis (2026-08-31): CONVIDADO (lista) vs
         // CORTESIA (balcão de promoter) — a portaria mostra no VÁLIDO
         order: {
@@ -359,6 +382,7 @@ export class ValidatorService {
 
     return {
       manifestVersion: generatedAt.toISOString(),
+      manifestSchema: MANIFEST_SCHEMA,
       lots: lots.map((l) => ({ id: l.id, name: l.name, typeName: l.ticketType.name })),
       delta: Boolean(since),
       event,
@@ -366,7 +390,7 @@ export class ValidatorService {
       ticketCount: tickets.length,
       // busca por documento na portaria compara sha256 no aparelho — o CPF cru
       // nunca sai do servidor.
-      tickets: tickets.map(({ attendeeCpf, order, ...ticket }) => {
+      tickets: tickets.map(({ attendeeCpf, order, orderItem, qrToken, ...ticket }) => {
         // ETIQUETA VEM DA FONTE ÚNICA (2026-09-15). Aqui existia uma CÓPIA da
         // derivação de `common/origem-gratis.ts` — e ela já tinha divergido: não
         // olhava `promoterLinkId`, então convidado de promoter saía CONVIDADO
@@ -382,6 +406,15 @@ export class ValidatorService {
           // `null` = tem ingresso em mãos (a posse já prova quem é) e cai na aba
           // "Ingressos". Quem veio de lista só aparece na aba de quem convidou.
           lista: listaDoPedido(order),
+          // ETIQUETAS DA PORTA, OFFLINE (2026-10-12): mesma fonte do check-in
+          // online (checkins/etiquetas-porta.ts) — com ou sem rede, a mesma
+          // pessoa sai com a mesma etiqueta
+          meia: ehMeia(orderItem),
+          gratuito: ehGratuito(order),
+          // SÓ O QR ATUAL VALE, TAMBÉM OFFLINE (2026-10-12): a porta compara o
+          // nonce do QR lido com este antes de aceitar. A transferência grava o
+          // QR novo e mexe no `updatedAt`, então o delta traz o nonce novo
+          qrAtual: qrAtualDoIngresso(qrToken),
         };
       }),
     };

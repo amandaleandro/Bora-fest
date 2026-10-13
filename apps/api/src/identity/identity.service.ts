@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { Prisma, prisma } from "@borafest/database";
 import {
   generateOtpCode,
   hashOtpCode,
@@ -31,6 +31,19 @@ const log = withContext({ module: "identity" });
  * sem isso, o tempo de resposta denunciava se um e-mail tinha conta.
  */
 const IDENTITY_DUMMY_HASH = hashPassword("borafest-timing-equalizer");
+
+/**
+ * Versão vigente dos Termos de Uso e da Política de Privacidade — a que o
+ * cadastro do painel mostra (o link vai para o /legal do site). É a MESMA do
+ * CONSENT_VERSION de apps/checkout/lib/consent.ts: publicar texto novo é trocar
+ * nos dois lugares juntos (o contrato do cadastro não carrega a versão).
+ */
+export const VERSAO_DOS_TERMOS = "v2026-07";
+
+const CONTA_JA_EXISTE = "Já existe uma conta com este e-mail — faça login";
+
+/** IP e navegador de quem aceitou (mesmo formato do aceite do checkout). */
+export type OrigemDoAceite = { ip?: string; userAgent?: string };
 
 @Injectable()
 export class IdentityService {
@@ -185,7 +198,7 @@ export class IdentityService {
 
   // --- auth por senha (painel do produtor) ---------------------------------
 
-  async registerWithPassword(input: RegisterInput) {
+  async registerWithPassword(input: RegisterInput, origem: OrigemDoAceite = {}) {
     const existing = await prisma.user.findFirst({
       where: { email: { equals: input.email, mode: "insensitive" } },
     });
@@ -201,19 +214,46 @@ export class IdentityService {
     if (existing) {
       throw new ConflictException(
         existing.passwordHash
-          ? "Já existe uma conta com este e-mail — faça login"
+          ? CONTA_JA_EXISTE
           : "Já existe uma conta com este e-mail (criada em uma compra). Clique em \"Entrar\" e depois em \"Esqueci minha senha\" para definir a sua.",
       );
     }
 
-    const user = await prisma.user.create({
-      data: {
-        name: input.name,
-        email: input.email,
-        passwordHash: hashPassword(input.password),
-        termsAcceptedAt: new Date(),
-      },
-    });
+    // LGPD (2026-10-12): o aceite do cadastro vira prova, como no checkout —
+    // uma linha por documento (termos e privacidade), com a versão vigente, a
+    // hora, o IP e o navegador de quem clicou. Antes só ficava a data em
+    // users.termsAcceptedAt. Conta e aceite saem juntos, ou nenhum.
+    const aceitoEm = new Date();
+    const ip = origem.ip ?? null;
+    const userAgent = origem.userAgent ?? null;
+    // o hash (scrypt, caro de propósito) sai antes: a transação fica curta
+    const passwordHash = hashPassword(input.password);
+    const user = await prisma
+      .$transaction(async (tx) => {
+        const criado = await tx.user.create({
+          data: {
+            name: input.name,
+            email: input.email,
+            passwordHash,
+            termsAcceptedAt: aceitoEm,
+          },
+        });
+        await tx.consent.createMany({
+          data: [
+            { userId: criado.id, document: "terms", version: VERSAO_DOS_TERMOS, acceptedAt: aceitoEm, ip, userAgent },
+            { userId: criado.id, document: "privacy", version: VERSAO_DOS_TERMOS, acceptedAt: aceitoEm, ip, userAgent },
+          ],
+        });
+        return criado;
+      })
+      .catch((error: unknown) => {
+        // clique duplo no "Criar conta": as duas chamadas passam pela busca acima
+        // e só uma cria — a outra recebe o aviso de conta existente, não um 500
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new ConflictException(CONTA_JA_EXISTE);
+        }
+        throw error;
+      });
 
     await this.activateInvitedMemberships(user.id);
     log.info({ userId: user.id }, "conta de produtor criada (senha)");
@@ -295,6 +335,14 @@ export class IdentityService {
       prisma.passwordResetToken.updateMany({
         where: { userId: record.userId, usedAt: null },
         data: { usedAt: new Date() },
+      }),
+      // o link chegou na caixa do e-mail: isso prova o e-mail (2026-10-13).
+      // Sem isto, quem só pôs senha pelo "esqueci a senha" ficava com a conta
+      // não verificada e a exportação/exclusão deixava de fora os pedidos
+      // feitos sem login com o mesmo e-mail
+      prisma.user.updateMany({
+        where: { id: record.userId, emailVerifiedAt: null },
+        data: { emailVerifiedAt: new Date() },
       }),
     ]);
 

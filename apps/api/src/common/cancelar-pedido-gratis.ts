@@ -231,6 +231,17 @@ export async function cancelarPedidoGratis(
       await tx.couponRedemption.delete({ where: { id: resgate.id } });
     }
 
+    // CONVITE POR E-MAIL (2026-10-12): o pedido inteiro caiu, então o convite
+    // volta a valer — a pessoa pode pegar de novo pelo mesmo link; para tirar
+    // de vez, o produtor revoga na tela de convites. No parcial alguém entrou
+    // com ele: segue usado.
+    const convitesDevolvidos = parcial
+      ? { count: 0 }
+      : await tx.lotEmailInvite.updateMany({
+          where: { orderId: order.id, status: "CLAIMED" },
+          data: { status: "SENT", orderId: null, claimedAt: null },
+        });
+
     const vagasDevolvidas = [...vagasPorLote.values()].reduce((soma, v) => soma + v, 0);
 
     await tx.auditLog.create({
@@ -250,6 +261,7 @@ export async function cancelarPedidoGratis(
           vagasDevolvidas,
           entradasDaListaCanceladas: lista.count,
           cupomDevolvido: Boolean(resgate),
+          convitesDevolvidos: convitesDevolvidos.count,
         },
       },
     });

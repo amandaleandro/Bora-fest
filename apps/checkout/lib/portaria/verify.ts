@@ -63,6 +63,38 @@ export function lotLabel(index: ManifestIndex, ticketLotId: string): string | nu
 }
 
 /**
+ * O QR lido é o ATUAL do ingresso, pelo que o manifesto guardado sabe?
+ * (2026-10-12 — a regra do servidor está em apps/api/src/checkins/qr-atual.ts)
+ *
+ *  - "ATUAL": mesmo nonce do QR que vale.
+ *  - "ANTIGO": nonce diferente e emitido ANTES (ou no mesmo segundo) do QR que
+ *    vale — é o QR de antes da transferência. Recusa.
+ *  - "SEM_COMO_CONFERIR": o manifesto guardado não tem o campo (formato
+ *    anterior ao 4, até o próximo full) ou o servidor mandou `null`; OU o QR
+ *    lido é MAIS NOVO que o conhecido — a lista local está atrasada e quem
+ *    está na frente é, quase sempre, o novo dono com o QR que acabou de
+ *    receber. Recusar seria barrar justamente quem tem direito; segue a regra
+ *    de antes (status do manifesto) até o próximo sync.
+ *
+ * Chame só depois de conferir a assinatura: nonce e emissão vêm do payload
+ * assinado, então ninguém fabrica um QR "mais novo" sem a chave do evento.
+ */
+export type ConferenciaQr = "ATUAL" | "ANTIGO" | "SEM_COMO_CONFERIR";
+
+export function conferirQrAtual(
+  lido: { n?: unknown; iat?: unknown },
+  qrAtual: ManifestTicket["qrAtual"],
+): ConferenciaQr {
+  if (!qrAtual || typeof qrAtual.n !== "string" || !qrAtual.n) return "SEM_COMO_CONFERIR";
+  if (typeof qrAtual.iat !== "number" || !Number.isFinite(qrAtual.iat)) return "SEM_COMO_CONFERIR";
+  if (lido.n === qrAtual.n) return "ATUAL";
+  if (typeof lido.iat === "number" && Number.isFinite(lido.iat) && lido.iat > qrAtual.iat) {
+    return "SEM_COMO_CONFERIR";
+  }
+  return "ANTIGO";
+}
+
+/**
  * Verificação 100% local. Regra inegociável da v2: sem manifesto sincronizado
  * o resultado é UNVERIFIED — jamais VALID.
  */
@@ -92,6 +124,14 @@ export function verifyLocally(
       return { kind: "INVALID", reason: "OTHER_EVENT", offline: true };
     }
     ticket = index.byId.get(payload.tid);
+    // SÓ O QR ATUAL VALE, TAMBÉM SEM REDE (2026-10-12). O QR de antes da
+    // transferência tem assinatura boa: sem esta conferência, o print guardado
+    // por quem passou o ingresso adiante entrava pela fila offline. Vem antes
+    // do status, como no servidor: QR antigo nunca vale. Sem nome nem código no
+    // resultado — o novo dono não aparece na tela de quem mostrou o QR velho.
+    if (ticket && conferirQrAtual(payload, ticket.qrAtual) === "ANTIGO") {
+      return { kind: "INVALID", reason: "OLD_QR", offline: true };
+    }
   } else if (input.ticketId) {
     ticket = index.byId.get(input.ticketId);
   } else if (input.code) {
@@ -107,6 +147,10 @@ export function verifyLocally(
     name: ticket.attendeeName,
     lotLabel: lotLabel(index, ticket.ticketLotId),
     tipo: ticket.tipo ?? null,
+    // etiquetas da porta também offline (2026-10-12). `=== true`: manifesto
+    // guardado antes dos campos existirem não tem a chave e sai sem etiqueta
+    meia: ticket.meia === true,
+    gratuito: ticket.gratuito === true,
   };
 
   if (ticket.status === "CANCELED" || ticket.status === "REFUNDED") {
@@ -169,5 +213,10 @@ export const INVALID_REASON_TEXT: Record<string, { motivo: string; dizer: string
     motivo: "QR ilegível ou fora do padrão BoraFest",
     dizer: '"Este código não é um ingresso"',
     acao: "Pedir o ingresso no app ou no e-mail",
+  },
+  OLD_QR: {
+    motivo: "QR antigo — este ingresso foi transferido",
+    dizer: '"Este QR não vale mais: o ingresso foi passado para outra pessoa"',
+    acao: "Pedir o QR atual, que fica na conta de quem recebeu o ingresso",
   },
 };

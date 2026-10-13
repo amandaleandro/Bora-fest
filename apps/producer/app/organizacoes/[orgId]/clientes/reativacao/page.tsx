@@ -168,6 +168,15 @@ export default function ReactivationCampaignPage({ params }: { params: { orgId: 
               <p className="text-[10.5px] font-extrabold uppercase tracking-[.05em] text-muted-2">Público elegível</p>
               <p className="mt-2 text-[30px] font-black text-ink">{previewLoading ? "…" : (preview?.eligibleCount ?? 0).toLocaleString("pt-BR")}</p>
               <p className="mt-1 text-[11px] font-semibold text-muted">Somente pessoas com consentimento de ofertas.</p>
+              {/* LGPD (2026-10-13): quem saiu fica fora, e todo e-mail leva o link de sair */}
+              {preview?.optedOutCount ? (
+                <p className="mt-1 text-[11px] font-semibold text-muted">
+                  {preview.optedOutCount.toLocaleString("pt-BR")}{" "}
+                  {preview.optedOutCount === 1 ? "pessoa saiu" : "pessoas saíram"} das suas campanhas e não{" "}
+                  {preview.optedOutCount === 1 ? "recebe" : "recebem"}.
+                </p>
+              ) : null}
+              <p className="mt-1 text-[11px] font-semibold text-muted">O e-mail sai com o link &quot;Não quero mais receber&quot; no rodapé.</p>
               {preview?.truncated ? <p className="mt-3 rounded-xl bg-warning/10 p-3 text-[11px] font-bold text-warning">Base grande demais para disparo único. Refine o segmento.</p> : null}
               {preview && preview.eligibleCount > preview.maxSend ? <p className="mt-3 rounded-xl bg-warning/10 p-3 text-[11px] font-bold text-warning">Limite atual: {preview.maxSend.toLocaleString("pt-BR")} destinatários por campanha.</p> : null}
             </div>

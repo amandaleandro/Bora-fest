@@ -1,8 +1,14 @@
 import type { UpdateOrganizationInput } from "@borafest/contracts";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { prisma, Prisma } from "@borafest/database";
+import { prisma, Prisma, type PromoterLink } from "@borafest/database";
 import { PERMISSIONS } from "@borafest/auth";
-import type { CreateOrganizationInput, CreateSalesPartnerInput, InviteMemberInput, InvitePromoterInput } from "@borafest/contracts";
+import type {
+  CreateOrganizationInput,
+  CreateSalesPartnerInput,
+  InviteMemberInput,
+  InvitePromoterInput,
+  UpdatePromoterLinkInput,
+} from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { getEarningsByEventCents, getOrganizationEarnings } from "../common/ledger";
 
@@ -13,6 +19,26 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+/** id em formato de UUID: o resto vira 404 em vez de erro do banco (500) */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** O que a tela precisa saber do vínculo do promoter depois de editar. */
+function vinculoEditado(link: {
+  id: string;
+  status: string;
+  code: string | null;
+  guestQuota: number;
+  eventId: string | null;
+}) {
+  return {
+    id: link.id,
+    status: link.status,
+    code: link.code,
+    guestQuota: link.guestQuota,
+    eventId: link.eventId,
+  };
 }
 
 @Injectable()
@@ -534,14 +560,35 @@ export class OrganizationsService {
       }
     }
     const slug = `${input.email.split("@")[0].replace(/[^a-z0-9]/gi, "").slice(0, 12)}-${Math.random().toString(36).slice(2, 6)}`;
-    const link = existente
-      ? await prisma.promoterLink.update({
-          where: { id: existente.id },
-          data: { ...data, status: "INVITED", invitedBy: actorUserId, invitedAt: new Date(), respondedAt: null },
-        })
-      : await prisma.promoterLink.create({
-          data: { organizationId, promoterUserId: promoter.id, ...data, slug, invitedBy: actorUserId },
-        });
+    let link: PromoterLink;
+    try {
+      link = existente
+        ? await prisma.promoterLink.update({
+            where: { id: existente.id },
+            data: { ...data, status: "INVITED", invitedBy: actorUserId, invitedAt: new Date(), respondedAt: null },
+          })
+        : await prisma.promoterLink.create({
+            data: { organizationId, promoterUserId: promoter.id, ...data, slug, invitedBy: actorUserId },
+          });
+    } catch (error: unknown) {
+      // corrida (2026-10-12): dois cliques em Convidar, ou o mesmo código
+      // gravado por outra casa no mesmo instante — o unique do banco decide e
+      // a resposta diz o motivo, em vez de "Internal server error"
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const alvo = Array.isArray(error.meta?.target)
+          ? (error.meta?.target as string[]).join(",")
+          : String(error.meta?.target ?? "");
+        if (alvo.includes("code")) {
+          throw new BadRequestException(`O código ${data.code} já está em uso por outro promoter — escolha outro.`);
+        }
+        // slug sorteado repetido (raríssimo): outro clique sorteia outro
+        if (alvo.includes("slug")) {
+          throw new ConflictException("Não foi possível criar o link do promoter agora — tente de novo.");
+        }
+        throw new BadRequestException("Esta pessoa já foi convidada");
+      }
+      throw error;
+    }
     await prisma.auditLog.create({
       data: {
         actorUserId,
@@ -605,6 +652,111 @@ export class OrganizationsService {
     return updated;
   }
 
+  /**
+   * A CASA muda a cota de convidados e o código pessoal de um promoter DELA
+   * (2026-10-12). A cota nascia 0 e não havia rota nem tela para liberar: o
+   * promoter tentava pôr alguém na lista e ouvia "peça para a produção liberar
+   * a sua cota", e a produção não tinha onde. O código pessoal (ex.: BIA10)
+   * também só existia no convite feito pela API.
+   *
+   * Regras no servidor, não na tela:
+   *  - só dono ou administrador da Casa (a mesma régua de convidar e remover);
+   *  - só vínculo desta Casa — o de outra responde como inexistente;
+   *  - vínculo removido ou recusado não se edita (convide de novo);
+   *  - código único em toda a plataforma, sempre em MAIÚSCULAS; `null` tira;
+   *  - a mudança e o rastro na auditoria entram juntos, com o vínculo travado:
+   *    dois cliques em Salvar esperam um pelo outro e o segundo, sem nada a
+   *    mudar, não grava nem suja o histórico.
+   */
+  async updatePromoterLink(
+    organizationId: string,
+    linkId: string,
+    actorUserId: string,
+    input: UpdatePromoterLinkInput,
+  ) {
+    if (!UUID.test(organizationId) || !UUID.test(linkId)) {
+      throw new NotFoundException("Promoter não encontrado nesta Casa");
+    }
+    await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
+
+    // o contrato já devolve em maiúsculas; a regra mora aqui também para quem
+    // chamar o serviço sem passar por ele
+    const codigo =
+      input.code === undefined ? undefined : input.code === null ? null : input.code.trim().toUpperCase();
+    if (codigo && !/^[A-Z0-9]{3,16}$/.test(codigo)) {
+      throw new BadRequestException("O código precisa de 3 a 16 letras ou números");
+    }
+    const cota = input.guestQuota;
+    if (cota !== undefined && (!Number.isInteger(cota) || cota < 0 || cota > 1000)) {
+      throw new BadRequestException("A cota vai de 0 a 1000");
+    }
+    if (codigo === undefined && cota === undefined) {
+      throw new BadRequestException("Informe a cota de convidados ou o código");
+    }
+
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const travado = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM promoter_links
+          WHERE id = ${linkId}::uuid AND organization_id = ${organizationId}::uuid
+          FOR UPDATE`;
+        if (travado.length === 0) throw new NotFoundException("Promoter não encontrado nesta Casa");
+
+        // lido DEPOIS da trava: o segundo clique já enxerga o que o primeiro gravou
+        const link = await tx.promoterLink.findUniqueOrThrow({ where: { id: linkId } });
+        if (link.status !== "INVITED" && link.status !== "ACTIVE") {
+          throw new BadRequestException(
+            "Este promoter não faz mais parte da Casa. Convide de novo para mudar o código ou a cota.",
+          );
+        }
+
+        const data: Prisma.PromoterLinkUpdateInput = {};
+        const antes: Record<string, string | number | null> = {};
+        const depois: Record<string, string | number | null> = {};
+        if (cota !== undefined && cota !== link.guestQuota) {
+          data.guestQuota = cota;
+          antes.guestQuota = link.guestQuota;
+          depois.guestQuota = cota;
+        }
+        if (codigo !== undefined && codigo !== link.code) {
+          if (codigo) {
+            const emUso = await tx.promoterLink.findFirst({
+              where: { code: codigo, NOT: { id: linkId } },
+              select: { id: true },
+            });
+            if (emUso) {
+              throw new ConflictException(`O código ${codigo} já está em uso por outro promoter — escolha outro.`);
+            }
+          }
+          data.code = codigo;
+          antes.code = link.code;
+          depois.code = codigo;
+        }
+
+        if (Object.keys(depois).length === 0) return vinculoEditado(link);
+
+        const atualizado = await tx.promoterLink.update({ where: { id: linkId }, data });
+        await tx.auditLog.create({
+          data: {
+            actorUserId,
+            organizationId,
+            action: "promoter.updated",
+            entityType: "promoter_link",
+            entityId: linkId,
+            metadata: { promoterUserId: link.promoterUserId, antes, depois },
+          },
+        });
+        return vinculoEditado(atualizado);
+      });
+    } catch (error) {
+      // corrida entre duas casas gravando o mesmo código: o unique do banco decide
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException(`O código ${codigo ?? ""} já está em uso por outro promoter — escolha outro.`);
+      }
+      throw error;
+    }
+  }
+
   /** Visão da CASA: promoters com vendas e comissão acumulada. */
   async listPromoters(organizationId: string, actorUserId: string) {
     await this.orgAccess.assertPermission(organizationId, actorUserId, PERMISSIONS.ORG_MANAGE_MEMBERS);
@@ -612,7 +764,8 @@ export class OrganizationsService {
       where: { organizationId, status: { in: ["INVITED", "ACTIVE"] } },
       include: {
         promoterUser: { select: { name: true, email: true } },
-        event: { select: { title: true } },
+        // slug: o "Copiar link" do vínculo com escopo leva direto à festa dele
+        event: { select: { title: true, slug: true } },
         _count: { select: { sellers: true } },
       },
       orderBy: { invitedAt: "desc" },
@@ -632,6 +785,12 @@ export class OrganizationsService {
       slug: link.slug,
       /** null = todos os eventos; senão, o título do evento do escopo */
       eventTitle: link.event?.title ?? null,
+      /** escopo do vínculo (null = todos os eventos): a tela do evento filtra por ele */
+      eventId: link.eventId,
+      eventSlug: link.event?.slug ?? null,
+      /** código pessoal (ex.: BIA10) e cota de convidados — a Casa edita (2026-10-12) */
+      code: link.code,
+      guestQuota: link.guestQuota,
       promoterName: link.promoterUser.name ?? link.promoterUser.email,
       sellers: link._count.sellers,
       paidOrders: porLink.get(link.id)?._count._all ?? 0,

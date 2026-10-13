@@ -4,6 +4,11 @@ import { PERMISSIONS } from "@borafest/auth";
 import type { CreateRefundRequestInput } from "@borafest/contracts";
 import { OrgAccessService } from "../common/org-access.service";
 import { executeOrderRefund } from "../common/execute-refund";
+import {
+  devolverReembolsoParaFila,
+  recusarPedidoDeReembolso,
+  reservarAprovacaoDoReembolso,
+} from "../common/recusar-reembolso";
 
 @Injectable()
 export class RefundRequestsService {
@@ -19,7 +24,6 @@ export class RefundRequestsService {
     const order = await prisma.order.findUnique({
       where: { publicToken: orderPublicToken },
       include: {
-        refundRequests: { where: { status: "PENDING" } },
         event: { select: { organization: { select: { name: true, settlementMode: true } } } },
       },
     });
@@ -36,12 +40,22 @@ export class RefundRequestsService {
     if (!["PAID", "FULFILLED"].includes(order.status)) {
       throw new BadRequestException("Este pedido não tem pagamento aprovado para reembolsar");
     }
-    if (order.refundRequests.length > 0) {
-      throw new BadRequestException("Já existe um pedido de reembolso pendente para este pedido");
-    }
 
-    const request = await prisma.refundRequest.create({
-      data: { orderId: order.id, reason: input.reason },
+    // pedido travado (2026-10-13): duas abas (ou duplo clique) criavam dois
+    // PENDING — a checagem e a criação agora acontecem com a linha do pedido
+    // presa, então a segunda espera a primeira e vê o pendente
+    const request = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id}::uuid FOR UPDATE`;
+      const pendente = await tx.refundRequest.findFirst({
+        where: { orderId: order.id, status: "PENDING" },
+        select: { id: true },
+      });
+      if (pendente) {
+        throw new BadRequestException("Já existe um pedido de reembolso pendente para este pedido");
+      }
+      return tx.refundRequest.create({
+        data: { orderId: order.id, reason: input.reason },
+      });
     });
 
     // o comprador vê quem analisa — a casa (INSTANT) ou a BoraFest (STANDARD)
@@ -90,15 +104,19 @@ export class RefundRequestsService {
   ) {
     const { request } = await this.assertResolvable(requestId, organizationId, userId);
 
-    const { order, gatewayStatus } = await executeOrderRefund(request.order.publicToken, {
-      amountCents: input.amountCents,
-      idempotencyPrefix: `org-refund:${organizationId}`,
-    });
-
-    await prisma.refundRequest.update({
-      where: { id: requestId },
-      data: { status: "APPROVED", resolvedAt: new Date(), resolvedByUserId: userId },
-    });
+    // reserva atômica ANTES do estorno (common/recusar-reembolso.ts)
+    await reservarAprovacaoDoReembolso(requestId, userId);
+    let estorno: Awaited<ReturnType<typeof executeOrderRefund>>;
+    try {
+      estorno = await executeOrderRefund(request.order.publicToken, {
+        amountCents: input.amountCents,
+        idempotencyPrefix: `org-refund:${organizationId}`,
+      });
+    } catch (err) {
+      await devolverReembolsoParaFila(requestId, userId);
+      throw err;
+    }
+    const { order, gatewayStatus } = estorno;
 
     await prisma.auditLog.create({
       data: {
@@ -122,15 +140,8 @@ export class RefundRequestsService {
   ) {
     await this.assertResolvable(requestId, organizationId, userId);
 
-    const updated = await prisma.refundRequest.update({
-      where: { id: requestId },
-      data: {
-        status: "REJECTED",
-        resolvedAt: new Date(),
-        resolvedByUserId: userId,
-        resolutionNote: input.note,
-      },
-    });
+    // atômica e com aviso ao comprador (common/recusar-reembolso.ts)
+    const updated = await recusarPedidoDeReembolso(requestId, userId, input.note, "casa");
 
     await prisma.auditLog.create({
       data: {

@@ -4,6 +4,7 @@ import { createReservationExpirationQueue } from "@borafest/queues";
 import type { CreateReservationInput } from "@borafest/contracts";
 import { InventoryService, InsufficientStockError } from "../inventory/inventory.service";
 import { WaitingRoomService } from "../waiting-room/waiting-room.service";
+import { convitePeloCodigo, motivoDaReservaRecusada } from "../convites-email/convite-regras";
 
 const RESERVATION_TTL_MINUTES = 10;
 
@@ -48,6 +49,12 @@ export class ReservationsService {
           })
         : null;
 
+    // CONVITE POR E-MAIL (2026-10-12): lote EMAIL só com o código de um convite
+    // ainda valendo DAQUELE lote — usado ou revogado não reserva
+    const conviteEmail = lots.some((l) => l.inviteMode === "EMAIL")
+      ? await convitePeloCodigo(input.inviteToken)
+      : null;
+
     const agora = Date.now();
     for (const item of input.items) {
       const lot = lots.find((l) => l.id === item.ticketLotId);
@@ -65,6 +72,10 @@ export class ReservationsService {
       // restrito por link: só com o código atual do lote (trocar o link mata o antigo)
       if (lot.inviteMode === "LINK" && (!input.inviteToken || input.inviteToken !== lot.inviteToken)) {
         throw new BadRequestException("Este ingresso é só para convidados. Abra o link que você recebeu.");
+      }
+      if (lot.inviteMode === "EMAIL") {
+        const recusa = motivoDaReservaRecusada(lot.id, conviteEmail);
+        if (recusa) throw new BadRequestException(recusa);
       }
       // JANELA DO LOTE (2026-10-12): o site mostrava "lote termina em", mas a
       // reserva não conferia início nem fim — o 1º lote seguia vendendo depois
@@ -157,12 +168,53 @@ export class ReservationsService {
     return reservation;
   }
 
+  /**
+   * Leitura da reserva para o checkout. Desde 2026-10-12 cada item traz o que o
+   * checkout precisa do lote — nome, tipo, nominal, exige CPF, quem paga a taxa
+   * e o modo de convite. Antes isso vinha só da página pública do evento, que
+   * esconde lote encerrado: se o lote fechava DURANTE a reserva, o checkout
+   * perdia o nome ("Ingresso"), deixava de pedir os participantes e somava a
+   * taxa que o produtor absorve. A reserva guarda o lote que a pessoa pegou,
+   * então ela é a fonte; os valores são os ATUAIS do lote — os mesmos que o
+   * pedido confere ao ser criado (orders.service createFromReservation).
+   * `eventSlug` deixa o checkout reabrir o catálogo (itens adicionais, cupom)
+   * mesmo de evento privado, que não está na vitrine.
+   */
   async findById(reservationId: string) {
     const reservation = await prisma.reservation.findUnique({
       where: { id: reservationId },
-      include: { items: true },
+      include: {
+        event: { select: { slug: true } },
+        items: {
+          include: {
+            ticketLot: {
+              select: {
+                name: true,
+                nominal: true,
+                requiresCpf: true,
+                feeMode: true,
+                inviteMode: true,
+                ticketType: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
     });
     if (!reservation) throw new NotFoundException("Reserva não encontrada");
-    return reservation;
+    const { event, items, ...resto } = reservation;
+    return {
+      ...resto,
+      eventSlug: event.slug,
+      items: items.map(({ ticketLot, ...item }) => ({
+        ...item,
+        lotName: ticketLot.name,
+        ticketTypeName: ticketLot.ticketType.name,
+        nominal: ticketLot.nominal,
+        requiresCpf: ticketLot.requiresCpf,
+        feeMode: ticketLot.feeMode,
+        inviteMode: ticketLot.inviteMode,
+      })),
+    };
   }
 }

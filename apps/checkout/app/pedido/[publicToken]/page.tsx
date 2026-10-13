@@ -1,10 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, ApiError, type Order, type OrderTicketsResponse, type PixelSettings } from "../../../lib/api";
+import {
+  api,
+  ApiError,
+  type NaoVouMaisSituacao,
+  type Order,
+  type OrderTicketsResponse,
+  type PixelSettings,
+} from "../../../lib/api";
 import { formatCents, formatDateTime } from "../../../lib/format";
 import { pedidoGratis, precoOuGratis } from "../../../lib/preco";
+import {
+  erroDoNaoVou,
+  SESSAO_EXPIRADA_NAO_VOU,
+  textoLiberou,
+  textosConfirmacaoNaoVou,
+  type ErroNaoVou,
+} from "../../../lib/nao-vou-mais";
 import { Icon, paths } from "../../../components/icons";
 import { PixelTracker } from "../../../components/PixelTracker";
 import { RevealQr } from "../../../components/RevealQr";
@@ -12,6 +26,11 @@ import { EventReview } from "../../../components/EventReview";
 
 // entrega por WhatsApp desligada por padrão (decisão 2026-08-15): só aparece com NEXT_PUBLIC_WA_DELIVERY=on
 const WA_ON = process.env.NEXT_PUBLIC_WA_DELIVERY === "on";
+
+/** Ingresso que ainda entra (cancelado/reembolsado não mostra QR nem ações). */
+function ingressoValendo(ticket: { status: string }): boolean {
+  return ticket.status !== "CANCELED" && ticket.status !== "REFUNDED";
+}
 
 /** Evento do Chrome/Edge para instalar o PWA (não existe no Safari). */
 type InstallPromptEvent = Event & { prompt: () => Promise<void> };
@@ -107,24 +126,81 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   // a posse do link (auditoria 2026-08-30). Sem token local, pede um código OTP
   // inline antes de reembolsar — o mesmo portão da carteira/transferência.
   const [protectNeedsAuth, setProtectNeedsAuth] = useState(false);
+  // "Não vou mais" (2026-10-12): só para o DONO logado de pedido grátis, antes do
+  // início — quem decide é o servidor; sem sessão (ou com erro) o botão não aparece
+  const [naoVou, setNaoVou] = useState<NaoVouMaisSituacao | null>(null);
+  const [naoVouAberto, setNaoVouAberto] = useState(false);
+  const [naoVouEnviando, setNaoVouEnviando] = useState(false);
+  const [naoVouErro, setNaoVouErro] = useState<ErroNaoVou | null>(null);
+  const [liberou, setLiberou] = useState<{ vagas: number; usados: number } | null>(null);
+  const naoVouTravado = useRef(false);
+  // o banco pagou um valor diferente do cobrado (2026-10-12): nada foi
+  // confirmado e o pedido expira — a página diz isso em vez de "aguardando"
+  const [valorDiferente, setValorDiferente] = useState(false);
+  const consultasPendente = useRef(0);
+  // falha ao ler o pedido (2026-10-12). Antes o catch zerava o pedido: a tela
+  // voltava para "Carregando pedido…" e, sem pedido, o polling parava — uma
+  // queda de rede no meio do Pix deixava a pessoa num "carregando" eterno.
+  // Agora o que já está na tela fica; sem nada carregado, a tela diz o erro.
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
+  const [erroIngressos, setErroIngressos] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const o = await api.getOrderStatus(publicToken);
-      setOrder(o);
-      if (["PAID", "FULFILLED"].includes(o.status)) {
+    const o = await api.getOrderStatus(publicToken).catch((e: unknown) => {
+      setErroCarga(e instanceof ApiError ? e.message : "Sem conexão com o servidor.");
+      return null;
+    });
+    if (!o) return;
+    setOrder(o);
+    setErroCarga(null);
+    // VALOR DIFERENTE DO COBRADO no /status (2026-10-12): o polling de 3 s vê o
+    // sinal na hora, sem esperar a conferência de ~30 s. Como no checkout, o
+    // sinal só liga: um /status que saiu antes de a conferência detectar não
+    // apaga o aviso (e pedido que acabou pago sai desta tela de qualquer jeito)
+    if (o.valorDiferente === true) setValorDiferente(true);
+    if (["PAID", "FULFILLED"].includes(o.status)) {
+      try {
         const t = await api.getOrderTickets(publicToken);
         setTicketsData(t);
+        setErroIngressos(null);
         rememberOrder(publicToken);
+      } catch (e) {
+        setErroIngressos(e instanceof ApiError ? e.message : "Sem conexão com o servidor.");
       }
-    } catch {
-      setOrder(null);
     }
   }, [publicToken]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // "Não vou mais": pergunta ao servidor se ESTA conta pode liberar a vaga
+  const statusDoPedido = order?.status;
+  const pedidoDeGraca = order ? pedidoGratis(order) : false;
+  useEffect(() => {
+    if (!pedidoDeGraca || !statusDoPedido || !["PAID", "FULFILLED"].includes(statusDoPedido)) {
+      setNaoVou(null);
+      return;
+    }
+    const sessao = localStorage.getItem("bf.token");
+    if (!sessao) {
+      setNaoVou(null);
+      return;
+    }
+    let ativo = true;
+    api
+      .naoVouMaisSituacao(publicToken, sessao)
+      .then((s) => {
+        if (ativo) setNaoVou(s.podeLiberar ? s : null);
+      })
+      // 401 (sessão vencida), outra conta ou falha: sem o botão — a ação exige a sessão do dono
+      .catch(() => {
+        if (ativo) setNaoVou(null);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [publicToken, statusDoPedido, pedidoDeGraca]);
 
   // pré-preenche o WhatsApp com o contato do pedido (a API pública expõe)
   useEffect(() => {
@@ -137,6 +213,26 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     api.getPublicEvent(ticketsData.event.slug).then((e) => setPixelSettings(e.pixelSettings)).catch(() => {});
   }, [ticketsData?.event.slug]);
 
+  // VALOR DIFERENTE DO COBRADO: o sync do pagamento devolve só um sim/não. Sem
+  // pagamento pendente ele nem chama o gateway — só lê o banco.
+  const conferirValor = useCallback((orderId: string) => {
+    api
+      .syncPayment(orderId)
+      .then((sync) => {
+        if (sync?.valorDiferente) setValorDiferente(true);
+      })
+      .catch(() => undefined);
+  }, []);
+  // uma vez ao abrir (e a cada mudança de situação) em pedido pago ainda não
+  // confirmado ou que acabou sem pagamento
+  const idDoPedido = order?.id;
+  const conferirAoAbrir = order
+    ? !pedidoGratis(order) && ["CREATED", "PAYMENT_PENDING", "EXPIRED", "CANCELED"].includes(order.status)
+    : false;
+  useEffect(() => {
+    if (idDoPedido && conferirAoAbrir) conferirValor(idDoPedido);
+  }, [idDoPedido, conferirAoAbrir, statusDoPedido, conferirValor]);
+
   // pendente: polling
   useEffect(() => {
     if (!order || !["CREATED", "PAYMENT_PENDING"].includes(order.status)) return;
@@ -144,7 +240,12 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     // aberto por minutos enquanto a pessoa paga no app do banco). Na volta à
     // aba, recarrega NA HORA — a confirmação aparece no instante do retorno.
     const id = setInterval(() => {
-      if (document.visibilityState !== "hidden") load();
+      if (document.visibilityState === "hidden") return;
+      load();
+      // a cada ~30 s confere também o valor pago (o contador sobrevive à troca
+      // do intervalo, que é refeito a cada recarga do pedido)
+      consultasPendente.current += 1;
+      if (consultasPendente.current % 10 === 0) conferirValor(order.id);
     }, 3000);
     const aoVoltar = () => {
       if (document.visibilityState === "visible") load();
@@ -154,7 +255,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       clearInterval(id);
       document.removeEventListener("visibilitychange", aoVoltar);
     };
-  }, [order, load]);
+  }, [order, load, conferirValor]);
 
   async function pedirReembolsoProtegido() {
     const token = typeof window !== "undefined" ? localStorage.getItem("bf.token") : null;
@@ -179,6 +280,45 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
     } catch (e) {
       setProtectState("idle");
       setProtectError(e instanceof ApiError ? e.message : "Não foi possível reembolsar agora");
+    }
+  }
+
+  /** "Não vou mais": libera a vaga do ingresso grátis. O servidor confere dono, prazo e valor. */
+  async function liberarVaga() {
+    // clique duplo: a segunda chamada nem sai (o ref vale antes do próximo render)
+    if (naoVouTravado.current) return;
+    const expirou: ErroNaoVou = { mensagem: SESSAO_EXPIRADA_NAO_VOU, tipo: "sessao" };
+    const sessao = localStorage.getItem("bf.token");
+    if (!sessao) {
+      setNaoVouErro(expirou);
+      return;
+    }
+    naoVouTravado.current = true;
+    setNaoVouEnviando(true);
+    setNaoVouErro(null);
+    try {
+      const feito = await api.naoVouMais(publicToken, sessao);
+      setLiberou({ vagas: feito.vagasLiberadas, usados: feito.ingressosUsados });
+      setNaoVouAberto(false);
+      setNaoVou(null);
+      // a tela segue o que o SERVIDOR fez: CANCELED vira "Pedido cancelado"; se
+      // alguém do pedido já tinha entrado, o pedido segue valendo e os ingressos
+      // são relidos (os liberados saem da carteira)
+      setOrder((o) => (o ? { ...o, status: feito.status } : o));
+      if (["PAID", "FULFILLED"].includes(feito.status)) {
+        api.getOrderTickets(publicToken).then(setTicketsData).catch(() => undefined);
+      }
+    } catch (e) {
+      const erro = erroDoNaoVou(e, expirou);
+      setNaoVouErro(erro);
+      // recusa costuma ser porque o pedido mudou (o produtor cancelou, outra aba
+      // liberou): relê para a tela não seguir dizendo "garantido"
+      if (erro.tipo === "definitivo") {
+        api.getOrderStatus(publicToken).then(setOrder).catch(() => undefined);
+      }
+    } finally {
+      naoVouTravado.current = false;
+      setNaoVouEnviando(false);
     }
   }
 
@@ -235,6 +375,26 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
   }
 
   if (!order) {
+    if (erroCarga) {
+      // nada carregado e a consulta falhou: diz o porquê (404 = "Pedido não
+      // encontrado") e deixa tentar de novo — nunca um "carregando" eterno
+      return (
+        <main className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
+          <p className="text-[14px] font-bold text-ink">Não foi possível abrir este pedido</p>
+          <p className="mt-1 text-[13px] font-medium text-muted">{erroCarga}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setErroCarga(null);
+              load();
+            }}
+            className="mt-4 h-11 rounded-xl border-[1.5px] border-line-input bg-surface px-5 text-[13px] font-extrabold text-ink"
+          >
+            Tentar de novo
+          </button>
+        </main>
+      );
+    }
     return <main className="flex min-h-dvh items-center justify-center text-[13px] text-muted">Carregando pedido…</main>;
   }
 
@@ -248,15 +408,72 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
         <div className="flex h-[92px] w-[92px] items-center justify-center rounded-full bg-warning/10 text-warning">
           <Icon d={paths.clock} size={44} />
         </div>
-        <h1 className="mt-5 text-[22px] font-extrabold">Aguardando pagamento</h1>
-        <span className="mt-2 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-bold text-warning">Aguardando Pix</span>
+        <h1 className="mt-5 text-[22px] font-extrabold">
+          {valorDiferente ? "Pagamento não confirmado" : "Aguardando pagamento"}
+        </h1>
+        {valorDiferente ? (
+          <p className="mx-auto mt-3 max-w-[420px] text-[14px] font-bold leading-relaxed text-warning">
+            Recebemos um valor diferente do cobrado — nossa equipe vai falar com você.
+          </p>
+        ) : (
+          <span className="mt-2 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-bold text-warning">Aguardando Pix</span>
+        )}
         <div className="mt-6 w-full rounded-2xl border border-line bg-surface p-4 text-left">
           <p className="text-[12px] font-bold text-muted">Pedido {shortId}</p>
           <p className="mt-1 flex items-center justify-between text-[14px] font-semibold">
             <span>Total</span><span className="font-extrabold">{formatCents(order.totalCents)}</span>
           </p>
         </div>
-        <p className="mt-4 text-[12px] font-medium text-muted">Esta página atualiza sozinha quando o pagamento cair.</p>
+        <p className="mt-4 text-[12px] font-medium text-muted">
+          {valorDiferente
+            ? "Não faça outro pagamento. Vamos acertar a diferença ou devolver o valor pelo contato deste pedido."
+            : "Esta página atualiza sozinha quando o pagamento cair."}
+        </p>
+      </main>
+    );
+  }
+
+  // --- pedido pago que NÃO se concretizou (2026-10-12) ---
+  // Expirou sem pagamento (ou com valor diferente do cobrado) ou foi cancelado:
+  // antes caía na confirmação e dizia "Pagamento aprovado!" — e o pixel do
+  // produtor contava uma compra que não existiu
+  if (!pedidoGratis(order) && ["EXPIRED", "CANCELED"].includes(order.status)) {
+    const expirou = order.status === "EXPIRED";
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center px-6 text-center lg:mx-auto lg:max-w-[560px]">
+        <div
+          className={`flex h-[92px] w-[92px] items-center justify-center rounded-full ${
+            valorDiferente ? "bg-warning/10 text-warning" : "bg-line text-muted"
+          }`}
+        >
+          <Icon d={valorDiferente ? paths.clock : paths.x} size={44} />
+        </div>
+        <h1 className="mt-5 text-[22px] font-extrabold">
+          {valorDiferente ? "Pagamento não confirmado" : expirou ? "Pedido expirado" : "Pedido cancelado"}
+        </h1>
+        <p
+          className={`mx-auto mt-3 max-w-[420px] text-[14px] leading-relaxed ${
+            valorDiferente ? "font-bold text-warning" : "font-medium text-muted"
+          }`}
+        >
+          {valorDiferente
+            ? "Recebemos um valor diferente do cobrado — nossa equipe vai falar com você."
+            : expirou
+              ? "O tempo para pagar acabou e o pedido não foi confirmado. Se algum valor chegou depois do prazo, ele volta para você automaticamente."
+              : "Este pedido foi cancelado e não tem ingresso válido."}
+        </p>
+        <div className="mt-6 w-full rounded-2xl border border-line bg-surface p-4 text-left">
+          <p className="text-[12px] font-bold text-muted">Pedido {shortId}</p>
+          <p className="mt-1 flex items-center justify-between text-[14px] font-semibold">
+            <span>Total</span><span className="font-extrabold">{formatCents(order.totalCents)}</span>
+          </p>
+        </div>
+        {valorDiferente && (
+          <p className="mt-4 text-[12px] font-medium text-muted">
+            Não faça outro pagamento. Vamos acertar a diferença ou devolver o valor pelo contato deste pedido.
+          </p>
+        )}
+        <Link href="/" className="mt-6 text-[13px] font-bold text-primary">Explorar mais eventos</Link>
       </main>
     );
   }
@@ -301,7 +518,7 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
               )}
             </h1>
             <p className="mt-0.5 truncate text-[13px] font-medium text-muted">
-              {order.contactName ?? order.contactEmail} · {ticketsData.tickets.length} ingresso{ticketsData.tickets.length === 1 ? "" : "s"}
+              {order.contactName ?? order.contactEmail} · {ticketsData.tickets.filter(ingressoValendo).length} ingresso{ticketsData.tickets.filter(ingressoValendo).length === 1 ? "" : "s"}
             </p>
           </div>
         </div>
@@ -337,15 +554,23 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
                 )}
               </div>
               <div className="ticket-notch border-t-2 border-dashed border-line px-5 pb-5 pt-6 text-center">
-                <div className="mx-auto w-fit rounded-2xl border border-line bg-white p-3">
-                  <RevealQr value={ticket.qrToken} size={184} className="w-[184px]" />
-                </div>
+                {ingressoValendo(ticket) ? (
+                  <div className="mx-auto w-fit rounded-2xl border border-line bg-white p-3">
+                    <RevealQr value={ticket.qrToken} size={184} className="w-[184px]" />
+                  </div>
+                ) : (
+                  // cancelado/reembolsado (ex.: "Não vou mais" parcial, 2026-10-13):
+                  // o QR não aparece — antes seguia na tela como se valesse
+                  <div className="mx-auto flex h-[210px] w-[210px] items-center justify-center rounded-2xl border border-line bg-bg p-5 text-[13px] font-bold text-muted">
+                    Cancelado — este QR não vale mais
+                  </div>
+                )}
                 <p className="mt-3 text-[15px] font-extrabold">{ticket.attendeeName ?? order.contactName ?? "Portador"}</p>
                 <p className="text-[12px] font-bold text-muted">{ticket.code}</p>
                 <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-[11px] font-bold text-primary">
                   {ticket.typeName} — {ticket.lotName}
                 </span>
-                {cortesia ? (
+                {!ingressoValendo(ticket) ? null : cortesia ? (
                   <p className="mt-4 rounded-xl bg-bg px-3 py-2.5 text-[11px] font-bold text-muted">
                     🔒 Intransferível — vale só para {ticket.attendeeName ?? order.contactName ?? "o nome emitido"}
                   </p>
@@ -429,7 +654,8 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
       </span>
       {gratisCancelado ? (
         <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
-          Ingresso cancelado. Este QR não vale mais.
+          {/* foi a própria pessoa ("Não vou mais") ou o produtor/cancelamento do evento */}
+          {liberou ? textoLiberou(liberou) : "Ingresso cancelado. Este QR não vale mais."}
         </p>
       ) : (
         <p className="mx-auto mt-4 max-w-[460px] break-words text-[14px] font-medium leading-relaxed text-muted">
@@ -523,7 +749,86 @@ export default function OrderPage({ params }: { params: { publicToken: string } 
             Ingressos deste pedido
           </button>
         )}
+        {/* grátis se cancela, não se reembolsa: a própria pessoa libera a vaga até o início (2026-10-12) */}
+        {naoVou && !gratisCancelado && (
+          <button
+            type="button"
+            onClick={() => {
+              setNaoVouErro(null);
+              setNaoVouAberto((v) => !v);
+            }}
+            aria-expanded={naoVouAberto}
+            className="h-14 rounded-2xl border-[1.5px] border-line-input bg-surface px-6 text-[14px] font-bold text-ink lg:h-[52px] lg:rounded-[14px]"
+          >
+            Não vou mais
+          </button>
+        )}
       </div>
+      {/* o pedido abriu, mas os ingressos não vieram: sem isto o botão acima não
+          fazia nada e ninguém dizia por quê (2026-10-12) */}
+      {erroIngressos && !ticketsData && !gratisCancelado && (
+        <p className="mt-3 w-full rounded-xl bg-danger/[.06] px-3 py-2.5 text-left text-[12.5px] font-bold text-danger">
+          Não conseguimos carregar os ingressos deste pedido: {erroIngressos}{" "}
+          <button type="button" onClick={() => load()} className="text-primary underline">
+            Tentar de novo
+          </button>
+        </p>
+      )}
+      {naoVou && naoVouAberto && !gratisCancelado && (
+        <div className="mt-3 w-full space-y-2 rounded-2xl border-[1.5px] border-danger/35 bg-danger/[.06] p-4 text-left">
+          <p className="text-[14px] font-extrabold text-ink">{textosConfirmacaoNaoVou(naoVou.vagas).titulo}</p>
+          <p className="text-[12.5px] font-medium leading-relaxed text-ink-soft">
+            {textosConfirmacaoNaoVou(naoVou.vagas).explicacao}
+          </p>
+          {naoVouErro && (
+            <p className="text-[12.5px] font-bold text-danger">
+              {naoVouErro.mensagem}
+              {naoVouErro.tipo === "sessao" && (
+                <>
+                  {" "}
+                  <Link href="/perfil" className="text-primary underline">
+                    Entrar na minha conta
+                  </Link>
+                </>
+              )}
+            </p>
+          )}
+          <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => {
+                setNaoVouErro(null);
+                setNaoVouAberto(false);
+              }}
+              disabled={naoVouEnviando}
+              className="h-11 flex-1 rounded-xl border-[1.5px] border-line-input bg-surface px-5 text-[13px] font-extrabold disabled:opacity-60"
+            >
+              Voltar
+            </button>
+            {/* recusa do servidor (evento começou, já cancelado…) não muda tentando de novo */}
+            {naoVouErro?.tipo !== "definitivo" && (
+              <button
+                type="button"
+                onClick={liberarVaga}
+                disabled={naoVouEnviando}
+                className="h-11 flex-1 rounded-xl bg-danger px-5 text-[13px] font-extrabold text-white disabled:opacity-60"
+              >
+                {naoVouEnviando
+                  ? "Liberando…"
+                  : naoVouErro?.tipo === "tentar"
+                    ? "Tentar novamente"
+                    : textosConfirmacaoNaoVou(naoVou.vagas).botao}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {/* liberou mas alguém do pedido já tinha entrado: o pedido segue valendo para quem está dentro */}
+      {liberou && !gratisCancelado && (
+        <p className="mt-3 w-full rounded-xl bg-success/10 px-3 py-2.5 text-left text-[13px] font-bold text-success">
+          {textoLiberou(liberou)}
+        </p>
+      )}
       {order?.protection?.canRefund && (
         <div className="mt-4 w-full rounded-2xl border-[1.5px] border-line bg-surface p-4 text-left">
           <p className="text-[13.5px] font-extrabold">Proteção de reembolso ativa</p>

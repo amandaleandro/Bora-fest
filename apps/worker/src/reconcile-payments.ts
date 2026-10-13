@@ -174,7 +174,13 @@ async function reconcileVipPayments(cutoff: Date): Promise<void> {
   }
 }
 
+/** Aprovação "reservada" há mais que isto, com o pedido ainda pago, é estorno que não saiu. */
+const APROVACAO_PRESA_MS = 10 * 60_000;
+
 async function reconcileDriftedRefunds(): Promise<void> {
+  await fecharPedidosDeReembolsoJaEstornados();
+  await devolverAprovacoesPresas();
+
   const openRequests = await prisma.refundRequest.findMany({
     where: { status: "PENDING" },
     take: 50,
@@ -202,10 +208,14 @@ async function reconcileDriftedRefunds(): Promise<void> {
       const status = await gateway.getStatus(payment.externalId!);
       if (status !== "REFUNDED" && status !== "CHARGEBACK") continue;
       await applyGatewayStatus(payment.id, status);
-      await prisma.refundRequest.update({
-        where: { id: request.id },
+      // só se ainda pendente (revisão 2026-10-13): uma recusa no meio-tempo
+      // não é sobrescrita — e o estorno de verdade fecha o pedido acima, na
+      // próxima rodada, se ele voltar à fila
+      const fechado = await prisma.refundRequest.updateMany({
+        where: { id: request.id, status: "PENDING" },
         data: { status: "APPROVED", resolvedAt: new Date() },
       });
+      if (fechado.count === 0) continue;
       await prisma.auditLog.create({
         data: {
           action: "system.refund_request.auto_reconciled",
@@ -218,5 +228,73 @@ async function reconcileDriftedRefunds(): Promise<void> {
     } catch (error) {
       log.error({ refundRequestId: request.id, error: (error as Error).message }, "falha ao conciliar reembolso");
     }
+  }
+}
+
+/**
+ * Pedido de reembolso PENDENTE cujo pedido já teve o dinheiro devolvido
+ * (estorno direto pelo backoffice, ou aprovação em que o gateway estornou e a
+ * baixa local falhou): fecha como aprovado. Antes ficava pendente para sempre
+ * — a varredura de baixo só olha pagamento PAID (revisão 2026-10-13).
+ */
+async function fecharPedidosDeReembolsoJaEstornados(): Promise<void> {
+  const resolvidos = await prisma.refundRequest.findMany({
+    where: { status: "PENDING", order: { status: { in: ["REFUNDED", "CHARGEBACK"] } } },
+    select: { id: true, orderId: true },
+    take: 50,
+  });
+  for (const request of resolvidos) {
+    const fechado = await prisma.refundRequest.updateMany({
+      where: { id: request.id, status: "PENDING" },
+      data: { status: "APPROVED", resolvedAt: new Date() },
+    });
+    if (fechado.count === 0) continue;
+    await prisma.auditLog.create({
+      data: {
+        action: "system.refund_request.auto_reconciled",
+        entityType: "refund_request",
+        entityId: request.id,
+        metadata: { orderId: request.orderId, motivo: "pedido já estornado" },
+      },
+    });
+    log.info({ refundRequestId: request.id }, "pedido de reembolso fechado: o pedido já estava estornado");
+  }
+}
+
+/**
+ * Aprovação reservada (PENDING → APPROVED antes do estorno) cujo estorno não
+ * saiu — a API caiu entre reservar e o gateway responder: o pedido segue pago
+ * e nenhuma fila mostrava o pedido de reembolso. Volta para a fila depois de
+ * 10 min (só as do último dia: histórico antigo não é mexido).
+ */
+async function devolverAprovacoesPresas(): Promise<void> {
+  const agora = Date.now();
+  const presos = await prisma.refundRequest.findMany({
+    where: {
+      status: "APPROVED",
+      resolvedAt: { lt: new Date(agora - APROVACAO_PRESA_MS), gt: new Date(agora - 24 * 60 * 60_000) },
+      order: {
+        status: { in: ["PAID", "FULFILLED"] },
+        payments: { none: { status: { in: ["REFUND_PENDING", "REFUNDED", "CHARGEBACK"] } } },
+      },
+    },
+    select: { id: true, orderId: true, resolvedByUserId: true },
+    take: 50,
+  });
+  for (const request of presos) {
+    const devolvido = await prisma.refundRequest.updateMany({
+      where: { id: request.id, status: "APPROVED" },
+      data: { status: "PENDING", resolvedAt: null, resolvedByUserId: null },
+    });
+    if (devolvido.count === 0) continue;
+    await prisma.auditLog.create({
+      data: {
+        action: "system.refund_request.requeued",
+        entityType: "refund_request",
+        entityId: request.id,
+        metadata: { orderId: request.orderId, aprovadoPor: request.resolvedByUserId, motivo: "estorno não saiu" },
+      },
+    });
+    log.warn({ refundRequestId: request.id }, "aprovação de reembolso sem estorno voltou para a fila");
   }
 }

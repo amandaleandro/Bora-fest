@@ -228,3 +228,18 @@ test("5 códigos errados seguidos travam as tentativas, até o código certo", a
   const depois = await prisma.user.findUniqueOrThrow({ where: { id: admin.id } });
   assert.equal(depois.totpEnabledAt, null, "travado não liga o 2FA");
 });
+
+test("20 códigos errados AO MESMO TEMPO: só 5 chegam a ser conferidos (revisão 2026-10-13)", async () => {
+  const admin = await novoUsuario("ADMIN");
+  const { segredo } = await servico.iniciarAtivacao(admin.id);
+  const chave = base32Decode(segredo);
+  const resultados = await Promise.allSettled(
+    Array.from({ length: 20 }, () => servico.confirmarAtivacao(admin.id, codigoErrado(chave))),
+  );
+  const motivos = resultados.map((r) => (r.status === "rejected" ? (r.reason as any) : null));
+  assert.ok(motivos.every(Boolean), "nenhum código errado passa");
+  const conferidos = motivos.filter((e) => /Código incorreto/.test(e.message)).length;
+  const travados = motivos.filter((e) => e.getStatus?.() === 429).length;
+  assert.equal(conferidos, 5, "a trava vale mesmo com as requisições em paralelo");
+  assert.equal(travados, 15);
+});

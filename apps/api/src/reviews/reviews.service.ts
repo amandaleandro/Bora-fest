@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { prisma } from "@borafest/database";
 import type { CreateReviewInput } from "@borafest/contracts";
+import { primeiroNome } from "./primeiro-nome";
 
 const PAID_ORDER_STATUSES = ["PAID", "FULFILLED"] as const;
 
@@ -39,6 +40,11 @@ export class ReviewsService {
     return this.summaryForEvent(event.id);
   }
 
+  /**
+   * Resumo PÚBLICO (página do evento): média, total e os últimos comentários —
+   * de quem comentou sai só o PRIMEIRO nome (LGPD, 2026-10-12). O formato
+   * `user: { name }` continua o mesmo para o site não quebrar.
+   */
   async summaryForEvent(eventId: string) {
     const [aggregate, recent] = await Promise.all([
       prisma.eventReview.aggregate({ where: { eventId }, _avg: { rating: true }, _count: { _all: true } }),
@@ -52,7 +58,12 @@ export class ReviewsService {
     return {
       average: aggregate._avg.rating,
       count: aggregate._count._all,
-      recent,
+      recent: recent.map((review) => ({
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt,
+        user: { name: primeiroNome(review.user.name) },
+      })),
     };
   }
 }

@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { EventSwitcher } from "@/components/EventSwitcher";
 import { CHECKOUT_URL } from "@/lib/config";
+import { indiceAtivo, itemDaProdutoraAtivo, itemDoEventoAtivo } from "@/lib/menu-ativo";
 
 const ICON_PROPS = {
   width: 17,
@@ -252,6 +253,11 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
   const orgEmFoco = useProdutoraEmFoco(organizationId);
   const { daProdutora, doEvento } = useSidebarLinks(emFoco, orgEmFoco);
   const signOut = useLogout();
+  // item marcado por PREFIXO (2026-10-12), como as pílulas: as telas de dentro
+  // de uma seção (convites, próxima edição, check-in ao vivo, sub-telas de
+  // Clientes) marcam a seção — com a rota exata ficavam sem nada marcado
+  const ativoDaProdutora = indiceAtivo(daProdutora, itemDaProdutoraAtivo(pathname, orgEmFoco));
+  const ativoDoEvento = emFoco ? indiceAtivo(doEvento, itemDoEventoAtivo(pathname, emFoco.id)) : -1;
 
   return (
     <aside className="flex w-[244px] shrink-0 flex-col bg-sidebar px-3.5 pb-4 pt-[22px]">
@@ -265,8 +271,8 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
       <div className="px-2 pb-2">
         <OrgSwitcher organizationId={orgEmFoco} dark />
       </div>
-      {daProdutora.map((link) => (
-        <Item key={link.label} {...link} active={pathname === link.href} />
+      {daProdutora.map((link, i) => (
+        <Item key={link.label} {...link} active={i === ativoDaProdutora} />
       ))}
 
       {/* NIVEL 2 — o evento. Continua visível mesmo nas telas da produtora
@@ -278,8 +284,8 @@ export function Sidebar({ event, organizationId }: { event?: SidebarEventInfo; o
             Evento em foco
           </p>
           <EventSwitcher event={emFoco} organizationId={orgEmFoco} />
-          {doEvento.map((link) => (
-            <Item key={link.label} {...link} active={pathname === link.href} />
+          {doEvento.map((link, i) => (
+            <Item key={link.label} {...link} active={i === ativoDoEvento} />
           ))}
         </>
       ) : null}

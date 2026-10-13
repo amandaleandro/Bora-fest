@@ -572,6 +572,9 @@ export default function PortariaPage() {
               name: data.ticket?.attendeeName,
               lotLabel: data.ticket ? `${data.ticket.typeName} — ${data.ticket.lotName}` : null,
               tipo: data.ticket?.tipo ?? null,
+              // `=== true`: API antiga (sem os campos) sai sem etiqueta, sem quebrar
+              meia: data.ticket?.meia === true,
+              gratuito: data.ticket?.gratuito === true,
               firstAt: data.firstCheckin?.at ?? null,
               firstGate: data.firstCheckin?.gateName ?? null,
               firstDevice: data.firstCheckin?.deviceName ?? null,
@@ -2314,8 +2317,29 @@ function ResultScreen({
         <p className="mb-6 max-w-[280px] text-[15px] font-semibold text-white/85">
           {result.kind === "VALID" && result.offline
             ? "Entrada liberada pela lista local. Bom evento!"
-            : style.sub}
+            : result.kind === "INVALID" && result.reason === "OLD_QR"
+              ? "Este QR foi trocado: o ingresso foi transferido."
+              : style.sub}
         </p>
+        {/* ETIQUETAS DA PORTA (2026-10-12), online e offline — o resultado do
+            aparelho vem do manifesto, que carrega os mesmos campos. MEIA pede a
+            carteirinha (o painel promete ao produtor que ela é conferida aqui);
+            GRATUITO diz que não pagou (lote grátis, cupom 100%). CONVIDADO e
+            CORTESIA seguem na linha "Entrada", como antes. */}
+        {result.kind === "VALID" && (result.meia || result.gratuito) && (
+          <div className="-mt-2 mb-5 flex flex-wrap justify-center gap-2">
+            {result.meia && (
+              <span className="rounded-full bg-[#F59E0B] px-3.5 py-1.5 text-[13px] font-extrabold tracking-[.04em] text-[#1b1300]">
+                MEIA-ENTRADA · peça o documento
+              </span>
+            )}
+            {result.gratuito && (
+              <span className="rounded-full bg-[#34D399] px-3.5 py-1.5 text-[13px] font-extrabold tracking-[.04em] text-[#04240f]">
+                GRATUITO
+              </span>
+            )}
+          </div>
+        )}
         <div className="w-full space-y-3 rounded-[18px] bg-white/[.14] p-[18px] backdrop-blur">
           {rows.map(([key, value]) => (
             <div key={key} className="flex items-center justify-between gap-4">

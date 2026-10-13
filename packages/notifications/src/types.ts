@@ -15,6 +15,13 @@ export interface EmailMessage {
    * chegar antes de o id do provedor ser gravado. Só letras, números, _ e -.
    */
   tags?: Record<string, string>;
+  /**
+   * Cabeçalhos extras do e-mail (LGPD, 2026-10-12): hoje só o List-Unsubscribe
+   * e o List-Unsubscribe-Post dos e-mails de campanha e do aviso aos
+   * seguidores — o "Cancelar inscrição" do Gmail/Apple Mail. Cabeçalho com
+   * nome ou valor fora do formato é descartado no envio, nunca o e-mail.
+   */
+  headers?: Record<string, string>;
 }
 
 /**

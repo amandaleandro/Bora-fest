@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, invitePromoterSchema, inviteSellerSchema, inviteMemberSchema, updateOrganizationSchema } from "@borafest/contracts";
+import { createBankAccountSchema, createOrganizationSchema, createSalesPartnerSchema, invitePromoterSchema, inviteSellerSchema, inviteMemberSchema, updateOrganizationSchema, updatePromoterLinkSchema } from "@borafest/contracts";
 import { ZodBody } from "../common/zod-body.decorator";
 import { SessionGuard } from "../common/session.guard";
 import { CurrentUserId } from "../common/current-user.decorator";
@@ -108,6 +108,17 @@ export class OrganizationsController {
   @Get(":id/promoters")
   listPromoters(@Param("id") organizationId: string, @CurrentUserId() userId: string) {
     return this.organizationsService.listPromoters(organizationId, userId);
+  }
+
+  /** a CASA muda a cota de convidados e o código pessoal de um promoter dela */
+  @Patch(":id/promoters/:linkId")
+  updatePromoterLink(
+    @Param("id") organizationId: string,
+    @Param("linkId") linkId: string,
+    @CurrentUserId() userId: string,
+    @Body(ZodBody(updatePromoterLinkSchema)) body: unknown,
+  ) {
+    return this.organizationsService.updatePromoterLink(organizationId, linkId, userId, body as any);
   }
 
   @Patch(":id")

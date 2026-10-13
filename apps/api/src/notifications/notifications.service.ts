@@ -14,6 +14,25 @@ import type { OrderWhatsAppInput, RegisterPushTokenInput } from "@borafest/contr
 
 const RESEND_LIMIT_PER_HOUR = 3;
 
+/** Pedido pago em que nenhum ingresso é mais de quem comprou (todos transferidos). */
+export const TODOS_OS_INGRESSOS_TRANSFERIDOS =
+  "Os ingressos deste pedido foram transferidos para outra pessoa — quem recebeu encontra o ingresso na própria conta, em Meus ingressos";
+
+/**
+ * Ingressos que ainda são de quem COMPROU (quem tem o link do pedido): nunca
+ * transferidos (`ownerUserId` nulo) ou na conta do próprio comprador. É a
+ * mesma regra da página do pedido (TicketsService.belongsToOrderBearer,
+ * auditoria 2026-08-12). Sem este filtro, o reenvio por WhatsApp e por e-mail
+ * mandava ao comprador o código de um ingresso que ele já tinha passado para
+ * outra pessoa (2026-10-12).
+ */
+export function ingressosDoComprador<T extends { ownerUserId: string | null }>(
+  tickets: readonly T[],
+  order: { userId: string | null },
+): T[] {
+  return tickets.filter((ticket) => ticket.ownerUserId === null || ticket.ownerUserId === order.userId);
+}
+
 /** Normaliza celular BR (DDD + 9 dígitos, com/sem +55) para E.164 sem "+": 55DDD9XXXXXXXX. */
 function normalizeBrMobile(raw: string): string | null {
   let digits = raw.replace(/\D/g, "");
@@ -109,6 +128,11 @@ export class NotificationsService {
     if (order.status !== "FULFILLED" || order.tickets.length === 0) {
       throw new BadRequestException("Pedido ainda não tem ingressos emitidos");
     }
+    // ingresso transferido é de outra pessoa: o código dele não volta para quem comprou
+    const ingressos = ingressosDoComprador(order.tickets, order);
+    if (ingressos.length === 0) {
+      throw new BadRequestException(TODOS_OS_INGRESSOS_TRANSFERIDOS);
+    }
 
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recent = await prisma.notification.count({
@@ -134,7 +158,7 @@ export class NotificationsService {
         timeStyle: "short",
       }).format(order.event.startsAt),
       orderUrl: `${webBaseUrl}/pedido/${order.publicToken}`,
-      tickets: order.tickets.map((t) => ({
+      tickets: ingressos.map((t) => ({
         code: t.code,
         typeName: t.ticketLot.ticketType.name,
         lotName: t.ticketLot.name,
@@ -210,6 +234,12 @@ export class NotificationsService {
     if (!["PAID", "FULFILLED"].includes(order.status) || order.tickets.length === 0) {
       throw new ConflictException("Pedido ainda não tem ingressos para enviar");
     }
+    // só os que ainda são de quem comprou — a página do pedido já esconde os
+    // transferidos, e o WhatsApp mandava o código deles mesmo assim (2026-10-12)
+    const ingressos = ingressosDoComprador(order.tickets, order);
+    if (ingressos.length === 0) {
+      throw new ConflictException(TODOS_OS_INGRESSOS_TRANSFERIDOS);
+    }
 
     // Enviar para outro número segue permitido (comprar para um amigo é caso
     // real) — o que fecha o relay em massa é o rate limit por pedido/IP na rota
@@ -242,7 +272,7 @@ export class NotificationsService {
     }).format(order.event.startsAt);
 
     const sender = getWhatsAppSender();
-    for (const ticket of order.tickets) {
+    for (const ticket of ingressos) {
       const lines = [
         `🎟️ *${order.event.title}* — ${eventDate}`,
         `${ticket.ticketLot.ticketType.name} / ${ticket.ticketLot.name}`,
@@ -261,7 +291,7 @@ export class NotificationsService {
       });
     }
 
-    return { sent: true, tickets: order.tickets.length, phone };
+    return { sent: true, tickets: ingressos.length, phone };
   }
 
   /**

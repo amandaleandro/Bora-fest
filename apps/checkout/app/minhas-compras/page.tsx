@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type Order } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { pedidoGratis, precoOuGratis } from "../../lib/preco";
+import {
+  erroDoNaoVou,
+  SESSAO_EXPIRADA_NAO_VOU,
+  textoLiberou,
+  textosConfirmacaoNaoVou,
+  type ErroNaoVou,
+} from "../../lib/nao-vou-mais";
 import { Icon, paths } from "../../components/icons";
 
 interface PurchaseRow {
@@ -18,6 +25,19 @@ interface PurchaseRow {
   ended: boolean;
   /** reembolso solicitado e ainda em análise — badge âmbar + botão travado */
   refundRequested?: boolean;
+  /** último pedido de reembolso foi recusado (2026-10-13): o ingresso segue valendo */
+  refundRejected?: boolean;
+  /** motivo que a produção escreveu na recusa */
+  refundRejectedNote?: string | null;
+  /** ingressos do pedido (singular/plural do "Não vou mais") */
+  quantidade: number;
+  /**
+   * "Não vou mais" (2026-10-12): pedido grátis confirmado DA CONTA logada, antes
+   * do evento começar. O servidor confere tudo de novo — isto só decide o botão.
+   */
+  podeNaoVouMais?: boolean;
+  /** a pessoa acabou de liberar a vaga por aqui */
+  liberou?: { vagas: number; usados: number };
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -64,6 +84,9 @@ async function loadDeviceOrders(skip: Set<string>): Promise<PurchaseRow[]> {
         startsAt: null,
         itemsLabel: (order.items ?? []).map((i) => `${i.quantity}× ingresso`).join(", "),
         ended: false,
+        quantidade: (order.items ?? []).reduce((soma, i) => soma + i.quantity, 0),
+        // pedido lembrado só no aparelho não é da conta logada: sem "Não vou mais"
+        podeNaoVouMais: false,
       });
     } catch {
       /* pedido inacessível — ignora */
@@ -78,12 +101,21 @@ export default function PurchasesPage() {
   const [refundFor, setRefundFor] = useState<string | null>(null);
   const [refundOk, setRefundOk] = useState<string | null>(null);
   const [refundReviewer, setRefundReviewer] = useState<string | null>(null);
+  // clique duplo no "Confirmar solicitação" (2026-10-12): a segunda chamada nem
+  // sai — o ref vale antes do próximo render; o estado trava o botão na tela
+  const [refundEnviando, setRefundEnviando] = useState(false);
+  const refundTravado = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // 2026-10-12: sem sessão, a lista vazia convida a entrar — quem comprou com
   // a conta não via as compras e não sabia que era só fazer login
   const [logado, setLogado] = useState(false);
   // API falhou com sessão válida: a lista pode estar incompleta
   const [falhou, setFalhou] = useState(false);
+  // "Não vou mais": confirmação no próprio card (como o "Cancelar ingresso" do painel)
+  const [naoVouFor, setNaoVouFor] = useState<string | null>(null);
+  const [naoVouEnviando, setNaoVouEnviando] = useState(false);
+  const [naoVouErro, setNaoVouErro] = useState<ErroNaoVou | null>(null);
+  const naoVouTravado = useRef(false);
 
   useEffect(() => {
     async function load() {
@@ -101,6 +133,14 @@ export default function PurchasesPage() {
             itemsLabel: o.items.map((i) => `${i.quantity}× ${i.ticketLot.name}`).join(", "),
             ended: new Date(o.event.endsAt).getTime() < Date.now(),
             refundRequested: o.refundRequested === true,
+            refundRejected: o.refundRequestStatus === "REJECTED",
+            refundRejectedNote: o.refundRequestNote ?? null,
+            quantidade: o.items.reduce((soma, i) => soma + i.quantity, 0),
+            // /v1/me/orders só traz pedidos DESTA conta: grátis, confirmado e antes do início
+            podeNaoVouMais:
+              pedidoGratis(o) &&
+              ["PAID", "FULFILLED"].includes(o.status) &&
+              new Date(o.event.startsAt).getTime() > Date.now(),
           }));
           setLogado(true);
         } catch (e) {
@@ -119,6 +159,9 @@ export default function PurchasesPage() {
   }, []);
 
   async function requestRefund(token: string) {
+    if (refundTravado.current) return;
+    refundTravado.current = true;
+    setRefundEnviando(true);
     setError(null);
     try {
       const created = await api.requestRefund(token, "Solicitado pelo comprador no app");
@@ -126,9 +169,65 @@ export default function PurchasesPage() {
       setRefundOk(token);
       setRefundFor(null);
       // card vira "em análise" na hora, sem esperar recarregar
-      setRows((prev) => prev?.map((r) => (r.publicToken === token ? { ...r, refundRequested: true } : r)) ?? prev);
+      setRows((prev) => prev?.map((r) => (r.publicToken === token ? { ...r, refundRequested: true, refundRejected: false } : r)) ?? prev);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível solicitar");
+    } finally {
+      refundTravado.current = false;
+      setRefundEnviando(false);
+    }
+  }
+
+  function abrirNaoVou(token: string) {
+    setNaoVouErro(null);
+    setNaoVouFor((atual) => (atual === token ? null : token));
+  }
+
+  /** "Não vou mais": libera a vaga do ingresso grátis. O servidor confere dono, prazo e valor. */
+  async function liberarVaga(publicToken: string) {
+    // clique duplo: a segunda chamada nem sai (o ref vale antes do próximo render)
+    if (naoVouTravado.current) return;
+    const sessao = localStorage.getItem("bf.token");
+    const expirou = { mensagem: SESSAO_EXPIRADA_NAO_VOU, tipo: "sessao" as const };
+    if (!sessao) {
+      setNaoVouErro(expirou);
+      return;
+    }
+    naoVouTravado.current = true;
+    setNaoVouEnviando(true);
+    setNaoVouErro(null);
+    try {
+      const feito = await api.naoVouMais(publicToken, sessao);
+      setRows(
+        (prev) =>
+          prev?.map((r) =>
+            r.publicToken === publicToken
+              ? {
+                  ...r,
+                  status: feito.status,
+                  podeNaoVouMais: false,
+                  liberou: { vagas: feito.vagasLiberadas, usados: feito.ingressosUsados },
+                }
+              : r,
+          ) ?? prev,
+      );
+      setNaoVouFor(null);
+    } catch (e) {
+      const erro = erroDoNaoVou(e, expirou);
+      setNaoVouErro(erro);
+      // recusa do servidor costuma ser porque o pedido mudou (o produtor cancelou,
+      // outra aba liberou): relê a situação para o selo não seguir "garantido"
+      if (erro.tipo === "definitivo") {
+        api
+          .getOrderStatus(publicToken)
+          .then((o) =>
+            setRows((prev) => prev?.map((r) => (r.publicToken === publicToken ? { ...r, status: o.status } : r)) ?? prev),
+          )
+          .catch(() => undefined);
+      }
+    } finally {
+      naoVouTravado.current = false;
+      setNaoVouEnviando(false);
     }
   }
 
@@ -196,10 +295,26 @@ export default function PurchasesPage() {
               <p className="mt-1 text-[12px] font-semibold text-ink-soft">{row.itemsLabel}</p>
               <p className="mt-1 text-[15px] font-extrabold">{precoOuGratis(row.totalCents)}</p>
 
+              {row.liberou && (
+                <p className="mt-1 text-[12px] font-semibold text-muted">{textoLiberou(row.liberou)}</p>
+              )}
+
+              {/* recusa (2026-10-13): antes seguia "em análise" para sempre; o pedido
+                  continua aprovado e o ingresso vale — só explica o que houve */}
+              {row.refundRejected && !row.refundRequested && ["PAID", "FULFILLED"].includes(row.status) && !pedidoGratis(row) && (
+                <div className="mt-3 rounded-xl bg-line p-3 text-[12px] font-semibold text-ink-soft">
+                  <p className="font-bold text-ink">Pedido de reembolso recusado</p>
+                  {row.refundRejectedNote && <p className="mt-0.5">Motivo: {row.refundRejectedNote}</p>}
+                  <p className="mt-0.5">Seus ingressos continuam valendo. Se tiver dúvida, fale com a produção do evento.</p>
+                </div>
+              )}
+
               {refundOk === row.publicToken && (
                 <div className="mt-3 rounded-xl bg-success/10 p-3 text-[12px] font-bold text-success">
-                  Pedido de reembolso enviado para {refundReviewer ?? "análise"} — até 5 dias úteis
-                  para resposta (CDC art. 49) ✅
+                  {/* sem prazo prometido (2026-10-12): o servidor só registra o pedido
+                      para análise — não há prazo de resposta aplicado em lugar nenhum */}
+                  Pedido de reembolso enviado para análise{refundReviewer ? ` de ${refundReviewer}` : ""}. Até a
+                  resposta, seus ingressos continuam valendo.
                 </div>
               )}
 
@@ -216,10 +331,68 @@ export default function PurchasesPage() {
                   </button>
                   {/* pedido de R$ 0 não tem reembolso nem prazo do CDC: não houve pagamento (2026-10-11) */}
                   {!row.refundRequested && !pedidoGratis(row) && (
-                    <button onClick={() => setRefundFor(row.publicToken)} className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
+                    <button onClick={() => { setError(null); setRefundFor(row.publicToken); }} className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold text-danger">
                       Reembolso
                     </button>
                   )}
+                  {/* grátis se cancela, não se reembolsa: a própria pessoa libera a vaga até o início (2026-10-12) */}
+                  {row.podeNaoVouMais && (
+                    <button
+                      type="button"
+                      onClick={() => abrirNaoVou(row.publicToken)}
+                      aria-expanded={naoVouFor === row.publicToken}
+                      className="flex-1 rounded-xl border-[1.5px] border-line-input py-2.5 text-[12px] font-bold"
+                    >
+                      Não vou mais
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {row.podeNaoVouMais && naoVouFor === row.publicToken && ["PAID", "FULFILLED"].includes(row.status) && !row.ended && (
+                <div className="mt-3 space-y-2 rounded-xl border-[1.5px] border-danger/35 bg-danger/[.06] p-3.5">
+                  <p className="text-[13px] font-extrabold text-ink">{textosConfirmacaoNaoVou(row.quantidade).titulo}</p>
+                  <p className="text-[12.5px] font-medium leading-relaxed text-ink-soft">
+                    {textosConfirmacaoNaoVou(row.quantidade).explicacao}
+                  </p>
+                  {naoVouErro && (
+                    <p className="text-[12.5px] font-semibold text-danger">
+                      {naoVouErro.mensagem}
+                      {naoVouErro.tipo === "sessao" && (
+                        <>
+                          {" "}
+                          <Link href="/perfil" className="font-bold text-primary underline">
+                            Entrar na minha conta
+                          </Link>
+                        </>
+                      )}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => abrirNaoVou(row.publicToken)}
+                      disabled={naoVouEnviando}
+                      className="flex-1 rounded-xl border-[1.5px] border-line-input bg-surface py-2.5 text-[12px] font-bold disabled:opacity-40"
+                    >
+                      Voltar
+                    </button>
+                    {/* recusa do servidor (evento começou, já cancelado…) não muda tentando de novo */}
+                    {naoVouErro?.tipo !== "definitivo" && (
+                      <button
+                        type="button"
+                        onClick={() => liberarVaga(row.publicToken)}
+                        disabled={naoVouEnviando}
+                        className="flex-1 rounded-xl bg-danger py-2.5 text-[12px] font-bold text-white disabled:opacity-40"
+                      >
+                        {naoVouEnviando
+                          ? "Liberando…"
+                          : naoVouErro?.tipo === "tentar"
+                            ? "Tentar novamente"
+                            : textosConfirmacaoNaoVou(row.quantidade).botao}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </article>
@@ -227,20 +400,43 @@ export default function PurchasesPage() {
         </div>
       )}
 
-      {error && <p className="mt-3 text-center text-[12px] font-semibold text-danger">{error}</p>}
+      {error && !refundFor && <p className="mt-3 text-center text-[12px] font-semibold text-danger">{error}</p>}
 
       {refundFor && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center" onClick={() => setRefundFor(null)}>
+        <div
+          className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center"
+          onClick={() => {
+            if (!refundEnviando) setRefundFor(null);
+          }}
+        >
           <div className="w-full max-w-[430px] rounded-t-3xl bg-surface p-6 lg:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-[18px] font-extrabold">Solicitar reembolso</h2>
-            <p className="mt-2 text-[13px] font-medium text-muted">
-              Compras feitas há até 7 dias têm reembolso garantido (CDC art. 49). O produtor responde em
-              até 5 dias úteis e os ingressos são cancelados quando o estorno for aprovado.
+            {/* TEXTO HONESTO (2026-10-12). Antes prometia reembolso certo para compra
+                de até 7 dias e prazo de resposta do produtor — o servidor não aplica
+                nenhum dos dois: só registra o pedido para análise do organizador
+                (repasse instantâneo) ou da BoraFest. Aprovado, o estorno sai pelo
+                gateway; só o estorno TOTAL cancela os ingressos (o parcial os mantém). */}
+            <p className="mt-2 text-[13px] font-medium leading-relaxed text-muted">
+              Seu pedido vai para análise do organizador do evento ou da BoraFest. Até a resposta, os ingressos
+              continuam valendo. Se for aprovado, o valor aprovado volta pelo mesmo meio de pagamento — e, no
+              reembolso total, os ingressos do pedido são cancelados.
             </p>
-            <button onClick={() => requestRefund(refundFor)} className="mt-5 h-14 w-full rounded-2xl bg-danger text-[15px] font-extrabold text-white">
-              Confirmar solicitação
+            <p className="mt-2 text-[12px] font-medium leading-relaxed text-muted-2">
+              A lei dá 7 dias para desistir de compra feita pela internet (CDC art. 49).
+            </p>
+            {error && <p className="mt-3 text-[12.5px] font-semibold text-danger">{error}</p>}
+            <button
+              onClick={() => requestRefund(refundFor)}
+              disabled={refundEnviando}
+              className="mt-5 h-14 w-full rounded-2xl bg-danger text-[15px] font-extrabold text-white disabled:opacity-60"
+            >
+              {refundEnviando ? "Enviando…" : "Confirmar solicitação"}
             </button>
-            <button onClick={() => setRefundFor(null)} className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold">
+            <button
+              onClick={() => setRefundFor(null)}
+              disabled={refundEnviando}
+              className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold disabled:opacity-60"
+            >
               Cancelar
             </button>
           </div>

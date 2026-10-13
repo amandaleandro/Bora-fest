@@ -250,6 +250,8 @@ services:
       PLATFORM_CARD_FEE_BPS: ${PLATFORM_CARD_FEE_BPS:-500}
       PLATFORM_CARD_FEE_FLOOR_CENTS: ${PLATFORM_CARD_FEE_FLOOR_CENTS:-150}
       PAYMENT_MIN_CHARGE_CENTS: ${PAYMENT_MIN_CHARGE_CENTS:-500}
+      # LGPD: corpo cru dos webhooks de pagamento sai depois de N dias (a linha fica)
+      WEBHOOK_RAW_RETENTION_DAYS: ${WEBHOOK_RAW_RETENTION_DAYS:-90}
     depends_on:
       postgres:
         condition: service_healthy

@@ -16,6 +16,8 @@ import { getOrganizationBalanceCents } from "../common/ledger";
 import { UPLOADS_DIR } from "../uploads/uploads.constants";
 import { SLUGS_RESERVADOS } from "../common/slugs-reservados";
 import { alteracoesDoEvento } from "../common/auditoria-produtor";
+import { criarTokenDeDescadastro, linksDeDescadastro } from "../descadastro/descadastro-token";
+import { montarAvisoAosSeguidores } from "../descadastro/aviso-seguidores";
 
 /** Assinatura (magic bytes) dos formatos aceitos — mimetype do multipart é só o que o cliente alegou. */
 const MAGIC_BYTES: Record<string, { ext: string; signature: number[]; offset?: number }> = {
@@ -32,6 +34,65 @@ function detectImageExt(head: Buffer): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Escapa texto livre antes de entrar no HTML do e-mail — a mesma troca do
+ * escapeHtml do pacote de notificações (crm-reactivation), que não é exportado.
+ */
+function escaparHtml(valor: string): string {
+  return valor
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * E-mail "o evento foi cancelado" para quem pagou (2026-10-12): título, nome
+ * da Casa e motivo são texto que o produtor digitou — no HTML entram
+ * ESCAPADOS (antes, um "<" no motivo ou no título quebrava o e-mail, e uma tag
+ * entrava como HTML de verdade no e-mail de todos os compradores). O texto
+ * puro e o assunto não são HTML e seguem sem troca.
+ *  - daPorta: comprou na porta — o cancelamento não estorna essa venda, então
+ *    o e-mail não promete dinheiro de volta.
+ */
+export function montarAvisoDeCancelamento(input: {
+  titulo: string;
+  casa: string | null;
+  motivo: string;
+  daPorta: boolean;
+}): { subject: string; html: string; text: string } {
+  const titulo = input.titulo.trim();
+  const motivo = input.motivo.trim();
+  const quem = input.casa ? `por ${input.casa}` : "pela produção do evento";
+  const quemHtml = input.casa ? `por ${escaparHtml(input.casa)}` : "pela produção do evento";
+  const motivoHtml = escaparHtml(motivo).replace(/\r?\n/g, "<br />");
+  const abertura =
+    `<p><strong>${escaparHtml(titulo)}</strong> foi cancelado ${quemHtml}.</p>` + `<p>Motivo: ${motivoHtml}</p>`;
+
+  if (input.daPorta) {
+    const final = "Seu ingresso foi comprado na porta: para o valor pago, fale direto com a produção do evento.";
+    return {
+      subject: `${titulo} foi cancelado`,
+      html: `${abertura}<p>${final}</p>`,
+      text: `${titulo} foi cancelado ${quem}. Motivo: ${motivo}. ${final}`,
+    };
+  }
+  return {
+    subject: `${titulo} foi cancelado — seu dinheiro está voltando`,
+    html:
+      abertura +
+      `<p>Você não precisa fazer nada: o valor pago está sendo devolvido pelo mesmo meio ` +
+      `em que você pagou. No Pix costuma cair em minutos; no cartão, o estorno aparece ` +
+      `na fatura conforme o prazo do seu banco.</p>`,
+    text:
+      `${titulo} foi cancelado ${quem}. Motivo: ${motivo}. ` +
+      `O valor pago está sendo devolvido pelo mesmo meio em que você pagou — ` +
+      `Pix costuma cair em minutos; no cartão, o estorno aparece na fatura ` +
+      `conforme o prazo do seu banco.`,
+  };
 }
 
 function slugify(title: string): string {
@@ -91,21 +152,42 @@ export class EventsService {
       venueId = input.venueId;
     }
 
-    return prisma.event.create({
-      data: {
-        organizationId,
-        venueId,
-        title: input.title,
-        slug,
-        description: input.description,
-        lineup: input.lineup,
-        amenities: input.amenities,
-        minAge: input.minAge,
-        category: input.category,
-        startsAt: new Date(input.startsAt),
-        endsAt: new Date(input.endsAt),
-        timezone: input.timezone,
-      },
+    // RASTRO (2026-10-12): "quem criou este evento?" — o evento e o registro na
+    // auditoria saem juntos, como na edição, na publicação e na nova edição
+    return prisma.$transaction(async (tx) => {
+      const criado = await tx.event.create({
+        data: {
+          organizationId,
+          venueId,
+          title: input.title,
+          slug,
+          description: input.description,
+          lineup: input.lineup,
+          amenities: input.amenities,
+          minAge: input.minAge,
+          category: input.category,
+          startsAt: new Date(input.startsAt),
+          endsAt: new Date(input.endsAt),
+          timezone: input.timezone,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          organizationId,
+          action: "event.create",
+          entityType: "event",
+          entityId: criado.id,
+          metadata: {
+            title: criado.title,
+            slug: criado.slug,
+            startsAt: criado.startsAt.toISOString(),
+            endsAt: criado.endsAt.toISOString(),
+            venueId: criado.venueId ?? null,
+          },
+        },
+      });
+      return criado;
     });
   }
 
@@ -332,11 +414,16 @@ export class EventsService {
     const [followers, organization] = await Promise.all([
       prisma.organizationFollow.findMany({
         where: { organizationId: event.organizationId },
-        include: { user: { select: { email: true } } },
+        select: { userId: true, user: { select: { email: true } } },
       }),
-      prisma.organization.findUnique({ where: { id: event.organizationId }, select: { name: true } }),
+      prisma.organization.findUnique({
+        where: { id: event.organizationId },
+        select: { name: true, displayName: true },
+      }),
     ]);
-    const recipients = followers.map((f) => f.user.email).filter((email): email is string => !!email);
+    const recipients = followers.flatMap((f) =>
+      f.user.email && !semEmailReal(f.user.email) ? [{ userId: f.userId, email: f.user.email }] : [],
+    );
     if (recipients.length === 0) return;
 
     // 2026-10-12: link curto /<slug> (o /evento/<slug> antigo só redirecionava)
@@ -345,15 +432,24 @@ export class EventsService {
       process.env.WEB_BASE_URL ??
       (process.env.NODE_ENV === "production" ? "https://borafest.com.br" : "http://localhost:3000");
     const link = `${webBaseUrl}/${event.slug}`;
+    // nome público da Casa (o nome civil de produtor pessoa física não sai no e-mail)
+    const casa = organization ? organization.displayName?.trim() || organization.name : null;
     const sender = getEmailSender();
     await Promise.allSettled(
-      recipients.map((to) =>
-        sender.send({
-          to,
-          subject: `${organization?.name ?? "Um produtor que você segue"} publicou um novo evento`,
-          html: `<p>${event.title} já está com vendas abertas.</p><p><a href="${link}">${link}</a></p>`,
-          text: `${event.title} já está com vendas abertas: ${link}`,
-        }),
+      recipients.map(async ({ userId, email }) =>
+        sender.send(
+          montarAvisoAosSeguidores({
+            to: email,
+            casa,
+            tituloDoEvento: event.title,
+            linkDoEvento: link,
+            // LGPD (2026-10-12): "Não quero mais receber" no rodapé e no
+            // cabeçalho List-Unsubscribe — deixa de seguir ESTA Casa
+            descadastro: linksDeDescadastro(
+              criarTokenDeDescadastro({ tipo: "seguidor", organizationId: event.organizationId, userId }),
+            ),
+          }),
+        ),
       ),
     );
   }
@@ -753,44 +849,13 @@ export class EventsService {
         where: { id: event.organizationId },
         select: { name: true, displayName: true },
       });
-      const casa = organization?.displayName ?? organization?.name ?? "A produtora";
+      const casa = organization?.displayName?.trim() || organization?.name?.trim() || null;
       const sender = getEmailSender();
-      const motivo = reason.trim();
+      const aviso = (daPortaDoEvento: boolean) =>
+        montarAvisoDeCancelamento({ titulo: event.title, casa, motivo: reason, daPorta: daPortaDoEvento });
 
-      await Promise.allSettled(
-        daPorta.map((to) =>
-          sender.send({
-            to,
-            subject: `${event.title} foi cancelado`,
-            html:
-              `<p><strong>${event.title}</strong> foi cancelado por ${casa}.</p>` +
-              `<p>Motivo: ${motivo}</p>` +
-              `<p>Seu ingresso foi comprado na porta: para o valor pago, fale direto com a produção do evento.</p>`,
-            text:
-              `${event.title} foi cancelado por ${casa}. Motivo: ${motivo}. ` +
-              `Seu ingresso foi comprado na porta: para o valor pago, fale direto com a produção do evento.`,
-          }),
-        ),
-      );
-      await Promise.allSettled(
-        destinatarios.map((to) =>
-          sender.send({
-            to,
-            subject: `${event.title} foi cancelado — seu dinheiro está voltando`,
-            html:
-              `<p><strong>${event.title}</strong> foi cancelado por ${casa}.</p>` +
-              `<p>Motivo: ${motivo}</p>` +
-              `<p>Você não precisa fazer nada: o valor pago está sendo devolvido pelo mesmo meio ` +
-              `em que você pagou. No Pix costuma cair em minutos; no cartão, o estorno aparece ` +
-              `na fatura conforme o prazo do seu banco.</p>`,
-            text:
-              `${event.title} foi cancelado por ${casa}. Motivo: ${motivo}. ` +
-              `O valor pago está sendo devolvido pelo mesmo meio em que você pagou — ` +
-              `Pix costuma cair em minutos; no cartão, o estorno aparece na fatura ` +
-              `conforme o prazo do seu banco.`,
-          }),
-        ),
-      );
+      await Promise.allSettled(daPorta.map((to) => sender.send({ to, ...aviso(true) })));
+      await Promise.allSettled(destinatarios.map((to) => sender.send({ to, ...aviso(false) })));
     } catch {
       // avisar é importante, mas nunca ao ponto de travar o reembolso
     }

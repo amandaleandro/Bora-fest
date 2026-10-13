@@ -151,9 +151,44 @@ export interface AvailabilityItem {
 export interface Reservation {
   id: string;
   eventId: string;
+  /** slug do evento (2026-10-12): reabre o catálogo mesmo de evento privado, fora da vitrine */
+  eventSlug?: string;
   status: string;
   expiresAt: string;
-  items: Array<{ ticketLotId: string; quantity: number; priceCents: number; feeCents: number; halfPrice?: boolean }>;
+  items: Array<ReservationItem>;
+}
+
+/**
+ * Item da reserva. Os dados do lote vêm da RESERVA desde 2026-10-12 (opcionais
+ * para a API antiga): a página pública esconde lote encerrado, e o checkout
+ * perdia nome, nominal/CPF e quem paga a taxa se o lote fechasse no meio.
+ */
+export interface ReservationItem {
+  ticketLotId: string;
+  quantity: number;
+  priceCents: number;
+  feeCents: number;
+  halfPrice?: boolean;
+  lotName?: string;
+  ticketTypeName?: string;
+  nominal?: boolean;
+  requiresCpf?: boolean;
+  feeMode?: "BUYER" | "PRODUCER";
+  /** NONE = lote aberto; os demais são restritos (link, convite por e-mail) */
+  inviteMode?: string;
+}
+
+/** "Não vou mais" (ingresso grátis): o botão aparece? `vagas` = quantas voltariam. */
+export interface NaoVouMaisSituacao {
+  podeLiberar: boolean;
+  vagas: number;
+}
+
+/** Resultado do "Não vou mais": status do pedido depois (CANCELED, ou o mesmo se alguém já entrou). */
+export interface NaoVouMaisResultado {
+  status: string;
+  vagasLiberadas: number;
+  ingressosUsados: number;
 }
 
 export interface Order {
@@ -183,6 +218,19 @@ export interface Order {
   tickets?: Array<{ id: string; code: string; status: string }>;
   /** proteção de reembolso (upsell) */
   protection?: { purchased: boolean; feeCents: number; canRefund: boolean };
+  /**
+   * O banco pagou um valor diferente do cobrado (2026-10-12): nada foi
+   * confirmado e a equipe vai acertar. Vem no /status (o mesmo sim/não do sync
+   * do pagamento), então o polling de 3 s vê na hora. Ausente = API que não
+   * manda o campo — a tela não conclui nada (nem "não").
+   */
+  valorDiferente?: boolean;
+  /**
+   * Promoter a quem a venda ficou atribuída — vem na criação do pedido
+   * (2026-10-12). `null` = nenhum (o código digitado não valeu); ausente = API
+   * que não manda o campo, e aí a tela não conclui nada.
+   */
+  promoterLinkId?: string | null;
 }
 
 export interface PixPayment {
@@ -385,6 +433,8 @@ export const api = {
       couponCode?: string;
       partnerSlug?: string;
       promoterSlug?: string;
+      /** código pessoal do promoter digitado no checkout (ex.: BIA10); o link (?pr=) tem prioridade */
+      promoterCode?: string;
       sellerSlug?: string;
       contactCpf?: string;
       addOns?: Array<{ addOnId: string; quantity: number }>;
@@ -409,7 +459,12 @@ export const api = {
 
   /** Checagem ativa no gateway — cobre webhook atrasado (a tela do Pix avança sem depender dele). */
   syncPayment: (orderId: string) =>
-    request<{ synced: boolean; status?: string }>(`/v1/orders/${orderId}/payments/sync`, { method: "POST", body: {} }),
+    request<{
+      synced: boolean;
+      status?: string;
+      /** o banco pagou um valor diferente do cobrado: nada foi confirmado e a equipe vai acertar (2026-10-12) */
+      valorDiferente?: boolean;
+    }>(`/v1/orders/${orderId}/payments/sync`, { method: "POST", body: {} }),
 
   /**
    * Venda na porta — DINHEIRO. O pedido JÁ nasce PAGO e os ingressos são
@@ -554,6 +609,21 @@ export const api = {
       method: "POST",
       body: { email },
     }),
+  /** "Não vou mais": o botão aparece para esta conta? (só o dono, grátis, antes do evento) */
+  naoVouMaisSituacao: (publicToken: string, token: string) =>
+    request<NaoVouMaisSituacao>(`/v1/orders/${publicToken}/nao-vou-mais`, { token }),
+  /** "Não vou mais": libera a vaga do ingresso grátis — exige a sessão do dono do pedido */
+  naoVouMais: (publicToken: string, token: string) =>
+    request<NaoVouMaisResultado>(`/v1/orders/${publicToken}/nao-vou-mais`, { method: "POST", token }),
+  /**
+   * Convite pessoal por e-mail: o código guardado do evento é de um convite
+   * para ESTE e-mail? 404/erro = não é (ou a rota ainda não existe) — o
+   * checkout segue normal e o servidor recusa e-mail diferente de qualquer jeito.
+   */
+  getConviteEmail: (inviteToken: string) =>
+    request<{ email: string; eventSlug?: string; lote?: { id: string; name?: string; ticketTypeName?: string } }>(
+      `/v1/public/convites/${encodeURIComponent(inviteToken)}`,
+    ),
   /** "este pedido é meu": traz para a conta logada um pedido preso em conta de e-mail errado */
   claimOrder: (publicToken: string, token: string) =>
     request<{ ok: boolean; contactEmail: string; jaEra?: boolean }>(
@@ -607,6 +677,10 @@ export const api = {
       items: Array<{ quantity: number; ticketLot: { name: string } }>;
       /** há pedido de reembolso PENDENTE — o app mostra "em análise" e trava o botão */
       refundRequested?: boolean;
+      /** situação do ÚLTIMO pedido de reembolso (2026-10-13); null = nunca pediu */
+      refundRequestStatus?: "PENDING" | "APPROVED" | "REJECTED" | null;
+      /** motivo da recusa (o comprador também recebe por e-mail) */
+      refundRequestNote?: string | null;
     }>>("/v1/me/orders", { token }),
 
   myDataExport: (token: string) => request<unknown>("/v1/me/data-export", { token }),

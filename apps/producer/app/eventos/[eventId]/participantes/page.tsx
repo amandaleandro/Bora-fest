@@ -33,6 +33,8 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
   const [attempt, setAttempt] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // planilha só com o cabeçalho não é falha (2026-10-12): diz que não há ninguém ainda
+  const [exportVazio, setExportVazio] = useState(false);
   const [query, setQuery] = useState("");
   // o termo de fato buscado: espera a digitação parar, senão seria uma
   // consulta por tecla
@@ -81,11 +83,13 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   async function handleExport() {
-    if (!token) return;
+    if (!token || exporting) return;
     setExporting(true);
     setExportError(null);
+    setExportVazio(false);
     try {
-      await dashboardApi.downloadParticipantsCsv(token, eventId);
+      const { vazio } = await dashboardApi.downloadParticipantsCsv(token, eventId);
+      setExportVazio(vazio);
     } catch (err) {
       // falha do CSV não pode passar calada (2026-10-12): o botão só voltava
       setExportError(err instanceof Error ? err.message : "Não foi possível exportar");
@@ -104,7 +108,7 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
           </Link>
         </div>
         <button type="button" onClick={handleExport} disabled={exporting} className="btn-primary">
-          {exporting ? "Exportando..." : "Exportar CSV"}
+          {exporting ? "Exportando..." : "Exportar participantes (CSV)"}
         </button>
       </div>
 
@@ -113,6 +117,15 @@ function ParticipantsContent({ eventId }: { eventId: string }) {
           {exportError}
         </p>
       )}
+      {exportVazio && !exportError && (
+        <p className="mt-3 rounded-xl border border-line bg-surface px-4 py-2.5 text-[12.5px] font-bold text-muted">
+          Nenhum ingresso emitido neste evento até agora — a planilha saiu só com o cabeçalho.
+        </p>
+      )}
+      <p className="mt-2 text-[12px] font-semibold text-muted">
+        A planilha traz todos os ingressos do evento (não só esta página): código, nome, e-mail, tipo, lote,
+        situação, hora da entrada e se é meia-entrada.
+      </p>
 
       <div className="mt-5">
         <input

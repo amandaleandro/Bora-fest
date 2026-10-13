@@ -12,6 +12,7 @@ import {
 import type { CreateCardPaymentInput, CreatePixPaymentInput } from "@borafest/contracts";
 import { emReais, minimoDaCobrancaCents } from "../common/minimo-cobranca";
 import { IdempotencyService } from "../common/idempotency.service";
+import { pagouValorDiferente } from "./valor-diferente";
 
 /**
  * Valor mínimo por cobrança do provedor (Asaas: R$ 5,00). Abaixo disso a
@@ -239,7 +240,32 @@ export class PaymentsService {
    * o status na hora. Cobre o webhook atrasado/perdido: a tela do Pix avança
    * sem depender dele. Idempotente — se o webhook chegar depois, é no-op.
    */
-  async syncPendingPayment(orderId: string) {
+  async syncPendingPayment(orderId: string): Promise<{ synced: boolean; status?: string; valorDiferente?: boolean }> {
+    const sync = await this.sincronizarNoGateway(orderId);
+    // VALOR DIFERENTE DO COBRADO (2026-10-12): o gateway diz "pago", mas entrou
+    // menos — nada foi faturado e o pedido segue pendente. A tela do Pix lê este
+    // sim/não para trocar "Aguardando pagamento" por "nossa equipe vai falar com
+    // você". Conferido DEPOIS do sync: ele pode ter acabado de detectar.
+    const valorDiferente = await this.valorDiferenteDoCobrado(orderId);
+    return valorDiferente === undefined ? sync : { ...sync, valorDiferente };
+  }
+
+  /** Só um sim/não: valores e metadata do pagamento não saem desta rota pública. */
+  private async valorDiferenteDoCobrado(orderId: string): Promise<boolean | undefined> {
+    try {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { status: true, payments: { select: { metadata: true } } },
+      });
+      return order ? pagouValorDiferente(order) : false;
+    } catch (error) {
+      // sem conferir, a tela segue como antes (aguardando) — não inventa "não"
+      this.logger.warn(`conferência de valor diferente do pedido ${orderId} falhou: ${String(error)}`);
+      return undefined;
+    }
+  }
+
+  private async sincronizarNoGateway(orderId: string): Promise<{ synced: boolean; status?: string }> {
     const payment = await prisma.payment.findFirst({
       where: { orderId, status: "PENDING", externalId: { not: null } },
       orderBy: { createdAt: "desc" },

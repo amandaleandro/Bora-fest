@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PERMISSIONS } from "@borafest/auth";
 import { Prisma, prisma } from "@borafest/database";
 import { OrgAccessService } from "../common/org-access.service";
-import { SQL_PEDIDO_COM_VALOR } from "../common/conta-como-venda";
+import { SQL_PEDIDO_COM_VALOR, SQL_PEDIDO_DA_LISTA, SQL_PEDIDO_GRATIS } from "../common/conta-como-venda";
 
 type AggregateRow = {
   promoterLinkId: string;
@@ -16,6 +16,9 @@ type AggregateRow = {
   soldCheckedIn: number;
   guestsRegistered: number;
   guestsCheckedIn: number;
+  /** GRÁTIS PELO LINK (2026-10-12): R$ 0 que não é lista — pegaram / entraram */
+  freeTaken: number;
+  freeCheckedIn: number;
 };
 
 @Injectable()
@@ -92,12 +95,13 @@ export class PromoterPerformanceService {
               o.promoter_seller_id,
               o.total_cents,
               o.promoter_commission_cents,
-              (o.total_cents = 0 AND EXISTS (
-                SELECT 1 FROM guest_list_entries g WHERE g.order_id = o.id
-              )) AS is_guest,
-              -- É VENDA (2026-10-11): regra única em common/conta-como-venda.ts,
-              -- a mesma de "Por vendedor" e da competição de atléticas
-              (${SQL_PEDIDO_COM_VALOR}) AS is_sale
+              -- OS TRÊS BALDES (2026-10-12): venda, lista e grátis saem da regra
+              -- única de common/conta-como-venda.ts — a mesma de "Por vendedor"
+              -- e da competição de atléticas. Cada pedido cai em um só.
+              (${SQL_PEDIDO_DA_LISTA}) AS is_guest,
+              (${SQL_PEDIDO_COM_VALOR}) AS is_sale,
+              -- grátis que não é lista: lote grátis pelo link dele, cupom de 100%
+              (${SQL_PEDIDO_GRATIS}) AS is_free
             FROM orders o
             WHERE o.event_id = ${eventId}::uuid
               AND o.promoter_link_id IN (${Prisma.join(linkIds.map((id) => Prisma.sql`${id}::uuid`))})
@@ -136,13 +140,32 @@ export class PromoterPerformanceService {
           -- com "is_guest = false", o lote grátis do link do promoter e o cupom de
           -- 100% entravam aqui sem entrar em ticketsSold, e o promoter podia ter
           -- mais vendidos que entraram do que vendidos.
+          --
+          -- GRÁTIS (2026-10-12): "entraram" é o ingresso carimbado; o que deixou
+          -- de valer ("Cancelar ingresso" com alguém do pedido já dentro deixa o
+          -- pedido PAID e cancela só o resto) sai de "pegaram" logo abaixo.
           presence AS (
             SELECT
               a.promoter_link_id,
               COUNT(*) FILTER (WHERE a.is_sale AND t.status = 'CHECKED_IN')::int AS sold_checked_in,
-              COUNT(*) FILTER (WHERE a.is_guest = true AND t.status = 'CHECKED_IN')::int AS guests_checked_in
+              COUNT(*) FILTER (WHERE a.is_guest = true AND t.status = 'CHECKED_IN')::int AS guests_checked_in,
+              COUNT(*) FILTER (WHERE a.is_free AND t.status = 'CHECKED_IN')::int AS free_checked_in,
+              COUNT(*) FILTER (WHERE a.is_free AND t.status IN ('CANCELED', 'REFUNDED'))::int AS free_canceled
             FROM attributed a
             INNER JOIN tickets t ON t.order_id = a.id
+            GROUP BY a.promoter_link_id
+          ),
+          -- GRÁTIS — "pegaram" vem do item do pedido, não do ingresso: o worker
+          -- emite alguns segundos depois do pedido (sem ele, ingresso nenhum), e
+          -- pedido que já vale conta mesmo antes de o ingresso sair. Mesma base
+          -- de ticket_stats.
+          free_items AS (
+            SELECT
+              a.promoter_link_id,
+              COALESCE(SUM(oi.quantity), 0)::int AS free_items
+            FROM attributed a
+            INNER JOIN order_items oi ON oi.order_id = a.id
+            WHERE a.is_free
             GROUP BY a.promoter_link_id
           ),
           -- LISTA NÃO DEPENDE DO STATUS DO PEDIDO (2026-09-15): a base de VENDA
@@ -175,12 +198,15 @@ export class PromoterPerformanceService {
             COALESCE(ms.commission_cents, 0)::bigint AS "commissionCents",
             COALESCE(pr.sold_checked_in, 0)::int AS "soldCheckedIn",
             COALESCE(gs.guests_registered, 0)::int AS "guestsRegistered",
-            COALESCE(pr.guests_checked_in, 0)::int AS "guestsCheckedIn"
+            COALESCE(pr.guests_checked_in, 0)::int AS "guestsCheckedIn",
+            GREATEST(COALESCE(fi.free_items, 0) - COALESCE(pr.free_canceled, 0), 0)::int AS "freeTaken",
+            COALESCE(pr.free_checked_in, 0)::int AS "freeCheckedIn"
           FROM base b
           LEFT JOIN money_stats ms ON ms.promoter_link_id = b.promoter_link_id
           LEFT JOIN ticket_stats ts ON ts.promoter_link_id = b.promoter_link_id
           LEFT JOIN presence pr ON pr.promoter_link_id = b.promoter_link_id
           LEFT JOIN guest_stats gs ON gs.promoter_link_id = b.promoter_link_id
+          LEFT JOIN free_items fi ON fi.promoter_link_id = b.promoter_link_id
         `)
       : [];
 
@@ -217,6 +243,11 @@ export class PromoterPerformanceService {
           stats?.guestsRegistered
             ? Math.round((stats.guestsCheckedIn / stats.guestsRegistered) * 100)
             : null,
+        // GRÁTIS (2026-10-12): ingresso de R$ 0 fora da lista atribuído a ele
+        // (lote grátis pelo link, cupom de 100%). Não é venda nem lista, não
+        // mexe no ranking — é o número que faltava para quem divulga evento grátis.
+        freeTaken: stats?.freeTaken ?? 0,
+        freeCheckedIn: stats?.freeCheckedIn ?? 0,
       };
     });
 
@@ -255,6 +286,8 @@ export class PromoterPerformanceService {
         guestsRegistered: measured.reduce((sum, row) => sum + row.guestsRegistered, 0),
         guestsCheckedIn: measured.reduce((sum, row) => sum + row.guestsCheckedIn, 0),
         guestsNoShow: measured.reduce((sum, row) => sum + row.guestsNoShow, 0),
+        freeTaken: measured.reduce((sum, row) => sum + row.freeTaken, 0),
+        freeCheckedIn: measured.reduce((sum, row) => sum + row.freeCheckedIn, 0),
       },
       promoters: ranked,
     };

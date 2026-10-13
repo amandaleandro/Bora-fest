@@ -104,4 +104,12 @@ export class DashboardController {
   exportOrders(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
     return this.dashboardService.exportOrdersCsv(eventId, userId);
   }
+
+  /** meia-entrada (2026-10-12, Decreto 8.537/2015): um ingresso de meia por linha */
+  @Get("half-price/export")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", "attachment; filename=meia-entrada.csv")
+  exportMeiaEntrada(@Param("eventId") eventId: string, @CurrentUserId() userId: string) {
+    return this.dashboardService.exportMeiaEntradaCsv(eventId, userId);
+  }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useEventShell } from "@/lib/eventContext";
+import { PromotersDoEvento } from "@/components/PromotersDoEvento";
 import {
   getPromoterPerformance,
   type PromoterPerformanceResponse,
@@ -53,6 +54,13 @@ export default function PromotersPerformancePage() {
         </p>
       </div>
 
+      {/* código, cota e "Copiar link desta festa" (2026-10-12) — ver o componente */}
+      <PromotersDoEvento
+        organizationId={organization.id}
+        event={event}
+        privado={event.isPrivate}
+      />
+
       {error ? <p className="mt-6 rounded-2xl border border-danger/25 bg-danger/5 p-4 text-[12px] font-bold text-danger">{error}</p> : null}
 
       {loading && !data ? (
@@ -83,7 +91,10 @@ export default function PromotersPerformancePage() {
           <section className="mt-6 overflow-hidden rounded-3xl border border-line bg-surface">
             <div className="border-b border-line px-5 py-4">
               <h2 className="text-[15px] font-black text-ink">Ranking do evento</h2>
-              <p className="mt-1 text-[11.5px] font-semibold text-muted">Ingressos vendidos; faturamento desempata. <b>Entrou</b> mostra quantos da lista passaram pela porta de verdade.</p>
+              <p className="mt-1 text-[11.5px] font-semibold text-muted">
+                Ingressos vendidos; faturamento desempata. <b>Entrou</b> mostra quantos da lista passaram pela porta de verdade.{" "}
+                <b>Grátis</b> é quem pegou ingresso de R$ 0 pelo link ou código do promoter (lote grátis, cupom de 100%) — pegaram / entraram. Não conta como venda nem como lista.
+              </p>
             </div>
             {data.promoters.length === 0 ? (
               <div className="px-5 py-10 text-center">
@@ -92,7 +103,7 @@ export default function PromotersPerformancePage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[960px] text-left text-[12px]">
+                <table className="w-full min-w-[1060px] text-left text-[12px]">
                   <thead>
                     <tr className="border-b border-line bg-bg/55 text-[10.5px] font-extrabold uppercase tracking-[.04em] text-muted-2">
                       <th className="px-5 py-3">#</th>
@@ -103,6 +114,7 @@ export default function PromotersPerformancePage() {
                       <th className="px-4 py-3 text-right">Pedidos</th>
                       <th className="px-4 py-3 text-right">Lista</th>
                       <th className="px-4 py-3 text-right">Entrou</th>
+                      <th className="px-4 py-3 text-right">Grátis</th>
                       <th className="px-4 py-3 text-right">Faturamento</th>
                       <th className="px-5 py-3 text-right">Comissão</th>
                     </tr>
@@ -146,6 +158,19 @@ export default function PromotersPerformancePage() {
                                 {row.guestShowRate}%
                               </span>
                             </>
+                          ) : (
+                            <span className="font-bold text-muted-2">—</span>
+                          )}
+                        </td>
+                        {/* GRÁTIS (2026-10-12): quem divulga evento grátis aparecia com zero */}
+                        <td className="px-4 py-4 text-right">
+                          {row.freeTaken || row.freeCheckedIn ? (
+                            <span className="whitespace-nowrap">
+                              <span className="font-black text-ink">{row.freeTaken}</span>
+                              <span className="ml-1 text-[10.5px] font-bold text-muted">
+                                / {row.freeCheckedIn} {row.freeCheckedIn === 1 ? "entrou" : "entraram"}
+                              </span>
+                            </span>
                           ) : (
                             <span className="font-bold text-muted-2">—</span>
                           )}

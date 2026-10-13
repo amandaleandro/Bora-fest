@@ -30,9 +30,11 @@ import { WaitingRoomModule } from "./waiting-room/waiting-room.module";
 import { ReviewsModule } from "./reviews/reviews.module";
 import { AddOnsModule } from "./add-ons/add-ons.module";
 import { GuestListModule } from "./guest-list/guest-list.module";
+import { ConvitesEmailModule } from "./convites-email/convites-email.module";
 import { HousesModule } from "./houses/houses.module";
 import { VipModule } from "./vip/vip.module";
 import { LoyaltyModule } from "./loyalty/loyalty.module";
+import { DescadastroModule } from "./descadastro/descadastro.module";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 
 @Module({
@@ -72,9 +74,11 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
     ReviewsModule,
     AddOnsModule,
     GuestListModule,
+    ConvitesEmailModule,
     HousesModule,
     VipModule,
     LoyaltyModule,
+    DescadastroModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

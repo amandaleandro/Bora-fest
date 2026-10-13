@@ -21,6 +21,8 @@ const TITLES: Record<string, string> = {
   "checkin-ao-vivo": "Check-in ao vivo",
   "lista-convidados": "Lista de convidados",
   recorrencia: "Próxima edição",
+  // convite pessoal por e-mail de um lote (2026-10-12) — sem isto a topbar dizia "Painel do evento"
+  convites: "Convite por e-mail",
 };
 
 export default function EventLayout({

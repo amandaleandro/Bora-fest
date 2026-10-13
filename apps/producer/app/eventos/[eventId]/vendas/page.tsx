@@ -255,6 +255,15 @@ function VendasContent({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportingOrders, setExportingOrders] = useState(false);
+  // meia-entrada (2026-10-12): o aviso fica embaixo do botão, não no topo da página
+  const [exportingMeia, setExportingMeia] = useState(false);
+  // vale para as duas exportações (2026-10-13): pedidos também avisa "vazio" e
+  // erro com "Tentar novamente" embaixo dos botões, sem derrubar a lista
+  const [exportAviso, setExportAviso] = useState<{
+    tipo: "erro" | "vazio";
+    texto: string;
+    alvo: "pedidos" | "meia";
+  } | null>(null);
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
@@ -328,15 +337,52 @@ function VendasContent({ eventId }: { eventId: string }) {
   }, [token, eventId, page, statusFilter]);
 
   async function handleExportOrders() {
-    if (!token) return;
+    if (!token || exportingOrders) return;
     setExportingOrders(true);
+    setExportAviso(null);
     try {
-      await dashboardApi.downloadOrdersCsv(token, eventId);
+      const { vazio } = await dashboardApi.downloadOrdersCsv(token, eventId);
+      if (vazio) {
+        setExportAviso({
+          tipo: "vazio",
+          texto: "Nenhum pedido ainda — a planilha saiu só com o cabeçalho.",
+          alvo: "pedidos",
+        });
+      }
     } catch (err) {
       // export falhava sem mensagem nenhuma (2026-10-12)
-      setError(err instanceof Error ? err.message : "Não foi possível exportar os pedidos");
+      setExportAviso({
+        tipo: "erro",
+        texto: err instanceof Error && err.message ? err.message : "Não foi possível exportar os pedidos",
+        alvo: "pedidos",
+      });
     } finally {
       setExportingOrders(false);
+    }
+  }
+
+  async function handleExportMeia() {
+    if (!token || exportingMeia) return;
+    setExportingMeia(true);
+    setExportAviso(null);
+    try {
+      const { vazio } = await dashboardApi.downloadMeiaEntradaCsv(token, eventId);
+      // planilha só com o cabeçalho não é falha: diz que não há meia, em vez de parecer vazia por erro
+      if (vazio) {
+        setExportAviso({
+          tipo: "vazio",
+          texto: "Nenhum ingresso de meia-entrada neste evento até agora — a planilha saiu só com o cabeçalho.",
+          alvo: "meia",
+        });
+      }
+    } catch (err) {
+      setExportAviso({
+        tipo: "erro",
+        texto: err instanceof Error && err.message ? err.message : "Não foi possível exportar a meia-entrada",
+        alvo: "meia",
+      });
+    } finally {
+      setExportingMeia(false);
     }
   }
 
@@ -563,15 +609,47 @@ function VendasContent({ eventId }: { eventId: string }) {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={handleExportOrders}
-              disabled={exportingOrders}
-              className="ml-auto rounded-lg border border-line px-3 py-2 text-[13px] font-bold text-ink"
-            >
-              {exportingOrders ? "Exportando..." : "Exportar CSV"}
-            </button>
+            <div className="ml-auto flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleExportOrders}
+                disabled={exportingOrders}
+                className="rounded-lg border border-line px-3 py-2 text-[13px] font-bold text-ink"
+              >
+                {exportingOrders ? "Exportando..." : "Exportar pedidos (CSV)"}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportMeia}
+                disabled={exportingMeia}
+                className="rounded-lg border border-line px-3 py-2 text-[13px] font-bold text-ink"
+              >
+                {exportingMeia ? "Exportando..." : "Exportar meia-entrada (CSV)"}
+              </button>
+            </div>
           </div>
+          <p className="mt-2 text-[12px] font-semibold text-muted">
+            As planilhas de pedidos e de participantes têm a coluna &quot;meia&quot;. A de meia-entrada lista cada
+            ingresso de meia com data da compra, tipo de ingresso, lote, participante e canal (site ou porta) — o que a
+            lei pede para guardar.
+          </p>
+          {exportAviso ? (
+            exportAviso.tipo === "erro" ? (
+              <p className="mt-2 rounded-lg bg-danger/10 px-3 py-2.5 text-[13px] font-bold text-danger">
+                {exportAviso.texto}{" "}
+                <button
+                  type="button"
+                  onClick={exportAviso.alvo === "pedidos" ? handleExportOrders : handleExportMeia}
+                  disabled={exportingOrders || exportingMeia}
+                  className="font-extrabold underline"
+                >
+                  Tentar novamente
+                </button>
+              </p>
+            ) : (
+              <p className="mt-2 rounded-lg bg-line px-3 py-2.5 text-[13px] font-bold text-muted">{exportAviso.texto}</p>
+            )
+          ) : null}
 
           {loading ? (
             <p className="mt-6 text-muted">Carregando...</p>

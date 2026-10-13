@@ -40,6 +40,23 @@ export interface ManifestTicket {
    * que ainda não ressincronizou não pode quebrar a tela.
    */
   lista?: { id: string; nome: string } | null;
+  /**
+   * Etiquetas da porta (2026-10-12). `meia` = comprado com meia-entrada (pedir o
+   * documento); `gratuito` = pedido de R$ 0 que não é lista nem cortesia.
+   * Opcionais para tolerar manifesto guardado antes dos campos existirem:
+   * ausente vale como `false` (sem etiqueta), nunca quebra a tela.
+   */
+  meia?: boolean;
+  gratuito?: boolean;
+  /**
+   * O QR que vale HOJE para este ingresso (2026-10-12): nonce e emissão (epoch
+   * em segundos). A transferência troca o QR; sem isto a porta offline aceitava
+   * o QR de antes, que continua com assinatura válida. O token em si nunca vem
+   * para o aparelho. Ausente = manifesto guardado antes do campo existir; `null`
+   * = o servidor não tem o que comparar. Nos dois casos a porta segue a regra
+   * de antes (ver `conferirQrAtual` em verify.ts).
+   */
+  qrAtual?: { n: string; iat: number } | null;
 }
 
 export interface ManifestLot {
@@ -67,6 +84,12 @@ export interface ManifestMeta {
 
 export interface ManifestResponse {
   manifestVersion: string;
+  /**
+   * Formato dos campos por ingresso que ESTE servidor manda (2026-10-12; 3 =
+   * `meia` e `gratuito`; 4 = `qrAtual`). Ausente = servidor anterior a este
+   * controle.
+   */
+  manifestSchema?: number;
   delta: boolean;
   lots: ManifestLot[];
   event: { id: string; title: string; startsAt: string; endsAt: string; timezone: string };
@@ -105,7 +128,9 @@ export type InvalidReason =
   | "OTHER_EVENT"
   | "NOT_FOUND"
   | "EVENT_WITHOUT_KEY"
-  | "MALFORMED";
+  | "MALFORMED"
+  /** QR de antes da transferência: assinatura boa, mas não é mais o QR do ingresso (2026-10-12) */
+  | "OLD_QR";
 
 export interface ScanResult {
   kind: ResultKind;
@@ -118,6 +143,10 @@ export interface ScanResult {
   lotLabel?: string | null;
   /** entrada grátis: mostrado no VÁLIDO pro staff saber (CONVIDADO/CORTESIA) */
   tipo?: "CONVIDADO" | "CORTESIA" | null;
+  /** etiqueta "MEIA-ENTRADA · peça o documento" no VÁLIDO (2026-10-12) */
+  meia?: boolean;
+  /** etiqueta "GRATUITO" no VÁLIDO: lote grátis ou cupom de 100% (2026-10-12) */
+  gratuito?: boolean;
   firstAt?: string | null;
   firstGate?: string | null;
   firstDevice?: string | null;

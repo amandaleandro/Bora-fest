@@ -1,4 +1,4 @@
-import { prisma } from "@borafest/database";
+import { ENVIO_CANCELADO, ehEmailAnonimo, prisma } from "@borafest/database";
 import {
   renderAccountClaimEmail,
   renderCrmReactivationEmail,
@@ -20,6 +20,10 @@ import {
   type FreeTicketCanceledPayload,
   renderFreeEventCanceledEmail,
   type FreeEventCanceledPayload,
+  renderRefundRequestRejectedEmail,
+  type RefundRequestRejectedPayload,
+  renderLotEmailInviteEmail,
+  type LotEmailInvitePayload,
   type EmailMessage,
   type EmailSendResult,
 } from "@borafest/notifications";
@@ -29,6 +33,60 @@ const log = withContext({ module: "notification-delivery" });
 
 const MAX_ATTEMPTS = 5;
 const BATCH_SIZE = 20;
+
+/**
+ * Templates de CAMPANHA: o "Não quero mais receber" da Casa vale para eles.
+ * Os mesmos de TEMPLATES_DE_CAMPANHA da API (descadastro/supressao.ts) — o
+ * teste descadastro-e-conta-apagada compara os dois.
+ */
+export const TEMPLATES_DE_CAMPANHA = new Set(["crm_reactivation"]);
+
+/** Mesmo texto que a API grava quando tira da fila na hora do descadastro (ERRO_DESCADASTRADO). */
+export const MOTIVO_SAIU_DAS_CAMPANHAS = "Não enviado: a pessoa pediu para não receber campanhas desta Casa";
+
+/** Campanha sem a Casa no corpo: não dá para conferir o descadastro, então não sai. */
+export const MOTIVO_CAMPANHA_SEM_CASA =
+  "Não enviado: campanha sem a Casa de origem — não dá para conferir quem saiu das campanhas";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Casa da campanha, lida do corpo da notificação (organizationId); null se não houver uma válida. */
+export function casaDaCampanha(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const organizationId = (payload as Record<string, unknown>).organizationId;
+  return typeof organizationId === "string" && UUID.test(organizationId) ? organizationId : null;
+}
+
+/**
+ * Por que esta mensagem NÃO pode sair (null = pode sair). Conferido LOGO
+ * ANTES do envio (LGPD, 2026-10-12):
+ *  - destinatário de conta excluída (@anon.borafest.invalid): o domínio
+ *    `.invalid` não recebe nada — tentar 5 vezes só gerava bounce;
+ *  - campanha de uma Casa para quem saiu das campanhas DELA
+ *    (marketing_opt_outs, Casa + e-mail normalizado). A API já pula essa
+ *    pessoa ao enfileirar e tira da fila quando ela sai; aqui fecha a janela
+ *    entre os dois (campanha enfileirada no mesmo instante do descadastro).
+ * Erro na consulta sobe (vira nova tentativa) — nunca vira "pode enviar".
+ */
+export async function motivoParaNaoEnviar(notificacao: {
+  recipient: string;
+  template: string;
+  payload: unknown;
+}): Promise<string | null> {
+  if (ehEmailAnonimo(notificacao.recipient)) return ENVIO_CANCELADO;
+  if (TEMPLATES_DE_CAMPANHA.has(notificacao.template)) {
+    const organizationId = casaDaCampanha(notificacao.payload);
+    if (!organizationId) return MOTIVO_CAMPANHA_SEM_CASA;
+    // mesma chave do CRM e do descadastro: LOWER(TRIM(email))
+    const emailKey = notificacao.recipient.trim().toLowerCase();
+    const saiu = await prisma.marketingOptOut.findUnique({
+      where: { organizationId_emailKey: { organizationId, emailKey } },
+      select: { id: true },
+    });
+    if (saiu) return MOTIVO_SAIU_DAS_CAMPANHAS;
+  }
+  return null;
+}
 
 /**
  * Processa a fila persistente `notifications`: reivindica linhas PENDING com
@@ -51,6 +109,19 @@ export async function deliverPendingNotifications(): Promise<number> {
     if (claimed.count === 0) continue;
 
     try {
+      // conta excluída / saiu das campanhas: não sai e não volta para a fila
+      // (FAILED com o motivo, na 1ª vez — sem as 5 tentativas)
+      const motivo = await motivoParaNaoEnviar(notification);
+      if (motivo) {
+        await prisma.notification.updateMany({
+          where: { id: notification.id, status: "PENDING" },
+          data: { status: "FAILED", error: motivo },
+        });
+        // sem o e-mail no log: só a linha, o modelo e o motivo
+        log.info({ notificationId: notification.id, template: notification.template, motivo }, "notificação não enviada");
+        continue;
+      }
+
       const providerMessageId = await send(
         notification.channel,
         notification.recipient,
@@ -161,6 +232,24 @@ async function send(
       return email(renderFreeEventCanceledEmail(recipient, payload as FreeEventCanceledPayload));
     }
     throw new Error(`Canal não suportado para free_event_canceled: ${channel}`);
+  }
+
+  // reembolso recusado (2026-10-13): sai de recusarPedidoDeReembolso (API), na
+  // mesma transação que marca a recusa — casa ou BoraFest
+  if (template === "refund_request_rejected") {
+    if (channel === "EMAIL") {
+      return email(renderRefundRequestRejectedEmail(recipient, payload as RefundRequestRejectedPayload));
+    }
+    throw new Error(`Canal não suportado para refund_request_rejected: ${channel}`);
+  }
+
+  // convite por e-mail (2026-10-12): sai do painel (convites-email na API), na
+  // mesma transação que cria, reenvia ou corrige o convite
+  if (template === "lot_email_invite") {
+    if (channel === "EMAIL") {
+      return email(renderLotEmailInviteEmail(recipient, payload as LotEmailInvitePayload));
+    }
+    throw new Error(`Canal não suportado para lot_email_invite: ${channel}`);
   }
 
   if (template === "crm_reactivation") {

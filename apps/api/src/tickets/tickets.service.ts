@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -7,11 +8,11 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { prisma } from "@borafest/database";
+import { Prisma, prisma } from "@borafest/database";
 import { isValidCpf } from "@borafest/auth";
 import { TICKET_GATE_MESSAGE } from "../common/ticket-gate";
 import { origemGratis } from "../common/origem-gratis";
-import { abrirChavePrivada, conferirChaveMestra, signTicketToken } from "@borafest/tickets";
+import { abrirChavePrivada, conferirChaveMestra, generateTicketCode, signTicketToken } from "@borafest/tickets";
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
 import type { TransferTicketInput } from "@borafest/contracts";
@@ -179,7 +180,9 @@ export class TicketsService implements OnModuleInit {
    * comprador do pedido. Antes a prova era só o `orderPublicToken` do pedido,
    * o que deixava o comprador reclamar de volta um ingresso já presenteado e
    * um token vazado transferir ingressos alheios. Atualiza o titular e
-   * reassina o QR com nonce novo — o QR antigo para de bater no check-in.
+   * reassina o QR com nonce novo — o QR antigo deixa de valer na porta, online
+   * e offline (2026-10-12: antes a porta só conferia a assinatura e o QR
+   * antigo seguia entrando; a regra mora em checkins/qr-atual.ts).
    */
   async transferTicket(ticketId: string, userId: string, input: TransferTicketInput) {
     const ticket = await prisma.ticket.findUnique({
@@ -294,9 +297,26 @@ export class TicketsService implements OnModuleInit {
     const toName = toUser.name ?? toUser.email ?? "Novo titular";
     const lotLabel = `${ticket.ticketLot.ticketType.name} — ${ticket.ticketLot.name}`;
 
-    const [updated] = await prisma.$transaction([
-      prisma.ticket.update({
-        where: { id: ticket.id },
+    // UMA TRANSFERÊNCIA POR VEZ (2026-10-12). O QR e o dono conferidos acima
+    // são a guarda do update. Antes o update era incondicional: clique duplo,
+    // ou duas abas passando o mesmo ingresso para pessoas diferentes, gravavam
+    // as duas — ganhava a última, as duas pessoas recebiam o e-mail de
+    // "ingresso transferido" e o QR devolvido a uma delas já nascia antigo
+    // (recusado na porta, ver checkins/qr-atual.ts). Agora só a primeira grava.
+    // A mesma guarda segura o ingresso que entrou na portaria nesse meio-tempo.
+    //
+    // CÓDIGO CURTO NOVO (revisão 2026-10-13): o QR antigo já morria na
+    // transferência, mas o código digitável continuava o mesmo — quem passou o
+    // ingresso adiante entrava digitando o código na portaria, antes do novo
+    // dono. O código é único: na colisão (rara), tenta de novo com outro.
+    const transferir = (code: string) => prisma.$transaction(async (tx) => {
+      const gravou = await tx.ticket.updateMany({
+        where: {
+          id: ticket.id,
+          qrToken: ticket.qrToken,
+          ownerUserId: ticket.ownerUserId,
+          status: { in: ["ISSUED", "ACTIVE"] },
+        },
         data: {
           ownerUserId: toUser.id,
           // re-nomina SEMPRE (decisão 2026-08-15): o ingresso passa a ser do
@@ -305,19 +325,25 @@ export class TicketsService implements OnModuleInit {
           attendeeEmail: toUser.email,
           attendeeCpf: toUser.cpf ?? null,
           qrToken,
+          code,
         },
-        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
-      }),
-      prisma.auditLog.create({
+      });
+      if (gravou.count === 0) {
+        throw new ConflictException(
+          "Este ingresso mudou enquanto você transferia (outra transferência ou entrada na portaria). Atualize a página para ver como ele está agora.",
+        );
+      }
+      await tx.auditLog.create({
         data: {
+          actorUserId: userId,
           action: "ticket.transfer",
           entityType: "ticket",
           entityId: ticket.id,
           metadata: { fromName, fromEmail, toUserId: toUser.id, toEmail: toUser.email },
         },
-      }),
+      });
       // aviso ao novo dono pela fila persistente (worker entrega com retry)
-      prisma.notification.create({
+      await tx.notification.create({
         data: {
           channel: "EMAIL",
           recipient: toUser.email!,
@@ -325,14 +351,29 @@ export class TicketsService implements OnModuleInit {
           payload: {
             eventTitle: ticket.event.title,
             lotLabel,
-            code: ticket.code,
+            code,
             toName,
             fromEmail,
             walletUrl: `${process.env.WEB_BASE_URL ?? "https://borafest.com.br"}/perfil`,
           },
         },
-      }),
-    ]);
+      });
+      return tx.ticket.findUniqueOrThrow({
+        where: { id: ticket.id },
+        include: { ticketLot: { select: { name: true, ticketType: { select: { name: true } } } } },
+      });
+    });
+
+    let updated: Awaited<ReturnType<typeof transferir>> | undefined;
+    for (let tentativa = 0; !updated; tentativa++) {
+      try {
+        updated = await transferir(generateTicketCode());
+      } catch (err) {
+        const colisaoDoCodigo =
+          err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002" && tentativa < 2;
+        if (!colisaoDoCodigo) throw err;
+      }
+    }
 
     return this.toPublicTicket(updated);
   }

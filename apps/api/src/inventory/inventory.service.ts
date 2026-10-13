@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { prisma, Prisma } from "@borafest/database";
+import { confirmSaleInventory, prisma, Prisma } from "@borafest/database";
 
 export type DbClient = typeof prisma | Prisma.TransactionClient;
 
@@ -42,14 +42,16 @@ export class InventoryService {
     `);
   }
 
+  /**
+   * Converte reservado em vendido. VIRADA AUTOMÁTICA (2026-10-12): delega para
+   * a operação única de @borafest/database — a mesma do pagamento, da cortesia
+   * e da porta. Antes este método fazia o próprio UPDATE, e a lista de
+   * convidados que esgotava o lote NÃO abria o lote seguinte (ele ficava
+   * guardado para sempre). Na transação de quem chama, venda e virada entram
+   * juntas; fora de uma, a operação abre a sua.
+   */
   async confirmSale(lotId: string, quantity: number, client: DbClient = prisma): Promise<void> {
-    await client.$executeRaw(Prisma.sql`
-      UPDATE ticket_lots
-      SET reserved_count = GREATEST(reserved_count - ${quantity}, 0),
-          sold_count = sold_count + ${quantity},
-          updated_at = now()
-      WHERE id = ${lotId}::uuid
-    `);
+    await confirmSaleInventory(client, lotId, quantity);
   }
 
   async getAvailability(lotId: string, client: DbClient = prisma) {

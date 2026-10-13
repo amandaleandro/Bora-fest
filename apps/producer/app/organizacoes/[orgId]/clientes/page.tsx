@@ -77,6 +77,10 @@ function CustomerCard({ customer }: { customer: CrmCustomer }) {
             {TAGS[tag] ?? tag}
           </span>
         ))}
+        {/* LGPD (2026-10-13): pediu para não receber campanhas desta Casa */}
+        {customer.saiuDasCampanhas ? (
+          <span className="rounded-full bg-line px-2.5 py-1 text-[10px] font-extrabold text-muted">Saiu das campanhas</span>
+        ) : null}
       </div>
 
       <dl className="mt-4 grid gap-2 text-[11px] font-semibold text-muted">
@@ -180,6 +184,13 @@ export default function CasaCustomersPage({ params }: { params: { orgId: string 
               </div>
             ))}
           </section>
+        ) : null}
+        {data?.summary.emailOptOut ? (
+          <p className="mt-3 text-[12px] font-semibold text-muted">
+            {data.summary.emailOptOut.toLocaleString("pt-BR")}{" "}
+            {data.summary.emailOptOut === 1 ? "cliente saiu" : "clientes saíram"} das campanhas desta Casa e não{" "}
+            {data.summary.emailOptOut === 1 ? "recebe" : "recebem"} mais e-mails de reativação.
+          </p>
         ) : null}
 
         <section className="mt-6 rounded-3xl border border-line bg-surface p-4 lg:p-5">

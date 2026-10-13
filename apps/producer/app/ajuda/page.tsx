@@ -44,6 +44,49 @@ const FAQ: Array<{ question: string; answer: string }> = [
     answer:
       "Em Vendas, abra o pedido de R$ 0 e toque em Cancelar ingresso (pedido grátis não tem reembolso, porque não houve pagamento). O QR deixa de valer, a vaga volta para o lote e a pessoa recebe um e-mail avisando, quando o pedido tem e-mail. Ingresso que já foi usado na entrada continua como está.",
   },
+  // Perguntas de 2026-10-12, conferidas contra o código do dia (editar/page,
+  // LoteDoIngresso, convites-email, orders.service, checkins.service,
+  // etiquetas-porta, catalog.service e relatorio-meia).
+  {
+    question: "Como deixo um evento privado?",
+    answer:
+      "Em Editar evento, ligue Evento privado. Ele sai da home, da busca, da página da Casa e do Google e só abre por link — quem tem o link compra normalmente. Ele também não aparece na agenda dos promoters: mande a cada um o link desta festa, na aba Promoters. Quando você abre ao público um evento que já está publicado, os seguidores da Casa recebem um aviso (uma vez só).",
+  },
+  {
+    question: "Como vendo um ingresso só para quem tem o link?",
+    answer:
+      "Na aba Ingressos, ao criar ou editar o lote, escolha em Quem pode pegar a opção Só com o link de convite. O lote some do site e só aparece para quem abrir o link dele — copie em Link de convite. Se o link vazar, toque em Trocar link: o antigo para de funcionar na hora, e quem já pegou o ingresso continua com ele.",
+  },
+  {
+    question: "Como convido pessoas por e-mail?",
+    answer:
+      "No lote, escolha em Quem pode pegar a opção Só quem eu convidar por e-mail. Depois, em Convidar por e-mail, cole os endereços (até 200 por envio). Cada pessoa recebe um link pessoal, e o ingresso só sai para o e-mail convidado. A tela mostra a situação de cada convite e deixa reenviar ou revogar. Revogar não tira o ingresso de quem já pegou — para isso, cancele o pedido em Vendas.",
+  },
+  {
+    question: "Para que servem o código e a cota do promoter?",
+    answer:
+      "Na aba Promoters do evento você define, para cada promoter, um código pessoal (ex.: BIA10, de 3 a 16 letras ou números) e a cota de convidados. O comprador digita o código no checkout e a venda conta para o promoter mesmo sem o link; se ele chegou pelo link de um promoter, vale o link. A cota é quantos convidados o promoter pode pôr na lista de cada evento — 0 = nenhum.",
+  },
+  {
+    question: "Registrei uma entrada por engano. Como desfaço?",
+    answer:
+      "Na porta, o próprio aparelho que registrou desfaz em até 10 minutos: Resumo da portaria → Últimas entradas → Reverter. Depois disso, ou se foi em outro aparelho, o dono ou um administrador da Casa desfaz na aba Check-in do evento, em Desfazer entrada. O ingresso volta a valer — a não ser que o pedido tenha sido cancelado ou reembolsado; aí a entrada continua registrada.",
+  },
+  {
+    question: "O que significam MEIA-ENTRADA e GRATUITO na porta?",
+    answer:
+      "São etiquetas que aparecem quando a entrada é liberada, com ou sem internet. MEIA-ENTRADA · peça o documento: o ingresso foi comprado como meia — confira o documento do benefício. GRATUITO: ingresso de R$ 0 que não veio da lista de convidados (por exemplo, lote grátis ou cupom de 100%). Quem está na lista continua aparecendo como CONVIDADO ou CORTESIA.",
+  },
+  {
+    question: "Como funciona a virada automática de lote?",
+    answer:
+      "Ao criar ou editar um lote, ligue Abrir quando o lote anterior esgotar e escolha o lote anterior do mesmo ingresso. O novo lote fica guardado, fora do site, e abre sozinho quando o anterior esgotar ou for encerrado.",
+  },
+  {
+    question: "Onde tiro o relatório de meia-entrada?",
+    answer:
+      "Em Vendas, toque em Exportar meia-entrada (CSV): sai um ingresso de meia por linha, com data da compra, tipo, lote, participante, código, canal (site ou porta), situação e pedido. As planilhas de pedidos e de participantes também têm a coluna meia.",
+  },
   {
     question: "Como crio cupons de desconto?",
     answer:

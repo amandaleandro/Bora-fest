@@ -28,7 +28,9 @@ export async function expireStaleOrders(): Promise<void> {
   }
 }
 
-async function expireOrder(orderId: string): Promise<void> {
+/** Expira UM pedido (exportado para o teste; a varredura acima é quem chama). */
+export async function expireOrder(orderId: string): Promise<void> {
+  let convitesDevolvidos = 0;
   await prisma.$transaction(async (tx) => {
     const updated = await tx.order.updateMany({
       where: { id: orderId, status: { in: ["CREATED", "PAYMENT_PENDING"] } },
@@ -58,7 +60,20 @@ async function expireOrder(orderId: string): Promise<void> {
       });
       await tx.couponRedemption.delete({ where: { id: redemption.id } });
     }
+
+    // DEVOLVE O CONVITE POR E-MAIL (2026-10-12): o Pix do lote EMAIL pago
+    // expirou, então o convite volta a valer — a pessoa paga de novo pelo
+    // mesmo link pessoal. A regra de ouro (convite-regras.ts) já tratava o
+    // CLAIMED de pedido expirado como livre; aqui o DADO passa a dizer o
+    // mesmo (SENT, sem pedido), igual ao cancelamento grátis — quem lê a
+    // tabela não vê "usado" num convite que vale. Só o convite DESTE pedido, e
+    // só se ainda estiver preso a ele (outro pedido que já o pegou não é tocado).
+    const devolvidos = await tx.lotEmailInvite.updateMany({
+      where: { orderId, status: "CLAIMED" },
+      data: { status: "SENT", orderId: null, claimedAt: null },
+    });
+    convitesDevolvidos = devolvidos.count;
   });
 
-  log.info({ orderId }, "pedido expirado e estoque liberado");
+  log.info({ orderId, convitesDevolvidos }, "pedido expirado e estoque liberado");
 }

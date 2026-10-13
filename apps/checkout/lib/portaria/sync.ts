@@ -45,8 +45,36 @@ export async function loadIndex(session: Session): Promise<ManifestIndex> {
  *   1 → formato original
  *   2 → ticket ganhou `lista` (2026-09-15), usado para separar Ingressos das
  *       listas e decidir se o CPF é conferido
+ *   3 → ticket ganhou `meia` e `gratuito` (2026-10-12), as etiquetas
+ *       MEIA-ENTRADA e GRATUITO do resultado
+ *   4 → ticket ganhou `qrAtual` (2026-10-12): a porta offline recusa o QR de
+ *       antes da transferência. Precisa do full: ingresso transferido ANTES do
+ *       último sync não volta no delta e ficaria sem o campo para sempre
+ * Suba junto com o MANIFEST_SCHEMA de apps/api/src/validator/validator.service.ts:
+ * o aparelho só grava o formato que o servidor confirma ter mandado.
  */
-const MANIFEST_SCHEMA = 2;
+const MANIFEST_SCHEMA = 4;
+
+/** Servidor anterior ao campo `manifestSchema` da resposta já mandava `lista`. */
+const ESQUEMA_SEM_CONFIRMACAO = 2;
+
+/**
+ * GRAVA O FORMATO QUE O SERVIDOR CONFIRMOU, NÃO O DESTE CÓDIGO (2026-10-12).
+ * Site e API sobem separados: se o site novo baixar o full de uma API ainda
+ * antiga e gravar "3", os ingressos ficam sem `meia`/`gratuito` para sempre (o
+ * delta nunca os traria). Gravando o que veio, o próximo sync refaz o full até
+ * a API nova responder — e só então o aparelho passa para o delta.
+ */
+export function formatoConfirmado(doServidor: number | undefined): number {
+  const recebido =
+    typeof doServidor === "number" && Number.isFinite(doServidor) ? doServidor : ESQUEMA_SEM_CONFIRMACAO;
+  return Math.min(MANIFEST_SCHEMA, recebido);
+}
+
+/** Precisa baixar o manifesto inteiro: o guardado é de outro formato (ou não existe). */
+export function precisaManifestoInteiro(guardado: number | undefined): boolean {
+  return guardado !== MANIFEST_SCHEMA;
+}
 
 /**
  * Baixa o manifesto. Faz o full na primeira vez, ao trocar de evento ou quando o
@@ -69,7 +97,7 @@ export async function syncManifest(session: Session): Promise<ManifestIndex> {
   // CPF. Falha silenciosa: a tela não tinha como saber que o dado faltava.
   //
   // Ao subir o MANIFEST_SCHEMA, todo aparelho baixa o manifesto inteiro uma vez.
-  const esquemaVelho = stored?.manifestSchema !== MANIFEST_SCHEMA;
+  const esquemaVelho = precisaManifestoInteiro(stored?.manifestSchema);
   const response = await portariaApi.manifest(
     session,
     sameEvent && !esquemaVelho ? stored?.manifestVersion : undefined,
@@ -83,7 +111,8 @@ export async function syncManifest(session: Session): Promise<ManifestIndex> {
     publicKeyPem:
       response.signingKey?.publicKeyPem ?? (sameEvent ? (stored?.publicKeyPem ?? null) : null),
     syncedAt: new Date().toISOString(),
-    manifestSchema: MANIFEST_SCHEMA,
+    // o formato que o SERVIDOR confirmou (ver `formatoConfirmado`)
+    manifestSchema: formatoConfirmado(response.manifestSchema),
   };
 
   await db.saveManifest({

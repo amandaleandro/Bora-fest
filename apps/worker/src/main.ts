@@ -42,10 +42,26 @@ import { processPaymentWebhookJob } from "./process-payment-webhook";
 import { sweepWaitingRooms } from "./sweep-waiting-room";
 import { sendAbandonedCartReminders, sendExpiredRescueEmails } from "./abandoned-cart";
 import { purgarFilasLegado } from "./purga-filas-legado";
+import { abrirSeguintesDeLotesVencidos, prisma } from "@borafest/database";
+import { anonimizarContasApagadas } from "./anonimizar-contas-apagadas";
+import { diasDeRetencaoDosWebhooks, limparCorpoDosWebhooksAntigos } from "./retencao-webhooks";
 import { checkPaymentSecrets } from "@borafest/payments";
 import { iniciarBatidaDoWorker } from "./heartbeat";
 
 const log = withContext({ module: "worker" });
+
+/**
+ * Jobs de LGPD (2026-10-12) sem fila própria: cada um tem o seu agendamento
+ * numa fila que já existe e é separado pelo NOME do job (como o "reconcile"
+ * da fila de reservas). Fila nova pediria mexer em @borafest/queues.
+ */
+const ANONIMIZAR_CONTAS_JOB = "anonimizar-contas-apagadas";
+const ANONIMIZAR_CONTAS_SCHEDULER_ID = "lgpd-anonimizar-contas-apagadas";
+const RETENCAO_WEBHOOKS_JOB = "retencao-webhooks";
+const RETENCAO_WEBHOOKS_SCHEDULER_ID = "lgpd-retencao-webhooks";
+/** Virada de lote pela data "Para de vender" do anterior (2026-10-13), na fila de pedidos. */
+const VIRADA_POR_DATA_JOB = "virada-por-data";
+const VIRADA_POR_DATA_SCHEDULER_ID = "lotes-virada-por-data";
 
 /**
  * Mesmo guard da API (auditoria 2026-08-30): o WORKER é quem entrega OTP/reset/
@@ -75,6 +91,14 @@ async function main() {
 
   assertProductionProviders();
   startMetricsServer(Number(process.env.WORKER_METRICS_PORT ?? 9464));
+
+  // retenção dos webhooks conferida no boot: valor inválido aparece já aqui
+  // (a varredura também recusa rodar com ele — nada é apagado até corrigir)
+  try {
+    diasDeRetencaoDosWebhooks(process.env.WEBHOOK_RAW_RETENTION_DAYS);
+  } catch (error) {
+    log.error({ erro: (error as Error).message }, "configuração da retenção de webhooks inválida");
+  }
 
   // --- reservas: expiração pontual + reconciliação -------------------------
   const reservationWorker = createReservationExpirationWorker(async (job) => {
@@ -115,23 +139,60 @@ async function main() {
   );
 
   // --- pagamentos: reconciliação com o gateway -----------------------------
-  const paymentWorker = createPaymentReconciliationWorker(async () => {
+  // + retenção do corpo cru dos webhooks (LGPD 2026-10-12): a cada 6 h esvazia
+  // o raw_body com mais de WEBHOOK_RAW_RETENTION_DAYS dias (padrão 90)
+  const paymentWorker = createPaymentReconciliationWorker(async (job) => {
+    if (job.name === RETENCAO_WEBHOOKS_JOB) {
+      await limparCorpoDosWebhooksAntigos();
+      return;
+    }
     await reconcilePendingPayments();
   });
-  await createPaymentReconciliationQueue().upsertJobScheduler(
+  const paymentQueue = createPaymentReconciliationQueue();
+  await paymentQueue.upsertJobScheduler(
     PAYMENT_RECONCILIATION_JOB_ID,
     { every: 60_000 },
     { name: "reconcile", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
+  await paymentQueue.upsertJobScheduler(
+    RETENCAO_WEBHOOKS_SCHEDULER_ID,
+    { every: 6 * 60 * 60_000 },
+    { name: RETENCAO_WEBHOOKS_JOB, data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
+  );
 
   // --- pedidos: expiração da janela de pagamento ---------------------------
-  const orderWorker = createOrderExpirationWorker(async () => {
+  // + contas excluídas (LGPD 2026-10-12): de hora em hora anonimiza ingresso,
+  // participante, reserva VIP e convite de evento que terminou depois da exclusão
+  const orderWorker = createOrderExpirationWorker(async (job) => {
+    if (job.name === ANONIMIZAR_CONTAS_JOB) {
+      await anonimizarContasApagadas();
+      return;
+    }
+    if (job.name === VIRADA_POR_DATA_JOB) {
+      const abertos = await abrirSeguintesDeLotesVencidos(prisma);
+      if (abertos.length > 0) {
+        log.info({ lotes: abertos.map((l) => l.id) }, "virada pela data: lotes seguintes abertos");
+      }
+      return;
+    }
     await expireStaleOrders();
   });
-  await createOrderExpirationQueue().upsertJobScheduler(
+  const orderQueue = createOrderExpirationQueue();
+  await orderQueue.upsertJobScheduler(
     ORDER_EXPIRATION_JOB_ID,
     { every: 30_000 },
     { name: "expire", data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
+  );
+  await orderQueue.upsertJobScheduler(
+    ANONIMIZAR_CONTAS_SCHEDULER_ID,
+    { every: 60 * 60_000 },
+    { name: ANONIMIZAR_CONTAS_JOB, data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
+  );
+  // o lote anterior que passou do "Para de vender" sem esgotar abre o seguinte
+  await orderQueue.upsertJobScheduler(
+    VIRADA_POR_DATA_SCHEDULER_ID,
+    { every: 60_000 },
+    { name: VIRADA_POR_DATA_JOB, data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { age: 24 * 3600 } } },
   );
 
   // --- carrinho abandonado: lembrete de pedido pendente não pago -----------

@@ -2,12 +2,13 @@
 
 import { hotsiteUrl } from "@/lib/config";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
 import { PanelShell } from "@/components/PanelShell";
 import { useAuth } from "@/lib/auth";
 import { eventsApi, catalogApi, eventControls, addOnsApi, ApiError, UF_LIST, EVENT_CATEGORIES, type EventVenue, type EventCategory, type EventAddOn } from "@/lib/api";
+import { tentativaDeEdicao, type TentativaDeEdicao } from "@/lib/event-recurrence-api";
 
 const inputCls = "mt-1 h-[46px] w-full rounded-xl border-[1.5px] border-line-input bg-surface px-3.5 text-[14px] font-medium outline-none focus:border-primary";
 const labelCls = "text-[12px] font-bold text-ink-soft";
@@ -112,10 +113,18 @@ function NewEventContent() {
     return () => { cancelled = true; };
   }, [venueState]);
 
-  // etapa 2
-  const [lots, setLots] = useState<DraftLot[]>([]);
+  // etapa 2 — `aVenda`: o que o SERVIDOR gravou (o lote nasce à venda numa chamada só)
+  const [lots, setLots] = useState<Array<DraftLot & { aVenda: boolean }>>([]);
   const [draft, setDraft] = useState<DraftLot>({ typeName: "Pista", lotName: "1º Lote", price: "", capacity: "" });
   const [createdLots, setCreatedLots] = useState<string[]>([]);
+  // clique duplo no "+ Adicionar ingresso": `busy` só trava no próximo render
+  const criandoLote = useRef(false);
+  // tipo criado numa tentativa em que o lote falhou: o "tentar de novo" com o
+  // mesmo nome usa ele, em vez de deixar um tipo vazio repetido no evento
+  const tipoSemLote = useRef<{ nome: string; id: string } | null>(null);
+  // chave da tentativa de criar lote (2026-10-13): resposta perdida + "tentar
+  // de novo" com os mesmos dados devolve o lote já criado, sem duplicar
+  const tentativaDoLote = useRef<TentativaDeEdicao | null>(null);
 
   // etapa 3 — detalhes finais (banner, local, descrição/categoria, itens adicionais)
   const [published, setPublished] = useState(false);
@@ -269,27 +278,44 @@ function NewEventContent() {
     }
   }
 
+  /**
+   * UMA CHAMADA SÓ (2026-10-12): o lote nasce à venda (`activateNow`). Antes
+   * eram duas — criar e ativar —, e se a segunda falhasse o "tentar de novo"
+   * criava um lote repetido.
+   */
   async function addLot() {
-    if (!token || !eventId) return;
+    if (!token || !eventId || criandoLote.current) return;
+    criandoLote.current = true;
     setBusy(true);
     setError(null);
+    const nomeDoTipo = draft.typeName.trim();
     try {
-      const type = await catalogApi.createTicketType(token, eventId, { name: draft.typeName }) as { id: string };
+      const reaproveitado = tipoSemLote.current?.nome === nomeDoTipo ? tipoSemLote.current.id : null;
+      const typeId =
+        reaproveitado ??
+        ((await catalogApi.createTicketType(token, eventId, { name: nomeDoTipo })) as { id: string }).id;
+      tipoSemLote.current = { nome: nomeDoTipo, id: typeId };
       const priceCents = parsePriceCents(draft.price);
-      const lot = await catalogApi.createLot(token, type.id, {
+      const dadosDoLote = {
         name: draft.lotName,
         priceCents,
         // Taxa é calculada pelo servidor; o valor abaixo é só o espelho do contrato.
         feeCents: serviceFeeCents(priceCents),
         capacity: Number(draft.capacity),
-      }) as { id: string };
-      await catalogApi.activateLot(token, lot.id);
-      setLots((prev) => [...prev, draft]);
+        activateNow: true,
+      };
+      tentativaDoLote.current = tentativaDeEdicao(tentativaDoLote.current, JSON.stringify({ typeId, dadosDoLote }));
+      const lot = await catalogApi.createLot(token, typeId, dadosDoLote, tentativaDoLote.current.chave);
+      tentativaDoLote.current = null;
+      tipoSemLote.current = null;
+      // a lista mostra o que o servidor gravou, não o que a tela pediu
+      setLots((prev) => [...prev, { ...draft, typeName: nomeDoTipo, aVenda: lot.status === "ACTIVE" }]);
       setCreatedLots((prev) => [...prev, lot.id]);
-      setDraft({ typeName: draft.typeName, lotName: "", price: "", capacity: "" });
+      setDraft({ typeName: nomeDoTipo, lotName: "", price: "", capacity: "" });
     } catch (err) {
       setError(friendlyError(err, "Não foi possível criar o lote"));
     } finally {
+      criandoLote.current = false;
       setBusy(false);
     }
   }
@@ -477,7 +503,12 @@ function NewEventContent() {
                 <span>{lot.typeName} — {lot.lotName}</span>
                 <span>
                   {formatCents(parsePriceCents(lot.price))} + taxa {formatCents(serviceFeeCents(parsePriceCents(lot.price)))} · {lot.capacity} un ·{" "}
-                  <span className="text-success">Disponível</span>
+                  {lot.aVenda ? (
+                    <span className="text-success">Disponível</span>
+                  ) : (
+                    // o servidor gravou o lote guardado: ativa na aba Ingressos do evento
+                    <span className="text-warning">Guardado — ative na aba Ingressos do evento</span>
+                  )}
                 </span>
               </div>
             ))}

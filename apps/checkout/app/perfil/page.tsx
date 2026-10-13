@@ -8,11 +8,18 @@ import { api, ApiError } from "../../lib/api";
 import { ehCpfValido } from "../../lib/cpf";
 import { formatCents, formatDateTime } from "../../lib/format";
 import { pedidoGratis, precoOuGratis } from "../../lib/preco";
+import { CONSENT_VERSION } from "../../lib/consent";
+import {
+  erroDoNaoVou,
+  SESSAO_EXPIRADA_NAO_VOU,
+  textoLiberou,
+  textosConfirmacaoNaoVou,
+  type ErroNaoVou,
+} from "../../lib/nao-vou-mais";
 import { Icon, paths } from "../../components/icons";
 
 const PANEL = process.env.NEXT_PUBLIC_PANEL_URL ?? "http://localhost:3001";
-/** versão vigente do aceite de Termos/Privacidade (handoff v2) */
-const CONSENT_VERSION = "v2026-07";
+// a versão vigente do aceite de Termos/Privacidade mora em lib/consent.ts (2026-10-12)
 // 2026-10-12: mesma chave de /minhas-compras e /pedido — com o WhatsApp
 // desligado, o aviso de reenvio não pode dizer que foi pelo WhatsApp
 const WA_ON = process.env.NEXT_PUBLIC_WA_DELIVERY === "on";
@@ -95,6 +102,22 @@ function OrganizerCard() {
   );
 }
 
+/** Falha ao carregar uma aba: erro + "Tentar novamente" (mesmo bloco de Minhas compras). */
+function ErroDeCarga({ texto, onTentar }: { texto: string; onTentar: () => void }) {
+  return (
+    <div className="rounded-2xl border border-danger/30 bg-danger/5 p-4 text-center">
+      <p className="text-[13px] font-bold text-danger">{texto}</p>
+      <button
+        type="button"
+        onClick={onTentar}
+        className="mt-2 rounded-xl border border-line bg-surface px-4 py-2 text-[12.5px] font-bold text-ink"
+      >
+        Tentar novamente
+      </button>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -108,7 +131,28 @@ export default function ProfilePage() {
 
   const [tickets, setTickets] = useState<MyTicket[] | null>(null);
   const [orders, setOrders] = useState<MyOrder[] | null>(null);
+  // falha ao carregar NÃO vira "você não tem ingressos/compras" (2026-10-13):
+  // mostra o erro e "Tentar novamente", como Minhas compras
+  const [falhouCarga, setFalhouCarga] = useState<{ ingressos?: boolean; compras?: boolean }>({});
+  // "Tentar novamente" refaz só a aba que falhou, sem recarregar a página (que
+  // voltava para a aba de ingressos)
+  const [recarga, setRecarga] = useState(0);
+  function tentarDeNovo(aba: "ingressos" | "compras") {
+    requested.current.delete(aba);
+    setFalhouCarga((f) => ({ ...f, [aba]: false }));
+    setRecarga((n) => n + 1);
+  }
   const [resentFor, setResentFor] = useState<string | null>(null);
+
+  // "Não vou mais" nos pedidos grátis (2026-10-12): o mesmo de Minhas compras,
+  // com a confirmação no próprio card. O servidor confere dono, prazo e valor.
+  const [naoVouFor, setNaoVouFor] = useState<string | null>(null);
+  const [naoVouEnviando, setNaoVouEnviando] = useState(false);
+  const [naoVouErro, setNaoVouErro] = useState<ErroNaoVou | null>(null);
+  // o que o servidor fez, por pedido (publicToken) — o card mostra e o botão some
+  const [liberadas, setLiberadas] = useState<Record<string, { vagas: number; usados: number }>>({});
+  // clique duplo: a segunda chamada nem sai (o ref vale antes do próximo render)
+  const naoVouTravado = useRef(false);
 
   // transferência de ingresso (painel inline por cartão)
   const [transferFor, setTransferFor] = useState<string | null>(null); // ticket.id com painel aberto
@@ -133,6 +177,11 @@ export default function ProfilePage() {
   const [waNotif, setWaNotif] = useState(true);
   const [emailOffers, setEmailOffers] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // clique duplo no "Excluir definitivamente": a 1ª chamada derruba a sessão e
+  // a 2ª voltava 401 com erro na tela — agora a segunda nem sai
+  const [excluindo, setExcluindo] = useState(false);
+  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
+  const exclusaoTravada = useRef(false);
 
   useEffect(() => {
     const t = localStorage.getItem("bf.token");
@@ -165,14 +214,14 @@ export default function ProfilePage() {
     if (!token) return;
     if (section === "ingressos" && !requested.current.has("ingressos")) {
       requested.current.add("ingressos");
-      api.myTickets(token).then(setTickets).catch(() => setTickets([]));
+      api.myTickets(token).then(setTickets).catch(() => setFalhouCarga((f) => ({ ...f, ingressos: true })));
       api.myProfile(token).then((pf) => setNameInput(pf?.name ?? "")).catch(() => undefined);
     }
     if (section === "compras" && !requested.current.has("compras")) {
       requested.current.add("compras");
-      api.myOrders(token).then(setOrders).catch(() => setOrders([]));
+      api.myOrders(token).then(setOrders).catch(() => setFalhouCarga((f) => ({ ...f, compras: true })));
     }
-  }, [token, section]);
+  }, [token, section, recarga]);
 
   async function login() {
     setError(null);
@@ -216,13 +265,26 @@ export default function ProfilePage() {
   }
 
   async function deleteAccount() {
-    if (!token) return;
+    if (!token || exclusaoTravada.current) return;
+    exclusaoTravada.current = true;
+    setExcluindo(true);
+    setErroExclusao(null);
     try {
       await api.deleteAccount(token);
       localStorage.clear();
+      // excluiu: a trava NÃO solta — a tela já está saindo
       router.push("/");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Falha ao excluir");
+      exclusaoTravada.current = false;
+      setExcluindo(false);
+      // o erro aparece DENTRO da confirmação (antes ficava atrás dela)
+      setErroExclusao(
+        e instanceof ApiError && e.status === 401
+          ? "Sua sessão expirou. Entre de novo na sua conta para excluí-la."
+          : e instanceof ApiError
+            ? e.message
+            : "Não deu para confirmar a exclusão agora — confira a internet e tente de novo.",
+      );
     }
   }
 
@@ -232,6 +294,7 @@ export default function ProfilePage() {
     setProfile(null);
     setTickets(null);
     setOrders(null);
+    setFalhouCarga({});
     requested.current.clear();
   }
 
@@ -301,6 +364,53 @@ export default function ProfilePage() {
       setResentFor(publicToken);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Não foi possível reenviar agora");
+    }
+  }
+
+  function abrirNaoVou(publicToken: string) {
+    setNaoVouErro(null);
+    setNaoVouFor((atual) => (atual === publicToken ? null : publicToken));
+  }
+
+  /** "Não vou mais": libera a vaga do ingresso grátis. O servidor confere dono, prazo e valor. */
+  async function liberarVaga(publicToken: string) {
+    if (naoVouTravado.current) return;
+    const expirou = { mensagem: SESSAO_EXPIRADA_NAO_VOU, tipo: "sessao" as const };
+    if (!token) {
+      setNaoVouErro(expirou);
+      return;
+    }
+    naoVouTravado.current = true;
+    setNaoVouEnviando(true);
+    setNaoVouErro(null);
+    try {
+      const feito = await api.naoVouMais(publicToken, token);
+      setOrders((prev) => prev?.map((o) => (o.publicToken === publicToken ? { ...o, status: feito.status } : o)) ?? prev);
+      setLiberadas((prev) => ({
+        ...prev,
+        [publicToken]: { vagas: feito.vagasLiberadas, usados: feito.ingressosUsados },
+      }));
+      setNaoVouFor(null);
+      // a aba Meus ingressos já carregada mostraria o QR como válido: recarrega
+      // na próxima visita
+      requested.current.delete("ingressos");
+      setTickets(null);
+    } catch (e) {
+      const erro = erroDoNaoVou(e, expirou);
+      setNaoVouErro(erro);
+      // recusa do servidor costuma ser porque o pedido mudou (o produtor cancelou,
+      // outra aba liberou): relê a situação para o selo não seguir "garantido"
+      if (erro.tipo === "definitivo") {
+        api
+          .getOrderStatus(publicToken)
+          .then((o) =>
+            setOrders((prev) => prev?.map((x) => (x.publicToken === publicToken ? { ...x, status: o.status } : x)) ?? prev),
+          )
+          .catch(() => undefined);
+      }
+    } finally {
+      naoVouTravado.current = false;
+      setNaoVouEnviando(false);
     }
   }
 
@@ -438,7 +548,9 @@ export default function ProfilePage() {
                   Ingresso transferido para {transferredTo} — já está na conta dela 🎟️
                 </p>
               )}
-              {tickets === null ? (
+              {tickets === null && falhouCarga.ingressos ? (
+                <ErroDeCarga texto="Não deu para carregar seus ingressos agora." onTentar={() => tentarDeNovo("ingressos")} />
+              ) : tickets === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando seus ingressos…</p>
               ) : tickets.length === 0 ? (
                 <div className="rounded-[22px] border border-line bg-surface px-8 py-14 text-center">
@@ -560,7 +672,9 @@ export default function ProfilePage() {
 
           {section === "compras" && (
             <section>
-              {orders === null ? (
+              {orders === null && falhouCarga.compras ? (
+                <ErroDeCarga texto="Não deu para carregar suas compras agora." onTentar={() => tentarDeNovo("compras")} />
+              ) : orders === null ? (
                 <p className="py-10 text-center text-[13px] text-muted">Carregando suas compras…</p>
               ) : orders.length === 0 ? (
                 <div className="rounded-[22px] border border-line bg-surface px-8 py-12 text-center">
@@ -587,6 +701,17 @@ export default function ProfilePage() {
                     // grátis se cancela; aprovado vira "Ingresso garantido"
                     const gratis = pedidoGratis(order);
                     const emAnalise = Boolean(order.refundRequested) && APPROVED.includes(order.status) && !gratis;
+                    // recusa (2026-10-13): o pedido segue aprovado — só explica o que houve
+                    const recusado =
+                      order.refundRequestStatus === "REJECTED" && !emAnalise && APPROVED.includes(order.status) && !gratis;
+                    // "Não vou mais" (2026-10-12): /v1/me/orders só traz pedidos DESTA
+                    // conta — grátis, confirmado e antes do início (mesma regra de Minhas compras)
+                    const liberou = liberadas[order.publicToken];
+                    const podeNaoVouMais =
+                      gratis &&
+                      APPROVED.includes(order.status) &&
+                      new Date(order.event.startsAt).getTime() > Date.now() &&
+                      !liberou;
                     return (
                       <article key={order.id} className={`rounded-[20px] border border-line bg-surface p-[22px] ${ended ? "opacity-85" : ""}`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -632,6 +757,16 @@ export default function ProfilePage() {
                             {WA_ON ? "Ingressos reenviados por e-mail e WhatsApp ✅" : "Ingressos reenviados por e-mail ✅"}
                           </p>
                         )}
+                        {liberou && (
+                          <p className="mt-3 text-[12.5px] font-semibold text-muted">{textoLiberou(liberou)}</p>
+                        )}
+                        {recusado && (
+                          <div className="mt-3 rounded-xl bg-line p-3 text-[12.5px] font-semibold text-ink-soft">
+                            <p className="font-bold text-ink">Pedido de reembolso recusado</p>
+                            {order.refundRequestNote && <p className="mt-0.5">Motivo: {order.refundRequestNote}</p>}
+                            <p className="mt-0.5">Seus ingressos continuam valendo. Se tiver dúvida, fale com a produção do evento.</p>
+                          </div>
+                        )}
                         <div className="mt-4 flex flex-wrap gap-2.5">
                           <Link href={`/pedido/${order.publicToken}`} className="flex h-11 items-center rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-primary">
                             Ver ingressos
@@ -647,11 +782,69 @@ export default function ProfilePage() {
                               Solicitar reembolso
                             </Link>
                           )}
+                          {/* grátis se cancela, não se reembolsa: a própria pessoa libera a vaga até o início */}
+                          {podeNaoVouMais && (
+                            <button
+                              type="button"
+                              onClick={() => abrirNaoVou(order.publicToken)}
+                              aria-expanded={naoVouFor === order.publicToken}
+                              className="h-11 rounded-xl border-[1.5px] border-line-input px-[18px] text-[13px] font-bold text-ink"
+                            >
+                              Não vou mais
+                            </button>
+                          )}
                         </div>
+                        {podeNaoVouMais && naoVouFor === order.publicToken && (
+                          <div className="mt-3 space-y-2 rounded-xl border-[1.5px] border-danger/35 bg-danger/[.06] p-3.5">
+                            <p className="text-[13px] font-extrabold text-ink">{textosConfirmacaoNaoVou(qty).titulo}</p>
+                            <p className="text-[12.5px] font-medium leading-relaxed text-ink-soft">
+                              {textosConfirmacaoNaoVou(qty).explicacao}
+                            </p>
+                            {naoVouErro && (
+                              <p className="text-[12.5px] font-semibold text-danger">
+                                {naoVouErro.mensagem}
+                                {naoVouErro.tipo === "sessao" && (
+                                  <>
+                                    {" "}
+                                    <button type="button" onClick={logout} className="font-bold text-primary underline">
+                                      Entrar de novo
+                                    </button>
+                                  </>
+                                )}
+                              </p>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => abrirNaoVou(order.publicToken)}
+                                disabled={naoVouEnviando}
+                                className="h-11 flex-1 rounded-xl border-[1.5px] border-line-input bg-surface text-[13px] font-bold disabled:opacity-40"
+                              >
+                                Voltar
+                              </button>
+                              {/* recusa do servidor (evento começou, já cancelado…) não muda tentando de novo */}
+                              {naoVouErro?.tipo !== "definitivo" && (
+                                <button
+                                  type="button"
+                                  onClick={() => liberarVaga(order.publicToken)}
+                                  disabled={naoVouEnviando}
+                                  className="h-11 flex-1 rounded-xl bg-danger text-[13px] font-bold text-white disabled:opacity-40"
+                                >
+                                  {naoVouEnviando
+                                    ? "Liberando…"
+                                    : naoVouErro?.tipo === "tentar"
+                                      ? "Tentar novamente"
+                                      : textosConfirmacaoNaoVou(qty).botao}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         {!gratis && (
                           <p className="mt-3 text-[11.5px] font-medium leading-relaxed text-muted-2">
-                            Reembolso: até 7 dias após a compra e até 48h antes do evento (CDC art. 49). Cancelamento do
-                            evento = reembolso integral com taxas.
+                            Reembolso: peça em Minhas compras — quem analisa é o organizador ou a BoraFest. A lei dá 7
+                            dias para desistir de compra feita pela internet (CDC art. 49). Evento cancelado = reembolso
+                            integral, com as taxas.
                           </p>
                         )}
                       </article>
@@ -800,7 +993,13 @@ export default function ProfilePage() {
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-line bg-surface p-6">
                 <p className="text-[12.5px] font-medium text-muted-2">Não quer mais usar a BoraFest?</p>
-                <button onClick={() => setConfirmDelete(true)} className="text-[12.5px] font-bold text-danger">
+                <button
+                  onClick={() => {
+                    setErroExclusao(null);
+                    setConfirmDelete(true);
+                  }}
+                  className="text-[12.5px] font-bold text-danger"
+                >
                   Excluir minha conta
                 </button>
               </div>
@@ -811,10 +1010,14 @@ export default function ProfilePage() {
             <section className="grid gap-3.5 lg:grid-cols-2">
               <div className="rounded-[20px] border border-line bg-surface p-[22px]">
                 <h2 className="text-[15px] font-extrabold">Privacidade (LGPD)</h2>
+                {/* revisado contra o código em 2026-10-12: só o que o sistema faz hoje
+                    (checkout, painel do produtor e me.service deleteAccount) */}
                 <p className="mt-3.5 text-[13px] font-medium leading-relaxed text-ink-soft">
-                  Coletamos nome, e-mail e telefone para emitir e entregar ingressos; CPF apenas em eventos nominais.
-                  O organizador recebe nome e tipo de ingresso para controle de acesso. Você pode acessar, corrigir,
-                  portar e excluir seus dados (Lei 13.709/2018) — a exclusão remove dados pessoais em até 30 dias.
+                  Para emitir e entregar o ingresso pedimos nome, e-mail e CPF; o celular é opcional. Na compra paga, o
+                  CPF vai para o processador de pagamento emitir o Pix ou a cobrança no cartão. O organizador do evento
+                  vê nome, e-mail e celular de quem compra e o nome de cada participante — o número do CPF da compra
+                  não aparece para ele. Aqui você baixa uma cópia dos seus dados; em Dados pessoais, corrige o nome e exclui a conta
+                  (Lei 13.709/2018).
                 </p>
                 <div className="mt-3.5 flex flex-wrap gap-2.5">
                   <Link href="/legal" className="flex h-10 items-center rounded-[11px] border-[1.5px] border-line-input px-4 text-[12.5px] font-bold text-primary">
@@ -828,10 +1031,12 @@ export default function ProfilePage() {
               <div className="rounded-[20px] border border-line bg-surface p-[22px]">
                 <h2 className="text-[15px] font-extrabold">Termos de Uso</h2>
                 <p className="mt-3.5 text-[13px] font-medium leading-relaxed text-ink-soft">
-                  A BoraFest intermedeia a venda entre você e o organizador. Preço e taxa são exibidos antes de pagar.
-                  Reembolso em até 7 dias (CDC art. 49, até 48h antes do evento). Meia-entrada conforme a Lei
-                  12.933/2013, com documento na portaria. QR codes são únicos; revenda acima do valor de face
-                  invalida o ingresso.
+                  A BoraFest intermedeia a venda entre você e o organizador, que responde pelo evento. Preço e taxa
+                  aparecem antes de pagar. Reembolso: peça em Minhas compras e o organizador ou a BoraFest analisa — a
+                  lei dá 7 dias para desistir de compra feita pela internet (CDC art. 49). Ingresso grátis não tem
+                  reembolso: em Minhas compras, &ldquo;Não vou mais&rdquo; libera a vaga até o evento começar.
+                  Meia-entrada conforme a Lei 12.933/2013, com documento conferido na portaria. Cada QR vale uma
+                  entrada; ao transferir, o QR antigo deixa de valer.
                 </p>
                 <div className="mt-3.5">
                   <Link href="/legal?aba=termos" className="flex h-10 w-fit items-center rounded-[11px] border-[1.5px] border-line-input px-4 text-[12.5px] font-bold text-primary">
@@ -840,7 +1045,8 @@ export default function ProfilePage() {
                 </div>
               </div>
               <p className="text-center text-[11.5px] font-medium text-muted-3 lg:col-span-2">
-                Versão {CONSENT_VERSION} · DPO: privacidade@borafest.com
+                {/* mesmo endereço de /legal e da portaria (aqui faltava o .br) */}
+                Versão {CONSENT_VERSION} · DPO: privacidade@borafest.com.br
               </p>
             </section>
           )}
@@ -859,17 +1065,45 @@ export default function ProfilePage() {
       </div>
 
       {confirmDelete && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center" onClick={() => setConfirmDelete(false)}>
+        <div
+          className="fixed inset-0 z-20 flex items-end justify-center bg-black/40 lg:items-center"
+          onClick={() => {
+            if (!excluindo) setConfirmDelete(false);
+          }}
+        >
           <div className="w-full max-w-[430px] rounded-t-3xl bg-surface p-6 lg:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-[18px] font-extrabold">Excluir sua conta?</h2>
+            {/* o que me.service deleteAccount faz hoje (revisado 2026-10-12): numa
+                transação só, apaga nome/e-mail/celular/CPF da conta E de todos os
+                pedidos (o e-mail vira um anônimo), derruba as sessões e tira os
+                jeitos de entrar; pontos de fidelidade ficam com a Casa, sem dono.
+                Ingresso de evento futuro NÃO é cancelado nem anonimizado — segue
+                valendo pelo QR e pelo link do pedido (o portão do 1º ingresso
+                continua aberto). Reenviar depois não chega: o e-mail do pedido
+                virou o anônimo. O texto antigo dizia que os pedidos guardavam o
+                contato da compra — não guardam mais. */}
             <p className="mt-2 text-[13px] font-medium leading-relaxed text-muted">
-              Seus dados pessoais são removidos em até 30 dias (LGPD). Ingressos de eventos futuros são
-              cancelados sem reembolso. Essa ação não pode ser desfeita.
+              Na hora, apagamos nome, e-mail, celular e CPF da sua conta e dos seus pedidos, e você sai de todos os
+              aparelhos — não dá mais para entrar nesta conta, e os pontos de fidelidade deixam de ser seus. Essa
+              ação não pode ser desfeita.
             </p>
-            <button onClick={deleteAccount} className="mt-5 h-14 w-full rounded-2xl bg-danger text-[15px] font-extrabold text-white">
-              Excluir definitivamente
+            <p className="mt-2 text-[13px] font-medium leading-relaxed text-muted">
+              Ingresso de evento que ainda vai acontecer não é cancelado e continua valendo: o link do pedido que já
+              está no seu e-mail abre o QR. Guarde esse e-mail — depois da exclusão não temos como reenviar.
+            </p>
+            {erroExclusao && <p className="mt-3 text-[12.5px] font-semibold text-danger">{erroExclusao}</p>}
+            <button
+              onClick={deleteAccount}
+              disabled={excluindo}
+              className="mt-5 h-14 w-full rounded-2xl bg-danger text-[15px] font-extrabold text-white disabled:opacity-60"
+            >
+              {excluindo ? "Excluindo…" : "Excluir definitivamente"}
             </button>
-            <button onClick={() => setConfirmDelete(false)} className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={excluindo}
+              className="mt-2 h-12 w-full rounded-2xl border-[1.5px] border-line-input text-[14px] font-bold disabled:opacity-60"
+            >
               Cancelar
             </button>
           </div>
